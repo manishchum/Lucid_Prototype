@@ -153,9 +153,9 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
           ...(admin?.user_id ? { "x-admin-id": admin.user_id } : {})
         },
       });
-      console.log(res)
+      // console.log(res)
       const json = await res.json();
-      console.log(json)
+      // console.log(json)
       if (!res.ok) {
         setError(json.error || "Upload failed");
       } else {

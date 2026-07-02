@@ -275,7 +275,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                 if (styleData?.learning_style) {
                   learningStyle = styleData.learning_style;
                 }
-                console.log("Style Data:- ", styleData);
+                // console.log("Style Data:- ", styleData);
               }
             } catch (styleErr) {
               console.error('[quiz] error fetching learning style', styleErr);
@@ -331,7 +331,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             if (moduleData.title) setModuleName(moduleData.title);
             if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
             if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-            console.log('Value of originalModuleId:', originalModuleId);
+            // console.log('Value of originalModuleId:', originalModuleId);
           }
         } catch (e) {
           // console.log('[quiz] module metadata fetch error', e);

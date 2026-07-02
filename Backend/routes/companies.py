@@ -257,6 +257,13 @@ async def update_company_route(
     allowed_tiers = {"tier_1", "tier_2", "tier_3"}
     allowed_addons = {
         "lucid_studio",
+        "lucid_studio_textual",
+        "lucid_studio_podcast",
+        "lucid_studio_video",
+        "lucid_studio_mindmap",
+        "lucid_studio_infographic",
+        "lucid_studio_flashcard",
+        "lucid_studio_flashcards",
         "chat_in_studio",
         "task_management",
         "kpi",
@@ -279,6 +286,19 @@ async def update_company_route(
             normalized = str(addon).strip().lower().replace("-", "_").replace(" ", "_")
             if normalized in allowed_addons and normalized not in normalized_addons:
                 normalized_addons.append(normalized)
+
+        # Ensure the parent lucid_studio addon is present when any child Lucid Studio feature is enabled.
+        if any(child in normalized_addons for child in (
+            "lucid_studio_textual",
+            "lucid_studio_podcast",
+            "lucid_studio_video",
+            "lucid_studio_mindmap",
+            "lucid_studio_infographic",
+            "lucid_studio_flashcard",
+            "lucid_studio_flashcards",
+        )) and "lucid_studio" not in normalized_addons:
+            normalized_addons.insert(0, "lucid_studio")
+
         update_data["subscription_addons"] = normalized_addons
 
     if "subscription_tier" in update_data or "subscription_addons" in update_data:

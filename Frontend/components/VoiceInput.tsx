@@ -153,7 +153,7 @@ export default function VoiceInput({
       recorder.onstop = async () => {
         // Build blob AFTER all ondataavailable chunks have been collected
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm;codecs=opus" });
-        console.log(`[VoiceInput] Recording stopped. Chunks: ${audioChunksRef.current.length}, Size: ${(blob.size / 1024).toFixed(2)} KB`);
+        // console.log(`[VoiceInput] Recording stopped. Chunks: ${audioChunksRef.current.length}, Size: ${(blob.size / 1024).toFixed(2)} KB`);
 
         stopAllTracks();
         if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
@@ -201,27 +201,27 @@ export default function VoiceInput({
 
   const transcribe = async (blob: Blob) => {
     setIsProcessing(true);
-    console.log(`[VoiceInput] Sending audio to Whisper: ${(blob.size / 1024).toFixed(2)} KB, type: ${blob.type}`);
+    // console.log(`[VoiceInput] Sending audio to Whisper: ${(blob.size / 1024).toFixed(2)} KB, type: ${blob.type}`);
 
     try {
       const fd = new FormData();
       // Whisper requires a proper filename with extension — send as audio.webm directly
       fd.append("audio", new File([blob], "audio.webm", { type: "audio/webm;codecs=opus" }));
 
-      // const res = await fetchWithAuth(`${API_URL}/api/speech-to-text`, {
-      //   method: "POST",
-      //   body: fd,
-      // });
-
-      const res = await fetchWithAuth(`/api/speech-to-text-async`, {
+      const res = await fetchWithAuth(`${API_URL}/api/speech-to-text`, {
         method: "POST",
         body: fd,
       });
 
+      // const res = await fetchWithAuth(`/api/speech-to-text-async`, {
+      //   method: "POST",
+      //   body: fd,
+      // });
+
       const data = await res.json();
 
       if (res.ok && data.text && data.text.trim()) {
-        console.log('[VoiceInput] Transcription:', data.text);
+        // console.log('[VoiceInput] Transcription:', data.text);
         onTranscription(data.text.trim());
       } else if (!res.ok) {
         console.error('[VoiceInput] Transcription error:', data.error);
