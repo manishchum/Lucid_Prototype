@@ -60,6 +60,49 @@ if (API_BASE_URLS.length === 0) {
 console.log('[FLASHCARD WORKER] API base URL candidates:', API_BASE_URLS.join(' | '));
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+const moduleAddonCache = new Map();
+
+function normalizeAddonKey(addon) {
+  return String(addon || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+async function getCompanySubscriptionAddonsForModule(moduleId) {
+  if (!moduleId) return new Set();
+  if (moduleAddonCache.has(moduleId)) {
+    return moduleAddonCache.get(moduleId);
+  }
+
+  const { data: trainingModule, error: trainingError } = await supabase
+    .from('training_modules')
+    .select('company_id')
+    .eq('module_id', moduleId)
+    .single();
+
+  if (trainingError || !trainingModule?.company_id) {
+    moduleAddonCache.set(moduleId, new Set());
+    return new Set();
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from('companies')
+    .select('subscription_addons')
+    .eq('company_id', trainingModule.company_id)
+    .single();
+
+  const addons = new Set(
+    (Array.isArray(company?.subscription_addons) ? company.subscription_addons : [])
+      .map(normalizeAddonKey)
+      .filter(Boolean)
+  );
+
+  moduleAddonCache.set(moduleId, addons);
+  return addons;
+}
+
+async function moduleSupportsAddon(moduleId, addon) {
+  const addons = await getCompanySubscriptionAddonsForModule(moduleId);
+  return addons.has(normalizeAddonKey(addon));
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,24 +200,6 @@ async function processProcessedModuleRow(row) {
   return { ok: true, processedModuleId, cards: cards.length };
 }
 
-async function fetchRowByProcessedId(processedModuleId) {
-  const { data, error } = await supabase
-    .from('processed_modules')
-    .select('processed_module_id, title, content, flashcard_data')
-    .eq('processed_module_id', processedModuleId)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`Processed module lookup failed: ${error.message}`);
-  }
-
-  if (!data) {
-    throw new Error(`processed_module_id not found: ${processedModuleId}`);
-  }
-
-  return data;
-}
-
 async function fetchActiveModuleIds() {
   const { data, error } = await supabase
     .from('content_jobs')
@@ -201,7 +226,7 @@ async function fetchNextPendingRow() {
 
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, title, content, flashcard_data')
+    .select('processed_module_id, original_module_id, title, content, flashcard_data')
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
@@ -214,7 +239,33 @@ async function fetchNextPendingRow() {
   }
 
   const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  return row && isEligible(row) ? row : null;
+  if (!row || !isEligible(row) || !row.original_module_id) {
+    return null;
+  }
+
+  if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcards'))) {
+    return null;
+  }
+
+  return row;
+}
+
+async function fetchRowByProcessedId(processedModuleId) {
+  const { data, error } = await supabase
+    .from('processed_modules')
+    .select('processed_module_id, original_module_id, title, content, flashcard_data')
+    .eq('processed_module_id', processedModuleId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Processed module lookup failed: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error(`processed_module_id not found: ${processedModuleId}`);
+  }
+
+  return data;
 }
 
 async function generateModuleFlashcards({ moduleId = null, processedModuleId = null } = {}) {
@@ -223,10 +274,19 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
     if (!isEligible(row)) {
       return { ok: true, skipped: true, reason: 'No missing flashcards or content too short for this processed_module_id' };
     }
+
+    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcards'))) {
+      return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
+    }
+
     return processProcessedModuleRow(row);
   }
 
   if (moduleId) {
+    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_flashcards'))) {
+      return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
+    }
+
     const { data, error } = await supabase
       .from('processed_modules')
       .select('processed_module_id, title, content, flashcard_data')

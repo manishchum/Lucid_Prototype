@@ -2,7 +2,7 @@ require('./env').loadWorkerEnv();
 
 const path = require('path');
 
-console.log('Loading generate-module-audio (polling)...');
+// console.log('Loading generate-module-audio (polling)...');
 const { pollLoop } = require(path.join(__dirname, 'api/generate-module-audio'));
 
 pollLoop().catch((e) => {

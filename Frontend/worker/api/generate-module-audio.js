@@ -60,6 +60,50 @@ console.log('[AUDIO WORKER] API base URL candidates:', API_BASE_URLS.join(' | ')
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const ACTIVE_JOB_STATUSES = ['pending', 'in-progress'];
 
+const moduleAddonCache = new Map();
+
+function normalizeAddonKey(addon) {
+  return String(addon || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+}
+
+async function getCompanySubscriptionAddonsForModule(moduleId) {
+  if (!moduleId) return new Set();
+  if (moduleAddonCache.has(moduleId)) {
+    return moduleAddonCache.get(moduleId);
+  }
+
+  const { data: trainingModule, error: trainingError } = await supabase
+    .from('training_modules')
+    .select('company_id')
+    .eq('module_id', moduleId)
+    .single();
+
+  if (trainingError || !trainingModule?.company_id) {
+    moduleAddonCache.set(moduleId, new Set());
+    return new Set();
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from('companies')
+    .select('subscription_addons')
+    .eq('company_id', trainingModule.company_id)
+    .single();
+
+  const addons = new Set(
+    (Array.isArray(company?.subscription_addons) ? company.subscription_addons : [])
+      .map(normalizeAddonKey)
+      .filter(Boolean)
+  );
+
+  moduleAddonCache.set(moduleId, addons);
+  return addons;
+}
+
+async function moduleSupportsAddon(moduleId, addon) {
+  const addons = await getCompanySubscriptionAddonsForModule(moduleId);
+  return addons.has(normalizeAddonKey(addon));
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -181,7 +225,7 @@ async function processProcessedModuleRow(row, forceLanguage = null) {
 async function fetchRowByProcessedId(processedModuleId) {
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, audio_url, audio_url_hinglish')
+    .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -220,7 +264,7 @@ async function fetchNextPendingRow() {
 
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, content, audio_url, audio_url_hinglish')
+    .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
@@ -233,13 +277,18 @@ async function fetchNextPendingRow() {
   }
 
   const rows = Array.isArray(data) ? data : [];
-  const next = rows.find(isEligible) || null;
 
-  if (!next && rows.length > 0) {
-    console.log(`[AUDIO WORKER] Pending rows fetched=${rows.length}, but none passed local eligibility (min content length=${MIN_CONTENT_LENGTH}).`);
+  for (const row of rows) {
+    if (!isEligible(row) || !row.original_module_id) continue;
+    if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_podcast'))) continue;
+    return row;
   }
 
-  return next;
+  if (rows.length > 0) {
+    console.log(`[AUDIO WORKER] Pending rows fetched=${rows.length}, but none were eligible or had podcast addon enabled.`);
+  }
+
+  return null;
 }
 
 async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null } = {}) {
@@ -248,10 +297,19 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
     if (!isEligible(row) && !language) {
       return { ok: true, skipped: true, reason: 'No missing audio or content too short for this processed_module_id' };
     }
+
+    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_podcast'))) {
+      return { ok: true, skipped: true, reason: 'Podcast addon disabled for this module company' };
+    }
+
     return processProcessedModuleRow(row, language);
   }
 
   if (moduleId) {
+    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_podcast'))) {
+      return { ok: true, skipped: true, reason: 'Podcast addon disabled for this module company' };
+    }
+
     const { data, error } = await supabase
       .from('processed_modules')
       .select('processed_module_id, content, audio_url, audio_url_hinglish')
