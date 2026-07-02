@@ -169,17 +169,17 @@ export default function RolePlayConversation({
     const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
     const wsUrl      = `${wsProtocol}//${apiHost}/roleplay/realtime`;
 
-    console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
+    // console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
 
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = async () => {
-      console.log("[RolePlay] ✅ WebSocket connected");
-      console.log("[RolePlay] Starting roles:", {
-        aiRole: scenario.role,
-        learnerRole: scenario.userRole || "Learner",
-        title: scenario.title,
-      });
+      // // console.log("[RolePlay] ✅ WebSocket connected");
+      // console.log("[RolePlay] Starting roles:", {
+      //   aiRole: scenario.role,
+      //   learnerRole: scenario.userRole || "Learner",
+      //   title: scenario.title,
+      // });
 
       ws.send(JSON.stringify({
         scenarioTitle: scenario.title,
@@ -236,7 +236,7 @@ export default function RolePlayConversation({
 
         source.connect(workletNode);
         workletNode.connect(audioCtx.destination);
-        console.log("[RolePlay] ✅ AudioWorklet initialized");
+        // console.log("[RolePlay] ✅ AudioWorklet initialized");
 
       } catch (err) {
         console.warn("[RolePlay] AudioWorklet failed, falling back to ScriptProcessorNode:", err);
@@ -251,7 +251,7 @@ export default function RolePlayConversation({
 
         source.connect(processor);
         processor.connect(audioCtx.destination);
-        console.log("[RolePlay] ✅ ScriptProcessorNode initialized (fallback)");
+        // console.log("[RolePlay] ✅ ScriptProcessorNode initialized (fallback)");
       }
 
       // Lock mic on startup to prevent VAD false positives during greeting
@@ -317,15 +317,15 @@ export default function RolePlayConversation({
           break;
 
         case "session_ended":
-          console.log("[RolePlay] session_ended received, transcript length:", data.transcript?.length ?? 0);
-          console.log("[RolePlay] Current transcript before merge:", conversationTranscriptRef.current.length);
+          // console.log("[RolePlay] session_ended received, transcript length:", data.transcript?.length ?? 0);
+          // console.log("[RolePlay] Current transcript before merge:", conversationTranscriptRef.current.length);
           
           // ✅ MERGE transcripts instead of replacing - backend might have updated transcripts
           if (data.transcript && Array.isArray(data.transcript) && data.transcript.length > 0) {
-            console.log("[RolePlay] Using backend transcript with", data.transcript.length, "messages");
+            // console.log("[RolePlay] Using backend transcript with", data.transcript.length, "messages");
             conversationTranscriptRef.current = data.transcript;
           } else {
-            console.log("[RolePlay] Backend transcript empty, keeping local transcript with", conversationTranscriptRef.current.length, "messages");
+            // console.log("[RolePlay] Backend transcript empty, keeping local transcript with", conversationTranscriptRef.current.length, "messages");
           }
           
           sessionEndedRef.current = true;
@@ -349,7 +349,7 @@ export default function RolePlayConversation({
     };
 
     ws.onclose = (event) => {
-      console.log(`[RolePlay] 🔌 WebSocket closed — code: ${event.code}, reason: ${event.reason}, clean: ${event.wasClean}`);
+      // console.log(`[RolePlay] 🔌 WebSocket closed — code: ${event.code}, reason: ${event.reason}, clean: ${event.wasClean}`);
       sessionEndedResolverRef.current?.();
       sessionEndedResolverRef.current = null;
     };
@@ -450,12 +450,12 @@ export default function RolePlayConversation({
   };
 
   const handleEndSession = async () => {
-    console.log("[handleEndSession] Ending session...");
+    // console.log("[handleEndSession] Ending session...");
     sessionEndedRef.current = false;
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "end_session" }));
-      console.log("[handleEndSession] Sent end_session, waiting for session_ended...");
+      // console.log("[handleEndSession] Sent end_session, waiting for session_ended...");
 
       await new Promise<void>((resolve) => {
         sessionEndedResolverRef.current = resolve;
@@ -480,10 +480,10 @@ export default function RolePlayConversation({
     setBotSpeaking(false);
 
     const transcript = conversationTranscriptRef.current;
-    console.log("[handleEndSession] 📝 Transcript ready:", {
-      count: transcript.length,
-      items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
-    });
+    // console.log("[handleEndSession] 📝 Transcript ready:", {
+    //   count: transcript.length,
+    //   items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
+    // });
 
     const messages: Message[] = transcript
       .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
@@ -495,18 +495,18 @@ export default function RolePlayConversation({
         ).toISOString(),
       }));
 
-    console.log("[handleEndSession] ✅ Final transcript:", {
-      sessionEndedReceived: sessionEndedRef.current,
-      transcriptLength:     transcript.length,
-      messagesCount:        messages.length,
-    });
+    // console.log("[handleEndSession] ✅ Final transcript:", {
+    //   sessionEndedReceived: sessionEndedRef.current,
+    //   transcriptLength:     transcript.length,
+    //   messagesCount:        messages.length,
+    // });
 
     // ✅ SAVE TRANSCRIPT FIRST - before generating assessment
     if (sessionIdRef.current && messages.length > 0) {
       try {
-        console.log("[handleEndSession] 💾 Saving transcript to DB...");
+        // console.log("[handleEndSession] 💾 Saving transcript to DB...");
         await updateRolePlaySession(sessionIdRef.current, messages, true);
-        console.log("[handleEndSession] ✅ Transcript saved to DB");
+        // console.log("[handleEndSession] ✅ Transcript saved to DB");
       } catch (e) {
         console.error("[handleEndSession] ❌ Failed to save transcript:", e);
         // Continue anyway - assessment generation is still important

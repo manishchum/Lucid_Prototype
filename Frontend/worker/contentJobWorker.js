@@ -6,23 +6,23 @@ const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 
 // Import local API functions to avoid Vercel timeouts
-console.log('Loading migrate-processed-modules...');
+// console.log('Loading migrate-processed-modules...');
 const { migrateProcessedModules } = require(path.join(__dirname, 'api/migrate-processed-modules'));
 // console.log('Loading start-content-generation...');
 // const { startContentGeneration } = require(path.join(__dirname, 'api/start-content-generation'));
-console.log('Loading generate-module-content...');
+// console.log('Loading generate-module-content...');
 const { generateModuleContent } = require(path.join(__dirname, 'api/generate-module-content'));
-console.log('Loading generate-module-audio...');
+// console.log('Loading generate-module-audio...');
 const { generateModuleAudio } = require(path.join(__dirname, 'api/generate-module-audio'));
-console.log('Loading generate-module-video...');
+// console.log('Loading generate-module-video...');
 const { generateModuleVideo } = require(path.join(__dirname, 'api/generate-module-video'));
-console.log('Loading generate-module-mindmap...');
+// console.log('Loading generate-module-mindmap...');
 const { generateModuleMindmap } = require(path.join(__dirname, 'api/generate-module-mindmap'));
-console.log('Loading generate-module-infographic...');
+// console.log('Loading generate-module-infographic...');
 const { generateModuleInfographic } = require(path.join(__dirname, 'api/generate-module-infographic'));
-console.log('Loading generate-module-flashcards...');
+// console.log('Loading generate-module-flashcards...');
 const { generateModuleFlashcards } = require(path.join(__dirname, 'api/generate-module-flashcards'));
-console.log('All modules loaded successfully.');
+// console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -36,7 +36,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
  */
 async function storeInitialContentHistory(moduleId) {
   try {
-    console.log(`[HISTORY] Storing initial content history for module_id=${moduleId}`);
+    // console.log(`[HISTORY] Storing initial content history for module_id=${moduleId}`);
 
     // Fetch all processed_modules for this original module
     const { data: processedModules, error: fetchError } = await supabase
@@ -50,11 +50,11 @@ async function storeInitialContentHistory(moduleId) {
     }
 
     if (!processedModules || processedModules.length === 0) {
-      console.log(`[HISTORY] No processed modules found for module_id=${moduleId}`);
+      // console.log(`[HISTORY] No processed modules found for module_id=${moduleId}`);
       return { success: true, inserted: 0 };
     }
 
-    console.log(`[HISTORY] Found ${processedModules.length} processed modules to store`);
+    // console.log(`[HISTORY] Found ${processedModules.length} processed modules to store`);
 
     // Prepare history entries
     const historyEntries = processedModules.map(pm => ({
@@ -75,7 +75,7 @@ async function storeInitialContentHistory(moduleId) {
       return { success: false, error: insertError };
     }
 
-    console.log(`[HISTORY] Successfully stored ${insertedData?.length || 0} initial content history entries for module_id=${moduleId}`);
+    // console.log(`[HISTORY] Successfully stored ${insertedData?.length || 0} initial content history entries for module_id=${moduleId}`);
     return { success: true, inserted: insertedData?.length || 0 };
   } catch (err) {
     console.error(`[HISTORY] Unexpected error storing content history for module_id=${moduleId}:`, err);
@@ -147,9 +147,9 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
 }
 
 async function processJobs() {
-  console.log('Worker started. Polling for jobs every 5 seconds...');
+  // console.log('Worker started. Polling for jobs every 5 seconds...');
   while (true) {
-    console.log('Polling for pending jobs...');
+    // console.log('Polling for pending jobs...');
     const { data: jobs, error } = await supabase
       .from('content_jobs')
       .select('id, module_id')
@@ -165,7 +165,7 @@ async function processJobs() {
 
     if (jobs && jobs.length > 0) {
       const job = jobs[0];
-      console.log(`[JOB] Found pending job: id=${job.id}, module_id=${job.module_id}`);
+      // console.log(`[JOB] Found pending job: id=${job.id}, module_id=${job.module_id}`);
       // Mark as in-progress
       const { error: updateError } = await supabase.from('content_jobs').update({ status: 'in-progress', updated_at: new Date() }).eq('id', job.id);
       if (updateError) {
@@ -200,15 +200,15 @@ async function processJobs() {
         console.log(migrateResult);
         console.log(`[JOB] Migration completed:`, migrateResult.message);
 
-        console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
+        // console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
         const genResult = await generateModuleContent({ moduleId: job.module_id });
-        console.log(`[JOB] Content generation completed:`, genResult.message);
+        // console.log(`[JOB] Content generation completed:`, genResult.message);
 
         // Store initial content history after successful text generation
-        console.log(`[JOB] Storing initial content history for module_id=${job.module_id}`);
+        // console.log(`[JOB] Storing initial content history for module_id=${job.module_id}`);
         const historyResult = await storeInitialContentHistory(job.module_id);
         if (historyResult.success) {
-          console.log(`[JOB] Content history stored: ${historyResult.inserted} entries`);
+          // console.log(`[JOB] Content history stored: ${historyResult.inserted} entries`);
         } else {
           console.error(`[JOB] Failed to store content history, but job will continue:`, historyResult.error);
         }
@@ -217,16 +217,16 @@ async function processJobs() {
         try{
           await runModuleGenerators(job.module_id);
         }catch(e){
-          console.log(e)
+          // console.log(e)
         }
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
-        console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
+        // console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
       } catch (err) {
         await supabase.from('content_jobs').update({ status: 'failed', updated_at: new Date() }).eq('id', job.id);
         console.error(`[JOB] Job failed: id=${job.id}, module_id=${job.module_id}`, err);
       }
     } else {
-      console.log('No pending jobs found.');
+      // console.log('No pending jobs found.');
     }
     await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
   }

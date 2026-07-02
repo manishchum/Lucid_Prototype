@@ -210,7 +210,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
       try {
         const res = await fetchWithAuth(`${API_BASE}/api/companies`)
         const payload = res.ok ? await res.json() : null
-        console.log(payload)
+        // console.log(payload)
         const companies = (payload?.companies || payload?.data?.companies || []).filter((c: Company) => c?.company_id)
         const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
 

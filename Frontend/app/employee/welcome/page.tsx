@@ -1025,7 +1025,7 @@ const handleGenerateCertificate = (sprintId: string) => {
       const data = await fetchDashboardData(emp, selectedCompanyId);
       const plans = data?.plans || [];
       setPlans(plans);
-      console.log("RAW PLANS", plans);
+      // console.log("RAW PLANS", plans);
       const modules = data?.modules || [];
       const progress = Array.isArray(data?.progress) ? data.progress : [];
       const assessmentEvidenceByModuleId =
