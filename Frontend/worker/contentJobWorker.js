@@ -83,25 +83,60 @@ async function storeInitialContentHistory(moduleId) {
   }
 }
 
-async function runModuleGenerators(moduleId) {
+async function getCompanySubscriptionAddonsForModule(moduleId) {
+  const { data: trainingModule, error: trainingModuleError } = await supabase
+    .from('training_modules')
+    .select('company_id')
+    .eq('module_id', moduleId)
+    .single();
+
+  if (trainingModuleError || !trainingModule?.company_id) {
+    throw new Error(`Failed to resolve company for module_id=${moduleId}: ${trainingModuleError?.message || 'no training module or company_id found'}`);
+  }
+
+  const { data: company, error: companyError } = await supabase
+    .from('companies')
+    .select('subscription_addons')
+    .eq('company_id', trainingModule.company_id)
+    .single();
+
+  if (companyError) {
+    throw new Error(`Failed to fetch company addons for company_id=${trainingModule.company_id}: ${companyError.message}`);
+  }
+
+  const rawAddons = Array.isArray(company?.subscription_addons) ? company.subscription_addons : [];
+  return Array.from(new Set(rawAddons
+    .map((addon) => String(addon || '').trim().toLowerCase().replace(/[-\s]+/g, '_'))
+    .filter(Boolean)
+  ));
+}
+
+async function runModuleGenerators(moduleId, enabledAddonSet) {
   const tasks = [
-    ['audio', generateModuleAudio],
-    ['video', generateModuleVideo],
-    ['mindmap', generateModuleMindmap],
-    ['infographic', generateModuleInfographic],
-    ['flashcards', generateModuleFlashcards],
+    { name: 'podcast', generator: generateModuleAudio, addon: 'lucid_studio_podcast' },
+    { name: 'video', generator: generateModuleVideo, addon: 'lucid_studio_video' },
+    { name: 'mindmap', generator: generateModuleMindmap, addon: 'lucid_studio_mindmap' },
+    { name: 'infographic', generator: generateModuleInfographic, addon: 'lucid_studio_infographic' },
+    { name: 'flashcards', generator: generateModuleFlashcards, addon: 'lucid_studio_flashcards' },
   ];
+
+  const enabledTasks = tasks.filter((task) => enabledAddonSet.has(task.addon));
+
+  if (enabledTasks.length === 0) {
+    console.log(`[JOB] No enabled Lucid Studio derived generation tasks for module_id=${moduleId}. Skipping derived asset generation.`);
+    return { ok: true, skipped: true, reason: 'No enabled lucid studio addons' };
+  }
 
   const failures = [];
 
-  for (const [name, generator] of tasks) {
+  for (const task of enabledTasks) {
     try {
-      // console.log(`[JOB] Running ${name} generation for module_id=${moduleId}`);
-      const result = await generator({ moduleId });
-      // console.log(`[JOB] ${name} generation completed for module_id=${moduleId}:`, result);
+      console.log(`[JOB] Running ${task.name} generation for module_id=${moduleId}`);
+      const result = await task.generator({ moduleId });
+      console.log(`[JOB] ${task.name} generation completed for module_id=${moduleId}:`, result);
     } catch (error) {
-      failures.push({ name, error });
-      console.error(`[JOB] ${name} generation failed for module_id=${moduleId}:`, error);
+      failures.push({ name: task.name, error });
+      console.error(`[JOB] ${task.name} generation failed for module_id=${moduleId}:`, error);
     }
   }
 
@@ -139,10 +174,31 @@ async function processJobs() {
         continue;
       }
       try {
-        // console.log(`[JOB] Running migration for module_id=${job.module_id}`);
+        const companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
+        const enabledAddonSet = new Set(companyAddons);
+
+        // If the company has no Lucid Studio related addons enabled, skip the job entirely.
+        const lucidStudioAddonKeys = [
+          'lucid_studio_textual',
+          'lucid_studio_podcast',
+          'lucid_studio_video',
+          'lucid_studio_mindmap',
+          'lucid_studio_infographic',
+          'lucid_studio_flashcards',
+        ];
+
+        const hasLucidStudioAccess = lucidStudioAddonKeys.some((addon) => enabledAddonSet.has(addon));
+
+        if (!hasLucidStudioAccess) {
+          console.log(`[JOB] Company for module_id=${job.module_id} has no enabled Lucid Studio addons. Skipping entire job.`);
+          await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
+          continue;
+        }
+
+        console.log(`[JOB] Running migration for module_id=${job.module_id}`);
         const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
-        // console.log(migrateResult)
-        // console.log(`[JOB] Migration completed:`, migrateResult.message);
+        console.log(migrateResult);
+        console.log(`[JOB] Migration completed:`, migrateResult.message);
 
         // console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
         const genResult = await generateModuleContent({ moduleId: job.module_id });
@@ -159,7 +215,7 @@ async function processJobs() {
 
         // Generate all derived assets for this specific module before completing the job.
         try{
-          await runModuleGenerators(job.module_id);
+          await runModuleGenerators(job.module_id,enabledAddonSet);
         }catch(e){
           // console.log(e)
         }

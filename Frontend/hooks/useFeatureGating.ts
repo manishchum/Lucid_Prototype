@@ -3,7 +3,14 @@ import { useTenant } from '@/contexts/tenant-context';
 export type Tier = 'tier_1' | 'tier_2' | 'tier_3';
 export type Addon =
   | 'lucid_studio'
+  | 'lucid_studio_textual'
+  | 'lucid_studio_podcast'
+  | 'lucid_studio_video'
+  | 'lucid_studio_mindmap'
+  | 'lucid_studio_infographic'
   | 'chat_in_studio'
+  | 'lucid_studio_flashcard'
+  | 'lucid_studio_flashcards'
   | 'task_management'
   | 'kpi'
   | 'role_play';
@@ -32,13 +39,30 @@ interface FeatureConfig {
 export function useFeatureGating() {
   const { activeCompany } = useTenant();
 
-  const normalizeAddonKey = (value: string): Addon => value.trim().toLowerCase().replace(/[-\s]+/g, '_') as Addon;
+  const normalizeAddonKey = (value: string): Addon => {
+    const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+
+    if (normalized === 'lucid_studio_flashcard' || normalized === 'lucid_studio_flashcards') {
+      return 'lucid_studio_flashcards';
+    }
+
+    return normalized as Addon;
+  };
 
   const deriveFrontendTier = (addons: Addon[]): Tier | null => {
     const current = new Set(addons);
     if (current.has('task_management')) return 'tier_3';
     if (current.has('chat_in_studio')) return 'tier_2';
-    if (current.has('lucid_studio')) return 'tier_1';
+    if (
+      current.has('lucid_studio') ||
+      current.has('lucid_studio_textual') ||
+      current.has('lucid_studio_podcast') ||
+      current.has('lucid_studio_video') ||
+      current.has('lucid_studio_mindmap') ||
+      current.has('lucid_studio_infographic') ||
+      current.has('lucid_studio_flashcard') ||
+      current.has('lucid_studio_flashcards')
+    ) return 'tier_1';
     return null;
   };
 
@@ -49,17 +73,41 @@ export function useFeatureGating() {
 
   const getAvailableAddons = (): Addon[] => {
     const addons = activeCompany?.subscription_addons || [];
-    const normalizedAddons = addons.filter((addon): addon is Addon =>
-        [
-          'lucid_studio',
-          'chat_in_studio',
-          'task_management',
-          'kpi',
-          'role_play',
-      ].includes(String(addon).trim().toLowerCase().replace(/[-\s]+/g, '_'))
-    ).map((addon) => normalizeAddonKey(String(addon)));
+    const allowedAddons = new Set<Addon>([
+      'lucid_studio',
+      'lucid_studio_textual',
+      'lucid_studio_podcast',
+      'lucid_studio_video',
+      'lucid_studio_mindmap',
+      'lucid_studio_infographic',
+      'lucid_studio_flashcard',
+      'lucid_studio_flashcards',
+      'chat_in_studio',
+      'task_management',
+      'kpi',
+      'role_play',
+    ]);
 
-    return Array.from(new Set(normalizedAddons));
+    const normalizedAddons = addons
+      .map((addon) => normalizeAddonKey(String(addon)))
+      .filter((addon): addon is Addon => allowedAddons.has(addon));
+
+    const effectiveAddons = new Set<Addon>(normalizedAddons);
+    const hasLucidChild = ([
+      'lucid_studio_textual',
+      'lucid_studio_podcast',
+      'lucid_studio_video',
+      'lucid_studio_mindmap',
+      'lucid_studio_infographic',
+      'lucid_studio_flashcard',
+      'lucid_studio_flashcards',
+    ] as Addon[]).some((addon) => effectiveAddons.has(addon));
+
+    if (hasLucidChild) {
+      effectiveAddons.add('lucid_studio');
+    }
+
+    return Array.from(effectiveAddons);
   };
 
   /**
@@ -105,6 +153,15 @@ export function useFeatureGating() {
   const hasFeature = (featureName: string): boolean => {
     const features: Record<string, FeatureConfig> = {
       'lucidStudio': { requiredAddons: ['lucid_studio'] },
+      'lucidStudioTextual': { requiredAddons: ['lucid_studio_textual'] },
+      'lucidStudioPodcast': { requiredAddons: ['lucid_studio_podcast'] },
+      'lucidStudioVideo': { requiredAddons: ['lucid_studio_video'] },
+      'lucidStudioMindmap': { requiredAddons: ['lucid_studio_mindmap'] },
+      'lucidStudioInfographic': { requiredAddons: ['lucid_studio_infographic'] },
+      'lucidStudioFlashcards': {
+        requiredAddons: ['lucid_studio_flashcard', 'lucid_studio_flashcards'],
+        requiresAnyAddon: true,
+      },
       'chatInStudio': { requiredAddons: ['chat_in_studio'] },
       'taskManagement': { requiredAddons: ['task_management'] },
       'kpi': { requiredAddons: ['kpi'] },
