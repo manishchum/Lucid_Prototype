@@ -73,16 +73,19 @@ async def upload_content(
         file_bytes = await file.read()
         
         # Unique file path to avoid collisions
-        file_ext = file.filename.split('.')[-1] if '.' in file.filename else ''
-        file_name_clean = file.filename.replace(' ', '_')
+        file_name = getattr(file, "filename", None) or "upload"
+        file_ext = file_name.split('.')[-1] if '.' in file_name else ''
+        file_name_clean = file_name.replace(' ', '_')
         storage_path = f"raw_content/{effective_company_id}/{uuid.uuid4()}_{file_name_clean}"
         
         # Upload to Supabase Storage Bucket
         bucket_name = "content library"
+        content_type = getattr(file, "content_type", None) or "application/octet-stream"
+        
         upload_res = supabase_admin.storage.from_(bucket_name).upload(
             path=storage_path,
             file=file_bytes,
-            file_options={"content-type": file.content_type}
+            file_options={"content-type": content_type}
         )
         
         # Get public URL
@@ -108,7 +111,7 @@ async def upload_content(
             "title": title,
             "description": description,
             "file_url": public_url,
-            "file_type": file.content_type,
+            "file_type": content_type,
             "file_size": len(file_bytes),
             "uploaded_by": auth_user_id
         }).execute()
@@ -119,6 +122,8 @@ async def upload_content(
         return {"success": True, "data": db_insert.data[0]}
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to upload content: {str(e)}")
 
 

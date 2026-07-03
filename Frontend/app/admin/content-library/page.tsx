@@ -155,6 +155,18 @@ export default function AdminContentLibrary() {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
+      
+      // Check for 50MB limit
+      const MAX_SIZE = 50 * 1024 * 1024;
+      if (file.size > MAX_SIZE) {
+        const exceededBy = (file.size - MAX_SIZE) / (1024 * 1024);
+        toast.error(`Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`, {
+          style: { background: '#EF4444', color: 'white', border: 'none' }
+        });
+        if (e.target) e.target.value = "";
+        return;
+      }
+
       setUploadFile(file);
       
       // Auto-fill title with filename without extension if title is empty
@@ -215,36 +227,35 @@ export default function AdminContentLibrary() {
   if (isUploadMode) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] pb-20">
-        <div className="max-w-4xl mx-auto px-6 pt-10">
+        <div className="max-w-6xl mx-auto px-6 pt-10">
           
           {/* Header */}
-          <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm mb-8">
-            <div className="flex items-center gap-4 mb-2">
-              <button 
-                onClick={() => setIsUploadMode(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Publish Sprint Assets</h1>
+          <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm mb-6 flex justify-between items-center">
+            <div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setIsUploadMode(false)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Resource Management Deck</h2>
+              </div>
+              <p className="text-slate-500 text-sm mt-1 max-w-xl ml-12">Publish internal handbooks, design assets, and communications under specific corporate category.</p>
             </div>
-            <p className="text-slate-500 text-sm font-medium ml-12">Admin portal to upload manuals, playbooks and register categories</p>
           </div>
 
           {/* Sub Header */}
-          <div className="flex justify-between items-start mb-6">
+          {/* <div className="flex justify-between items-start mb-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Resource Management Deck</h2>
               <p className="text-slate-500 text-sm mt-1 max-w-xl">Publish internal handbooks, design assets, and communications under specific corporate category.</p>
             </div>
-            {/* <button className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold px-5 py-2.5 rounded-xl text-sm flex items-center gap-2 transition-colors border border-blue-100">
+            <button className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold px-5 py-2.5 rounded-xl text-sm flex items-center gap-2 transition-colors border border-blue-100">
               <Folder className="w-4 h-4" />
               Create New Channel
-            </button> */}
-          </div>
-
-          <div className="w-full border-t border-slate-200 mb-8"></div>
-
+            </button>
+          </div> */}
           {/* Upload Area */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8">
             
@@ -252,14 +263,35 @@ export default function AdminContentLibrary() {
               <div 
                 className="border-2 border-dashed border-blue-300 rounded-2xl bg-[#FAFCFF] p-16 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-blue-50/50 transition-colors"
                 onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const file = e.dataTransfer.files[0];
+                    const MAX_SIZE = 50 * 1024 * 1024;
+                    if (file.size > MAX_SIZE) {
+                      const exceededBy = (file.size - MAX_SIZE) / (1024 * 1024);
+                      toast.error(`Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`, {
+                        style: { background: '#EF4444', color: 'white', border: 'none' }
+                      });
+                      return;
+                    }
+                    setUploadFile(file);
+                    if (!uploadTitle) {
+                      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+                      setUploadTitle(nameWithoutExt);
+                    }
+                  }
+                }}
               >
                 <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 mb-6">
                   <Upload className="w-8 h-8 text-blue-500" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Drag & drop files here to upload</h3>
-                <p className="text-slate-400 text-sm mb-8 max-w-md">Support PDFs, DOCs, TXT, images (PNG, JPEG), audio logs (MP3, WAV), corporate reels, and ZIP packets.</p>
+                <p className="text-slate-400 text-sm mb-2 max-w-md">Support PDFs, DOCs, TXT, images (PNG, JPEG), audio logs (MP3, WAV), corporate reels, and ZIP packets.</p>
+                <p className="text-blue-500 font-bold text-sm mb-8">File uploaded should be less than 50 MB only.</p>
                 <button className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-6 py-2.5 rounded-xl text-sm transition-colors">
-                  Choose Local File
+                  Choose File
                 </button>
                 <input 
                   type="file" 
@@ -381,8 +413,8 @@ export default function AdminContentLibrary() {
         {/* Banner */}
         <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm mb-6 flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Content Library</h1>
-            <p className="text-slate-500 mt-2 text-sm font-medium">Browse, manage, and access your resource library</p>
+            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Corporate Workspace Directory</h1>
+            <p className="text-slate-500 mt-2 text-sm font-medium">Comprehensive Directory Of Internal Resources. Filter Categories From The Sidebar Or Select A Category Below.</p>
           </div>
           {hasUploadAccess && (
             <button 
@@ -396,7 +428,7 @@ export default function AdminContentLibrary() {
         </div>
 
         {/* Search */}
-        <div className="relative mb-12">
+        <div className="relative mb-2">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
           <input 
             type="text" 
@@ -411,11 +443,11 @@ export default function AdminContentLibrary() {
         {!activeCategory ? (
           // DIRECTORY VIEW
           <div>
-            <div className="flex justify-between items-end mb-6">
-              <div>
+            <div className="flex justify-between items-end mb-2">
+              {/* <div>
                 <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Corporate Workspace Directory</h2>
                 <p className="text-slate-500 text-sm mt-1">Comprehensive directory of internal resources. Filter categories from the sidebar or select a category below.</p>
-              </div>
+              </div> */}
               
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-400 tracking-wider">SORT BY:</span>
@@ -480,15 +512,15 @@ export default function AdminContentLibrary() {
                 </div>
               </button>
               
-              {hasUploadAccess && (
-                <button 
-                  onClick={() => setIsUploadMode(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-sm"
-                >
-                  <Upload className="w-4 h-4" />
-                  Upload to Folder
-                </button>
-              )}
+              {/* {hasUploadAccess && (
+                // <button 
+                //   onClick={() => setIsUploadMode(true)}
+                //   className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-sm"
+                // >
+                //   <Upload className="w-4 h-4" />
+                //   Upload to Folder
+                // </button>
+              )} */}
             </div>
 
             {loading ? (
@@ -537,57 +569,90 @@ export default function AdminContentLibrary() {
           ></div>
           
           {/* Modal Content */}
-          <div className="relative bg-white rounded-[24px] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
+          <div className="relative bg-white rounded-[24px] w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col h-[90vh] animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900 truncate pr-4">{selectedItem.title}</h2>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-slate-50 border border-slate-100 rounded-xl flex items-center justify-center shrink-0">
+                  {getFileIcon(selectedItem.file_type || 'document')}
+                </div>
+                <h2 className="text-lg font-bold text-slate-900 truncate pr-4">{selectedItem.title}</h2>
+              </div>
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors shrink-0"
+                className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-2 rounded-full transition-colors shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
-            {/* Body */}
-            <div className="p-8 overflow-y-auto custom-scrollbar">
-              <div className="bg-white border border-slate-100 rounded-2xl p-8 shadow-sm">
-                <h3 className="text-lg font-bold text-slate-900 mb-4">{selectedItem.title}</h3>
-                
-                <div className="prose prose-slate prose-sm max-w-none text-slate-600">
-                  {selectedItem.description ? (
-                    <p>{selectedItem.description}</p>
-                  ) : (
-                    <p>No description provided for this resource.</p>
-                  )}
+
+            {/* Preview Area */}
+            <div className="flex-1 bg-slate-100/50 p-6 flex flex-col overflow-hidden relative">
+              <div className="w-full h-full flex items-center justify-center">
+                {(() => {
+                  const type = selectedItem.file_type?.toLowerCase() || '';
+                  const url = selectedItem.file_url;
                   
-                  <div className="mt-8 pt-6 border-t border-slate-100">
-                    <p className="font-semibold text-slate-900 mb-2">Resource Details</p>
-                    <ul className="list-disc pl-5 space-y-2 text-slate-600">
-                      <li>Type: {selectedItem.file_type || 'Unknown'}</li>
-                      <li>Size: {(selectedItem.file_size / 1024 / 1024).toFixed(2)} MB</li>
-                      <li>Uploaded: {new Date(selectedItem.created_at).toLocaleDateString()}</li>
-                    </ul>
-                  </div>
-                </div>
+                  if (type.startsWith('image/')) {
+                    return <img src={url} alt={selectedItem.title} className="max-w-full max-h-full object-contain drop-shadow-md rounded-xl" />;
+                  }
+                  if (type.startsWith('video/')) {
+                    return <video src={url} controls className="max-w-full max-h-full rounded-xl shadow-md bg-black" />;
+                  }
+                  if (type.startsWith('audio/')) {
+                    return (
+                      <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center">
+                        <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-6">
+                          <FileAudio className="w-10 h-10" />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-6 truncate w-full text-center">{selectedItem.title}</h3>
+                        <audio src={url} controls className="w-full outline-none" />
+                      </div>
+                    );
+                  }
+                  if (type.includes('pdf')) {
+                    return <iframe src={url} className="w-full h-full rounded-xl shadow-sm border border-slate-200 bg-white" />;
+                  }
+                  
+                  const isOfficeDoc = type.includes('document') || type.includes('msword') || type.includes('spreadsheet') || type.includes('excel') || type.includes('presentation') || type.includes('powerpoint');
+                  
+                  if (isOfficeDoc && url.startsWith('http')) {
+                    const docViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
+                    return <iframe src={docViewerUrl} className="w-full h-full rounded-xl shadow-sm border border-slate-200 bg-white" />;
+                  }
+
+                  return (
+                    <div className="flex flex-col items-center text-center max-w-sm">
+                      <div className="w-24 h-24 bg-white text-slate-300 rounded-full flex items-center justify-center mb-6 shadow-sm border border-slate-200">
+                        <File className="w-12 h-12" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">No Preview Available</h3>
+                      <p className="text-slate-500 mb-8">This file format cannot be previewed in the browser. Please download it to view the contents.</p>
+                      <a href={url} target="_blank" rel="noreferrer" className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2">
+                        <Download className="w-5 h-5" />
+                        Download File
+                      </a>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
-            
+
             {/* Footer Actions */}
-            <div className="px-8 py-5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 rounded-b-[24px]">
+            <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-end gap-3 shrink-0">
               {hasUploadAccess && (
                 <button 
                   onClick={() => handleDelete(selectedItem.id)}
-                  className="px-5 py-2.5 rounded-xl font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2 mr-auto"
+                  className="px-5 py-2.5 rounded-xl font-bold text-red-600 bg-white border border-red-200 hover:bg-red-50 hover:border-red-300 transition-colors flex items-center gap-2 mr-auto"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Delete
+                  Delete Asset
                 </button>
               )}
               
               <button 
                 onClick={() => setSelectedItem(null)}
-                className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors"
+                className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"
               >
                 Close
               </button>
@@ -598,7 +663,8 @@ export default function AdminContentLibrary() {
                 rel="noreferrer"
                 className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
               >
-                View / Download File
+                <Download className="w-4 h-4" />
+                Download File
               </a>
             </div>
           </div>

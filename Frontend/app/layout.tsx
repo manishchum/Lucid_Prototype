@@ -5,6 +5,7 @@ import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { TenantProvider } from "@/contexts/tenant-context"
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
+import { Toaster as SonnerToaster } from "sonner"
 import ErrorReporterInit from '@/components/ErrorReporterInit'
 import LucidAssistant from '@/components/LucidAssistant'
 import LayoutWithNavigation from '@/components/layout-with-navigation'
@@ -32,6 +33,7 @@ export default function RootLayout({
             <ErrorReporterInit />
             <LucidAssistant />
             <ShadcnToaster />
+            <SonnerToaster position="top-right" richColors />
             <LayoutWithNavigation>
               {children}
             </LayoutWithNavigation>
