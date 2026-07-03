@@ -174,7 +174,6 @@ export default function EmployeeWelcome() {
   const { activeCompanyId, isDeveloperMode, hasFeature } = useTenant();
   const router = useRouter();
   const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
-
   // --- Logic State ---
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loading, setLoading] = useState(true);
