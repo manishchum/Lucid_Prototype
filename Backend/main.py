@@ -33,7 +33,7 @@ from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
 from text_analysis.route import router as text_analysis_router
 from stt.route import router as stt_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -236,6 +236,7 @@ app.include_router(employee_assessment.router)  # employee assessment router
 app.include_router(analytics_export_router)  # analytics export router
 app.include_router(notifications.router)
 app.include_router(reports.router)  # notifications router
+app.include_router(content_library.router)  # content library router
 
 
 if __name__ == "__main__":
