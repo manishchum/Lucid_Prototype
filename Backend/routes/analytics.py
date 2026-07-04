@@ -185,47 +185,23 @@ async def get_dashboard_analytics(
     #     total_assignments - completed_assignments - in_progress_assignments
     # )
     
-    completed_assignments = 0
-    in_progress_assignments = 0
-    not_started_assignments = 0
+    completed_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "COMPLETED"
+    )
 
-    for plan in plans:
+    in_progress_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "IN_PROGRESS"
+    )
 
-        assigned_ids = plan.get("processed_module_ids") or []
-
-        if not assigned_ids:
-            not_started_assignments += 1
-            continue
-
-        completed_count = 0
-        started_count = 0
-
-        for pid in assigned_ids:
-
-            record = progress_lookup.get(
-                (plan["user_id"], pid)
-            )
-
-            if not record:
-                continue
-
-            if record.get("completed_at"):
-                completed_count += 1
-
-            elif record.get("started_at"):
-                started_count += 1
-
-        if completed_count == len(assigned_ids):
-
-            completed_assignments += 1
-
-        elif completed_count > 0 or started_count > 0:
-
-            in_progress_assignments += 1
-
-        else:
-
-            not_started_assignments += 1
+    not_started_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "ASSIGNED"
+    )
             
     active_employees = len(
         set([
@@ -248,40 +224,17 @@ async def get_dashboard_analytics(
             if p["module_id"] == module["module_id"]
         ]
 
-        completed = 0
-        in_progress = 0
+        completed = sum(
+            1
+            for plan in module_plans
+            if plan.get("status") == "COMPLETED"
+        )
 
-        for plan in module_plans:
-            assigned_ids = plan.get("processed_module_ids") or []
-
-            if not assigned_ids:
-                continue
-
-            completed_count = 0
-            started_count = 0
-
-            for pid in assigned_ids:
-
-                record = progress_lookup.get(
-                    (plan["user_id"], pid)
-                )
-
-                if not record:
-                    continue
-
-                if record.get("completed_at"):
-                    completed_count += 1
-
-                elif record.get("started_at"):
-                    started_count += 1
-
-            if completed_count == len(assigned_ids):
-
-                completed += 1
-
-            elif completed_count > 0 or started_count > 0:
-
-                in_progress += 1
+        in_progress = sum(
+            1
+            for plan in module_plans
+            if plan.get("status") == "IN_PROGRESS"
+        )
             
         total_assigned = len(module_plans)
         completion_rate = (

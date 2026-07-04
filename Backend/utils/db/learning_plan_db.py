@@ -294,16 +294,21 @@ async def create_learning_plan(
         # processed_module entries), fetch them and attach processed_module_ids so the
         # frontend can render all child modules. This is a safe, best-effort enrichment
         # and will be skipped on error.
-        try:
-            pm_resp = supabase.table('processed_modules').select('processed_module_id').eq(
-                'original_module_id', module_id
-            ).execute()
-            pm_rows = pm_resp.data or []
-            if pm_rows and isinstance(pm_rows, list):
-                plan_data['processed_module_ids'] = [r.get('processed_module_id') for r in pm_rows if r.get('processed_module_id')]
-        except Exception:
-            # don't block plan creation if this enrichment fails
-            pass
+        if plan_data.get("plan_json"):
+
+            modules = (
+                plan_data["plan_json"].get("modules", [])
+            )
+
+            plan_data["processed_module_ids"] = [
+
+                m["processed_module_id"]
+
+                for m in modules
+
+                if m.get("processed_module_id")
+
+            ]
         
         # Create the learning plan
         resp = supabase.table('learning_plan').insert(plan_data).execute()
@@ -979,12 +984,21 @@ async def refresh_learning_plan_status(
         update_data["status"] = "ASSIGNED"
         update_data["overall_status"] = False
 
-    (
-        db.table("learning_plan")
-        .update(update_data)
-        .eq(
-            "learning_plan_id",
-            plan["learning_plan_id"]
+    try:
+        if(plan.get("status") == update_data["status"]
+           and
+           plan.get("overall_status") == update_data["overall_status"]
+           ):
+            return
+        (
+            db.table("learning_plan")
+            .update(update_data)
+            .eq(
+                "learning_plan_id",
+                plan["learning_plan_id"]
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as e:
+        if "204" not in str(e):
+            raise
