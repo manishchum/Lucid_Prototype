@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
-import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2, Link2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ArrowLeft, Eye, GitCompare, Edit3, Sparkles, ShieldAlert, Lock, XCircle, AlertTriangle, CheckCircle, FileText, Upload, UserCheck, Clock, History, Image as ImageIcon, Video, Music2, Link2, ChevronLeft, ChevronRight, Download, Globe, ChevronDown, Check } from 'lucide-react';
+import clsx from 'clsx';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import EmployeeNavigation from '@/components/employee-navigation';
@@ -43,6 +44,22 @@ interface ContentHistory {
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const DEFAULT_MAX_VIDEO_UPLOAD_MB = 50;
+
+const SUPPORTED_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'de', name: 'German' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'fr', name: 'French' },
+  { code: 'it', name: 'Italian' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'uk', name: 'Ukrainian' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'nl', name: 'Dutch' },
+] as const;
+
+type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
 const MAX_VIDEO_UPLOAD_MB = Number(process.env.NEXT_PUBLIC_MODULE_MEDIA_MAX_UPLOAD_MB || DEFAULT_MAX_VIDEO_UPLOAD_MB);
 const TRAINING_MODULE_REVIEW_COLUMNS = 'module_id, title, description, review_stage, created_at, reviewer_id, uploaded_by';
 const PROCESSED_MODULE_REVIEW_COLUMNS = 'processed_module_id, original_module_id, title, content, section_type, order_index, created_at';
@@ -103,9 +120,23 @@ export default function EditModulePage() {
   const [isMediaPanelCollapsed, setIsMediaPanelCollapsed] = useState(true);
 
   // Translation UI state
-  const [language, setLanguage] = useState<'en' | 'hi'>('en');
+  const [language, setLanguage] = useState<SupportedLanguage>('en');
   const [translatedContent, setTranslatedContent] = useState('');
   const [translating, setTranslating] = useState(false);
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const videoUploadInputRef = useRef<HTMLInputElement>(null);
@@ -162,10 +193,10 @@ export default function EditModulePage() {
   }, [activeView, editedContent, selectedSubModule?.processed_module_id, userRole, hasPendingReview, loading, language, translatedContent]);
 
 
-  // Translate selected sub-module when language === 'hi'
+  // Translate selected sub-module when language === 'hi' or 'de'
   useEffect(() => {
     const doTranslate = async () => {
-      if (language !== 'hi' || !selectedSubModule) {
+      if (language === 'en' || !selectedSubModule) {
         setTranslatedContent('');
         setTranslating(false);
         return;
@@ -183,7 +214,7 @@ export default function EditModulePage() {
           return;
         }
 
-        const cacheKey = `${selectedSubModule.processed_module_id}:${plain.slice(0, 400)}`;
+        const cacheKey = `${language}:${selectedSubModule.processed_module_id}:${plain.slice(0, 400)}`;
         const cachedTranslation = translationCacheRef.current[cacheKey];
         if (cachedTranslation) {
           setTranslatedContent(cachedTranslation);
@@ -194,7 +225,7 @@ export default function EditModulePage() {
         const res = await fetch('/api/translate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: plain, target: 'hi' }),
+          body: JSON.stringify({ text: plain, target: language }),
         });
 
         if (!res.ok) {
@@ -1746,13 +1777,56 @@ export default function EditModulePage() {
                           onChange={handleAudioUpload}
                         />
                         <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <label className="text-sm text-slate-500">Language</label>
-                            <select value={language} onChange={(e) => setLanguage(e.target.value as 'en' | 'hi')} className="h-8 px-2 border border-slate-200 rounded-lg text-sm">
-                              <option value="en">English</option>
-                              <option value="hi">Hindi</option>
-                            </select>
-                            {language === 'hi' && <span className="text-xs text-slate-500">{translating ? 'Translating...' : 'Showing Hindi'}</span>}
+                          <div className="flex items-center gap-3" ref={langDropdownRef}>
+                            {language !== 'en' && (
+                              <span className="text-xs text-slate-500 flex items-center gap-1.5 min-w-[80px]">
+                                {translating ? (
+                                  <>
+                                    <svg className="animate-spin h-3.5 w-3.5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <span>Translating...</span>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-slate-400 font-medium">Translated</span>
+                                )}
+                              </span>
+                            )}
+                            <label className="text-sm font-medium text-slate-500">Language:</label>
+                            <div className="relative">
+                              <button
+                                onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                                className="flex items-center gap-2 px-3 py-1.5 h-9 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm focus:outline-none"
+                              >
+                                <Globe className="h-4 w-4 text-slate-400" />
+                                <span>{SUPPORTED_LANGUAGES.find((l) => l.code === language)?.name}</span>
+                                <ChevronDown className={clsx("h-4 w-4 text-slate-400 transition-transform duration-200", isLangDropdownOpen && "rotate-180")} />
+                              </button>
+
+                              {isLangDropdownOpen && (
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150 max-h-64 overflow-y-auto scrollbar-thin">
+                                  {SUPPORTED_LANGUAGES.map((lang) => (
+                                    <button
+                                      key={lang.code}
+                                      onClick={() => {
+                                        setLanguage(lang.code);
+                                        setIsLangDropdownOpen(false);
+                                      }}
+                                      className={clsx(
+                                        "w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors",
+                                        language === lang.code
+                                          ? "bg-blue-50 text-blue-700 font-semibold"
+                                          : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                                      )}
+                                    >
+                                      <span>{lang.name}</span>
+                                      {language === lang.code && <Check className="h-4 w-4 text-blue-600" />}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -1774,32 +1848,43 @@ export default function EditModulePage() {
                           </div>
                         </div>
                       </div>
-                      <div
-                        ref={contentEditableRef}
-                        contentEditable={language === 'en'}
-                        onMouseUp={saveCurrentSelection}
-                        onKeyUp={saveCurrentSelection}
-                        onInput={handleContentEditableChange}
-                        onBlur={handleContentEditableChange}
-                        suppressContentEditableWarning={true}
-                        className="prose prose-sm max-w-none min-h-[500px] p-3 sm:p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
-                          prose-headings:font-bold prose-headings:text-[#1E293B]
-                          prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
-                          prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
-                          prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
-                          prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
-                          prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
-                          prose-strong:text-slate-900 prose-strong:font-semibold
-                          prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
-                          prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
-                          prose-li:text-slate-700 prose-li:mb-2
-                          prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
-                          prose-table:w-full prose-table:border-collapse prose-table:my-6
-                          prose-thead:bg-slate-100
-                          prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
-                          prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
-                          prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
-                      />
+                      <div className="relative">
+                        {translating && (
+                          <div className="absolute inset-0 bg-white/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-3 z-10 rounded-lg border-2 border-blue-200 animate-fade-in">
+                            <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span className="text-sm font-medium text-slate-600">Translating module content...</span>
+                          </div>
+                        )}
+                        <div
+                          ref={contentEditableRef}
+                          contentEditable={language === 'en'}
+                          onMouseUp={saveCurrentSelection}
+                          onKeyUp={saveCurrentSelection}
+                          onInput={handleContentEditableChange}
+                          onBlur={handleContentEditableChange}
+                          suppressContentEditableWarning={true}
+                          className="prose prose-sm max-w-none min-h-[500px] p-3 sm:p-6 border-2 border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 bg-white
+                            prose-headings:font-bold prose-headings:text-[#1E293B]
+                            prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8
+                            prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200
+                            prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-4
+                            prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-3
+                            prose-p:text-slate-700 prose-p:leading-relaxed prose-p:mb-4
+                            prose-strong:text-slate-900 prose-strong:font-semibold
+                            prose-ul:list-disc prose-ul:ml-6 prose-ul:mb-4
+                            prose-ol:list-decimal prose-ol:ml-6 prose-ol:mb-4
+                            prose-li:text-slate-700 prose-li:mb-2
+                            prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:bg-blue-50 prose-blockquote:py-2 prose-blockquote:my-4
+                            prose-table:w-full prose-table:border-collapse prose-table:my-6
+                            prose-thead:bg-slate-100
+                            prose-th:border prose-th:border-slate-300 prose-th:px-4 prose-th:py-3 prose-th:text-left prose-th:font-semibold prose-th:text-slate-900
+                            prose-td:border prose-td:border-slate-200 prose-td:px-4 prose-td:py-3 prose-td:text-slate-700
+                            prose-img:rounded-lg prose-img:shadow-md prose-img:my-6"
+                        />
+                      </div>
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <p className="text-xs text-blue-800">
                           <strong>💡 Editing Tips:</strong> Click anywhere to start editing. Use Ctrl+B for bold and Ctrl+I for italic. Use the embed buttons to insert image, video, and audio blocks between text sections. Uploaded image, video, and audio files are saved to storage and inserted as public bucket links.
