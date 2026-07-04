@@ -243,7 +243,7 @@ async function fetchNextPendingRow() {
     return null;
   }
 
-  if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcards'))) {
+  if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
     return null;
   }
 
@@ -275,7 +275,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
       return { ok: true, skipped: true, reason: 'No missing flashcards or content too short for this processed_module_id' };
     }
 
-    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcards'))) {
+    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 
@@ -283,7 +283,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
   }
 
   if (moduleId) {
-    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_flashcards'))) {
+    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_flashcard'))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 

@@ -22,7 +22,7 @@ class CreateLearningPlanRequest(BaseModel):
     reasoning: Optional[dict] = None
     assessment_hash: Optional[str] = None
     processed_module_ids: Optional[list] = None
-    baseline_assessment: Optional[bool] = True
+    baseline_assessment: Optional[bool] = False
 
 
 class BulkCreateLearningPlanRequest(BaseModel):
@@ -32,7 +32,7 @@ class BulkCreateLearningPlanRequest(BaseModel):
     due_date: Optional[str] = None
     priority: Optional[int] = 1
     status: Optional[str] = "ASSIGNED"
-    baseline_assessment: Optional[bool] = True
+    baseline_assessment: Optional[bool] = False
     
     
 class UpdateLearningPlanRequest(BaseModel):
