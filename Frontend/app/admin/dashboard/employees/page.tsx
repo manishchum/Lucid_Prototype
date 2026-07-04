@@ -2961,6 +2961,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   const [error, setError] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignableUsers, setAssignableUsers] = useState<string[]>([]);
+  const [moduleBaselineSettings, setModuleBaselineSettings] = useState<{[moduleId: string]: boolean}>({});
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [duplicateAssignments, setDuplicateAssignments] = useState<any[]>([]);
   const [moduleSearchTerm, setModuleSearchTerm] = useState('');
@@ -2976,6 +2977,18 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
   const handleAssignOnlyNewUsers = async () => {
 
     setShowDuplicateModal(false);
+    console.log("=== BEFORE API CALL ===");
+    console.log("Selected modules:", selectedModules);
+    console.log("Baseline state:", moduleBaselineSettings);
+    const payload = {
+      user_ids: selectedUsers,
+      module_ids: selectedModules,
+      baseline_settings: moduleBaselineSettings,
+      due_date: dueDate || null,
+      status: "ASSIGNED",
+    };
+
+    console.log("Payload:", payload);
 
     const bulkRes = await fetchWithAuth(
       `${API_URL}/api/learning-plans/bulk`,
@@ -2989,7 +3002,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
           user_ids: assignableUsers,
           module_ids: selectedModules,
           due_date: dueDate || null,
-          baseline_settings: moduleBaselineSettings,
+          baseline_assessment: false,
+          
           status: "ASSIGNED",
         }),
       }
@@ -3056,6 +3070,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
       if (completedModuleIds.length === 0) {
         setModules([]);
+        setModuleBaselineSettings({});
         return;
       }
 
@@ -3069,6 +3084,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       if (!tmRes.ok) {
         console.warn('[Bulk-assign] Failed to fetch training modules:', tmRes.status);
         setModules([]);
+        setModuleBaselineSettings({});
         return;
       }
 
@@ -3084,6 +3100,13 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
       );
 
       setModules(filtered || []);
+
+      const initialSettings: { [moduleId: string]: boolean } = {};
+      filtered.forEach((module: any) => {
+        initialSettings[module.module_id] = false;
+      });
+
+      setModuleBaselineSettings(initialSettings);
 
     } catch (error: any) {
       setError('Failed to load modules: ' + error.message);
@@ -3166,6 +3189,12 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         : [...prev, moduleId]
     );
   };
+  const handleBaselineToggle = (moduleId: string) => {
+    setModuleBaselineSettings(prev => ({
+      ...prev,
+      [moduleId]: !prev[moduleId]
+    }));
+  };
 
   const selectAllModules = () => {
     setSelectedModules((prev) => {
@@ -3177,6 +3206,21 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
 
   const clearAllModules = () => {
     setSelectedModules([]);
+  };
+  const enableAllBaselines = () => {
+    const newSettings: {[moduleId: string]: boolean} = {};
+    modules.forEach(module => {
+      newSettings[module.module_id] = true;
+    });
+    setModuleBaselineSettings(newSettings);
+  };
+
+  const disableAllBaselines = () => {
+    const newSettings: {[moduleId: string]: boolean} = {};
+    modules.forEach(module => {
+      newSettings[module.module_id] = false;
+    });
+    setModuleBaselineSettings(newSettings);
   };
 
   // Add functions to toggle baseline for all modules
@@ -3433,6 +3477,29 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                 </div>
               </div>
 
+              {/* Baseline Assessment Bulk Actions */}
+              <div className="flex items-center gap-4 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                <Label className="text-sm font-medium">Baseline Assessment Bulk Actions:</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={enableAllBaselines}
+                  disabled={loadingModules}
+                >
+                  Enable All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={disableAllBaselines}
+                  disabled={loadingModules}
+                >
+                  Disable All
+                </Button>
+              </div>
+
 
               {loadingModules ? (
                 <div className="flex items-center justify-center py-8">
@@ -3479,6 +3546,33 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                             </div>
                           </div>
                         </label>
+                        {/* Individual Baseline Assessment Toggle - Centered */}
+                        {/* <div className="flex items-center gap-3 flex-shrink-0">
+                          <Label className="text-xs font-medium text-gray-600">Baseline Assessment</Label>
+                          <label className="flex items-center cursor-pointer">
+                            <div className="relative">
+                              <input
+                                type="checkbox"
+                                checked={moduleBaselineSettings[module.module_id] || false}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleBaselineToggle(module.module_id);
+                                }}
+                                className="sr-only"
+                              />
+                              <div className={`w-9 h-5 rounded-full transition-colors flex items-center ${
+                                moduleBaselineSettings[module.module_id] ? 'bg-blue-600' : 'bg-gray-300'
+                              }`}>
+                                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${
+                                  moduleBaselineSettings[module.module_id] ? 'translate-x-4' : 'translate-x-0.5'
+                                }`}></div>
+                              </div>
+                            </div>
+                          </label>
+                          <span className="text-xs text-gray-500">
+                            {moduleBaselineSettings[module.module_id] ? 'Required' : 'Optional'}
+                          </span>
+                        </div> */}
                         <div></div>
                       </div>
                     ))}
@@ -3498,11 +3592,17 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     {selectedModules.map(moduleId => {
                       const module = modules.find(m => m.module_id === moduleId);
                       return module ? (
-                        <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                        <span key={moduleId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs flex items-center gap-1">
                           {module.title}
+                          {moduleBaselineSettings[moduleId] && (
+                            <span className="bg-blue-500 text-white px-1 py-0.5 rounded-full text-xs">B</span>
+                          )}
                         </span>
                       ) : null;
                     })}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                   
                   </div>
                 </div>
               )}
@@ -3519,6 +3619,24 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                 <p className="text-sm text-gray-600 mt-1">
                   This will create <strong>{selectedModules.length * selectedUsers.length}</strong> Performance Sprint assignments.
                 </p>
+                <div className="mt-2">
+                  <p className="text-sm text-gray-600">
+                    {/* <strong>Modules with Baseline Assessment:</strong> */}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {selectedModules.filter(moduleId => moduleBaselineSettings[moduleId]).map(moduleId => {
+                      const module = modules.find(m => m.module_id === moduleId);
+                      return module ? (
+                        <span key={moduleId} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                          {module.title}
+                        </span>
+                      ) : null;
+                    })}
+                  </div>
+                  {selectedModules.filter(moduleId => moduleBaselineSettings[moduleId]).length === 0 && (
+                    <span className="text-xs text-gray-500">None</span>
+                  )}
+                </div>
               </div>
             )}
 

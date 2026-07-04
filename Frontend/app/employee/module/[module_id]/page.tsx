@@ -1,12 +1,12 @@
 "use client";
 
-import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, RefObject, useEffect, useMemo, useRef, useState, use } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download, Globe, ChevronDown, Check } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
@@ -22,6 +22,22 @@ import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 const SECTION_TRANSLATION_CACHE_STORAGE_KEY = "lucid_module_section_translation_cache";
+
+const SUPPORTED_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'de', name: 'German' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'fr', name: 'French' },
+  { code: 'it', name: 'Italian' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'uk', name: 'Ukrainian' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'nl', name: 'Dutch' },
+] as const;
+
+type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
 
 const readSectionTranslationCache = (employeeId?: string, moduleId?: string) => {
   if (typeof window === "undefined" || !moduleId) return {} as Record<string, SectionBlock>;
@@ -109,14 +125,29 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
   );
 };
 
-export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+export default function ModuleContentPage({ params }: { params: Promise<{ module_id: string }> }) {
+  const unwrappedParams = use(params);
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
   const { user, employeeData, loading: authLoading } = useAuth();
-  const moduleId = params.module_id;
+  const moduleId = unwrappedParams.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [contentLanguage, setContentLanguage] = useState<'en' | 'hi'>('en');
+  const [contentLanguage, setContentLanguage] = useState<SupportedLanguage>('en');
   const [contentTranslating, setContentTranslating] = useState(false);
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
   const [audioExpanded, setAudioExpanded] = useState(false);
   const sectionTranslationCache = useRef<Record<string, SectionBlock>>({});
 
@@ -178,11 +209,32 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
       }
 
       setModule(normalizedModule);
+      await markModuleStarted(normalizedModule.processed_module_id);
     } catch (error) {
       console.error("[module] Failed to load module:", error);
       setModule(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const markModuleStarted = async (processedModuleId: string) => {
+    if (!employeeData?.user_id) return;
+
+    try {
+      await fetchWithAuth(`${API_BASE}/api/module-progress`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeData.user_id,
+        },
+        body: JSON.stringify({
+          user_id: employeeData.user_id,
+          processed_module_id: processedModuleId,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to mark module started:", err);
     }
   };
 
@@ -384,13 +436,56 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     <h2 className="text-xl font-semibold text-slate-900">Module Content</h2>
                     <p className="text-sm text-slate-500">Translate only the textual content sections. Images and videos remain unchanged.</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-slate-500">Content Language</label>
-                    <select value={contentLanguage} onChange={(e) => setContentLanguage(e.target.value as 'en' | 'hi')} className="h-8 px-2 border border-slate-200 rounded-lg text-sm">
-                      <option value="en">English</option>
-                      <option value="hi">Hindi</option>
-                    </select>
-                    {contentLanguage === 'hi' && <span className="text-xs text-slate-500">{contentTranslating ? 'Translating content...' : 'Showing Hindi text'}</span>}
+                  <div className="flex items-center gap-3" ref={langDropdownRef}>
+                    {contentLanguage !== 'en' && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1.5 min-w-[80px]">
+                        {contentTranslating ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Translating...</span>
+                          </>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-medium">Translated</span>
+                        )}
+                      </span>
+                    )}
+                    <label className="text-sm font-medium text-slate-500">Language:</label>
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                        className="flex items-center gap-2 px-3 py-1.5 h-9 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm focus:outline-none"
+                      >
+                        <Globe className="h-4 w-4 text-slate-400" />
+                        <span>{SUPPORTED_LANGUAGES.find((l) => l.code === contentLanguage)?.name}</span>
+                        <ChevronDown className={clsx("h-4 w-4 text-slate-400 transition-transform duration-200", isLangDropdownOpen && "rotate-180")} />
+                      </button>
+
+                      {isLangDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150 max-h-64 overflow-y-auto scrollbar-thin">
+                          {SUPPORTED_LANGUAGES.map((lang) => (
+                            <button
+                              key={lang.code}
+                              onClick={() => {
+                                setContentLanguage(lang.code);
+                                setIsLangDropdownOpen(false);
+                              }}
+                              className={clsx(
+                                "w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors",
+                                contentLanguage === lang.code
+                                  ? "bg-blue-50 text-blue-700 font-semibold"
+                                  : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                              )}
+                            >
+                              <span>{lang.name}</span>
+                              {contentLanguage === lang.code && <Check className="h-4 w-4 text-blue-600" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -588,7 +683,7 @@ function ContentCards({
   employeeId,
 }: {
   content: string;
-  contentLanguage: 'en' | 'hi';
+  contentLanguage: SupportedLanguage;
   contentCache?: RefObject<Record<string, SectionBlock>>;
   onTranslatingChange?: (value: boolean) => void;
   onTranslationCacheChange?: (cache: Record<string, SectionBlock>) => void;
@@ -617,7 +712,7 @@ function ContentCards({
 
   useEffect(() => {
     setTranslatedSections(null);
-    if (contentLanguage !== 'hi' || sections.length === 0) {
+    if (contentLanguage === 'en' || sections.length === 0) {
       setIsTranslating(false);
       return;
     }
@@ -629,7 +724,7 @@ function ContentCards({
         const res = await fetch('/api/translate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, target: 'hi', source: 'en' }),
+          body: JSON.stringify({ text, target: contentLanguage, source: 'en' }),
         });
         if (!res.ok) {
           console.error('Translate failed for text chunk', res.status);
@@ -643,7 +738,7 @@ function ContentCards({
       }
     };
 
-    const getCacheKey = (section: SectionBlock) => `${section.title || ''}::${section.content || ''}`;
+    const getCacheKey = (section: SectionBlock) => `${contentLanguage}::${section.title || ''}::${section.content || ''}`;
 
     const translateSection = async (section: SectionBlock): Promise<SectionBlock> => {
       const cacheKey = getCacheKey(section);
@@ -682,7 +777,7 @@ function ContentCards({
         const res = await fetch('/api/translate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: combinedText, target: 'hi', source: 'en' }),
+          body: JSON.stringify({ text: combinedText, target: contentLanguage, source: 'en' }),
         });
         // console.log("API Status", res.status);
         
@@ -841,6 +936,33 @@ function ContentCards({
     sectionColorIdx++;
     return style;
   };
+
+  if (isTranslating) {
+    return (
+      <div className="space-y-6 mb-8 animate-pulse">
+        {/* Skeleton Tabs */}
+        <div className="flex gap-2 sm:gap-4 mb-4 border-b border-gray-200 pb-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-8 w-20 bg-slate-200 rounded-md"></div>
+          ))}
+        </div>
+        
+        {/* Skeleton Cards */}
+        {[1, 2].map((i) => (
+          <div key={i} className="rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-6 lg:p-8 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-6 w-48 bg-slate-200 rounded"></div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 w-full bg-slate-200 rounded"></div>
+              <div className="h-4 w-5/6 bg-slate-200 rounded"></div>
+              <div className="h-4 w-4/6 bg-slate-200 rounded"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 mb-8">

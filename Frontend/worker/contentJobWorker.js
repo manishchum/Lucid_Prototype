@@ -117,7 +117,7 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
     { name: 'video', generator: generateModuleVideo, addon: 'lucid_studio_video' },
     { name: 'mindmap', generator: generateModuleMindmap, addon: 'lucid_studio_mindmap' },
     { name: 'infographic', generator: generateModuleInfographic, addon: 'lucid_studio_infographic' },
-    { name: 'flashcards', generator: generateModuleFlashcards, addon: 'lucid_studio_flashcards' },
+    { name: 'flashcards', generator: generateModuleFlashcards, addon: 'lucid_studio_flashcard' },
   ];
 
   const enabledTasks = tasks.filter((task) => enabledAddonSet.has(task.addon));
@@ -184,7 +184,7 @@ async function processJobs() {
           'lucid_studio_video',
           'lucid_studio_mindmap',
           'lucid_studio_infographic',
-          'lucid_studio_flashcards',
+          'lucid_studio_flashcard',
         ];
 
         const hasLucidStudioAccess = lucidStudioAddonKeys.some((addon) => enabledAddonSet.has(addon));
