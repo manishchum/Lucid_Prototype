@@ -5,6 +5,9 @@ from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
 from utils.supabase_client import supabase
 from utils.welcome_notifications import send_sprint_completion_email
+from utils.supabase_client import supabase
+from utils.db.learning_plan_db import refresh_learning_plan_status
+from utils.redis_client import delete_cache_pattern
 
 router = APIRouter()
 
@@ -77,9 +80,31 @@ async def POST(request: Request):
 
             print("inside existing progress")
             if viewOnly:
+
+                if existingProgress[0].get("completed_at") is None:
+
+                    supabase.table("module_progress") \
+                        .update({
+                            "started_at": datetime.utcnow().isoformat()
+                        }) \
+                        .eq(
+                            "module_progress_id",
+                            existingProgress[0]["module_progress_id"]
+                        ) \
+                        .execute()
+
+                if actualModuleId:
+                    await refresh_learning_plan_status(
+                        user_id=user_id,
+                        module_id=actualModuleId
+                    )
+
+                delete_cache_pattern(f"dashboard_summary:{user_id}*")
+                delete_cache_pattern("analytics:*")
+
                 return JSONResponse({
                     "success": True,
-                    "message": "Module view logged (already started)",
+                    "message": "Module view logged",
                     "data": existingProgress
                 })
 
@@ -214,90 +239,19 @@ async def POST(request: Request):
 
             result = data
 
-        # START: Update overall_status in learning_plan
-        try:
-            if actualModuleId:
-                lp_res = supabase.table("learning_plan") \
-                    .select("learning_plan_id, processed_module_ids") \
-                    .eq("user_id", user_id) \
-                    .eq("module_id", actualModuleId) \
-                    .execute()
+        if actualModuleId:
+            await refresh_learning_plan_status(
+                user_id=user_id,
+                module_id=actualModuleId
+            )
+        delete_cache_pattern(
+            f"dashboard_summary:{user_id}*"
+        )
+
+        delete_cache_pattern(
+            "analytics:*"
+        )
                 
-                lp_data = lp_res.data
-                if lp_data and len(lp_data) > 0:
-                    plan = lp_data[0]
-                    p_ids = plan.get("processed_module_ids")
-                    if p_ids and isinstance(p_ids, list) and len(p_ids) > 0:
-                        prog_res = supabase.table("module_progress") \
-                            .select("processed_module_id, pass_status, completed_at") \
-                            .eq("user_id", user_id) \
-                            .in_("processed_module_id", p_ids) \
-                            .execute()
-                        
-                        records = prog_res.data or []
-                        all_passed = True
-                        for req_id in p_ids:
-                            rec = next((r for r in records if r.get("processed_module_id") == req_id), None)
-                            if not rec or not rec.get("completed_at") or rec.get("pass_status") is not True:
-                                all_passed = False
-                                break
-
-                        if all_passed:
-                            print(f"[module-progress] 🏆 Sprint Completed! Updating learning_plan {plan['learning_plan_id']} to overall_status=True")
-                            supabase.table("learning_plan") \
-                                .update({
-                                    "overall_status": True,
-                                    "status": "COMPLETED",
-                                    "completed_at": datetime.utcnow().isoformat()
-                                }) \
-                                .eq("learning_plan_id", plan["learning_plan_id"]) \
-                                .execute()
-                            
-                            # Trigger sprint completion email
-                            try:
-                                # Fetch user data (email, name)
-                                user_res = supabase.table("users").select("email, name, company_id").eq("user_id", user_id).single().execute()
-                                user_data = user_res.data or {}
-                                user_email = user_data.get("email")
-                                user_name = user_data.get("name") or "Learner"
-                                company_id = user_data.get("company_id")
-                                
-                                # Fetch learning plan data (title from module)
-                                module_res = supabase.table("training_modules").select("title").eq("module_id", actualModuleId).single().execute()
-                                module_data = module_res.data or {}
-                                sprint_title = module_data.get("title") or "Your Learning Sprint"
-                                
-                                # Fetch company data (name)
-                                company_name = "your organization"
-                                if company_id:
-                                    company_res = supabase.table("companies").select("name").eq("company_id", company_id).single().execute()
-                                    company_data = company_res.data or {}
-                                    company_name = company_data.get("name") or company_name
-                                
-                                if user_email:
-                                    # Send email in background (don't block the response)
-                                    try:
-                                        await send_sprint_completion_email(
-                                            recipient_email=user_email,
-                                            recipient_name=user_name,
-                                            sprint_title=sprint_title,
-                                            company_name=company_name,
-                                        )
-                                        print(f"[module-progress] Sprint completion email sent to {user_email}")
-                                    except Exception as email_err:
-                                        print(f"[module-progress] Warning: Failed to send sprint completion email to {user_email}: {email_err}")
-                            except Exception as email_fetch_err:
-                                print(f"[module-progress] Warning: Error fetching data for sprint completion email: {email_fetch_err}")
-        except Exception as e_lp:
-            print("[module-progress] Error updating learning plan overall_status:", e_lp)
-        # END: Update overall_status in learning_plan
-
-        return JSONResponse({
-            "success": True,
-            "message": "Module progress recorded successfully",
-            "data": result
-        })
-
     except HTTPException as error:
         print("[module-progress] HTTP error:", error.detail)
         return JSONResponse({"error": error.detail}, status_code=error.status_code)

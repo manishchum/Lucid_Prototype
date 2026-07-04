@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Query
 from utils.auth_bridge import get_service_supabase_client
 from utils.redis_client import set_cache, get_cache
 import json
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
@@ -9,6 +10,9 @@ router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 @router.get("/dashboard/{company_id}")
 async def get_dashboard_analytics(
     company_id: str,
+    moduleId:str | None = Query(None),
+    assessmentType:str | None = Query(None),
+    timeRange:str | None = Query(None),
     x_user_id: str = Header(...)
 ):
     """
@@ -23,7 +27,12 @@ async def get_dashboard_analytics(
     Redis cached.
     """
 
-    cache_key = f"analytics:{company_id}"
+    cache_key = (
+        f"analytics:{company_id}:"
+        f"{moduleId or 'all'}:"
+        f"{assessmentType or 'all'}:"
+        f"{timeRange or 'all'}"
+    )
 
     cached = get_cache(cache_key)
     if cached:
@@ -31,6 +40,8 @@ async def get_dashboard_analytics(
         if isinstance(cached, str):
             return json.loads(cached)
         return cached
+    else:
+        print(f"Analytics cache miss for company_id: {company_id}")
 
     db = get_service_supabase_client()
 
@@ -78,6 +89,32 @@ async def get_dashboard_analytics(
     )
 
     plans = plans_resp.data or []
+    if timeRange and timeRange != "all":
+
+        days = int(timeRange)
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        plans = [
+            p
+            for p in plans
+            if p.get("assigned_on")
+            and datetime.fromisoformat(
+                p["assigned_on"].replace("Z", "+00:00")
+            ) >= cutoff
+        ]
+    
+    if moduleId and moduleId != "all":
+        plans = [
+            p
+            for p in plans
+            if p["module_id"] == moduleId
+        ]
+        modules = [
+            m
+            for m in modules
+            if m["module_id"] == moduleId
+        ]
 
     total_assignments = len(plans)
 
@@ -112,22 +149,60 @@ async def get_dashboard_analytics(
     )
 
     progress = progress_resp.data or []
-    progress_data = progress
-
-    completed_assignments = len(
-        [p for p in progress if p.get("completed_at")]
-    )
+    if timeRange and timeRange != "all":
+        progress = [
+            p
+            for p in progress
+            if(
+                p.get("started_at") or p.get("completed_at")
+            )
+        ]
     
-    in_progress_assignments = len([
-        p for p in progress
-        if p.get("started_at")
-        and not p.get("completed_at")
-    ])
+    progress_lookup = {}
 
-    not_started_assignments = (
-        total_assignments - completed_assignments - in_progress_assignments
+    for row in progress:
+
+        key = (
+            row["user_id"],
+            row["processed_module_id"]
+        )
+
+        progress_lookup[key] = row
+        
+    progressData = plans
+
+    # completed_assignments = len(
+    #     [p for p in progress if p.get("completed_at")]
+    # )
+    
+    # in_progress_assignments = len([
+    #     p for p in progress
+    #     if p.get("started_at")
+    #     and not p.get("completed_at")
+    # ])
+
+    # not_started_assignments = (
+    #     total_assignments - completed_assignments - in_progress_assignments
+    # )
+    
+    completed_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "COMPLETED"
     )
 
+    in_progress_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "IN_PROGRESS"
+    )
+
+    not_started_assignments = sum(
+        1
+        for plan in plans
+        if plan.get("status") == "ASSIGNED"
+    )
+            
     active_employees = len(
         set([
             p["user_id"]
@@ -143,62 +218,43 @@ async def get_dashboard_analytics(
     module_stats = []
 
     for module in modules:
-
-        module_id = module["module_id"]
-
         module_plans = [
-            p for p in plans
-            if p.get("module_id") == module_id
+            p
+            for p in plans
+            if p["module_id"] == module["module_id"]
         ]
 
+        completed = sum(
+            1
+            for plan in module_plans
+            if plan.get("status") == "COMPLETED"
+        )
+
+        in_progress = sum(
+            1
+            for plan in module_plans
+            if plan.get("status") == "IN_PROGRESS"
+        )
+            
         total_assigned = len(module_plans)
-
-        user_ids_for_module = set(
-            p["user_id"]
-            for p in module_plans
-        )
-
-        module_progress_rows = [
-            p for p in progress
-            if p.get("user_id") in user_ids_for_module
-        ]
-
-        completed = len([
-            p for p in module_progress_rows
-            if p.get("completed_at")
-        ])
-
-        in_progress = len([
-            p for p in module_progress_rows
-            if p.get("started_at")
-            and not p.get("completed_at")
-        ])
-
-        not_started = max(
-            total_assigned - completed - in_progress,
-            0
-        )
-
         completion_rate = (
-            round(completed / total_assigned * 100)
+            round(
+                completed * 100 / total_assigned
+            )
             if total_assigned
             else 0
         )
-
-        module_stats.append({
-            "moduleId": module_id,
+        
+        module_stats.append(
+        {
+            "moduleId": module["module_id"],
             "title": module["title"],
             "totalAssigned": total_assigned,
             "completed": completed,
             "inProgress": in_progress,
-            "notStarted": not_started,
-            "completionRate": completion_rate,
-            "averageCompletionTime": 0,
-            "averageScore": 0,
-            "video_seconds_total": 0,
-            "video_seconds_watched": 0
-        })
-    
+            "completionRate": completion_rate
+        }
+        )
     # ----------------------------------
     # ASSESSMENTS
     # ----------------------------------
@@ -211,6 +267,12 @@ async def get_dashboard_analytics(
     )
 
     assessments = assessment_resp.data or []
+    if assessmentType and assessmentType != "all":
+        assessments = [
+            a
+            for a in assessments
+            if a.get("type") == assessmentType
+        ]
     
     assessment_stats_map = {}
 
@@ -342,7 +404,7 @@ async def get_dashboard_analytics(
     "modules": modules,
     "moduleStats": module_stats,
     "assessmentStats": assessment_stats,
-    "progressData": progress_data,
+    "progressData": progressData,
     "kpiStats": kpi_stats
 }
 
@@ -351,5 +413,6 @@ async def get_dashboard_analytics(
         json.dumps(response),
         ttl=300
     )
+    # print("set_cache succesfull for analytics")
 
     return response

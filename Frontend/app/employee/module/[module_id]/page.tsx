@@ -209,11 +209,32 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
       }
 
       setModule(normalizedModule);
+      await markModuleStarted(normalizedModule.processed_module_id);
     } catch (error) {
       console.error("[module] Failed to load module:", error);
       setModule(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const markModuleStarted = async (processedModuleId: string) => {
+    if (!employeeData?.user_id) return;
+
+    try {
+      await fetchWithAuth(`${API_BASE}/api/module-progress`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeData.user_id,
+        },
+        body: JSON.stringify({
+          user_id: employeeData.user_id,
+          processed_module_id: processedModuleId,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to mark module started:", err);
     }
   };
 

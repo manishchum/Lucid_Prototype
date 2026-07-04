@@ -294,16 +294,21 @@ async def create_learning_plan(
         # processed_module entries), fetch them and attach processed_module_ids so the
         # frontend can render all child modules. This is a safe, best-effort enrichment
         # and will be skipped on error.
-        try:
-            pm_resp = supabase.table('processed_modules').select('processed_module_id').eq(
-                'original_module_id', module_id
-            ).execute()
-            pm_rows = pm_resp.data or []
-            if pm_rows and isinstance(pm_rows, list):
-                plan_data['processed_module_ids'] = [r.get('processed_module_id') for r in pm_rows if r.get('processed_module_id')]
-        except Exception:
-            # don't block plan creation if this enrichment fails
-            pass
+        if plan_data.get("plan_json"):
+
+            modules = (
+                plan_data["plan_json"].get("modules", [])
+            )
+
+            plan_data["processed_module_ids"] = [
+
+                m["processed_module_id"]
+
+                for m in modules
+
+                if m.get("processed_module_id")
+
+            ]
         
         # Create the learning plan
         resp = supabase.table('learning_plan').insert(plan_data).execute()
@@ -868,3 +873,132 @@ async def get_company_learning_plans(
             "data": None,
             "error": str(e)
         }
+
+async def refresh_learning_plan_status(
+    user_id: str,
+    module_id: str
+):
+    """
+    Synchronize learning_plan.status with module_progress.
+
+    ASSIGNED
+    -> no module started
+
+    IN_PROGRESS
+    -> at least one started
+
+    COMPLETED
+    -> every assigned processed module completed
+    """
+
+    db = get_service_supabase_client()
+
+    # ---------------------------------------------------
+    # Load learning plan
+    # ---------------------------------------------------
+
+    plan_resp = (
+        db.table("learning_plan")
+        .select(
+            "learning_plan_id, processed_module_ids, status, started_at"
+        )
+        .eq("user_id", user_id)
+        .eq("module_id", module_id)
+        .maybe_single()
+        .execute()
+    )
+    print("module_id received:", module_id)
+    plan = plan_resp.data
+
+    if not plan:
+        return
+
+    print("plan: " , plan)
+
+    processed_module_ids = (
+        plan.get("processed_module_ids")
+        or []
+    )
+
+    if len(processed_module_ids) == 0:
+        return
+
+    print("processed_module_ids: ", processed_module_ids)
+    # ---------------------------------------------------
+    # Fetch progress only for assigned processed modules
+    # ---------------------------------------------------
+
+    progress_resp = (
+        db.table("module_progress")
+        .select(
+            "started_at, completed_at"
+        )
+        .eq("user_id", user_id)
+        .in_(
+            "processed_module_id",
+            processed_module_ids
+        )
+        .execute()
+    )
+
+    rows = progress_resp.data or []
+
+    assigned = len(processed_module_ids)
+
+    print("rows found:", len(rows))
+    print(rows)
+    started = sum(
+        1
+        for row in rows
+        if row.get("started_at")
+    )
+
+    completed = sum(
+        1
+        for row in rows
+        if row.get("completed_at")
+    )
+
+    update_data = {}
+
+    if assigned > 0 and completed == assigned:
+
+        update_data["status"] = "COMPLETED"
+        update_data["overall_status"] = True
+
+        if not plan.get("started_at"):
+            update_data["started_at"] = datetime.utcnow().isoformat()
+
+        update_data["completed_at"] = datetime.utcnow().isoformat()
+
+    elif started > 0:
+
+        update_data["status"] = "IN_PROGRESS"
+        update_data["overall_status"] = False
+
+        if not plan.get("started_at"):
+            update_data["started_at"] = datetime.utcnow().isoformat()
+
+    else:
+
+        update_data["status"] = "ASSIGNED"
+        update_data["overall_status"] = False
+
+    try:
+        if(plan.get("status") == update_data["status"]
+           and
+           plan.get("overall_status") == update_data["overall_status"]
+           ):
+            return
+        (
+            db.table("learning_plan")
+            .update(update_data)
+            .eq(
+                "learning_plan_id",
+                plan["learning_plan_id"]
+            )
+            .execute()
+        )
+    except Exception as e:
+        if "204" not in str(e):
+            raise
