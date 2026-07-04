@@ -796,46 +796,7 @@ export default function MindmapViewer({
           </div>
         )}
 
-        {/* Interactive Minimap */}
-        <div className="absolute bottom-4 left-4 w-48 h-32 bg-white border border-slate-200 shadow-md rounded overflow-hidden z-10 hidden sm:block">
-          <svg
-            className="w-full h-full cursor-pointer"
-            viewBox={`${minX} ${minY} ${naturalWidth} ${naturalHeight}`}
-            onMouseDown={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const clickX = (e.clientX - rect.left) / rect.width;
-              const clickY = (e.clientY - rect.top) / rect.height;
-              const targetX = minX + clickX * naturalWidth;
-              const targetY = minY + clickY * naturalHeight;
-              
-              setPanX(viewport.w / 2 - targetX * scale);
-              setPanY(viewport.h / 2 - targetY * scale);
-            }}
-          >
-            <rect x={minX} y={minY} width={naturalWidth} height={naturalHeight} fill="#f8fafc" />
-            {edges.map((e, i) => {
-              const a = findNode(e.from);
-              const b = findNode(e.to);
-              if (!a || !b) return null;
-              return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#cbd5e1" strokeWidth={4} />
-            })}
-            {layoutNodes.map((n) => (
-              <circle key={n.id} cx={n.x} cy={n.y} r={16} fill="#94a3b8" />
-            ))}
-            
-            {/* Viewport Box */}
-            <rect
-              x={-panX / scale}
-              y={-panY / scale}
-              width={viewport.w / scale}
-              height={viewport.h / scale}
-              fill="rgba(59, 130, 246, 0.15)"
-              stroke="#3b82f6"
-              strokeWidth={4}
-              style={{ transition: 'all 0.4s ease-out', pointerEvents: 'none' }}
-            />
-          </svg>
-        </div>
+
       </div>
     );
   }
