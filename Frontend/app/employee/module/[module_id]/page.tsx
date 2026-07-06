@@ -37,7 +37,16 @@ const SUPPORTED_LANGUAGES = [
   { code: 'nl', name: 'Dutch' },
 ] as const;
 
+const AUDIO_VIDEO_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'hinglish', name: 'हिंदी' },
+  { code: 'german', name: 'Deutsch' },
+  { code: 'spanish', name: 'Español' },
+  { code: 'french', name: 'Français' },
+] as const;
+
 type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
+type AudioVideoLanguage = typeof AUDIO_VIDEO_LANGUAGES[number]['code'];
 
 const readSectionTranslationCache = (employeeId?: string, moduleId?: string) => {
   if (typeof window === "undefined" || !moduleId) return {} as Record<string, SectionBlock>;
@@ -406,26 +415,35 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                   onAudioGenerated={(url: string, data?: any) => {
                     setModule((prev: any) => {
                       if (!prev) return prev;
-                      const isHinglish = data?.language === "hinglish";
+                      const languageKey = data?.language || 'en';
+                      const suffixMap: Record<string, string> = {
+                        en: '',
+                        hinglish: '_hinglish',
+                        german: '_german',
+                        spanish: '_spanish',
+                        french: '_french',
+                      };
+                      const suffix = suffixMap[languageKey] ?? '';
                       return {
                         ...prev,
-                        [isHinglish ? "audio_url_hinglish" : "audio_url"]: url,
-                        [isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"]:
-                          data?.transcript || prev[isHinglish ? "podcast_transcript_hinglish" : "podcast_transcript"],
-                        [isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"]:
-                          data?.timeline
-                            ? JSON.stringify(data.timeline)
-                            : prev[isHinglish ? "podcast_timeline_hinglish" : "podcast_timeline"],
+                        [`audio_url${suffix}`]: url,
+                        [`podcast_transcript${suffix}`]: data?.transcript || prev[`podcast_transcript${suffix}`],
+                        [`podcast_timeline${suffix}`]: data?.timeline
+                          ? JSON.stringify(data.timeline)
+                          : prev[`podcast_timeline${suffix}`],
                       };
                     });
                   }}
-                  onVideoGenerated={(url: string, hinglishUrl?: string) => {
+                  onVideoGenerated={(urls: { videoUrl?: string; videoUrlHinglish?: string; videoUrlGerman?: string; videoUrlSpanish?: string; videoUrlFrench?: string }) => {
                     setModule((prev: any) => {
                       if (!prev) return prev;
                       return {
                         ...prev,
-                        video_url: url,
-                        ...(hinglishUrl ? { video_url_hinglish: hinglishUrl } : {})
+                        ...(urls.videoUrl ? { video_url: urls.videoUrl } : {}),
+                        ...(urls.videoUrlHinglish ? { video_url_hinglish: urls.videoUrlHinglish } : {}),
+                        ...(urls.videoUrlGerman ? { video_url_german: urls.videoUrlGerman } : {}),
+                        ...(urls.videoUrlSpanish ? { video_url_spanish: urls.videoUrlSpanish } : {}),
+                        ...(urls.videoUrlFrench ? { video_url_french: urls.videoUrlFrench } : {}),
                       };
                     });
                   }}
@@ -1361,17 +1379,28 @@ function ContentTransformer({
   const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
-  const hasAudio = hasEnglishAudio || hasHinglishAudio;
+  const hasGermanAudio = !!(module.audio_url_german && module.podcast_transcript_german && module.podcast_timeline_german);
+  const hasSpanishAudio = !!(module.audio_url_spanish && module.podcast_transcript_spanish && module.podcast_timeline_spanish);
+  const hasFrenchAudio = !!(module.audio_url_french && module.podcast_transcript_french && module.podcast_timeline_french);
+  const hasAudio = hasEnglishAudio || hasHinglishAudio || hasGermanAudio || hasSpanishAudio || hasFrenchAudio;
  
   // Check if current language audio is available
-  const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
-    if (language === 'hinglish') {
-      return hasHinglishAudio;
+  const hasCurrentLanguageAudio = (language: AudioVideoLanguage) => {
+    switch (language) {
+      case 'hinglish':
+        return hasHinglishAudio;
+      case 'german':
+        return hasGermanAudio;
+      case 'spanish':
+        return hasSpanishAudio;
+      case 'french':
+        return hasFrenchAudio;
+      default:
+        return hasEnglishAudio;
     }
-    return hasEnglishAudio;
   };
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
-  const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
+  const [language, setLanguage] = useState<AudioVideoLanguage>('en');
   const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
@@ -1383,6 +1412,7 @@ function ContentTransformer({
   const mindmapDownloadRef = useRef<(() => void) | null>(null);
   const [infographicData, setInfographicData] = useState<any | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
+  const [videoLanguage, setVideoLanguage] = useState<AudioVideoLanguage>('en');
 
   useEffect(() => {
     const parseMaybeJson = (value: any) => {
@@ -1415,7 +1445,7 @@ function ContentTransformer({
   const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
   // Podcast timeline state
-  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark' | 'pooja' | 'rahul'; text: string; startSec: number; endSec: number }>>([]);
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: string; text: string; startSec: number; endSec: number }>>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [transcriptStarted, setTranscriptStarted] = useState(false);
 
@@ -1425,15 +1455,28 @@ function ContentTransformer({
       'sarah': 'Sarah',
       'mark': 'Mark',
       'pooja': 'Pooja',
-      'rahul': 'Rahul'
+      'rahul': 'Rahul',
+      'anna': 'Anna',
+      'lukas': 'Lukas',
+      'lucia': 'Lucia',
+      'carlos': 'Carlos',
+      'claire': 'Claire',
+      'julien': 'Julien',
     };
     return names[speaker] || speaker;
   };
 
   // Hydrate timeline from module.podcast_timeline on component mount
   useEffect(() => {
-    const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
-    const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
+    const timelineFieldMap: Record<AudioVideoLanguage, string> = {
+      en: 'podcast_timeline',
+      hinglish: 'podcast_timeline_hinglish',
+      german: 'podcast_timeline_german',
+      spanish: 'podcast_timeline_spanish',
+      french: 'podcast_timeline_french',
+    };
+    const timelineField = timelineFieldMap[language];
+    const timelineData = (module as any)?.[timelineField];
    
     if (!timelineData) {
       //console.log(`[ContentTransformer] No ${timelineField} in module data`);
@@ -1478,7 +1521,7 @@ function ContentTransformer({
         raw: timelineData,
       });
     }
-  }, [module?.podcast_timeline, module?.podcast_timeline_hinglish, language]);
+  }, [module?.podcast_timeline, module?.podcast_timeline_hinglish, module?.podcast_timeline_german, module?.podcast_timeline_spanish, module?.podcast_timeline_french, language]);
 
   const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
     if (!duration || podcastTimeline.length === 0) return;
@@ -1824,11 +1867,14 @@ function ContentTransformer({
              <div className="flex items-center gap-3">
               <select
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                onChange={(e) => setLanguage(e.target.value as AudioVideoLanguage)}
                 className="px-3 py-1 rounded border text-sm bg-white"
               >
-                <option value="en">English</option>
-                <option value="hinglish">हिंदी</option>
+                {AUDIO_VIDEO_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.name}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1839,7 +1885,17 @@ function ContentTransformer({
                     employeeId={employeeId}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
-                    audioUrl={language === 'hinglish' ? (module.audio_url_hinglish || module.audio_url) : module.audio_url}
+                    audioUrl={
+                      language === 'hinglish'
+                        ? module.audio_url_hinglish
+                        : language === 'german'
+                        ? module.audio_url_german
+                        : language === 'spanish'
+                        ? module.audio_url_spanish
+                        : language === 'french'
+                        ? module.audio_url_french
+                        : module.audio_url
+                    }
                     onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
@@ -1955,45 +2011,85 @@ function ContentTransformer({
 
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
-            {module.video_url && (
+            {(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french) && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex justify-start gap-2 mb-2">
-                  <select 
+                  <select
+                    value={videoLanguage}
                     onChange={(e) => {
+                      const selectedLang = e.target.value as AudioVideoLanguage;
+                      setVideoLanguage(selectedLang);
                       const video = document.getElementById('module-video') as HTMLVideoElement;
                       if (!video) return;
                       const currentTime = video.currentTime;
                       const isPaused = video.paused;
-                      video.src = e.target.value === 'hinglish' ? module.video_url_hinglish : module.video_url;
-                      video.onloadedmetadata = () => {
-                        video.currentTime = currentTime;
-                        if (!isPaused) video.play();
-                        video.onloadedmetadata = null;
-                      };
+                      const newSrc =
+                        selectedLang === 'hinglish'
+                          ? module.video_url_hinglish
+                          : selectedLang === 'german'
+                          ? module.video_url_german
+                          : selectedLang === 'spanish'
+                          ? module.video_url_spanish
+                          : selectedLang === 'french'
+                          ? module.video_url_french
+                          : module.video_url;
+                      if (newSrc) {
+                        video.src = newSrc;
+                        video.onloadedmetadata = () => {
+                          video.currentTime = currentTime;
+                          if (!isPaused) video.play();
+                          video.onloadedmetadata = null;
+                        };
+                      }
                     }}
                     className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
-                    defaultValue="en"
                   >
-                    <option value="en">English</option>
-                    {module.video_url_hinglish && (
-                      <option value="hinglish">हिंदी</option>
-                    )}
+                    {AUDIO_VIDEO_LANGUAGES.map((lang) => {
+                      const hasVideo =
+                        lang.code === 'en'
+                          ? !!module.video_url
+                          : lang.code === 'hinglish'
+                          ? !!module.video_url_hinglish
+                          : lang.code === 'german'
+                          ? !!module.video_url_german
+                          : lang.code === 'spanish'
+                          ? !!module.video_url_spanish
+                          : lang.code === 'french'
+                          ? !!module.video_url_french
+                          : false;
+                      return hasVideo ? (
+                        <option key={lang.code} value={lang.code}>{lang.name}</option>
+                      ) : null;
+                    })}
                   </select>
                 </div>
                 <video id="module-video" controls className="w-full rounded-lg">
-                  <source src={module.video_url} type="video/mp4" />
+                  <source
+                    src={
+                      videoLanguage === 'hinglish'
+                        ? module.video_url_hinglish
+                        : videoLanguage === 'german'
+                        ? module.video_url_german
+                        : videoLanguage === 'spanish'
+                        ? module.video_url_spanish
+                        : videoLanguage === 'french'
+                        ? module.video_url_french
+                        : module.video_url
+                    }
+                    type="video/mp4"
+                  />
                   Your browser does not support video playback.
                 </video>
               </div>
             )}
 
-            {!module.video_url && (
+            {!(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french) && (
               <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
                 <div>Video is not available yet.</div>
                 <GenerateVideoButton
                   moduleId={module.processed_module_id}
-                  onVideoGenerated={(url, hinglishUrl) => {
-                    if (onVideoGenerated) onVideoGenerated(url, hinglishUrl);
+                  onVideoGenerated={(urls) => {
+                    if (onVideoGenerated) onVideoGenerated(urls);
                   }}
                 />
               </div>
@@ -2669,7 +2765,7 @@ function GenerateAudioButton({
 }: {
   moduleId: string;
   onAudioGenerated: (url: string, data?: any) => void;
-  language?: 'en' | 'hinglish';
+  language?: AudioVideoLanguage;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2714,7 +2810,7 @@ function GenerateVideoButton({
   onVideoGenerated,
 }: {
   moduleId: string;
-  onVideoGenerated: (url: string, hinglishUrl?: string) => void;
+  onVideoGenerated: (urls: { videoUrl?: string; videoUrlHinglish?: string; videoUrlGerman?: string; videoUrlSpanish?: string; videoUrlFrench?: string }) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2730,7 +2826,13 @@ function GenerateVideoButton({
       });
       const data = await res.json();
       if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl, data.videoUrlHinglish);
+        onVideoGenerated({
+          videoUrl: data.videoUrl,
+          videoUrlHinglish: data.videoUrlHinglish,
+          videoUrlGerman: data.videoUrlGerman,
+          videoUrlSpanish: data.videoUrlSpanish,
+          videoUrlFrench: data.videoUrlFrench,
+        });
       } else {
         setError(data.error || 'Failed to generate video');
       }
