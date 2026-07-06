@@ -66,6 +66,25 @@ else:
 
 BUCKET = "module_audio"
 
+LANGUAGE_ALIASES = {
+    "en": "en",
+    "english": "en",
+    "hi": "hinglish",
+    "hinglish": "hinglish",
+    "de": "german",
+    "german": "german",
+    "es": "spanish",
+    "spanish": "spanish",
+    "fr": "french",
+    "french": "french",
+}
+
+
+def normalize_language(language: str) -> str:
+    normalized = (language or "").strip().lower()
+    return LANGUAGE_ALIASES.get(normalized, "en")
+
+
 # Gemini init (same behavior)
 if not os.getenv("GEMINI_API_KEY"):
     print("[TTS API] WARNING: GEMINI_API_KEY not set")
@@ -178,73 +197,127 @@ def cleanTextForTTS(text: str):
 # -------------------------------
 # Podcast prompt builder (same)
 # -------------------------------
-def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Literal["en", "hinglish"] = "en") -> str:
-    languageInstruction = (
-        """CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:
-- Write 85% of ALL content in HINDI (Devanagari script or romanized Hindi)
-- Use English ONLY for: technical terms, modern concepts, brand names
-- Maximum 15-20% English words allowed
-- Each sentence should be PRIMARILY Hindi with minimal English
-- Example CORRECT format: "Aaj hum baat karenge financial ratios ke baare mein jo company ki health check karne mein help karte hain"
-- Example WRONG format (DO NOT USE): "Today we are going to talk about financial ratios which help in checking company health"
-- Pooja aur Rahul dono ko Hindi mein hi baat karni hai"""
-        if language == "hinglish"
-        else (
+def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Literal["en", "hinglish", "german", "spanish", "french"] = "en") -> str:
+    if language == "hinglish":
+        languageInstruction = (
+            "CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:\n"
+            "- Write 85% of ALL content in HINDI (Devanagari script or romanized Hindi)\n"
+            "- Use English ONLY for technical terms, modern concepts, or brand names\n"
+            "- Maximum 15-20% English words allowed\n"
+            "- Each sentence should be PRIMARILY Hindi with minimal English\n"
+            "- Example CORRECT format: \"Aaj hum baat karenge financial ratios ke baare mein jo company ki health check karne mein help karte hain\"\n"
+            "- Example WRONG format (DO NOT USE): \"Today we are going to talk about financial ratios which help in checking company health\"\n"
+            "- Pooja aur Rahul dono ko Hindi mein hi baat karni hai"
+        )
+        speakers = (
+            "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"
+            "- Rahul (expert) - Hindi mein samjhate hain, friendly teacher, real-world examples dete hain"
+        )
+        format_instruction = "Pooja: [text in Hindi with minimal English]\\nRahul: [text in Hindi with minimal English]"
+        filler_words = '"toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
+        reactions = '"Arey interesting!", "Bilkul sahi!", "Aur batao iske baare mein"'
+        transitions = '"Isse yaad aaya...", "Iske baare mein baat karte hain...", "Ek aur cheez..."'
+        language_reminder = "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye."
+        greeting_instruction = (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "NO 'Namaste aur swagat'. Start like: 'Aaj hum discuss karenge [topic]' or similar."
+        )
+        structure_line_1 = "Single brief greeting (e.g., 'Aaj hum discuss karenge [topic]')"
+        dialogueCount = "48"
+    elif language == "german":
+        languageInstruction = (
+            "CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:\n"
+            "- Write the entire podcast script in German only.\n"
+            "- Do NOT use English words except for necessary technical terms and brand names.\n"
+            "- Use natural German conversational style.\n"
+            "- Keep the tone warm, friendly, and engaging.\n"
+            "- Use only the speaker labels Anna and Lukas. Do not use Sarah, Mark, Pooja, or Rahul."
+        )
+        speakers = (
+            "- Anna (host) - freundlich, neugierig, warm, spricht natürlich\n"
+            "- Lukas (expert) - erklärt einfach, gibt praxisnahe Beispiele, ist wie ein guter Freund"
+        )
+        format_instruction = "Anna: [Text auf Deutsch]\\nLukas: [Text auf Deutsch]"
+        filler_words = '"also", "genau", "wirklich", "ehrlich", "schon"'
+        reactions = '"Das ist interessant!", "Ganz genau!", "Erzähl mir mehr darüber"'
+        transitions = '"Das erinnert mich an...", "Apropos...", "Und noch etwas..."'
+        language_reminder = "REMINDER: WRITE ONLY IN GERMAN. No English except technical terms."
+        greeting_instruction = (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "Start like: 'Heute sprechen wir über [Thema]' or similar."
+        )
+        structure_line_1 = "Single brief greeting (e.g., 'Heute sprechen wir über [Thema]')"
+        dialogueCount = "30"
+    elif language == "spanish":
+        languageInstruction = (
+            "CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:\n"
+            "- Write the entire podcast script in Spanish only.\n"
+            "- Do NOT use English words except for necessary technical terms and brand names.\n"
+            "- Use natural Spanish conversational style.\n"
+            "- Keep the tone warm, friendly, and engaging.\n"
+            "- Use only the speaker names Lucia and Carlos. Do not use Sarah, Mark, Pooja, or Rahul.\n"
+            "- Each line must begin with Lucia: or Carlos:."
+        )
+        speakers = (
+            "- Lucia (host) - cálida, curiosa, natural\n"
+            "- Carlos (expert) - explica claramente, usa ejemplos prácticos, suena cercano"
+        )
+        format_instruction = "Lucia: [Texto en español]\\nCarlos: [Texto en español]"
+        filler_words = '"o sea", "pues", "la verdad", "sabes", "claro"'
+        reactions = '"¡Qué interesante!", "Exacto", "Cuéntame más sobre eso"'
+        transitions = '"Eso me recuerda...", "Hablando de...", "Y otra cosa..."'
+        language_reminder = "REMINDER: WRITE ONLY IN SPANISH. No English except necessary technical terms. Use only Lucia and Carlos."
+        greeting_instruction = (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "Start like: 'Hoy vamos a hablar sobre [tema]' or similar."
+        )
+        structure_line_1 = "Single brief greeting (e.g., 'Hoy vamos a hablar sobre [tema]')"
+        dialogueCount = "30"
+    elif language == "french":
+        languageInstruction = (
+            "CRITICAL LANGUAGE REQUIREMENT - MUST BE FOLLOWED STRICTLY:\n"
+            "- Write the entire podcast script in French only.\n"
+            "- Do NOT use English words except for necessary technical terms and brand names.\n"
+            "- Use natural French conversational style.\n"
+            "- Keep the tone warm, friendly, and engaging.\n"
+            "- Use only the speaker names Claire and Julien. Do not use Sarah, Mark, Pooja, or Rahul.\n"
+            "- Each line must begin with Claire: or Julien:."
+        )
+        speakers = (
+            "- Claire (host) - chaleureuse, curieuse, naturelle\n"
+            "- Julien (expert) - explique simplement, utilise des exemples concrets"
+        )
+        format_instruction = "Claire: [Texte en français]\\nJulien: [Texte en français]"
+        filler_words = '"tu sais", "en fait", "bien sûr", "vraiment", "bon"'
+        reactions = "Cest intéressant!", "Absolument!", "Dis men plus"
+        transitions = '"Cela me rappelle...", "À propos...", "Et une autre chose..."'
+        language_reminder = "REMINDER: WRITE ONLY IN FRENCH. No English except necessary technical terms. Use only Claire and Julien."
+        greeting_instruction = (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "Start like: 'Aujourd'hui, nous parlons de [sujet]' or similar."
+        )
+        structure_line_1 = "Single brief greeting (e.g., 'Aujourd'hui, nous parlons de [sujet]')"
+        dialogueCount = "30"
+    else:
+        languageInstruction = (
             "Generate the entire podcast script in English only. "
             "Do NOT use Hindi words, Hinglish phrases, or Devanagari script."
         )
-    )
-
-    dialogueCount = "48" if language == "hinglish" else "30"
-
-    speakers = (
-        "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"
-        "- Rahul (expert) - Hindi mein samjhate hain, friendly teacher, real-world examples dete hain"
-        if language == "hinglish"
-        else
-        "- Sarah (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n"
-        "- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend"
-    )
-
-    # ✅ Fixed: Define format strings outside f-string
-    hinglish_format = "Pooja: [text in Hindi with minimal English]\\nRahul: [text in Hindi with minimal English]"
-    english_format = "Sarah: [text]\\nMark: [text]"
-    
-    format_instruction = hinglish_format if language == "hinglish" else english_format
-
-    hinglish_filler = '"toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
-    english_filler = '"you know", "I mean", "actually", "right", "so"'
-    filler_words = hinglish_filler if language == "hinglish" else english_filler
-
-    hinglish_reactions = '"Arey interesting!", "Bilkul sahi!", "Aur batao iske baare mein"'
-    english_reactions = '"Oh interesting!", "That makes sense", "Tell me more about that"'
-    reactions = hinglish_reactions if language == "hinglish" else english_reactions
-
-    hinglish_transitions = '"Isse yaad aaya...", "Iske baare mein baat karte hain...", "Ek aur cheez..."'
-    english_transitions = '"That reminds me...", "Speaking of...", "And another thing..."'
-    transitions = hinglish_transitions if language == "hinglish" else english_transitions
-
-    language_reminder = (
-        "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye."
-        if language == "hinglish"
-        else "REMINDER: WRITE ONLY IN ENGLISH. No Hindi or Hinglish words."
-    )
-
-    greeting_instruction = (
-        "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
-        "NO 'Namaste aur swagat'. Start like: 'Aaj hum discuss karenge [topic]' or similar."
-        if language == "hinglish"
-        else (
+        speakers = (
+            "- Sarah (host) - enthusiastic, warm, naturally curious, uses conversational fillers and expressions\n"
+            "- Mark (expert) - friendly teacher, uses real-world examples, explains like talking to a friend"
+        )
+        format_instruction = "Sarah: [text]\\nMark: [text]"
+        filler_words = '"you know", "I mean", "actually", "right", "so"'
+        reactions = '"Oh interesting!", "That makes sense", "Tell me more about that"'
+        transitions = '"That reminds me...", "Speaking of...", "And another thing..."'
+        language_reminder = "REMINDER: WRITE ONLY IN ENGLISH. No Hindi or Hinglish words."
+        greeting_instruction = (
             "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
             "NO Hindi/Hinglish greeting. Start like: 'Today we're discussing [topic]' or similar."
         )
-    )
-
-    structure_line_1 = (
-        "Single brief greeting (e.g., 'Aaj hum discuss karenge [topic]')"
-        if language == "hinglish"
-        else "Single brief greeting (e.g., 'Today we're discussing [topic]')"
-    )
+        structure_line_1 = "Single brief greeting (e.g., 'Today we're discussing [topic]')"
+        dialogueCount = "30"
 
     return f"""Create a natural, engaging podcast conversation between two people:
 {speakers}
@@ -289,33 +362,56 @@ Generate EXACTLY {dialogueCount} dialogue exchanges total."""
 # -------------------------------
 # Dialogue parsing (same)
 # -------------------------------
-def parseGeminiDialogue(text: str, language: Literal["en", "hinglish"] = "en") -> List[Dict[str, Any]]:
+def parseGeminiDialogue(text: str, language: Literal["en", "hinglish", "german", "spanish", "french"] = "en") -> List[Dict[str, Any]]:
     dialogue: List[Dict[str, Any]] = []
     lines = text.split("\n")
+
+    speaker_patterns = {
+        "hinglish": {
+            "pooja": re.compile(r"^Pooja:\s*(.+)$", re.IGNORECASE),
+            "rahul": re.compile(r"^Rahul:\s*(.+)$", re.IGNORECASE),
+        },
+        "german": {
+            "anna": re.compile(r"^Anna:\s*(.+)$", re.IGNORECASE),
+            "lukas": re.compile(r"^Lukas:\s*(.+)$", re.IGNORECASE),
+        },
+        "spanish": {
+            "lucia": re.compile(r"^Lucia:\s*(.+)$", re.IGNORECASE),
+            "carlos": re.compile(r"^Carlos:\s*(.+)$", re.IGNORECASE),
+        },
+        "french": {
+            "claire": re.compile(r"^Claire:\s*(.+)$", re.IGNORECASE),
+            "julien": re.compile(r"^Julien:\s*(.+)$", re.IGNORECASE),
+        },
+        "en": {
+            "sarah": re.compile(r"^Sarah:\s*(.+)$", re.IGNORECASE),
+            "mark": re.compile(r"^Mark:\s*(.+)$", re.IGNORECASE),
+        },
+    }
+
+    patterns = speaker_patterns.get(language, speaker_patterns["en"])
 
     for line in lines:
         trimmed = line.strip()
         if not trimmed:
             continue
 
-        if language == "hinglish":
-            poojaMatch = re.match(r"^Pooja:\s*(.+)$", trimmed, re.IGNORECASE)
-            rahulMatch = re.match(r"^Rahul:\s*(.+)$", trimmed, re.IGNORECASE)
+        matched = False
+        for speaker, pattern in patterns.items():
+            match = pattern.match(trimmed)
+            if match:
+                dialogue.append({"speaker": speaker, "text": cleanTextForTTS(match.group(1))})
+                matched = True
+                break
 
-            if poojaMatch:
-                dialogue.append({"speaker": "pooja", "text": cleanTextForTTS(poojaMatch.group(1))})
-            elif rahulMatch:
-                dialogue.append({"speaker": "rahul", "text": cleanTextForTTS(rahulMatch.group(1))})
-        else:
-            sarahMatch = re.match(r"^Sarah:\s*(.+)$", trimmed, re.IGNORECASE)
-            markMatch = re.match(r"^Mark:\s*(.+)$", trimmed, re.IGNORECASE)
+        if not matched and ":" in trimmed:
+            parts = trimmed.split(":", 1)
+            speaker = parts[0].strip().lower()
+            text = parts[1].strip()
+            if not speaker or speaker not in patterns:
+                speaker = list(patterns.keys())[0]
+            dialogue.append({"speaker": speaker, "text": cleanTextForTTS(text)})
 
-            if sarahMatch:
-                dialogue.append({"speaker": "sarah", "text": cleanTextForTTS(sarahMatch.group(1))})
-            elif markMatch:
-                dialogue.append({"speaker": "mark", "text": cleanTextForTTS(markMatch.group(1))})
-
-    # Return all dialogue segments (no arbitrary limit)
     return dialogue
 
 
@@ -349,7 +445,7 @@ def createWavBuffer(pcmBytes: bytes, sampleRate: int = 24000, numChannels: int =
 # -------------------------------
 # Main synthesis pipeline (same)
 # -------------------------------
-async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hinglish"] = "en"):
+async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hinglish", "german", "spanish", "french"] = "en"):
     # Fetch module content from processed_modules
     moduleRes = (
         supabase
@@ -380,8 +476,8 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
     geminiResponse = ""
     try:
         # Increased token limits to ensure full dialogue generation with proper endings
-        maxTokens = 2000 if language == "hinglish" else 2500
-        temp = 0.3 if language == "hinglish" else 0.35
+        maxTokens = 2200 if language == "hinglish" else 2500
+        temp = 0.3 if language in ["hinglish", "german", "spanish", "french"] else 0.35
 
         geminiResult = await callGemini(prompt, {"temperature": temp, "maxOutputTokens": maxTokens})
 
@@ -465,6 +561,24 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
                 {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Autonoe", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "pooja"
                 else {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
+            )
+        elif language == "german":
+            voice = (
+                {"languageCode": "de-DE", "name": "de-DE-Wavenet-B", "ssmlGender": "FEMALE"}
+                if segment["speaker"] == "anna"
+                else {"languageCode": "de-DE", "name": "de-DE-Wavenet-D", "ssmlGender": "MALE"}
+            )
+        elif language == "spanish":
+            voice = (
+                {"languageCode": "es-ES", "name": "es-ES-Wavenet-B", "ssmlGender": "FEMALE"}
+                if segment["speaker"] == "lucia"
+                else {"languageCode": "es-ES", "name": "es-ES-Wavenet-D", "ssmlGender": "MALE"}
+            )
+        elif language == "french":
+            voice = (
+                {"languageCode": "fr-FR", "name": "fr-FR-Wavenet-B", "ssmlGender": "FEMALE"}
+                if segment["speaker"] == "claire"
+                else {"languageCode": "fr-FR", "name": "fr-FR-Wavenet-D", "ssmlGender": "MALE"}
             )
         else:
             voice = (
@@ -614,20 +728,20 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
     # DB update
     print("[TTS][DEBUG] updating DB... processed_module_id=", processedModuleId, "language=", language)
 
-    if language == "hinglish":
-        updateData = {
-            "audio_url_hinglish": audioUrl,
-            "podcast_transcript_hinglish": "\n".join([f"{d['speaker']}: {d['text']}" for d in dialogue]),
-            "podcast_timeline_hinglish": json.dumps(podcastTimeline),
-            "audio_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-    else:
-        updateData = {
-            "audio_url": audioUrl,
-            "podcast_transcript": "\n".join([f"{d['speaker']}: {d['text']}" for d in dialogue]),
-            "podcast_timeline": json.dumps(podcastTimeline),
-            "audio_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
+    suffix = {
+        "en": "",
+        "hinglish": "_hinglish",
+        "german": "_german",
+        "spanish": "_spanish",
+        "french": "_french",
+    }.get(language, "")
+
+    updateData = {
+        f"audio_url{suffix}": audioUrl,
+        f"podcast_transcript{suffix}": "\n".join([f"{d['speaker']}: {d['text']}" for d in dialogue]),
+        f"podcast_timeline{suffix}": json.dumps(podcastTimeline),
+        "audio_generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
 
     updRes = (
         supabase
@@ -657,8 +771,7 @@ async def GET(request: Request):
         searchParams = request.query_params
         processed = searchParams.get("processed_module_id")
         legacy = searchParams.get("module_id")
-        language = (searchParams.get("language") or "en")
-        language = "hinglish" if language == "hinglish" else "en"
+        language = normalize_language(searchParams.get("language") or "en")
 
         moduleId = processed or legacy
         targetId = moduleId
@@ -729,8 +842,7 @@ async def POST(request: Request):
     try:
         body = await request.json()
         module_id = body.get("processed_module_id") or body.get("module_id")
-        language = body.get("language") or "en"
-        language = "hinglish" if language == "hinglish" else "en"
+        language = normalize_language(body.get("language") or "en")
 
         if not module_id:
             return JSONResponse(content={"error": "Missing processed_module_id"}, status_code=400)

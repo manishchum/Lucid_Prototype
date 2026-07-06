@@ -324,13 +324,20 @@ async def update_audio_data(
         updates = {
             'audio_generated_at': 'now()'
         }
-        
-        if language == 'hinglish':
-            updates['audio_url_hinglish'] = audio_url
-        else:
-            updates['audio_url'] = audio_url
-            if audio_duration is not None:
-                updates['audio_duration'] = audio_duration
+
+        suffix_map = {
+            'english': '',
+            'en': '',
+            'hinglish': '_hinglish',
+            'german': '_german',
+            'spanish': '_spanish',
+            'french': '_french',
+        }
+        suffix = suffix_map.get(language, '')
+
+        updates[f'audio_url{suffix}'] = audio_url
+        if audio_duration is not None and suffix == '':
+            updates['audio_duration'] = audio_duration
         
         # Update the module
         response = db.table('processed_modules').update(updates).eq(
@@ -497,17 +504,21 @@ async def update_podcast_data(
         
         # Prepare updates based on language
         updates = {}
-        
-        if language == 'hinglish':
-            if podcast_transcript is not None:
-                updates['podcast_transcript_hinglish'] = podcast_transcript
-            if podcast_timeline is not None:
-                updates['podcast_timeline_hinglish'] = podcast_timeline
-        else:
-            if podcast_transcript is not None:
-                updates['podcast_transcript'] = podcast_transcript
-            if podcast_timeline is not None:
-                updates['podcast_timeline'] = podcast_timeline
+
+        suffix_map = {
+            'english': '',
+            'en': '',
+            'hinglish': '_hinglish',
+            'german': '_german',
+            'spanish': '_spanish',
+            'french': '_french',
+        }
+        suffix = suffix_map.get(language, '')
+
+        if podcast_transcript is not None:
+            updates[f'podcast_transcript{suffix}'] = podcast_transcript
+        if podcast_timeline is not None:
+            updates[f'podcast_timeline{suffix}'] = podcast_timeline
         
         if not updates:
             return {"data": None, "error": "No data provided for update"}

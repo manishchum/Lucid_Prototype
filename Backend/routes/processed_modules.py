@@ -42,7 +42,7 @@ class UpdateProcessedModuleRequest(BaseModel):
 class UpdateAudioRequest(BaseModel):
     audio_url: str
     audio_duration: Optional[int] = None
-    language: str = 'english'  # 'english' or 'hinglish'
+    language: str = 'english'  # 'english', 'hinglish', 'german', 'spanish', or 'french'
 
 
 class UpdateVideoRequest(BaseModel):
@@ -60,7 +60,7 @@ class UpdateContentGenerationRequest(BaseModel):
 class UpdatePodcastRequest(BaseModel):
     podcast_transcript: Optional[str] = None
     podcast_timeline: Optional[str] = None
-    language: str = 'english'  # 'english' or 'hinglish'
+    language: str = 'english'  # 'english', 'hinglish', 'german', 'spanish', or 'french'
 
 
 class GetMultipleRequest(BaseModel):

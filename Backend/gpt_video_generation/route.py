@@ -183,8 +183,11 @@ For each scene, provide:
 1. title
 2. spoken_script (in English)
 3. hinglish_script (in conversational Hinglish - a mix of Hindi and English written in Latin script)
-4. slide_bullets (2-3 bullets)
-5. visual_prompt (no text, no human faces)
+4. german_script (in German)
+5. spanish_script (in Spanish)
+6. french_script (in French)
+7. slide_bullets (2-3 bullets)
+8. visual_prompt (no text, no human faces)
 
 CRITICAL: Return JSON ONLY.
 [
@@ -192,6 +195,9 @@ CRITICAL: Return JSON ONLY.
     "title": "...",
     "spoken_script": "...",
     "hinglish_script": "...",
+    "german_script": "...",
+    "spanish_script": "...",
+    "french_script": "...",
     "slide_bullets": ["...", "..."],
     "visual_prompt": "..."
   }}
@@ -566,138 +572,146 @@ async def generateVideo(processedModuleId: str) -> dict:
     print("[VIDEO] Generating AI instructor avatar...")
     avatar = await generateAvatarImage(tmpDir)
 
-    sceneVideos_en: List[str] = []
-    sceneVideos_hi: List[str] = []
+    language_specs = {
+        "en": {
+            "script_key": "spoken_script",
+            "language_code": "en-IN",
+            "voice_name": "en-IN-Chirp3-HD-Callirrhoe",
+        },
+        "hinglish": {
+            "script_key": "hinglish_script",
+            "language_code": "hi-IN",
+            "voice_name": "hi-IN-Neural2-B",
+        },
+        "german": {
+            "script_key": "german_script",
+            "language_code": "de-DE",
+            "voice_name": "de-DE-Wavenet-B",
+        },
+        "spanish": {
+            "script_key": "spanish_script",
+            "language_code": "es-ES",
+            "voice_name": "es-ES-Wavenet-B",
+        },
+        "french": {
+            "script_key": "french_script",
+            "language_code": "fr-FR",
+            "voice_name": "fr-FR-Wavenet-B",
+        },
+    }
+    sceneVideos: Dict[str, List[str]] = {lang: [] for lang in language_specs}
     timeline = 0
 
     for i in range(len(scenes)):
         scene = scenes[i]
         bg = os.path.join(tmpDir, f"bg-{i}.png")
-        audio_en = os.path.join(tmpDir, f"audio-en-{i}.mp3")
-        audio_hi = os.path.join(tmpDir, f"audio-hi-{i}.mp3")
         slide = await renderSlide(scene, i, tmpDir)
 
         print(f"[VIDEO] Generating visual and audio for scene {i + 1}/{len(scenes)}")
         await generateImagenImage(scene["visual_prompt"], bg)
-        
-        # English audio
-        print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
-        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Chirp3-HD-Callirrhoe")
 
-        # Hinglish audio
-        hinglish_script = scene.get("hinglish_script", scene["spoken_script"])
-        print(f"[VIDEO] Scene {i + 1} - Hinglish Script: {hinglish_script}")
-        duration_hi = await generateTTSAudio(hinglish_script, audio_hi, "hi-IN", "hi-IN-Neural2-B")
+        language_audio_files: Dict[str, str] = {}
+        language_durations: Dict[str, float] = {}
 
-        max_duration = max(duration_en, duration_hi)
-        
-        out_en = os.path.join(tmpDir, f"scene-en-{i}.mp4")
-        out_hi = os.path.join(tmpDir, f"scene-hi-{i}.mp4")
-        
-        await composeScene(bg, slide, avatar, audio_en, out_en, fallbacks, max_duration)
-        await composeScene(bg, slide, avatar, audio_hi, out_hi, fallbacks, max_duration)
-        
-        sceneVideos_en.append(out_en)
-        sceneVideos_hi.append(out_hi)
+        for lang, spec in language_specs.items():
+            audio_path = os.path.join(tmpDir, f"audio-{lang}-{i}.mp3")
+            script = scene.get(spec["script_key"], scene["spoken_script"])
+            print(f"[VIDEO] Scene {i + 1} - {lang.title()} Script: {script}")
+            duration = await generateTTSAudio(script, audio_path, spec["language_code"], spec["voice_name"])
+            language_audio_files[lang] = audio_path
+            language_durations[lang] = duration
+
+        max_duration = max(language_durations.values())
+
+        for lang in language_specs.keys():
+            out_path = os.path.join(tmpDir, f"scene-{lang}-{i}.mp4")
+            await composeScene(bg, slide, avatar, language_audio_files[lang], out_path, fallbacks, max_duration)
+            sceneVideos[lang].append(out_path)
+
         timeline += max_duration
 
-    listFile_en = os.path.join(tmpDir, "scenes_en.txt")
-    with open(listFile_en, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_en]))
+    listFiles: Dict[str, str] = {
+        lang: os.path.join(tmpDir, f"scenes_{lang}.txt")
+        for lang in language_specs.keys()
+    }
 
-    listFile_hi = os.path.join(tmpDir, "scenes_hi.txt")
-    with open(listFile_hi, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_hi]))
+    for lang, files in sceneVideos.items():
+        with open(listFiles[lang], "w", encoding="utf-8") as f:
+            f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in files]))
 
-    finalVideo_en = os.path.join(tmpDir, "final_en.mp4")
-    finalVideo_hi = os.path.join(tmpDir, "final_hi.mp4")
+    finalVideos: Dict[str, str] = {
+        lang: os.path.join(tmpDir, f"final_{lang}.mp4")
+        for lang in language_specs.keys()
+    }
 
     if not FFMPEG_PATH:
         raise Exception("ffmpeg not found in PATH. Please install ffmpeg.")
-    
-    # ffmpeg concat EN
-    cmd_concat_en = [
-        FFMPEG_PATH, "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", listFile_en,
-        "-c", "copy",
-        finalVideo_en
-    ]
-    # ffmpeg concat HI
-    cmd_concat_hi = [
-        FFMPEG_PATH, "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", listFile_hi,
-        "-c", "copy",
-        finalVideo_hi
-    ]
-    
+
+    concat_commands: Dict[str, List[str]] = {}
+    for lang, list_path in listFiles.items():
+        concat_commands[lang] = [
+            FFMPEG_PATH, "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_path,
+            "-c", "copy",
+            finalVideos[lang]
+        ]
+
     def run_concat(cmd):
         return subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-    
-    result_en = await run_in_threadpool(run_concat, cmd_concat_en)
-    if result_en.returncode != 0:
-        raise Exception(result_en.stderr.decode("utf-8", errors="ignore")[:2000])
 
-    result_hi = await run_in_threadpool(run_concat, cmd_concat_hi)
-    if result_hi.returncode != 0:
-        raise Exception(result_hi.stderr.decode("utf-8", errors="ignore")[:2000])
+    for lang, cmd in concat_commands.items():
+        result = await run_in_threadpool(run_concat, cmd)
+        if result.returncode != 0:
+            raise Exception(result.stderr.decode("utf-8", errors="ignore")[:2000])
 
-    # Upload English Video
-    with open(finalVideo_en, "rb") as f:
-        buffer_en = f.read()
-
-    # Upload to Supabase
-    print("[VIDEO] Step 1: Ensuring bucket exists...")
-    bucket_result = await ensureBucketExists()
-    print(f"[VIDEO] Bucket check result: {bucket_result}")
-    
-    uploadPath_en = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_en.mp4"
-    uploadPath_hi = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_hi.mp4"
+    # Upload videos
+    uploadPaths: Dict[str, str] = {
+        lang: f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_{lang}.mp4"
+        for lang in language_specs.keys()
+    }
 
     try:
-        supabase_admin.storage.from_(BUCKET).upload(
-            path=uploadPath_en,
-            file=buffer_en,
-            file_options={"content-type": "video/mp4", "upsert": "true"}
-        )
-        
-        with open(finalVideo_hi, "rb") as f:
-            buffer_hi = f.read()
-
-        supabase_admin.storage.from_(BUCKET).upload(
-            path=uploadPath_hi,
-            file=buffer_hi,
-            file_options={"content-type": "video/mp4", "upsert": "true"}
-        )
+        for lang, final_video in finalVideos.items():
+            with open(final_video, "rb") as f:
+                buffer = f.read()
+            supabase_admin.storage.from_(BUCKET).upload(
+                path=uploadPaths[lang],
+                file=buffer,
+                file_options={"content-type": "video/mp4", "upsert": "true"}
+            )
     except Exception as e:
         print(f"[VIDEO] Upload exception caught: {type(e).__name__}: {e}")
-    
-    videoUrl_en = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_en)
-    videoUrl_hi = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_hi)
-    
-    if isinstance(videoUrl_en, dict):
-        videoUrl_en = videoUrl_en.get("publicURL") or videoUrl_en.get("publicUrl") or videoUrl_en.get("signedURL")
-    if isinstance(videoUrl_hi, dict):
-        videoUrl_hi = videoUrl_hi.get("publicURL") or videoUrl_hi.get("publicUrl") or videoUrl_hi.get("signedURL")
-    
-    if not videoUrl_en or not isinstance(videoUrl_en, str):
-        raise Exception(f"Failed to get EN video URL.")
+
+    videoUrls: Dict[str, Optional[str]] = {}
+    for lang, upload_path in uploadPaths.items():
+        url = supabase_admin.storage.from_(BUCKET).get_public_url(upload_path)
+        if isinstance(url, dict):
+            url = url.get("publicURL") or url.get("publicUrl") or url.get("signedURL")
+        videoUrls[lang] = url if isinstance(url, str) else None
+
+    if not videoUrls.get("en"):
+        raise Exception("Failed to get EN video URL.")
 
     # Save URL in DB
     print("[VIDEO] Saving video URLs to database:")
-    print("EN:", videoUrl_en)
-    print("HI:", videoUrl_hi)
+    print("EN:", videoUrls.get("en"))
+    print("HI:", videoUrls.get("hinglish"))
+    print("DE:", videoUrls.get("german"))
+    print("ES:", videoUrls.get("spanish"))
+    print("FR:", videoUrls.get("french"))
 
     supabase.table("processed_modules").update({
-        "video_url": videoUrl_en,
-        "video_url_hinglish": videoUrl_hi,
+        "video_url": videoUrls.get("en"),
+        "video_url_hinglish": videoUrls.get("hinglish"),
+        "video_url_german": videoUrls.get("german"),
+        "video_url_spanish": videoUrls.get("spanish"),
+        "video_url_french": videoUrls.get("french"),
         "video_generated_at": datetime.datetime.utcnow().isoformat()
     }).eq("processed_module_id", actualId).execute()
 
@@ -708,8 +722,11 @@ async def generateVideo(processedModuleId: str) -> dict:
         pass
 
     return {
-        "videoUrl": videoUrl_en,
-        "videoUrlHinglish": videoUrl_hi
+        "videoUrl": videoUrls.get("en"),
+        "videoUrlHinglish": videoUrls.get("hinglish"),
+        "videoUrlGerman": videoUrls.get("german"),
+        "videoUrlSpanish": videoUrls.get("spanish"),
+        "videoUrlFrench": videoUrls.get("french"),
     }
 
 
@@ -735,7 +752,10 @@ async def POST(req: Request):
 
         return JSONResponse({
             "videoUrl": urls["videoUrl"],
-            "videoUrlHinglish": urls["videoUrlHinglish"]
+            "videoUrlHinglish": urls["videoUrlHinglish"],
+            "videoUrlGerman": urls["videoUrlGerman"],
+            "videoUrlSpanish": urls["videoUrlSpanish"],
+            "videoUrlFrench": urls["videoUrlFrench"],
         })
     except Exception as e:
         print("[GPT-VIDEO] Video generation failed:", e)
