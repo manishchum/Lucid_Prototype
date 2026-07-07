@@ -52,6 +52,14 @@ async def submit_text_analysis(
         raise HTTPException(status_code=401, detail="User not authenticated")
 
     submission_type = payload.submission_type.lower()
+    
+    resolved_task_id = payload.task_id
+    is_bundle_submission = False
+    if payload.task_id and "-" in payload.task_id:
+        parts = payload.task_id.rsplit("-", 1)
+        if parts[1].isdigit() or parts[1] in ["image", "text", "audio", "video", "multiple_choice"]:
+            resolved_task_id = parts[0]
+            is_bundle_submission = True
     if submission_type not in ("text", "multiple_choice"):
         raise HTTPException(status_code=400, detail="Invalid submission type. Must be 'text' or 'multiple_choice'.")
 
@@ -62,11 +70,21 @@ async def submit_text_analysis(
             supabase
             .table("task_submissions")
             .select("*")
-            .eq("task_id", payload.task_id)
+            .eq("task_id", resolved_task_id)
             .eq("user_id", user_id)
             .execute()
         )
-        existing_row = existing_res.data[0] if existing_res.data else None
+        rows = existing_res.data or []
+        if is_bundle_submission:
+            for row in rows:
+                answers = row.get("answers") or []
+                if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                    existing_row = row
+                    break
+            if not existing_row and rows:
+                existing_row = rows[0]
+        else:
+            existing_row = rows[0] if rows else None
 
     if existing_row:
         is_completed = False
@@ -84,12 +102,12 @@ async def submit_text_analysis(
     insert_data = {
         "submission_id": submission_id,
         "company_id": company_id,
-        "task_id": payload.task_id,
+        "task_id": resolved_task_id,
         "user_id": user_id,
         "assignment_id": payload.assignment_id,
         "submission_type": payload.submission_type,
         "text_response": payload.text_response if submission_type == "text" else None,
-        "answers": [a.model_dump() for a in payload.answers] if submission_type == "multiple_choice" and payload.answers else [],
+        "answers": [a.model_dump() for a in payload.answers] + ([{"child_task_id": payload.task_id}] if is_bundle_submission else []) if submission_type == "multiple_choice" and payload.answers else ([{"child_task_id": payload.task_id}] if is_bundle_submission else []),
         "score": 0,
         "max_score": len(payload.answers) if submission_type == "multiple_choice" and payload.answers else 100,
         "ai_validation_pass": False,
@@ -119,11 +137,21 @@ async def submit_text_analysis(
                     supabase
                     .table("task_submissions")
                     .select("*")
-                    .eq("task_id", payload.task_id)
+                    .eq("task_id", resolved_task_id)
                     .eq("user_id", user_id)
                     .execute()
                 )
-                existing_row = existing_res.data[0] if existing_res.data else None
+                rows = existing_res.data or []
+                if is_bundle_submission:
+                    for row in rows:
+                        answers = row.get("answers") or []
+                        if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                            existing_row = row
+                            break
+                    if not existing_row and rows:
+                        existing_row = rows[0]
+                else:
+                    existing_row = rows[0] if rows else None
                 if not existing_row:
                     raise HTTPException(status_code=500, detail=str(e))
             else:
@@ -137,7 +165,15 @@ async def submit_text_analysis(
                       "submission_type", "submitted_at"]:
             val = insert_data.get(field)
             if val is not None:
-                update_data[field] = val
+                # Merge answers to avoid overwriting existing ones for other subtasks
+                if field == "answers" and is_bundle_submission and existing_row.get("answers"):
+                    existing_answers = existing_row.get("answers") or []
+                    # Keep old answers, but filter out the ones for this child_task_id if updating
+                    merged_answers = [a for a in existing_answers if not (isinstance(a, dict) and a.get("child_task_id") == payload.task_id)]
+                    merged_answers.extend(val)
+                    update_data[field] = merged_answers
+                else:
+                    update_data[field] = val
         
         result = (
             supabase
