@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Header, Query, HTTPException, Depends
+from fastapi import APIRouter, Header, Query, HTTPException, Depends, File, UploadFile, Form
 from pydantic import BaseModel
 from typing import Optional, List
+from utils.auth_bridge import get_service_supabase_client
+import time
+
 
 from utils.db.companies_db import (
     get_company_by_id,
@@ -192,6 +195,53 @@ async def get_company_by_domain_route(
         "error": result.get("error")
     }
 
+
+
+@router.post("/with-logo")
+async def create_company_with_logo_route(
+    name: str = Form(...),
+    domain: str = Form(...),
+    logo: UploadFile = File(...),
+    learning_style: bool = Form(False),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    supabase = get_service_supabase_client()
+    
+    safe_ext = "png"
+    if logo.filename and "." in logo.filename:
+        safe_ext = logo.filename.split(".")[-1].lower()
+    
+    safe_name = "".join([c if c.isalnum() else "-" for c in name.lower()]).strip("-")
+    logo_path = f"companies/{safe_name}-{int(time.time()*1000)}.{safe_ext}"
+    
+    try:
+        content = await logo.read()
+        res = supabase.storage.from_("logos").upload(
+            logo_path,
+            content,
+            {"content-type": logo.content_type, "upsert": "true"}
+        )
+        
+        public_url = supabase.storage.from_("logos").get_public_url(logo_path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to upload logo: {str(e)}")
+        
+    company_data = {
+        "name": name,
+        "domain": domain,
+        "company_logo": public_url,
+        "learning_style": learning_style
+    }
+    
+    result = await create_company(user_id, company_data)
+    company = result.get("data") or None
+    
+    return {
+        "success": True,
+        "data": company,
+        "error": result.get("error")
+    }
 
 @router.post("/")
 async def create_company_route(

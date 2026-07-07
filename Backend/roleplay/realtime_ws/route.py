@@ -193,6 +193,10 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             conversation_transcript = final_transcript
 
                             logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")  
+                            await websocket.send_json({
+                                "type": "session_ended",
+                                "transcript": final_transcript
+                            })
 
                 except Exception as e:
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
@@ -235,6 +239,10 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                            elif text:
                                conversation_transcript.append({"role": "bot", "text": text})
                            logger.info(f"[Realtime] 💬 Bot: {text[:60]}...")
+                           await websocket.send_json({
+                               "type": "bot_transcription",
+                               "text": text
+                           })
 
                         elif response_type == "conversation.item.input_audio_transcription.completed":
                            text = response.get("transcript", "")

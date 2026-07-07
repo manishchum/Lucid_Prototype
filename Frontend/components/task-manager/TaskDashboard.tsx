@@ -37,7 +37,12 @@ import {
   Video as VideoIcon,
   VideoOff as VideoOffIcon,
   Circle as CircleIcon,
-  Trash2
+  Trash2,
+  LayoutGrid,
+  List,
+  ChevronDown,
+  Type,
+  ListChecks
 } from 'lucide-react';
 import { AssignedTask, SubmissionFormat, TeamMember } from '@/types/task';
 import type { SubmitTaskPayload } from '@/lib/taskApi';
@@ -68,7 +73,9 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     // console.log("TASK DASHBOARD RECEIVED:", assignedTasks);
   }
   const [searchQuery, setSearchQuery] = useState('');
-  const [levelFilter, setLevelFilter] = useState<'all' | 'sprint' | 'individual'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed'>('active');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [displayLimit, setDisplayLimit] = useState(3);
   
   // Interactive submission tracking for employees
   const [activeSubmittingTaskId, setActiveSubmittingTaskId] = useState<string | null>(null);
@@ -247,8 +254,6 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
   // Filter tasks based on Search bar and Select controls
   const filteredTasks = (assignedTasks || []).filter(task => {
-    const matchesLevel = levelFilter === 'all' || task.level === levelFilter || (levelFilter === 'individual' && task.level !== 'sprint');
-    
     // Check if search match in title, description, or target audience
     const matchesSearch = searchQuery.trim() === '' || 
       task.tasks.some(sub => 
@@ -259,7 +264,12 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       (task.targetFunctions || []).some(f => String(f).toLowerCase().includes(searchQuery.toLowerCase())) ||
       (task.targetIndividuals || []).some(i => String(i).toLowerCase().includes(searchQuery.toLowerCase()));
 
-    return matchesLevel && matchesSearch;
+    const isCompleted = task.status === 'Completed' || task.submitted === true || Boolean((task as any).submission) || !!submittedTaskIds[task.id];
+    let matchesStatus = true;
+    if (statusFilter === 'active') matchesStatus = !isCompleted;
+    if (statusFilter === 'completed') matchesStatus = isCompleted;
+
+    return matchesStatus && matchesSearch;
   });
 
   // console.log("FILTERED TASKS:", filteredTasks);
@@ -744,125 +754,85 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
 
-      {/* 2. Your Progress Banner Card, exact visual match to image progress circle */}
-      {/* <div className="bg-white rounded-3xl p-6 border border-[#E2E8F0] shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-[#2F63FF]/5 rounded-bl-full pointer-events-none"></div>
-        
-        <div className="flex items-center space-x-4 flex-1">
-          <div className="w-12 h-12 bg-blue-50 text-[#2F63FF] rounded-2xl flex items-center justify-center">
-            <TrendingUp size={22} className="stroke-[2.5]" />
-          </div>
-          <div>
-            <h3 className="font-display font-bold text-lg text-[#0F172A]">Task Metrics Overview</h3>
-            <p className="text-xs text-gray-400 font-sans mt-0.5">
-              Monitor real-time task fulfilment, sprint completion ratios, and employee compliance logs.
-            </p>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 border border-emerald-150 px-2.5 py-0.5 rounded-full font-sans">
-                {completedTaskCount} COMPLETED
-              </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#2F63FF] font-sans bg-[#EEF2FF] px-2.5 py-0.5 rounded-full">
-                {totalCreatedTasks} TOTAL TASKS
-              </span>
-            </div>
-          </div>
-         </div> */}
-
-        {/* Circular gauge mimicking design */}
-        {/* <div className="flex items-center space-x-4 pr-4">
-          <div className="text-right">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block font-sans">COMPLETION RATE</span>
-            <span className="text-xs font-bold text-[#0F172A]">{completedTaskCount} of {totalCreatedTasks} tasks</span>
-          </div> */}
-{/*           
-          <div className="relative flex items-center justify-center w-20 h-20">
-            <svg className="w-20 h-20 transform -rotate-90">
-              <circle
-                cx="40"
-                cy="40"
-                r="34"
-                stroke="#F1F5F9"
-                strokeWidth="7"
-                fill="transparent"
-              />
-              <circle
-                cx="40"
-                cy="40"
-                r="34"
-                stroke="#2F63FF"
-                strokeWidth="7"
-                fill="transparent"
-                strokeDasharray={2 * Math.PI * 34}
-                strokeDashoffset={2 * Math.PI * 34 * (1 - (completionPercentage / 100))}
-                className="transition-all duration-1000 ease-out"
-              />
-            </svg>
-            <div className="absolute font-display font-bold text-[#0F172A] text-lg">
-              {completionPercentage}%
-            </div>
+     
+      <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm mb-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[#0F172A] font-bold text-xl">Assigned Tasks</h2>
+          
+          <div className="flex gap-2 items-center">
+            {userRole === 'admin' && (
+              <button
+                type="button"
+                onClick={onStartCreateTask}
+                className="px-4 py-2 text-xs font-bold text-white bg-[#2F63FF] hover:bg-blue-600 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm mr-2"
+              >
+                <Plus size={13} />
+                <span>Create Task</span>
+              </button>
+            )}
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+              }`}
+            >
+              <LayoutGrid size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+              }`}
+            >
+              <List size={18} />
+            </button>
           </div>
         </div>
-      </div> */}
 
-      {/* 3. Filter Grid and Controller Header */}
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between border-b border-[#E2E8F0] pb-4">
-        <h2 className="text-[#0F172A] font-display font-medium text-sm flex items-center space-x-2">
-          <span>Assigned Tasks & Sprints</span>
-          <span className="bg-[#2F63FF]/10 text-[#2F63FF] font-sans text-[10px] px-2.5 py-0.5 rounded-full font-bold">
-            {filteredTasks.length} Active
-          </span>
-        </h2>
+        <div className="flex flex-wrap gap-2 items-center">
+          <button
+            onClick={() => { setStatusFilter('active'); setDisplayLimit(3); }}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+              statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            }`}
+          >
+            Active
+          </button>
+          <button
+            onClick={() => { setStatusFilter('completed'); setDisplayLimit(3); }}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+              statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            }`}
+          >
+            Completed
+          </button>
+          <button
+            onClick={() => { setStatusFilter('all'); setDisplayLimit(3); }}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+              statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            }`}
+          >
+            All
+          </button>
+          <div className="flex-1" />
+        </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 items-center w-full sm:w-auto">
-          {userRole === 'admin' && (
-            <button
-              type="button"
-              onClick={onStartCreateTask}
-              className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-white bg-[#2F63FF] hover:bg-blue-600 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm shrink-0"
-            >
-              <Plus size={13} />
-              <span>Create Task</span>
-            </button>
-          )}
-          {/* Search bar */}
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-3.5 text-gray-400" size={14} />
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Search tasks..."
+              placeholder="Search Tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs border border-[#E2E8F0] bg-white rounded-xl pl-9 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#2F63FF]"
+              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
             />
           </div>
-
-          {/* Level Filter Switch */}
-          <div className="flex bg-[#E2E8F0] p-1 rounded-xl w-full sm:w-auto">
-            <button
-              onClick={() => setLevelFilter('all')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer w-full sm:w-auto text-center ${
-                levelFilter === 'all' ? 'bg-white text-[#0F172A] shadow-sm' : 'text-[#64748B]'
-              }`}
-            >
-              All Tasks
-            </button>
-            <button
-              onClick={() => setLevelFilter('sprint')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer w-full sm:w-auto text-center ${
-                levelFilter === 'sprint' ? 'bg-white text-[#2F63FF] shadow-sm' : 'text-[#64748B]'
-              }`}
-            >
-              Sprint Slices
-            </button>
-            <button
-              onClick={() => setLevelFilter('individual')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer w-full sm:w-auto text-center ${
-                levelFilter === 'individual' ? 'bg-white text-[#2F63FF] shadow-sm' : 'text-[#64748B]'
-              }`}
-            >
-              Individual Sprints
-            </button>
-          </div>
+          <select className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 outline-none w-full sm:w-48 cursor-pointer">
+            <option>Sort by Title</option>
+            <option>Recently Added</option>
+            <option>Completion</option>
+          </select>
         </div>
       </div>
 
@@ -885,29 +855,87 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTasks.map((task) => {
-            // treat backend-provided submission (attached to the assignment) as completed by this user
-            const isCompletedByMe =
-              task.status === 'Completed' ||
-              task.submitted === true ||
-              Boolean((task as any).submission) ||
-              !!submittedTaskIds[task.id];
-            const isSubmittingActive = activeSubmittingTaskId === task.id;
-            const isSubmittingNow = !!submittingTaskIds[task.id];
-            const latestSubmission = (task as any).submission || null;
+        <div className={viewMode === 'list' ? "bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6 overflow-x-auto" : ""}>
+          <div className={viewMode === 'list' ? "min-w-[900px]" : ""}>
+            {viewMode === 'list' && (
+              <div className="grid grid-cols-[3fr_1fr_1fr_2fr_2fr] gap-4 px-6 py-4 border-b border-gray-100 text-[11px] font-bold text-[#64748B] uppercase tracking-wider bg-white">
+                <div>Task Name</div>
+                <div>Due Date</div>
+                <div>Status</div>
+                <div>Completion</div>
+                <div className="text-right pr-2">Actions</div>
+              </div>
+            )}
+            <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "flex flex-col divide-y divide-gray-100 bg-white"}>
+              {filteredTasks.slice(0, displayLimit).map((task) => {
+                // treat backend-provided submission (attached to the assignment) as completed by this user
+                const isCompletedByMe =
+                  task.status === 'Completed' ||
+                  task.submitted === true ||
+                  Boolean((task as any).submission) ||
+                  !!submittedTaskIds[task.id];
+                const isSubmittingActive = activeSubmittingTaskId === task.id;
+                const isSubmittingNow = !!submittingTaskIds[task.id];
+                const latestSubmission = (task as any).submission || null;
 
-            return (
-              <div 
-                key={task.id} 
-                className={`bg-white rounded-2xl border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${
-                  isCompletedByMe 
-                    ? 'border-emerald-300 ring-2 ring-emerald-50/50' 
-                    : isSubmittingActive
-                      ? 'border-[#2F63FF] ring-4 ring-indigo-50'
-                      : 'border-[#E2E8F0]'
-                }`}
-              >
+                return (
+                  <React.Fragment key={task.id}>
+                    {viewMode === 'list' && (
+                      <div className="grid grid-cols-[3fr_1fr_1fr_2fr_2fr] gap-4 px-6 py-4 items-center hover:bg-gray-50/50 transition-colors">
+                        <div className="font-bold text-[#0F172A] text-[14px]">
+                          {task.tasks.map(t => t.title).join(' • ')}
+                        </div>
+                        <div className="text-[#94A3B8] text-[13px] font-bold">
+                          {task.dueDate || 'N/A'}
+                        </div>
+                        <div>
+                          <span className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
+                            isCompletedByMe ? 'bg-green-100 text-green-600' :
+                            task.id === activeSubmittingTaskId ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-100 text-[#64748B]'
+                          }`}>
+                            {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
+                          </span>
+                        </div>
+                        <div className="pr-4 pt-1">
+                          <div className="h-[6px] w-full bg-gray-100 rounded-full overflow-hidden mb-1.5">
+                            <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                          </div>
+                          <div className="flex justify-between text-[11px] font-bold">
+                            <span className="text-[#64748B]">{isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length}</span>
+                            <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="flex -space-x-1.5 mr-2">
+                            {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
+                            {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
+                            {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
+                            {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
+                            {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
+                          </div>
+                          {!isCompletedByMe && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveSubmittingTaskId(task.id)}
+                              className="px-5 py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                            >
+                              Start
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                {viewMode === 'grid' && userRole === 'admin' && (
+                  <div 
+                    className={`bg-white rounded-2xl border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${
+                      isCompletedByMe 
+                        ? 'border-emerald-300 ring-2 ring-emerald-50/50' 
+                        : isSubmittingActive
+                          ? 'border-[#2F63FF] ring-4 ring-indigo-50'
+                          : 'border-[#E2E8F0]'
+                    }`}
+                  >
                 {/* 1. Card Top Accent Color bar */}
                 <div className={`h-1.5 w-full ${isCompletedByMe ? 'bg-[#10B981]' : 'bg-[#2F63FF]'}`} />
 
@@ -1372,9 +1400,86 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                               </div>
                             )}
                           </div>
-                        ) : isSubmittingActive ? (
-                          /* Active interactive form inputs */
-                           <div className="space-y-4 pt-1">
+                        ) : (
+                          /* Initial Start CTA */
+                          <button
+                            type="button"
+                            onClick={() => setActiveSubmittingTaskId(task.id)}
+                            className="w-full flex items-center justify-center space-x-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition-all cursor-pointer shadow-sm mt-4"
+                          >
+                            <Play size={12} fill="currentColor" />
+                            <span>Begin Verification</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              )}
+              {viewMode === 'grid' && userRole !== 'admin' && (
+                <div className="bg-white rounded-xl border border-gray-100 p-5 flex flex-col justify-between shadow-[0_2px_8px_rgb(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgb(0,0,0,0.06)] transition-all space-y-6">
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-start gap-4">
+                      <h3 className="font-bold text-gray-900 text-[15px] leading-snug">
+                        {task.tasks.map(t => t.title).join(' • ')}
+                      </h3>
+                      <span className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
+                        isCompletedByMe ? 'bg-green-100 text-green-600' : 
+                        task.id === activeSubmittingTaskId ? 'bg-blue-100 text-[#2F63FF]' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400 font-medium">
+                      Due: {task.dueDate || 'N/A'}
+                    </div>
+                    
+                    <div className="space-y-1.5 pt-2">
+                      <div className="flex justify-between text-xs font-bold">
+                        <span className="text-gray-500">Completion</span>
+                        <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
+                      </div>
+                      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                      </div>
+                      <div className="text-xs text-gray-400 font-medium mt-1">
+                        {isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length} modules
+                      </div>
+                    </div>
+                  </div>
+                  {!isCompletedByMe && (
+                    <div className="flex items-center justify-between gap-3 pt-2">
+                      <div className="flex -space-x-1.5">
+                        {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
+                        {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
+                        {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
+                        {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
+                        {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveSubmittingTaskId(task.id)}
+                        className="flex-1 py-2.5 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                      >
+                        Start
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* MODAL */}
+              {isSubmittingActive && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in font-sans" onClick={() => setActiveSubmittingTaskId(null)}>
+                  <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
+                    <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                      <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.tasks.map(t => t.title).join(', ')}</h3>
+                      <button onClick={() => setActiveSubmittingTaskId(null)} className="text-gray-400 hover:text-gray-600 font-bold text-2xl cursor-pointer leading-none">
+                        &times;
+                      </button>
+                    </div>
+                    <div className="space-y-4 pt-1">
                                 {task.tasks.map((subTask) => (
                               <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-xl space-y-3">
                                   {/* {(() => { console.log("Submission Format:", subTask.submissionFormat); return null; })()} */}
@@ -1699,31 +1804,20 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         </button>
                                       </div>
                                     ) : (
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                          type="button"
-                                          onClick={() => simulateMockVideo(task.id)}
-                                          className="flex flex-col items-center justify-center text-center border border-dashed border-[#CBD5E1] bg-white hover:bg-[#EEF2FF] hover:border-[#2F63FF] p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
-                                        >
-                                          <VideoIcon className="text-[#2F63FF] mb-1.5" size={20} />
-                                          <span className="text-xs font-semibold text-gray-755 block">Preset Video</span>
-                                          <span className="text-[9px] text-gray-400 mt-1 max-w-[130px] leading-snug">Simulate high quality camera recording</span>
-                                        </button>
-
+                                  <div>
                                         <button
                                           type="button"
                                           onClick={() => startVideoRecording(task.id)}
-                                          className="flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
+                                          className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
                                         >
                                           <VideoIcon className="text-indigo-600 mb-1.5 animate-pulse" size={20} />
-                                          <span className="text-xs font-semibold text-indigo-955 block">Live Web Video</span>
+                                          <span className="text-xs font-semibold text-indigo-950 block">Live Web Video</span>
                                           <span className="text-[9px] text-indigo-400 mt-1 max-w-[130px] leading-snug">Record live webcam capture feed</span>
                                         </button>
                                       </div>
                                     )}
                                   </div>
                                 )}
-
                                 {subTask.submissionFormat === 'multiple_choice' && (
                                   <div className="space-y-4">
                                     {subTask.questions.map((q) => (
@@ -1788,27 +1882,26 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                               </button>
                             </div>
                           </div>
-                        ) : (
-                          /* Initial Start CTA */
-                          <button
-                            type="button"
-                            onClick={() => setActiveSubmittingTaskId(task.id)}
-                            className="w-full flex items-center justify-center space-x-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition-all cursor-pointer shadow-sm"
-                          >
-                            <Play size={12} fill="currentColor" />
-                            <span>Begin Verification</span>
-                          </button>
-                        )}
+                        </div>
                       </div>
                     )}
-                  </div>
-
-                </div>
-              </div>
+              </React.Fragment>
             );
           })}
         </div>
-      )}
+        {filteredTasks.length > displayLimit && (
+          <div className={viewMode === 'list' ? "p-4 border-t border-gray-100 bg-white flex justify-end" : "pt-2 flex justify-end"}>
+            <button 
+              onClick={() => setDisplayLimit(prev => prev + 3)}
+              className="bg-[#2F63FF] hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+            >
+              Show More <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )}
 
       {selectedFeedbackSubmission && (
         <AIFeedbackModal

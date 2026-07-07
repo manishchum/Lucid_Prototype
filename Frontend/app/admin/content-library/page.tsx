@@ -452,7 +452,6 @@ export default function AdminContentLibrary() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-400 tracking-wider">SORT BY:</span>
                 <select className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 outline-none bg-white">
-                  <option>Most Views</option>
                   <option>Newest</option>
                   <option>A-Z</option>
                 </select>
@@ -511,16 +510,6 @@ export default function AdminContentLibrary() {
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{getCategoryCount(activeCategory)} ITEMS</p>
                 </div>
               </button>
-              
-              {/* {hasUploadAccess && (
-                // <button 
-                //   onClick={() => setIsUploadMode(true)}
-                //   className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-sm"
-                // >
-                //   <Upload className="w-4 h-4" />
-                //   Upload to Folder
-                // </button>
-              )} */}
             </div>
 
             {loading ? (
@@ -649,23 +638,6 @@ export default function AdminContentLibrary() {
                   Delete Asset
                 </button>
               )}
-              
-              <button 
-                onClick={() => setSelectedItem(null)}
-                className="px-5 py-2.5 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"
-              >
-                Close
-              </button>
-              
-              <a 
-                href={selectedItem.file_url}
-                target="_blank"
-                rel="noreferrer"
-                className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Download File
-              </a>
             </div>
           </div>
         </div>
