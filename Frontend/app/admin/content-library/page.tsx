@@ -510,16 +510,6 @@ export default function AdminContentLibrary() {
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">{getCategoryCount(activeCategory)} ITEMS</p>
                 </div>
               </button>
-              
-              {/* {hasUploadAccess && (
-                // <button 
-                //   onClick={() => setIsUploadMode(true)}
-                //   className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-sm text-sm"
-                // >
-                //   <Upload className="w-4 h-4" />
-                //   Upload to Folder
-                // </button>
-              )} */}
             </div>
 
             {loading ? (

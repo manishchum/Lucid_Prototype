@@ -225,7 +225,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     try {
 
       const response = await fetchWithAuth(
-        `${API_URL}/api/analytics/dashboard/${companyId}`,
+        `${API_URL}/api/analytics/dashboard/${companyId}?moduleId=${selectedModule}&assessmentType=${selectedAssessmentType}&timeRange=${selectedTimeRange}`,
         {
           headers: {
             "X-User-ID": adminUserId
@@ -243,17 +243,45 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       // setOverallStats(data.overallStats);
       // console.log('Overall stats set:', data.overallStats);
 
-      const learningStyleArray =
-        Object.entries(data.learningStyles || {})
-        .map(([style, count]: any) => ({
-          style,
-          count
-        }));
+      // const learningStyleArray =
+      //   Object.entries(data.learningStyles || {})
+      //   .map(([style, count]: any) => ({
+      //     style,
+      //     count
+      //   }));
+      const totalLearningStyles = Object.values(data.learningStyles || {})
+          .reduce((sum: number, value: any) => sum + Number(value), 0);
 
+      const learningStyleArray =
+          Object.entries(data.learningStyles || {})
+          .map(([style, count]: any) => ({
+              style,
+              count,
+              percentage:
+                  totalLearningStyles > 0
+                      ? Math.round((Number(count) / totalLearningStyles) * 100)
+                      : 0
+          }));
+          
       setLearningStyleStats(learningStyleArray);
 
       setModules(data.modules || []);
-
+      setOverallStats(
+        data.overallStats || {
+          totalAssignments: 0,
+          completedAssignments: 0,
+          inProgressAssignments: 0,
+          notStartedAssignments: 0,
+          totalModules: 0,
+          totalEmployees: 0,
+          activeEmployees: 0,
+          averageAssessmentScore: 0,
+          totalAssessments: 0,
+          completedAssessments: 0,
+          averageKpiScore: 0,
+          learningStylesCompleted: 0,
+        }
+      );
       setModuleStats(data.moduleStats || []);
       setAssessmentStats(data.assessmentStats || []);
       setProgressData(data.progressData || []);
@@ -270,7 +298,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     if (companyId && adminUserId) {
       loadAnalyticsDataHandler();
     }
-  }, [companyId, adminUserId]);
+  }, [companyId, adminUserId, selectedModule, selectedTimeRange, selectedAssessmentType]);
 
   // const loadAnalyticsData = async () => {
   //   setLoading(true);

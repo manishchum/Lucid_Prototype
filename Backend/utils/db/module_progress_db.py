@@ -2,6 +2,8 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
+from .learning_plan_db import refresh_learning_plan_status
+from utils.redis_client import delete_cache_pattern
 
 # ==================== MODULE PROGRESS OPERATIONS ====================
 
@@ -188,6 +190,20 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         user_id = progress_data.get('user_id')
         processed_module_id = progress_data.get('processed_module_id')
         
+        module_id = progress_data.get("module_id")
+
+        if not module_id:
+            pm_resp = (
+                supabase.table("processed_modules")
+                .select("original_module_id")
+                .eq("processed_module_id", processed_module_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if pm_resp.data:
+                module_id = pm_resp.data["original_module_id"]
+        
         if not user_id or not processed_module_id:
             return {"data": None, "error": "user_id and processed_module_id are required"}
         
@@ -217,10 +233,23 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         existing_data = getattr(existing, 'data', None)
         
         if existing_data:
-            # Record exists
+
             if view_only:
-                # Don't update, just return existing
-                return {"data": existing_data, "error": None, "action": "view"}
+
+                if module_id:
+                    await refresh_learning_plan_status(
+                        user_id=user_id,
+                        module_id=module_id
+                    )
+
+                delete_cache_pattern(f"dashboard_summary:{user_id}*")
+                delete_cache_pattern("analytics:*")
+
+                return {
+                    "data": existing_data,
+                    "error": None,
+                    "action": "view"
+                }
             
             # Update existing record
             progress_id = existing_data['module_progress_id']
@@ -279,11 +308,27 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             if not update_data:
                 return {"data": existing_data, "error": None, "action": "no_change"}
             
-            resp = supabase.table('module_progress').update(update_data).eq(
-                'module_progress_id', progress_id
-            ).execute()
-            
-            return {"data": getattr(resp, 'data', None), "error": None, "action": "updated"}
+            resp = (
+                supabase.table("module_progress")
+                .update(update_data)
+                .eq("module_progress_id", progress_id)
+                .execute()
+            )
+
+            if module_id:
+                await refresh_learning_plan_status(
+                    user_id=user_id,
+                    module_id=module_id
+                )
+
+            delete_cache_pattern(f"dashboard_summary:{user_id}*")
+            delete_cache_pattern("analytics:*")
+
+            return {
+                "data": getattr(resp, "data", None),
+                "error": None,
+                "action": "updated"
+            }
         
         else:
             # Create new record
@@ -309,9 +354,26 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             if 'pass_status' in progress_data:
                 insert_data['pass_status'] = progress_data['pass_status']
             
-            resp = supabase.table('module_progress').insert(insert_data).execute()
-            
-            return {"data": getattr(resp, 'data', None), "error": None, "action": "created"}
+            resp = (
+                supabase.table("module_progress")
+                .insert(insert_data)
+                .execute()
+            )
+
+            if module_id:
+                await refresh_learning_plan_status(
+                    user_id=user_id,
+                    module_id=module_id
+                )
+
+            delete_cache_pattern(f"dashboard_summary:{user_id}*")
+            delete_cache_pattern("analytics:*")
+
+            return {
+                "data": getattr(resp, "data", None),
+                "error": None,
+                "action": "created"
+            }
     
     except Exception as e:
         return {"data": None, "error": str(e)}
