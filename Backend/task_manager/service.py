@@ -969,7 +969,13 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                       "ai_status", "analysis_status", "status", "submission_type", "submitted_at"]:
             val = insert_data.get(field)
             if val is not None:
-                update_data[field] = val
+                if field == "answers" and is_bundle_submission and existing_row.get("answers"):
+                    existing_answers = existing_row.get("answers") or []
+                    merged_answers = [a for a in existing_answers if not (isinstance(a, dict) and a.get("child_task_id") == payload.task_id)]
+                    merged_answers.extend(val)
+                    update_data[field] = merged_answers
+                else:
+                    update_data[field] = val
         
         result = (
             db
