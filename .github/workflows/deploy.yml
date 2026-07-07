@@ -35,4 +35,4 @@ jobs:
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
             ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-            "whoami && sudo -l && /home/serviceaccount/deploy.sh"
+              "head -20 /home/serviceaccount/deploy.sh && echo '-----' && /home/serviceaccount/deploy.sh"
