@@ -32,6 +32,7 @@ jobs:
       - name: Deploy to GCP
         run: |
           ssh \
+            -tt \
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
             ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
