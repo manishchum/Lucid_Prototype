@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
@@ -28,12 +28,13 @@ interface AssessmentReport {
   recommendations: string[];
 }
 
-function RolePlayPageContent({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, moduleTitle: string, custom: string }> }) {
+  const unwrappedParams = use(params);
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const moduleId = params.module_id;
-  const moduleTitle = params.moduleTitle;
+  const moduleId = unwrappedParams.module_id;
+  const moduleTitle = unwrappedParams.moduleTitle;
   const isCustom = searchParams.get('custom') === 'true';
   
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('scenarioSelection');
@@ -998,7 +999,7 @@ function RolePlayPageContent({ params }: { params: { module_id: string, moduleTi
   );
 }
 
-export default function RolePlayPage({ params }: { params: { module_id: string, moduleTitle: string, custom: string } }) {
+export default function RolePlayPage({ params }: { params: Promise<{ module_id: string, moduleTitle: string, custom: string }> }) {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
