@@ -2258,52 +2258,18 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
     setCreatingCompany(true);
     try {
-      const originalName = newCompanyLogoFile.name || 'logo';
-      const ext = originalName.includes('.') ? originalName.split('.').pop()?.toLowerCase() : 'png';
-      const safeExt = ext || 'png';
-      const safeName = newCompanyName
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-      const logoPath = `companies/${safeName || 'company'}-${Date.now()}.${safeExt}`;
+      const formData = new FormData();
+      formData.append('name', newCompanyName.trim());
+      formData.append('domain', newCompanyDomain.trim().toLowerCase());
+      formData.append('logo', newCompanyLogoFile);
+      formData.append('learning_style', 'false');
 
-      if (!supabase?.storage?.from) {
-        throw new Error('Storage client is not configured');
-      }
-      // console.log("THis is the file path",logoPath)
-
-      const { data: logoUploadData, error: logoUploadError } = await supabase.storage
-        .from('logos')
-        .upload(logoPath, newCompanyLogoFile, {
-          contentType: newCompanyLogoFile.type || undefined,
-          upsert: true,
-        });
-
-
-      // console.log("Upload successfull")
-      if (logoUploadError || !logoUploadData?.path) {
-        throw new Error(logoUploadError?.message || 'Failed to upload company logo');
-      }
-
-      const { data: publicLogo } = supabase.storage.from('logos').getPublicUrl(logoUploadData.path);
-      const logoUrl = publicLogo?.publicUrl;
-      if (!logoUrl) {
-        throw new Error('Failed to resolve company logo URL');
-      }
-
-      const res = await fetchWithAuth(`${API_URL}/api/companies/`, {
+      const res = await fetchWithAuth(`${API_URL}/api/companies/with-logo`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'X-User-ID': adminId
         },
-        body: JSON.stringify({
-          name: newCompanyName.trim(),
-          domain: newCompanyDomain.trim().toLowerCase(),
-          company_logo: logoUrl,
-          learning_style: false
-        })
+        body: formData
       });
 
       const payload = await res.json().catch(() => null);
@@ -3432,7 +3398,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                     <div className="relative w-[220px]">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                       <Input
-                        placeholder="Search sprints..."
+                        placeholder="Search Sprints..."
                         value={moduleSearchTerm}
                         onChange={(e) => setModuleSearchTerm(e.target.value)}
                         className="pl-9 h-9"
