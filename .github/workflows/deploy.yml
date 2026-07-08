@@ -5,6 +5,7 @@ permissions:
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
@@ -14,12 +15,11 @@ on:
 
 jobs:
   deploy:
-    name: Deploy Backend
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Configure SSH
@@ -29,9 +29,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy
+      - name: Deploy to GCP
         run: |
           ssh \
+            -tt \
             -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=yes \
             ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-            "/home/serviceaccount/deploy.sh"
+              "head -20 /home/serviceaccount/deploy.sh && echo '-----' && /home/serviceaccount/deploy.sh"

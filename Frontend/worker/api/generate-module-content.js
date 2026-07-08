@@ -405,7 +405,7 @@ ${objectivesText}
 
               const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                 .from('module-assets')
-                .createSignedUrl(path, 60 * 60);
+                .createSignedUrl(path, 60 * 60 * 24 * 180);
 
               if (signedUrlError) {
                 console.warn(`[GEMINI] Failed to create signed URL for ${path}:`, signedUrlError.message);
