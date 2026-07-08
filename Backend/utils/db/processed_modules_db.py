@@ -574,26 +574,34 @@ async def get_processed_modules_by_ids(
 
         tm_resp = (
             db.table("training_modules")
-            .select("module_id, company_id")
+            .select("module_id, company_id","title")
             .in_("module_id", original_ids)
             .execute()
         )
+        training_module_map = {
+            row["module_id"]: row
+            for row in (tm_resp.data or [])
+        }
 
         module_company_map = {
             row["module_id"]: row["company_id"]
             for row in (tm_resp.data or [])
         }
 
-        accessible_modules = [
-            m
-            for m in modules
-            if module_company_map.get(
-                m.get("original_module_id")
-            ) == user_company_id
-        ]
+        for module in modules:
+            training_module = training_module_map.get(
+                module.get("original_module_id")
+            )
+
+            if (
+                training_module
+                and training_module["company_id"] == user_company_id
+            ):
+                module["parent_module_title"] = training_module["title"]
+                
 
         return {
-            "data": accessible_modules,
+            "data": modules,
             "error": None
         }
 
