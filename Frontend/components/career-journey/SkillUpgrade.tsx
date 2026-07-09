@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { CareerJourneyDB } from '@/lib/types/career-journey';
 import { Briefcase, ChevronRight, Zap, ArrowLeft, Star, Target, Layers, Clock, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getPublishedJourneys } from '@/lib/careerJourneyDatabase';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 interface Sprint {
   id: string;
@@ -33,7 +35,7 @@ interface SkillUpgradeProps {
 }
 
 // ─── Shared glass style ────────────────────────────────────────────────────────
-const glass: React.CSSProperties = {
+const glass: CSSProperties = {
   background: 'rgba(255,255,255,0.02)',
   backdropFilter: 'blur(16px)',
   border: '1px solid rgba(255,255,255,0.05)',
@@ -140,19 +142,27 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
   const loadPublishedJourneys = async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const result = await getPublishedJourneys();
-      if (result.error) {
-        setError(result.error);
-        onNotification?.(result.error, 'error');
-      } else if (result.data) {
-        const transformedJourneys = result.data.map((db) => transformDBToUI(db));
-        setPublishedJourneys(transformedJourneys);
+      const response = await fetchWithAuth(
+        `${API_BASE}/api/career-journeys?status=published`
+      );
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMsg = result?.error || result?.message || response.statusText || 'Failed to load career journeys';
+        setError(errorMsg);
+        onNotification?.(errorMsg, 'error');
+        return;
       }
+
+      const transformedJourneys = (result.data || []).map((db: CareerJourneyDB) => transformDBToUI(db));
+      setPublishedJourneys(transformedJourneys);
     } catch (err: any) {
-      const errorMsg = err.message || 'Failed to load career journeys';
+      const errorMsg = err?.message || 'Failed to load career journeys';
       setError(errorMsg);
       onNotification?.(errorMsg, 'error');
+      setPublishedJourneys([]);
     } finally {
       setLoading(false);
     }
