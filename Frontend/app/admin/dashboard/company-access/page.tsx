@@ -7,6 +7,7 @@ import { Building2, Check, ChevronRight, ShieldCheck, Sparkles, SlidersHorizonta
 import { useAuth } from "@/contexts/auth-context"
 import { useTenant } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { ALL_LANGUAGES, getCompanyEnabledLanguages, groupLanguages, type Language } from '@/lib/languages'
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -168,6 +169,31 @@ function normalizeAddons(values?: string[] | string | null): AddonKey[] {
   )
 }
 
+// Extract language codes from subscription_addons
+function extractLanguageCodes(values?: string[] | string | null): string[] {
+  const rawValues = Array.isArray(values)
+    ? values
+    : typeof values === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(values)
+            return Array.isArray(parsed) ? parsed : String(values).split(",")
+          } catch {
+            return String(values).split(",")
+          }
+        })()
+      : []
+
+  const validLangCodes = new Set(ALL_LANGUAGES.map((l) => l.code))
+  return Array.from(
+    new Set(
+      rawValues
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter((value) => validLangCodes.has(value))
+    )
+  )
+}
+
 function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   if (!company) return ["lucid_studio", "lucid_studio_textual"]
 
@@ -184,7 +210,7 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
     "lucid_studio_mindmap",
     "lucid_studio_infographic",
     "lucid_studio_flashcard",
-  ].some((child) => effectiveAddons.has(child))
+  ].some((child) => effectiveAddons.has(child as AddonKey))
 
   if (hasLucidChild) {
     effectiveAddons.add("lucid_studio")
@@ -214,6 +240,7 @@ export default function CompanyAccessPage() {
   const [companies, setCompanies] = useState<CompanyRecord[]>([])
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("")
   const [draftAddons, setDraftAddons] = useState<AddonKey[]>([])
+  const [draftLanguages, setDraftLanguages] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState("")
@@ -226,10 +253,14 @@ export default function CompanyAccessPage() {
   }, [authLoading, user, isDeveloper, router])
 
   useEffect(() => {
-    setCompanies((availableCompanies as CompanyRecord[]).map((company) => ({
-      ...company,
-      subscription_addons: normalizeAddons(company.subscription_addons),
-    })))
+    setCompanies((availableCompanies as CompanyRecord[]).map((company) => {
+      const rawAddons = Array.isArray(company.subscription_addons) ? company.subscription_addons : []
+      return {
+        ...company,
+        subscription_addons: normalizeAddons(rawAddons),
+        enabled_languages: extractLanguageCodes(rawAddons),
+      }
+    }))
   }, [availableCompanies])
 
   useEffect(() => {
@@ -254,6 +285,9 @@ export default function CompanyAccessPage() {
   useEffect(() => {
     if (!selectedCompany) return
     setDraftAddons(getEffectiveAddons(selectedCompany))
+    // Extract language codes directly from subscription_addons
+    const langs = extractLanguageCodes(selectedCompany.subscription_addons)
+    setDraftLanguages(langs)
   }, [selectedCompany])
 
   const filteredCompanies = useMemo(() => {
@@ -320,6 +354,8 @@ export default function CompanyAccessPage() {
               ...draftAddons,
               "lucid_studio",
               "lucid_studio_textual",
+              // append selected language codes so backend stores them in same column
+              ...draftLanguages,
             ])
           ),
         }),
@@ -335,17 +371,24 @@ export default function CompanyAccessPage() {
         : payload?.data || payload?.company || null
 
       if (updatedCompany?.company_id) {
+        // Extract addons and languages separately from raw subscription_addons
+        const allItems = Array.isArray(updatedCompany.subscription_addons) ? updatedCompany.subscription_addons : []
+        const normalizedAddons = normalizeAddons(allItems)
+        const savedLangs = extractLanguageCodes(allItems)
+        
         setCompanies((current) =>
           current.map((company) =>
             company.company_id === updatedCompany.company_id
               ? {
                   ...company,
                   ...updatedCompany,
-                  subscription_addons: normalizeAddons(updatedCompany.subscription_addons),
+                  subscription_addons: normalizeAddons(allItems), // normalized addons only for logic
+                  enabled_languages: savedLangs, // preserve languages separately
                 }
               : company
           )
         )
+        setDraftLanguages(savedLangs)
       }
 
       setSuccess("Company access saved successfully.")
@@ -512,7 +555,7 @@ export default function CompanyAccessPage() {
                 })
               )}
             </CardContent>
-          </Card>
+          </Card>            
 
           <Card className="border-slate-200 shadow-lg">
             <CardHeader className="space-y-3">
@@ -542,6 +585,7 @@ export default function CompanyAccessPage() {
                   if (isLucidChild && !parentEnabled) {
                     return null
                   }
+
                   const isMandatory =
                     feature.id === "lucid_studio" ||
                     feature.id === "lucid_studio_textual";
@@ -588,6 +632,63 @@ export default function CompanyAccessPage() {
                   )
                 })}
               </div>
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="font-semibold text-slate-900">Allowed Languages for Lucid Studio</p>
+                <p className="text-sm text-slate-500">Select which languages this company can generate audio/video/translations in.</p>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(() => {
+                    const grouped = groupLanguages(ALL_LANGUAGES);
+                    return (
+                      <>
+                        <div>
+                          <div className="text-xs font-semibold text-slate-500 mb-2">International</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {grouped.international.map((lang) => (
+                              <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={draftLanguages.includes(lang.code)}
+                                  onChange={(e) => {
+                                    setDraftLanguages((cur) => {
+                                      const next = new Set(cur);
+                                      if (e.target.checked) next.add(lang.code);
+                                      else next.delete(lang.code);
+                                      return Array.from(next);
+                                    });
+                                  }}
+                                />
+                                <span className="text-slate-700">{lang.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-slate-500 mb-2">Indian Languages</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {grouped.indian.map((lang) => (
+                              <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={draftLanguages.includes(lang.code)}
+                                  onChange={(e) => {
+                                    setDraftLanguages((cur) => {
+                                      const next = new Set(cur);
+                                      if (e.target.checked) next.add(lang.code);
+                                      else next.delete(lang.code);
+                                      return Array.from(next);
+                                    });
+                                  }}
+                                />
+                                <span className="text-slate-700">{lang.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
 
               <Separator />
 
@@ -626,6 +727,7 @@ export default function CompanyAccessPage() {
                     onClick={() => {
                       if (!selectedCompany) return
                       setDraftAddons(getEffectiveAddons(selectedCompany))
+                      setDraftLanguages(extractLanguageCodes(selectedCompany.subscription_addons))
                     }}
                     disabled={!selectedCompany || saving}
                     className="shrink-0"
