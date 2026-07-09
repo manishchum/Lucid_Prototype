@@ -4,11 +4,16 @@ Handles scenario fetching, deletion, and assignment operations
 Backend proxy for secure database access
 """
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Literal
 from utils.supabase_client import supabase
-from utils.auth import get_request_auth_optional
+from utils.auth import (
+    get_request_auth_optional,
+    get_effective_company_id,
+    get_request_auth_required,
+    RequestAuth
+)
 from utils.auth_bridge import get_service_supabase_client
 
 router = APIRouter(prefix="/roleplay/page", tags=["roleplay-page"])
@@ -86,14 +91,14 @@ def normalize_scenario(db_scenario: dict) -> dict:
     }
 
 
-def fetch_all_scenarios() -> tuple[list, dict | None]:
-    """Fetch all scenarios from database"""
+def fetch_all_scenarios(company_id: str) -> tuple[list, dict | None]:
+    """Fetch all scenarios from database for a specific company"""
     supabase = get_service_supabase_client()
 
     try:
         result = supabase.table("scenarios").select(
             "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
-        ).order('created_at', desc=True).execute()
+        ).eq('company_id', company_id).order('created_at', desc=True).execute()
         return result.data, None
     except Exception as e:
         return [], {'code': 'DB_ERROR', 'message': str(e)}
@@ -202,7 +207,9 @@ def get_distinct_assigned_scenario_ids_for_user(
 @router.get("/scenarios")
 async def fetch_scenarios_for_user(
     request: Request,
-    is_admin: bool = Query(False)
+    is_admin: bool = Query(False),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Fetch scenarios for a user (admin gets all, regular users get assigned)
@@ -210,10 +217,6 @@ async def fetch_scenarios_for_user(
     Query: is_admin (boolean)
     """
     try:
-        auth_ctx = get_request_auth_optional(
-            authorization=request.headers.get("Authorization"),
-            x_user_id=request.headers.get("X-User-ID")
-        )
         user_id = auth_ctx.user_id
         # print("Auth context for scenario fetch:", auth_ctx)
         if not user_id:
@@ -221,7 +224,7 @@ async def fetch_scenarios_for_user(
         
         # Admin gets all scenarios
         if is_admin:
-            db_scenarios, error = fetch_all_scenarios()
+            db_scenarios, error = fetch_all_scenarios(effective_company_id)
             print("Fetched all scenarios for admin:", db_scenarios)
             
             if error:
@@ -276,24 +279,17 @@ async def fetch_scenarios_for_user(
 @router.delete("/scenarios/{scenario_id}")
 async def delete_scenario(
     scenario_id: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Delete a custom scenario
-    Headers: X-User-ID (required), X-Company-ID (required)
     """
     try:
-        if not user_id or not company_id:
-            raise HTTPException(status_code=401, detail="User ID and Company ID required")
-        
         # Verify ownership (scenario belongs to company)
-        # scenario_result = supabase.table("scenarios").select("*").eq(
-        #     "scenario_id", scenario_id
-        # ).eq("company_id", company_id).execute()
         scenario_result = supabase.table("scenarios").select("scenario_id").eq(
-        "scenario_id", scenario_id
-        ).eq("company_id", company_id).execute()
+            "scenario_id", scenario_id
+        ).eq("company_id", effective_company_id).execute()
         
         if not scenario_result.data:
             raise HTTPException(status_code=403, detail="Scenario not found or access denied")
@@ -317,20 +313,19 @@ async def delete_scenario(
 @router.post("/scenarios/assign")
 async def assign_scenario_to_targets(
     request_data: AssignScenarioRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Assign a scenario to departments, sub-departments, or users
-    Headers: X-User-ID (required)
     """
     try:
-        if not user_id:
-            raise HTTPException(status_code=401, detail="User ID required")
-        
+        user_id = auth_ctx.user_id
         scenario_id = request_data.scenario_id
         assignment_type = request_data.assignment_type
         target_ids = request_data.target_ids
-        company_id = request_data.company_id
+        # OVERRIDE the request_data company_id with the secure one
+        company_id = effective_company_id
         
         if not target_ids:
             raise HTTPException(status_code=400, detail="No targets provided")
@@ -423,22 +418,20 @@ async def assign_scenario_to_targets(
 @router.get("/scenarios/assignments/{scenario_id}")
 async def get_scenario_assignments(
     scenario_id: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Get all assignments for a scenario
-    Headers: X-User-ID (required)
     """
     try:
-        if not user_id:
-            raise HTTPException(status_code=401, detail="User ID required")
         
         # result = supabase.table("scenario_assignments").select("*").eq(
         #     "scenario_id", scenario_id
         # ).execute()
         result = supabase.table("scenario_assignments").select(
         "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
-        ).eq(
+        ).eq("company_id", effective_company_id).eq(
         "scenario_id", scenario_id
         ).execute()
         

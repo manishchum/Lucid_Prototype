@@ -38,11 +38,14 @@ def _build_welcome_email(
   frontend_url: str,
   login_email: str,
   default_password: str,
+  phone: Optional[str] = None,
 ) -> Dict[str, str]:
     display_name = recipient_name.strip() if recipient_name else "there"
     safe_company_name = company_name.strip() if company_name else "your organization"
     subject = f"Welcome to {safe_company_name}"
     cta_url = f"{frontend_url}/login"
+    playstore_url = "https://play.google.com/store/apps/details?id=com.workfloww.lucidmobile"
+    phone_display = phone if phone else "Not provided"
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -74,17 +77,20 @@ def _build_welcome_email(
         <p>Hello {display_name},</p>
         <p>Your account for <strong>{safe_company_name}</strong> has been created successfully.</p>
 
-        <div class=\"highlight\">
+        <div class="highlight">
           <strong>Your login credentials</strong>
-          <div style=\"margin-top: 8px; color: #475569;\"><strong>Email:</strong> {login_email}</div>
-          <div style=\"margin-top: 4px; color: #475569;\"><strong>Password:</strong> {default_password}</div>
-          <div style=\"margin-top: 8px; color: #475569;\">Please change your password after your first login.</div>
+          <!-- <div style="margin-top: 8px; color: #475569;"><strong>Email:</strong> {login_email}</div> -->
+          <div style="margin-top: 4px; color: #475569;"><strong>Mobile Number:</strong> {phone_display}</div>
+          <!-- <div style="margin-top: 4px; color: #475569;"><strong>Password: {default_password}</strong></div> -->
+          <div style="margin-top: 8px; color: #475569;">Please login with OTP using your mobile number.</div>
         </div>
 
-        <p>Open your account here:</p>
-        <a href=\"{cta_url}\" class=\"button\">Go to Login</a>
+        <p>Download Mobile App:</p>
+        <a href="{playstore_url}" class="button">Get It On Google Play</a>
+        <!-- <p>Download our mobile app:</p>
+        <a href="{playstore_url}" class="button">Get it on Google Play</a> -->
       </div>
-      <div class=\"footer\">
+      <div class="footer">
         <p>This is an automated message from Lucid Learning.</p>
       </div>
     </div>
@@ -96,10 +102,13 @@ def _build_welcome_email(
         f"Hello {display_name},\n\n"
         f"Your account for {safe_company_name} has been created successfully.\n\n"
         f"Your login credentials:\n"
-        f"Email: {login_email}\n"
-        f"Password: {default_password}\n\n"
-        f"Please change your password after your first login.\n\n"
-        f"Go to login: {cta_url}\n\n"
+        # f"Email: {login_email}\n"
+        f"Mobile Number: {phone_display}\n"
+        # f"Password: {default_password}\n"
+        # f"Please change your password after your first login.\n\n"
+        f"Please login with OTP using your mobile number.\n\n"
+        # f"Go to login: {cta_url}\n\n"
+        f"Download our mobile app: {playstore_url}\n\n"
         f"This is an automated message from Lucid Learning."
     )
 
@@ -142,6 +151,7 @@ async def send_welcome_email(
     recipient_name: str,
     company_name: str,
     frontend_url: Optional[str] = None,
+    phone: Optional[str] = None,
 ) -> Dict[str, Any]:
     settings = _smtp_settings()
     app_frontend_url = frontend_url or settings["frontend_url"]
@@ -151,6 +161,7 @@ async def send_welcome_email(
         app_frontend_url,
         recipient_email,
         "workfloww@2025",
+        phone,
     )
 
     try:

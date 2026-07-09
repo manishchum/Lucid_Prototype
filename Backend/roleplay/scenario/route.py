@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from utils.supabase_client import supabase
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 router = APIRouter(prefix="/roleplay/scenarios", tags=["roleplay-scenarios"])
 
@@ -52,15 +52,14 @@ class UpdateScenarioRequest(BaseModel):
 @router.post("/create")
 async def create_scenario(
     request_data: CreateScenarioRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Create a new custom roleplay scenario
     """
     try:
-        if not user_id or not company_id:
-            raise HTTPException(status_code=401, detail="User ID and Company ID required")
+        company_id = effective_company_id
 
         # Convert Pydantic models to dictionaries
         evaluation_params = [
@@ -114,15 +113,14 @@ async def create_scenario(
 async def update_scenario(
     scenario_id: str,
     request_data: UpdateScenarioRequest,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Update an existing custom roleplay scenario
     """
     try:
-        if not user_id or not company_id:
-            raise HTTPException(status_code=401, detail="User ID and Company ID required")
+        company_id = effective_company_id
 
         # Verify ownership
         existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
@@ -194,15 +192,14 @@ async def update_scenario(
 @router.delete("/{scenario_id}")
 async def delete_scenario(
     scenario_id: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    company_id: Optional[str] = Header(None, alias="X-Company-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Delete a custom roleplay scenario
     """
     try:
-        if not user_id or not company_id:
-            raise HTTPException(status_code=401, detail="User ID and Company ID required")
+        company_id = effective_company_id
 
         # Verify ownership
         existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
