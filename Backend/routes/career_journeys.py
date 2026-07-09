@@ -6,10 +6,15 @@ Handles admin creation, editing, publishing and user retrieval of career journey
 import os
 import json
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
-from utils.auth import get_request_auth_required_from_request
+from utils.auth import (
+    get_request_auth_required_from_request,
+    get_effective_company_id,
+    get_request_auth_required,
+    RequestAuth
+)
 
 router = APIRouter()
 
@@ -29,7 +34,11 @@ except Exception as e:
 
 
 @router.post("/career-journeys")
-async def create_career_journey(request: Request):
+async def create_career_journey(
+    request: Request,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     Create a new career journey draft
     Requires: X-User-ID header (admin)
@@ -41,7 +50,7 @@ async def create_career_journey(request: Request):
                 status_code=503
             )
         
-        auth_ctx = get_request_auth_required_from_request(request)
+        # auth_ctx already injected via Depends
         body = await request.json()
 
         # Validate required fields
@@ -72,6 +81,7 @@ async def create_career_journey(request: Request):
             "thumbnail": body.get("thumbnail"),
             "status": "draft",
             "created_by": str(auth_ctx.user_id),
+            "company_id": effective_company_id,
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -100,7 +110,12 @@ async def create_career_journey(request: Request):
 
 
 @router.get("/career-journeys")
-async def list_career_journeys(request: Request, status: str = None):
+async def list_career_journeys(
+    request: Request,
+    status: str = None,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     List career journeys with optional status filter
     - Status=published: returns all published journeys (no auth required)
@@ -120,8 +135,9 @@ async def list_career_journeys(request: Request, status: str = None):
         # Try to fetch from Supabase
         try:
             resp = supabase.table("career_journeys") \
-                .select() \
+                .select("*") \
                 .eq("status", filter_status) \
+                .eq("company_id", effective_company_id) \
                 .order("created_at", desc=True) \
                 .execute()
             
@@ -152,16 +168,20 @@ async def list_career_journeys(request: Request, status: str = None):
 
 
 @router.get("/career-journeys/{journey_id}")
-async def get_career_journey(request: Request, journey_id: str):
+async def get_career_journey(
+    request: Request,
+    journey_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     Get a single career journey by ID
     """
     try:
-        auth_ctx = get_request_auth_required_from_request(request)
 
-        resp = supabase.table("career_journeys").eq(
+        resp = supabase.table("career_journeys").select("*").eq(
             "id", journey_id
-        ).single().execute()
+        ).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -170,6 +190,12 @@ async def get_career_journey(request: Request, journey_id: str):
             )
 
         journey = resp.data
+
+        if str(journey.get("company_id")) != effective_company_id:
+            return JSONResponse(
+                {"error": "Journey does not belong to your company"},
+                status_code=403
+            )
 
         # Permission check: allow if user is creator or status is published
         is_creator = str(journey.get("created_by")) == str(auth_ctx.user_id)
@@ -195,19 +221,24 @@ async def get_career_journey(request: Request, journey_id: str):
 
 
 @router.put("/career-journeys/{journey_id}")
-async def update_career_journey(request: Request, journey_id: str):
+async def update_career_journey(
+    request: Request,
+    journey_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     Update an existing career journey draft
     Requires: X-User-ID header (admin)
     """
     try:
-        auth_ctx = get_request_auth_required_from_request(request)
+        # auth_ctx already injected via Depends
         body = await request.json()
 
         # Get existing journey
-        resp = supabase.table("career_journeys").eq(
+        resp = supabase.table("career_journeys").select("*").eq(
             "id", journey_id
-        ).single().execute()
+        ).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -216,6 +247,12 @@ async def update_career_journey(request: Request, journey_id: str):
             )
 
         journey = resp.data
+
+        if str(journey.get("company_id")) != effective_company_id:
+            return JSONResponse(
+                {"error": "Journey does not belong to your company"},
+                status_code=403
+            )
 
         # Permission check: only creator or admin can edit
         if str(journey.get("created_by")) != str(auth_ctx.user_id):
@@ -267,18 +304,22 @@ async def update_career_journey(request: Request, journey_id: str):
 
 
 @router.patch("/career-journeys/{journey_id}/publish")
-async def publish_career_journey(request: Request, journey_id: str):
+async def publish_career_journey(
+    request: Request,
+    journey_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     Publish a career journey (change status from draft to published)
     Requires: X-User-ID header (admin)
     """
     try:
-        auth_ctx = get_request_auth_required_from_request(request)
 
         # Get existing journey
-        resp = supabase.table("career_journeys").eq(
+        resp = supabase.table("career_journeys").select("*").eq(
             "id", journey_id
-        ).single().execute()
+        ).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -287,6 +328,12 @@ async def publish_career_journey(request: Request, journey_id: str):
             )
 
         journey = resp.data
+
+        if str(journey.get("company_id")) != effective_company_id:
+            return JSONResponse(
+                {"error": "Journey does not belong to your company"},
+                status_code=403
+            )
 
         # Permission check: only creator can publish
         if str(journey.get("created_by")) != str(auth_ctx.user_id):
@@ -332,18 +379,22 @@ async def publish_career_journey(request: Request, journey_id: str):
 
 
 @router.delete("/career-journeys/{journey_id}")
-async def delete_career_journey(request: Request, journey_id: str):
+async def delete_career_journey(
+    request: Request,
+    journey_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
     """
     Delete a career journey (drafts only)
     Requires: X-User-ID header (admin)
     """
     try:
-        auth_ctx = get_request_auth_required_from_request(request)
 
         # Get existing journey
-        resp = supabase.table("career_journeys").eq(
+        resp = supabase.table("career_journeys").select("*").eq(
             "id", journey_id
-        ).single().execute()
+        ).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -352,6 +403,12 @@ async def delete_career_journey(request: Request, journey_id: str):
             )
 
         journey = resp.data
+        
+        if str(journey.get("company_id")) != effective_company_id:
+            return JSONResponse(
+                {"error": "Journey does not belong to your company"},
+                status_code=403
+            )
 
         # Permission check: only creator can delete
         if str(journey.get("created_by")) != str(auth_ctx.user_id):

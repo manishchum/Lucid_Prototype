@@ -15,3 +15,6 @@ Backend/.cache/
 *.safetensors
 *.pt
 *.pth
+
+# macOS
+.DS_Store
