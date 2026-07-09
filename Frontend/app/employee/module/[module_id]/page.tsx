@@ -129,10 +129,11 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
   );
 };
 
-export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+export default function ModuleContentPage({ params }: { params: Promise<{ module_id: string }> }) {
+  const unwrappedParams = use(params);
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
   const { user, employeeData, loading: authLoading } = useAuth();
-  const moduleId = params.module_id;
+  const moduleId = unwrappedParams.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [contentLanguage, setContentLanguage] = useState<SupportedLanguage>('en');
@@ -2178,7 +2179,7 @@ function ContentTransformer({
                         };
                       }
                     }}
-                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    className="px-3 py-1 rounded border text-sm bg-white"
                   >
                     {enabledLanguages.map((lang) => {
                       const hasVideo =

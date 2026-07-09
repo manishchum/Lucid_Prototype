@@ -115,6 +115,7 @@ async def _send_welcome_email(created_payload) -> None:
             recipient_email=email,
             recipient_name=created_user.get("name") or "",
             company_name=company_name,
+            phone=created_user.get("phone"),
         )
         if not send_result.get("success"):
             print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")
