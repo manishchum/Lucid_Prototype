@@ -2050,7 +2050,7 @@ function ContentTransformer({
                         };
                       }
                     }}
-                    className="px-3 py-1 bg-gray-100 border rounded text-xs hover:bg-gray-200 font-semibold cursor-pointer outline-none w-28 appearance-none text-center shadow-sm"
+                    className="px-3 py-1 rounded border text-sm bg-white"
                   >
                     {AUDIO_VIDEO_LANGUAGES.map((lang) => {
                       const hasVideo =

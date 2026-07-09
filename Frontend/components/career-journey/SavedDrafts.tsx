@@ -4,7 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Edit2, Trash2, Eye, Loader2 } from 'lucide-react';
 import { CareerJourneyDB } from '@/lib/types/career-journey';
-import { getDraftJourneys, deleteCareerJourney } from '@/lib/careerJourneyDatabase';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 interface SavedDraftsProps {
   userId: string;
@@ -31,10 +33,18 @@ export default function SavedDrafts({
   const loadDrafts = async () => {
     setLoading(true);
     try {
-      const result = await getDraftJourneys(userId);
+      const response = await fetchWithAuth(`${API_BASE}/api/career-journeys?status=draft`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+      });
+      const result = await response.json();
 
-      if (result.error) {
-        onNotification?.(result.error, 'error');
+      if (!response.ok) {
+        const errorMsg = result?.error || result?.message || response.statusText || 'Failed to load drafts';
+        onNotification?.(errorMsg, 'error');
         setDrafts([]);
       } else {
         setDrafts(result.data || []);
@@ -55,10 +65,18 @@ export default function SavedDrafts({
     setDeleting(draftId);
 
     try {
-      const result = await deleteCareerJourney(draftId, userId);
+      const response = await fetchWithAuth(`${API_BASE}/api/career-journeys/${draftId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+      });
+      const result = await response.json();
 
-      if (result.error) {
-        onNotification?.(result.error, 'error');
+      if (!response.ok) {
+        const errorMsg = result?.error || result?.message || response.statusText || 'Failed to delete draft';
+        onNotification?.(errorMsg, 'error');
       } else {
         setDrafts((prev) => prev.filter((d) => d.id !== draftId));
         onNotification?.('Draft deleted successfully', 'success');

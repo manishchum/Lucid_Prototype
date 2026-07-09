@@ -2,14 +2,9 @@
 
 import { useAuth } from '@/contexts/auth-context';
 import type { CareerJourneyDB } from '@/lib/types/career-journey';
-import {
-  createCareerJourney,
-  updateCareerJourney,
-  publishCareerJourney,
-  deleteCareerJourney,
-  getDraftJourneys,
-  getPublishedJourneys,
-} from '@/lib/careerJourneyDatabase';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
@@ -177,14 +172,24 @@ export default function CareerJourneysPage() {
   const loadJourneys = async () => {
     if (!userId) return;
     try {
-      const [draftsResult, publishedResult] = await Promise.all([
-        getDraftJourneys(userId),
-        getPublishedJourneys(),
-      ]);
-      if (draftsResult.data) setDraftJourneys(draftsResult.data.map(db => transformDBToUI(db, 'draft')));
-      if (publishedResult.data) setPublishedJourneys(publishedResult.data.map(db => transformDBToUI(db, 'published')));
+      const draftsRes = await fetchWithAuth(`${API_BASE}/api/career-journeys?status=draft`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
+      });
+      const publishedRes = await fetchWithAuth(`${API_BASE}/api/career-journeys?status=published`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const draftsData = await draftsRes.json().catch(() => ({}));
+      const publishedData = await publishedRes.json().catch(() => ({}));
+
+      if (!draftsRes.ok) throw new Error(draftsData.error || `HTTP ${draftsRes.status}`);
+      if (!publishedRes.ok) throw new Error(publishedData.error || `HTTP ${publishedRes.status}`);
+
+      if (draftsData.data) setDraftJourneys(draftsData.data.map((db: CareerJourneyDB) => transformDBToUI(db, 'draft')));
+      if (publishedData.data) setPublishedJourneys(publishedData.data.map((db: CareerJourneyDB) => transformDBToUI(db, 'published')));
     } catch (error) {
-      // console.error('Failed to load journeys:', error);
       notify('error', 'Failed to load journeys');
     }
   };
@@ -281,14 +286,43 @@ export default function CareerJourneysPage() {
     setIsSaving(true);
     try {
       const journeyData = transformUIToDB({ id: editingDraftId || `temp-${Date.now()}`, roleName, levels: JSON.parse(JSON.stringify(levels)) });
-      // console.debug('Submitting career journey payload:', journeyData);
-      const result = editingDraftId
-        ? await updateCareerJourney(editingDraftId, journeyData, userId)
-        : await createCareerJourney(journeyData, userId);
-      if (result.error) { notify('error', result.error); return; }
-      const uiJourney = transformDBToUI(result.data!, 'draft');
+      
+      const url = editingDraftId 
+        ? `${API_BASE}/api/career-journeys/${editingDraftId}`
+        : `${API_BASE}/api/career-journeys`;
+        
+      const method = editingDraftId ? 'PUT' : 'POST';
+      const bodyData = editingDraftId ? journeyData : { ...journeyData, status: 'draft' };
+      
+      const response = await fetchWithAuth(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+        body: JSON.stringify(bodyData),
+      });
+
+      let errorMsg = null;
+      if (!response.ok) {
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorData.message || `HTTP ${response.status}`;
+        } catch(e) {
+          errorMsg = `HTTP ${response.status}`;
+        }
+        notify('error', errorMsg);
+        setIsSaving(false);
+        return;
+      }
+
+      const result = await response.json();
+      const resultData = result.data || null;
+      if (!resultData) { notify('error', 'Failed to save journey'); setIsSaving(false); return; }
+
+      const uiJourney = transformDBToUI(resultData, 'draft');
       setSubmittedJourney(uiJourney);
-      setDraftJourneys(prev => [uiJourney, ...prev.filter(j => j.dbId !== result.data!.id)]);
+      setDraftJourneys(prev => [uiJourney, ...prev.filter(j => j.dbId !== resultData.id)]);
       notify('success', editingDraftId ? 'Draft updated!' : 'Journey saved to drafts!');
     } catch { notify('error', 'Failed to save journey'); }
     finally { setIsSaving(false); }
@@ -309,9 +343,26 @@ export default function CareerJourneysPage() {
     setIsPublishing(true);
     try {
       const dbId = submittedJourney.dbId || submittedJourney.id;
-      const result = await publishCareerJourney(dbId, userId);
-      if (result.error) { notify('error', result.error); return; }
-      const published = transformDBToUI(result.data!, 'published');
+      const response = await fetchWithAuth(`${API_BASE}/api/career-journeys/${dbId}/publish`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        notify('error', errorData.error || `HTTP ${response.status}`);
+        setIsPublishing(false);
+        return;
+      }
+
+      const result = await response.json();
+      const resultData = result.data || null;
+      if (!resultData) { notify('error', 'Failed to publish journey'); setIsPublishing(false); return; }
+      
+      const published = transformDBToUI(resultData, 'published');
       setDraftJourneys(prev => prev.filter(j => j.dbId !== dbId));
       setPublishedJourneys([published, ...publishedJourneys]);
       setSubmittedJourney(published);
@@ -332,8 +383,20 @@ export default function CareerJourneysPage() {
   const handleDelete = async (id: string, isPublished: boolean) => {
     if (!userId) return;
     try {
-      const result = await deleteCareerJourney(id, userId);
-      if (result.error) { notify('error', result.error); return; }
+      const response = await fetchWithAuth(`${API_BASE}/api/career-journeys/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        notify('error', errorData.error || `HTTP ${response.status}`);
+        return;
+      }
+
       if (isPublished) setPublishedJourneys(prev => prev.filter(j => j.dbId !== id));
       else setDraftJourneys(prev => prev.filter(j => j.dbId !== id));
       notify('success', 'Journey deleted successfully');
