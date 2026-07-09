@@ -285,6 +285,7 @@ const EmployeeNavigation = ({
           </div> */}
 
           {/* Reports */}
+          {hasFeature(FEATURES.REPORTS) && (
           <div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/score-history')}
@@ -309,6 +310,7 @@ const EmployeeNavigation = ({
               </div>
             )}
           </div>
+          )}
           {/* Content Library */}
           <div className="relative group">
             <button 
@@ -321,6 +323,7 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Content Library" />}
           </div>
           {/* SprintVerse - always available (tier 1) */}
+          {hasFeature(FEATURES.SPRINTVERSE) && (
           <div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/skill-upgrade')}
@@ -331,6 +334,7 @@ const EmployeeNavigation = ({
             </button>
             {isCollapsed && <NavTooltip label="SprintVerse" />}
           </div>
+          )}
 
           {/* Role Play - gated by role_play addon */}
           {hasFeature(FEATURES.ROLE_PLAY) && (

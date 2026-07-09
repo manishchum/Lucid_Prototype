@@ -13,6 +13,8 @@ export type Addon =
   | 'lucid_studio_flashcards'
   | 'task_management'
   | 'kpi'
+  | 'reports'
+  | 'sprintverse'
   | 'role_play';
 
 interface FeatureConfig {
@@ -86,6 +88,8 @@ export function useFeatureGating() {
       'task_management',
       'kpi',
       'role_play',
+      'sprintverse',
+      'reports',
     ]);
 
     const normalizedAddons = addons
@@ -166,6 +170,8 @@ export function useFeatureGating() {
       'taskManagement': { requiredAddons: ['task_management'] },
       'kpi': { requiredAddons: ['kpi'] },
       'rolePlay': { requiredAddons: ['role_play'] },
+      'reports': { requireAddons: ['reports']},
+      'sprintverse' : {requireAddons: ['sprintverse']},
     };
 
     const config = features[featureName];
