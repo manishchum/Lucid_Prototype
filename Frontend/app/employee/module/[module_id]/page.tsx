@@ -40,9 +40,9 @@ const SUPPORTED_LANGUAGES = [
 const AUDIO_VIDEO_LANGUAGES = [
   { code: 'en', name: 'English' },
   { code: 'hinglish', name: 'हिंदी' },
-  { code: 'german', name: 'Deutsch' },
-  { code: 'spanish', name: 'Español' },
-  { code: 'french', name: 'Français' },
+  // { code: 'german', name: 'Deutsch' },
+  // { code: 'spanish', name: 'Español' },
+  // { code: 'french', name: 'Français' },
 ] as const;
 
 type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
