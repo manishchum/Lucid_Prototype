@@ -148,9 +148,10 @@ const fetchUserByEmail = async (email: string) => {
   }
 };
 
-export default function ModuleQuizPage({ params }: { params: { module_id: string }; }) {
+export default function ModuleQuizPage({ params }: { params: Promise<{ module_id: string }> }) {
+  const unwrappedParams = use(params);
   
-  const [originalModuleId, setOriginalModuleId] = useState<string>(params.module_id);
+  const [originalModuleId, setOriginalModuleId] = useState<string>(unwrappedParams.module_id);
 
   const { user, loading: authLoading } = useAuth();
 
@@ -323,7 +324,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     }
   };
 
-  const moduleId = params.module_id;
+  const moduleId = unwrappedParams.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [moduleName, setModuleName] = useState<string>("Module Quiz");
   const [loading, setLoading] = useState(true);
