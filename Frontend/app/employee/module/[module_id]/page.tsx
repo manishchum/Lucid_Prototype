@@ -12,6 +12,7 @@ import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, FEATURES } from "@/contexts/tenant-context";
+import { getCompanyEnabledLanguages } from '@/lib/languages';
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
@@ -37,16 +38,10 @@ const SUPPORTED_LANGUAGES = [
   { code: 'nl', name: 'Dutch' },
 ] as const;
 
-const AUDIO_VIDEO_LANGUAGES = [
-  { code: 'en', name: 'English' },
-  { code: 'hinglish', name: 'हिंदी' },
-  // { code: 'german', name: 'Deutsch' },
-  // { code: 'spanish', name: 'Español' },
-  // { code: 'french', name: 'Français' },
-] as const;
 
-type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
-type AudioVideoLanguage = typeof AUDIO_VIDEO_LANGUAGES[number]['code'];
+
+type SupportedLanguage = string;
+type AudioVideoLanguage = string;
 
 const readSectionTranslationCache = (employeeId?: string, moduleId?: string) => {
   if (typeof window === "undefined" || !moduleId) return {} as Record<string, SectionBlock>;
@@ -134,11 +129,10 @@ const fetchModuleData = async (employee: any, moduleId: string) => {
   );
 };
 
-export default function ModuleContentPage({ params }: { params: Promise<{ module_id: string }> }) {
-  const unwrappedParams = use(params);
+export default function ModuleContentPage({ params }: { params: { module_id: string }; }) {
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
   const { user, employeeData, loading: authLoading } = useAuth();
-  const moduleId = unwrappedParams.module_id;
+  const moduleId = params.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [contentLanguage, setContentLanguage] = useState<SupportedLanguage>('en');
@@ -185,7 +179,13 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
   // const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
   // const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
   // const canUseFlashcard
-  const { hasFeature } = useTenant();
+  const { hasFeature, activeCompany } = useTenant();
+
+  const enabledLanguages = useMemo(
+    () => getCompanyEnabledLanguages(activeCompany),
+    [activeCompany]
+  );
+
 
   const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
   const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
@@ -483,7 +483,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
 
                       {isLangDropdownOpen && (
                         <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150 max-h-64 overflow-y-auto scrollbar-thin">
-                          {SUPPORTED_LANGUAGES.map((lang) => (
+                          {enabledLanguages.map((lang) => (
                             <button
                               key={lang.code}
                               onClick={() => {
@@ -1378,13 +1378,28 @@ function ContentTransformer({
   onVideoGenerated,
 }: any) {
   // Check if audio exists for each language
-  const { hasFeature } = useTenant();
+  const { hasFeature, activeCompany } = useTenant();
+  
 
   const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
   const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
   const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
   const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
   const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+ 
+  
+  // Get company-enabled language codes
+  const enabledCompanyLangCodes = useMemo(() => {
+    if (!activeCompany) return ['en']; // default to English only
+    return getCompanyEnabledLanguages(activeCompany).map(l => l.code);
+  }, [activeCompany]);
+  const enabledLanguages = getCompanyEnabledLanguages(activeCompany);
+
+  // Map audio/video language codes to company language codes
+  const filteredAudioVideoLanguages = enabledLanguages.map(lang => ({
+    code: lang.code,
+    name: lang.name,
+  }));
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
   const hasGermanAudio = !!(module.audio_url_german && module.podcast_transcript_german && module.podcast_timeline_german);
@@ -1873,12 +1888,77 @@ function ContentTransformer({
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
              <div className="flex items-center gap-3">
-              <select
+              {/* <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value as AudioVideoLanguage)}
                 className="px-3 py-1 rounded border text-sm bg-white"
               >
-                {AUDIO_VIDEO_LANGUAGES.map((lang) => (
+                {enabledLanguages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select> */}
+              <select
+                value={language}
+                onChange={(e) => {
+                  const selectedLang = e.target.value as AudioVideoLanguage;
+                  setLanguage(selectedLang);
+
+                  const audio = document.getElementById("module-audio") as HTMLAudioElement;
+                  if (!audio) return;
+
+                  const currentTime = audio.currentTime;
+                  const wasPaused = audio.paused;
+
+                  const languageMap: Record<string, string> = {
+                    en: "english",
+                    hi: "hinglish",
+                    de: "german",
+                    es: "spanish",
+                    fr: "french",
+                  };
+
+                  const suffix = languageMap[selectedLang] ?? selectedLang;
+
+                  const audioField = `audio_url_${suffix}`;
+                  const transcriptField = `podcast_transcript_${suffix}`;
+                  const timelineField = `podcast_timeline_${suffix}`;
+
+                  const newSrc = module[audioField];
+
+                  if (!newSrc) {
+                    console.warn(`No audio found for ${audioField}`);
+                    return;
+                  }
+
+                  audio.src = newSrc;
+                  audio.load();
+
+                  // Update transcript
+                  setLiveTranscript(module[transcriptField] || "");
+
+                  // Update timeline
+                  try {
+                    const timeline = module[timelineField];
+                    setPodcastTimeline(
+                      typeof timeline === "string" ? JSON.parse(timeline) : timeline || []
+                    );
+                  } catch {
+                    setPodcastTimeline([]);
+                  }
+
+                  audio.onloadedmetadata = () => {
+                    audio.currentTime = currentTime;
+                    if (!wasPaused) {
+                      audio.play();
+                    }
+                    audio.onloadedmetadata = null;
+                  };
+                }}
+                className="px-3 py-1 rounded border text-sm bg-white"
+              >
+                {enabledLanguages.map((lang) => (
                   <option key={lang.code} value={lang.code}>
                     {lang.name}
                   </option>
@@ -1894,13 +1974,13 @@ function ContentTransformer({
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
                     audioUrl={
-                      language === 'hinglish'
+                      language === "hi"
                         ? module.audio_url_hinglish
-                        : language === 'german'
+                        : language === "de"
                         ? module.audio_url_german
-                        : language === 'spanish'
+                        : language === "es"
                         ? module.audio_url_spanish
-                        : language === 'french'
+                        : language === "fr"
                         ? module.audio_url_french
                         : module.audio_url
                     }
@@ -2027,6 +2107,54 @@ function ContentTransformer({
                     onChange={(e) => {
                       const selectedLang = e.target.value as AudioVideoLanguage;
                       setVideoLanguage(selectedLang);
+
+                      const video = document.getElementById("module-video") as HTMLVideoElement;
+                      if (!video) return;
+
+                      const currentTime = video.currentTime;
+                      const wasPaused = video.paused;
+
+                      const languageMap: Record<string, string> = {
+                        en: "",
+                        hi: "hinglish",
+                        de: "german",
+                        es: "spanish",
+                        fr: "french",
+                      };
+
+                      const suffix = languageMap[selectedLang] ?? selectedLang;
+                      const fieldName = suffix ? `video_url_${suffix}` : "video_url";
+
+                      const newSrc = module[fieldName];
+
+                      if (!newSrc) {
+                        console.warn(`Video not found for field: ${fieldName}`);
+                        return;
+                      }
+
+                      video.src = newSrc;
+                      video.load();
+
+                      video.onloadedmetadata = () => {
+                        video.currentTime = currentTime;
+                        if (!wasPaused) {
+                          video.play();
+                        }
+                        video.onloadedmetadata = null;
+                      };
+                    }}
+                  >
+                    {enabledLanguages.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.name}
+                      </option>
+                    ))}
+                  </select>
+                  {/* <select
+                    value={videoLanguage}
+                    onChange={(e) => {
+                      const selectedLang = e.target.value as AudioVideoLanguage;
+                      setVideoLanguage(selectedLang);
                       const video = document.getElementById('module-video') as HTMLVideoElement;
                       if (!video) return;
                       const currentTime = video.currentTime;
@@ -2052,7 +2180,7 @@ function ContentTransformer({
                     }}
                     className="px-3 py-1 rounded border text-sm bg-white"
                   >
-                    {AUDIO_VIDEO_LANGUAGES.map((lang) => {
+                    {enabledLanguages.map((lang) => {
                       const hasVideo =
                         lang.code === 'en'
                           ? !!module.video_url
@@ -2069,7 +2197,7 @@ function ContentTransformer({
                         <option key={lang.code} value={lang.code}>{lang.name}</option>
                       ) : null;
                     })}
-                  </select>
+                  </select> */}
                 </div>
                 <video id="module-video" controls className="w-full rounded-lg">
                   <source

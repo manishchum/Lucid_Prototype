@@ -319,6 +319,28 @@ async def update_company_route(
         "kpi",
         "role_play",
     }
+    allowed_language_codes = {
+        "en",
+        "hi",
+        "de",
+        "ru",
+        "fr",
+        "it",
+        "es",
+        "pl",
+        "uk",
+        "ro",
+        "nl",
+        "bn",
+        "ta",
+        "te",
+        "mr",
+        "kn",
+        "pa",
+        "gu",
+        "ur",
+        "or",
+    }
 
     if "subscription_tier" in update_data:
         normalized_tier = str(update_data["subscription_tier"]).strip().lower()
@@ -334,7 +356,7 @@ async def update_company_route(
         normalized_addons = []
         for addon in raw_addons:
             normalized = str(addon).strip().lower().replace("-", "_").replace(" ", "_")
-            if normalized in allowed_addons and normalized not in normalized_addons:
+            if (normalized in allowed_addons or normalized in allowed_language_codes) and normalized not in normalized_addons:
                 normalized_addons.append(normalized)
 
         # Ensure the parent lucid_studio addon is present when any child Lucid Studio feature is enabled.

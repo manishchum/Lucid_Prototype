@@ -31,6 +31,8 @@ export type Addon =
   | 'task_management'
   | 'kpi'
   | 'role_play'
+  | 'sprintverse'
+  | 'reports'
 
 // Feature constants - single source of truth for feature names
 export const FEATURES = {
@@ -45,6 +47,8 @@ export const FEATURES = {
   TASK_MANAGEMENT: "taskManagement",
   KPI: "kpi",
   ROLE_PLAY: "rolePlay",
+  REPORTS: "reports",
+  SPRINTVERSE: "sprintverse",
 } as const
 
 export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
@@ -65,6 +69,8 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.TASK_MANAGEMENT]: { requiredAddons: ["task_management"] },
   [FEATURES.KPI]: { requiredAddons: ["kpi"] },
   [FEATURES.ROLE_PLAY]: { requiredAddons: ["role_play"] },
+  [FEATURES.REPORTS]: { requiredAddons : ["reports"]},
+  [FEATURES.SPRINTVERSE]: {requiredAddons : ["sprintverse"]},
 }
 
 // Tier hierarchy - which tiers can ACCESS each tier level
@@ -143,6 +149,8 @@ const isAddon = (value: string): value is Addon => {
     "task_management",
     "kpi",
     "role_play",
+    "reports",
+    "sprintverse",
   ].includes(value)
 }
 
@@ -158,7 +166,7 @@ const deriveFrontendTier = (addons: Addon[]): Tier | null => {
     current.has("lucid_studio_mindmap") ||
     current.has("lucid_studio_infographic") ||
     current.has("lucid_studio_flashcard") ||
-    current.has("lucid_studio_flashcards")
+    current.has("lucid_studio_flashcards") 
   ) return "tier_1"
   return null
 }
