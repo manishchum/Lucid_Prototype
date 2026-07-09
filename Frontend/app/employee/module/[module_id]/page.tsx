@@ -40,9 +40,9 @@ const SUPPORTED_LANGUAGES = [
 const AUDIO_VIDEO_LANGUAGES = [
   { code: 'en', name: 'English' },
   { code: 'hinglish', name: 'हिंदी' },
-  { code: 'german', name: 'Deutsch' },
-  { code: 'spanish', name: 'Español' },
-  { code: 'french', name: 'Français' },
+  // { code: 'german', name: 'Deutsch' },
+  // { code: 'spanish', name: 'Español' },
+  // { code: 'french', name: 'Français' },
 ] as const;
 
 type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
@@ -914,13 +914,21 @@ function ContentCards({
 
   const activeGroup = tabGroups.find((group) => group.key === activeTab);
 
+  function rewriteSupabaseSignedUrlsToPublic(html: string): string {
+    return html.replace(
+      /https?:\/\/([^.]+)\.supabase\.co\/storage\/v1\/object\/sign\/([^?"'<\s]+)(\?[^"'<>]*)?/gi,
+      (_match, project, assetPath) =>
+        `https://${project}.supabase.co/storage/v1/object/public/${assetPath}`
+    );
+  }
+
   function formatContent(content: string): string {
     const sanitizedContent = content
       .replace(/<script[^>]*?>.*?<\/script>/gi, "")
       .replace(/<style[^>]*?>.*?<\/style>/gi, "")
       .replace(/on\w+="[^"]*"/gi, "")
       .replace(/javascript:/gi, "");
-    return sanitizedContent;
+    return rewriteSupabaseSignedUrlsToPublic(sanitizedContent);
   }
 
   // Color palette for sections — cycling vibrant colors

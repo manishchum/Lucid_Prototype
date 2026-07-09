@@ -124,8 +124,6 @@ export default function AccountPage() {
          },
          body: JSON.stringify({
           name: formData.name,
-          position: formData.position,
-          phone: formData.phone,
          }),
       });
       if (!updRes.ok) {
@@ -331,34 +329,17 @@ export default function AccountPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="position">Position/Title</Label>
-                  {editing ? (
-                    <Input
-                      id="position"
-                      value={formData.position}
-                      onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                      placeholder="Enter your position"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.position || "Not set"}
-                    </div>
-                  )}
+                  <div className="p-3 bg-gray-50 rounded-md">
+                    {employee?.position || "Not set"}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number</Label>
-                  {editing ? (
-                    <Input
-                      id="phone"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="Enter your phone number"
-                    />
-                  ) : (
-                    <div className="p-3 bg-gray-50 rounded-md">
-                      {employee?.phone || "Not set"}
-                    </div>
-                  )}
+                  <div className="p-3 bg-gray-50 rounded-md">
+                    {employee?.phone || "Not set"}
+                  </div>
+                  <p className="text-xs text-gray-500">Phone Number cannot be changed</p>
                 </div>
 
                 <div className="space-y-2">
