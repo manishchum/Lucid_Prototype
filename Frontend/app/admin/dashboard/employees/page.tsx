@@ -1135,20 +1135,25 @@ export default function EmployeesPage() {
                             </td>
                             <td className="text-center p-3">
                               <div className="text-sm">
-                                {user.department?.department_name && (
-                                  <div className="font-medium text-gray-700 flex items-center justify-center">
-                                    <Building2 className="w-3 h-3 mr-1" />
-                                    {user.department.department_name}
-                                  </div>
-                                )}
-                                {user.department?.sub_department_name && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    {user.department.sub_department_name}
-                                  </div>
-                                )}
-                                {!user.department?.department_name && (
-                                  <span className="text-gray-400 text-xs">Not assigned</span>
-                                )}
+                                {(() => {
+                                  const dept = departments.find(d => d.department_id === user.department_id);
+                                  if (dept?.department_name) {
+                                    return (
+                                      <>
+                                        <div className="font-medium text-gray-700 flex items-center justify-center">
+                                          <Building2 className="w-3 h-3 mr-1" />
+                                          {dept.department_name}
+                                        </div>
+                                        {dept.sub_department_name && (
+                                          <div className="text-xs text-gray-500 mt-1">
+                                            {dept.sub_department_name}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  }
+                                  return <span className="text-gray-400 text-xs">Not assigned</span>;
+                                })()}
                               </div>
                             </td>
                             <td className="text-center p-3">
@@ -1260,7 +1265,12 @@ export default function EmployeesPage() {
                           </div>
                           <div>
                             <p className="text-xs text-gray-500 uppercase font-semibold">Department</p>
-                            <p className="font-medium text-gray-700">{user.department?.department_name || 'N/A'}</p>
+                            <p className="font-medium text-gray-700">{
+                              (() => {
+                                const dept = departments.find(d => d.department_id === user.department_id);
+                                return dept?.department_name || 'N/A';
+                              })()
+                            }</p>
                           </div>
                         </div>
                       </div>
