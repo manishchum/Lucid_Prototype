@@ -978,7 +978,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                     {/* Task Title Payload info */}
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-gray-400 font-sans block">ASSIGNED WORKFLOW</span>
+                      
                       <h3 className="font-display font-medium text-[#0F172A] leading-snug text-sm tracking-tight text-[#0F172A] font-bold">
                         {task.tasks.map(t => t.title).join(' • ')}
                       </h3>
@@ -989,7 +989,6 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                   {/* Task sub-items information displaying list of child tasks */}
                   <div className="my-4 bg-slate-50 rounded-xl p-3 border border-[#F1F5F9]">
-                    <span className="text-[9px] font-bold text-gray-400 font-sans block uppercase mb-1.5">Requirements Checklist</span>
                     <div className="space-y-2">
                       {task.tasks.map((sub, sIdx) => {
                         return (
@@ -1066,7 +1065,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 }}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
                               >
-                                <span>Generate AI Report 📊</span>
+                                <span>Generate AI Report</span>
                               </button>
 
                               <button
@@ -1074,7 +1073,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 onClick={() => startReassigning(task)}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
                               >
-                                <span>Reassign 🔄</span>
+                                <span>Reassign</span>
                               </button>
                               <button
                                 type="button"
