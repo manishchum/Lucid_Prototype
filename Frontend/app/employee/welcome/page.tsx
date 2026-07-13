@@ -25,7 +25,8 @@ import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
-import type { AssignedTask, AssignmentLevel, SubmissionFormat, QuizQuestion } from "@/types/task";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
+import { FeatureGate } from "@/components/feature-gate";
 import { FEATURES } from "@/contexts/tenant-context";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -1297,7 +1298,9 @@ const handleGenerateCertificate = (sprintId: string) => {
                   {assignedModules.length}
                 </span>
               </button>
-              {hasTaskManagementAccess && (
+              
+              {/* Assigned Tasks - Only visible for Tier 3 */}
+              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
                 <button
                   onClick={() => setActiveHomeTab("tasks")}
                   className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
@@ -1314,10 +1317,10 @@ const handleGenerateCertificate = (sprintId: string) => {
                         : "bg-slate-100 text-slate-700"
                     }`}
                   >
-                    {tasks.length}
+                    {_tasks.length}
                   </span>
                 </button>
-              )}
+              </FeatureGate>
             </div>
 
             {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
@@ -1331,28 +1334,34 @@ const handleGenerateCertificate = (sprintId: string) => {
               onGenerateCertificate={handleGenerateCertificate}
             />
             ) : (
-              <div className="space-y-8">
-                {tasksLoading ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
-                  </Card>
-                ) : tasksError ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
-                  </Card>
-                ) : assignedTaskItems.length === 0 ? (
-                  <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
-                  </Card>
-                ) : (
-                  <TaskDashboard
-                    assignedTasks={assignedTaskItems}
-                    onStartCreateTask={() => {}}
-                    userRole="employee"
-                    onSubmitTaskResponse={handleTaskSubmitResponse}
-                    onTaskSubmitted={handleTaskSubmitted}
-                  />
-                )}
+              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+                <div className="space-y-8">
+                  {tasksLoading ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
+                    </Card>
+                  ) : tasksError ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
+                    </Card>
+                  ) : assignedTaskItems.length === 0 ? (
+                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+                      <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
+                    </Card>
+                  ) : (
+                    <TaskDashboard
+                      assignedTasks={assignedTaskItems}
+                      onStartCreateTask={() => {}}
+                      userRole="employee"
+                      onSubmitTaskResponse={handleTaskSubmitResponse}
+                      onTaskSubmitted={handleTaskSubmitted}
+                    />
+                  )}
+
+                </div>
+              </FeatureGate>
+            )}
+
              {/* Progress History */}
              {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
                <CardHeader className="px-8 py-6">
