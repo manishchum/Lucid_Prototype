@@ -1400,7 +1400,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                   </CardContent>
               </Card> */}
                 {/* Learning Styles Distribution */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                {/* <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-4">Learning Styles Distribution</h3>
                   {learningStyleStats.length === 0 ? (
                     <div className="py-12 text-center text-sm text-gray-400">
@@ -1430,7 +1430,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       })}
                     </div>
                   )}
-                </div>
+                </div> */}
               </div>
 
               {/* KPI Performance - COMMENTED OUT */}
