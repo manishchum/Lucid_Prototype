@@ -127,14 +127,29 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
             # ✅ FIX 3: Added turn_detection (VAD) to session.update
             # ✅ FIX 4: Improved voice clarity - use selected voice
-            # ✅ FIX 5: Temperature must be >= 0.6, use 0.6 for consistent speech
             # ✅ FIX 6: Added input_audio_transcription with Whisper-1 for user speech transcription
+            # ✅ FIX 7: Updated to OpenAI Realtime API GA schema (nested audio object, no temperature)
             await openai_ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "type": "realtime",
-                    "model": OPENAI_REALTIME_MODEL,
-                    "instructions": build_system_prompt(scenario_context)
+                    "instructions": build_system_prompt(scenario_context),
+                    "audio": {
+                        "output": {
+                            "voice": voice
+                        },
+                        "input": {
+                            "transcription": {
+                                "model": "whisper-1"
+                            },
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "threshold": 0.5,
+                                "prefix_padding_ms": 300,
+                                "silence_duration_ms": 500
+                            }
+                        }
+                    }
                 }
             }))
             logger.info(f"[Realtime] ✅ Session configured — voice: {voice}")

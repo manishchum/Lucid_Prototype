@@ -19,6 +19,19 @@ class UpdateSessionRequest(BaseModel):
     messages: List[Dict[str, Any]]
     is_completed: bool = False
 
+class AssessmentParameter(BaseModel):
+    name: str
+    score: int
+    feedback: str
+
+class CreateAssessmentRequest(BaseModel):
+    session_id: str
+    employee_id: str
+    overallScore: int
+    summary: str
+    parameters: List[AssessmentParameter]
+    recommendations: List[str]
+
 @router.post("/roleplay/sessions/create")
 async def create_roleplay_session(
     payload: CreateSessionRequest,
@@ -97,6 +110,28 @@ async def update_roleplay_session(
         res = supabase_admin.table('roleplay_sessions').update(update_data).eq('id', session_id).execute()
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to update session in database")
+            
+        return {"data": res.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/roleplay/assessments/create")
+async def create_roleplay_assessment(
+    payload: CreateAssessmentRequest,
+    auth_ctx = Depends(get_request_auth_required)
+):
+    try:
+        insert_data = {
+            "session_id": payload.session_id,
+            "employee_id": payload.employee_id,
+            "overall_score": payload.overallScore,
+            "summary": payload.summary,
+            "parameters": [p.dict() for p in payload.parameters],
+            "recommendations": payload.recommendations
+        }
+        res = supabase_admin.table('roleplay_assessments').insert(insert_data).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Failed to create assessment in database")
             
         return {"data": res.data[0]}
     except Exception as e:

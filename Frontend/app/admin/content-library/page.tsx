@@ -288,7 +288,7 @@ export default function AdminContentLibrary() {
                   <Upload className="w-8 h-8 text-blue-500" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-2">Drag & drop files here to upload</h3>
-                <p className="text-slate-400 text-sm mb-2 max-w-md">Support PDFs, DOCs, TXT, images (PNG, JPEG), audio logs (MP3, WAV), corporate reels, and ZIP packets.</p>
+                <p className="text-slate-400 text-sm mb-2 max-w-md">Support PDFs, DOCs, TXT, images (PNG, JPEG), audio logs (MP3, WAV), corporate reels.</p>
                 <p className="text-blue-500 font-bold text-sm mb-8">File uploaded should be less than 50 MB only.</p>
                 <button className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-6 py-2.5 rounded-xl text-sm transition-colors">
                   Choose File
