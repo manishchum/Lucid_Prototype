@@ -285,6 +285,7 @@ export default function ScoreHistoryPage() {
       return 0;
     }),
   }));
+  const [hasRolePlayAddon, setHasRolePlayAddon] = useState(false);
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
@@ -624,7 +625,14 @@ return {
       // const assessmentsWithModules = await getModules(employee, assessments);
       // const learningStyle = await getLearningStyle(employee);
 
+      
       const [company, assessments, learningStyle] = await Promise.all([ getCompany(employee), getAssessments(employee), getLearningStyle(employee) ]);
+      console.log("these are the company details");
+      console.log(company);
+
+      const addons = company?.subscription_addons || [];
+
+      setHasRolePlayAddon(addons.includes("role_play"));
       const assessmentsWithModules = await getModules(employee, assessments);
 
       setCompanyUsesLearningStyle(Boolean(company?.learning_style));
@@ -674,16 +682,18 @@ return {
               >
                 Assessments
               </button>
-              <button
-                onClick={() => setActiveTab("roleplay")}
-                className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
-                  activeTab === "roleplay"
-                    ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Role-Play Sessions
-              </button>
+              {hasRolePlayAddon && (
+                <button
+                  onClick={() => setActiveTab("roleplay")}
+                  className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
+                    activeTab === "roleplay"
+                      ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  Role-Play Sessions
+                </button>
+              )}
             </div>
 
             {activeTab === "assessments" && (

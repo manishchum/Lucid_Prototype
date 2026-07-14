@@ -19,13 +19,13 @@ import {
   Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
-  Download, Linkedin, X
+  Download, Linkedin, X, Mic
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
-import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat, QuizQuestion } from "@/types/task";
 import { FeatureGate } from "@/components/feature-gate";
 import { FEATURES } from "@/contexts/tenant-context";
 
@@ -171,7 +171,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
+  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers } = useAuth();
   const { activeCompanyId, isDeveloperMode, hasFeature } = useTenant();
   const router = useRouter();
   const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
@@ -1148,8 +1148,15 @@ const handleGenerateCertificate = (sprintId: string) => {
                 </p>
               </div>
             </div>
-            <div className="w-full md:w-[320px]">
+            <div className="flex w-full flex-col gap-3 md:w-[360px] md:items-end">
               <CompanySelector showLabel />
+              <Button
+                onClick={() => router.push("/employee/voice-notes")}
+                className="w-full md:w-auto rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Mic className="mr-2 h-4 w-4" />
+                Open Voice Agent
+              </Button>
             </div>
           </div>
 
@@ -1317,7 +1324,7 @@ const handleGenerateCertificate = (sprintId: string) => {
                         : "bg-slate-100 text-slate-700"
                     }`}
                   >
-                    {_tasks.length}
+                    {tasks.length}
                   </span>
                 </button>
               </FeatureGate>
@@ -1391,12 +1398,8 @@ const handleGenerateCertificate = (sprintId: string) => {
                </CardContent>
              </Card> */}
            </div>
-          )}
          </div>
-        </div>
        </main>
-
-      
 
       {/* Certificate Modal */}
             {selectedCertificateSprint && (
