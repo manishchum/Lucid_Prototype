@@ -77,8 +77,8 @@ export default function AssessmentReportComponent({ report, scenarioTitle, passi
           {report.parameters
             .filter((param) => {
               // Hide visual/non-verbal parameters that score 0 in a voice-only session
-              const voiceOnlyParams = ['Eye Contact & Engagement', 'Hand Gestures & Body Language', 'Facial Expressions'];
-              return !(voiceOnlyParams.includes(param.name) && param.score === 0);
+              // const voiceOnlyParams = ['Eye Contact & Engagement', 'Hand Gestures & Body Language', 'Facial Expressions'];
+              // return !(voiceOnlyParams.includes(param.name) && param.score === 0);
             })
             .map((param, index) => (
             <div key={index} className="border-b border-slate-200 pb-4 last:border-0">

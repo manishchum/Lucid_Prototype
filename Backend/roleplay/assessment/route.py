@@ -6,6 +6,8 @@ import httpx
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from config import GEMINI_API_KEY
+from utils.auth import get_request_auth_required
+from fastapi import Depends
 
 router = APIRouter()
 
@@ -17,9 +19,6 @@ def fallback_assessment(summary: str) -> JSONResponse:
             "summary": summary,
             "parameters": [
                 {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Eye Contact & Engagement", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Hand Gestures & Body Language", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Facial Expressions", "score": 50, "feedback": "Assessment pending"},
                 {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
                 {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
                 {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},
@@ -37,7 +36,7 @@ def fallback_assessment(summary: str) -> JSONResponse:
 
 
 @router.post("/roleplay/assessment")
-async def generate_assessment(request: Request):
+async def generate_assessment(request: Request, auth_ctx = Depends(get_request_auth_required)):
     try:
         if not GEMINI_API_KEY:
             return JSONResponse(
@@ -89,12 +88,6 @@ async def generate_assessment(request: Request):
                     "parameters": [
                         {"name": "Communication Clarity", "score": 0,
                          "feedback": "Insufficient conversation to evaluate communication skills."},
-                        {"name": "Eye Contact & Engagement", "score": 0,
-                         "feedback": "Session ended too early to assess engagement levels."},
-                        {"name": "Hand Gestures & Body Language", "score": 0,
-                         "feedback": "Not enough interaction to evaluate body language."},
-                        {"name": "Facial Expressions", "score": 0,
-                         "feedback": "Session too brief to assess facial expressions."},
                         {"name": "Objection Handling", "score": 0,
                          "feedback": "No sufficient interaction to evaluate objection handling."},
                         {"name": "Value Proposition", "score": 0,
@@ -141,21 +134,6 @@ Analyze the LEARNER's performance and provide a detailed assessment in this EXAC
   "parameters": [
     {{
       "name": "Communication Clarity",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Eye Contact & Engagement",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Hand Gestures & Body Language",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Facial Expressions",
       "score": <number between 0-100>,
       "feedback": "<specific feedback>"
     }},
@@ -307,9 +285,6 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
                 "summary": "Assessment could not be generated at this moment. Please try again in a few minutes. Your conversation has been saved and you can review it in your reports.",
                 "parameters": [
                     {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Eye Contact & Engagement", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Hand Gestures & Body Language", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Facial Expressions", "score": 50, "feedback": "Assessment pending"},
                     {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
                     {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
                     {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},

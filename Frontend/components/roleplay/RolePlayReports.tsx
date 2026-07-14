@@ -344,17 +344,19 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                         {transcript.map((msg, idx) => (
                           <div
                             key={idx}
-                            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                            className={`flex ${(msg.sender === 'user' || msg.role === 'user') ? 'justify-end' : 'justify-start'}`}
                           >
                             <div
                               className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                                msg.sender === 'user'
+                                (msg.sender === 'user' || msg.role === 'user')
                                   ? 'bg-blue-600 text-white'
                                   : 'bg-slate-100 text-slate-900'
                               }`}
                             >
                               <p className="text-xs font-semibold mb-1 opacity-70">
-                                {msg.sender === 'user' ? 'You' : session.scenario_role}
+                                {(msg.sender === 'user' || msg.role === 'user') 
+                                  ? 'You' 
+                                  : (session.scenario_role?.length > 40 ? session.scenario_role.slice(0, 40) + '...' : session.scenario_role || 'AI Assistant')}
                               </p>
                               <p className="text-sm">{msg.text}</p>
                               {msg.timestamp && (
