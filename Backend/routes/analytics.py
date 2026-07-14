@@ -3,6 +3,7 @@ from utils.auth_bridge import get_service_supabase_client
 from utils.redis_client import set_cache, get_cache
 import json
 from datetime import datetime, timedelta
+from collections import defaultdict
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
@@ -51,7 +52,7 @@ async def get_dashboard_analytics(
 
     users_resp = (
         db.table("users")
-        .select("user_id")
+        .select("user_id, name, email")
         .eq("company_id", company_id)
         .execute()
     )
@@ -68,7 +69,7 @@ async def get_dashboard_analytics(
 
     modules_resp = (
         db.table("training_modules")
-        .select("module_id,title")
+        .select("module_id,title,threshold_value")
         .eq("company_id", company_id)
         .execute()
     )
@@ -168,8 +169,45 @@ async def get_dashboard_analytics(
         )
 
         progress_lookup[key] = row
-        
-    progressData = plans
+    
+    user_lookup = {
+        u["user_id"]: u
+        for u in users
+    }  
+    
+    module_lookup ={
+        m["module_id"]:m
+        for m in modules
+    }
+    
+    progressData = []
+    for plan in plans:
+        user = user_lookup.get(plan["user_id"], {})
+
+        module = module_lookup.get(plan["module_id"], {})
+
+        progressData.append({
+
+            **plan,
+
+            "users": {
+                "name": user.get("name"),
+                "email": user.get("email")
+            },
+
+            "training_modules": {
+                "module_id": module.get("module_id"),
+                "title": module.get("title")
+            },
+
+            "started_at": plan.get("started_at"),
+
+            "completed_at": plan.get("completed_at"),
+
+            "completedItems": plan.get("completed_items", 0),
+
+            "totalItems": plan.get("total_items", 0)
+        })
 
     # completed_assignments = len(
     #     [p for p in progress if p.get("completed_at")]
@@ -185,6 +223,37 @@ async def get_dashboard_analytics(
     #     total_assignments - completed_assignments - in_progress_assignments
     # )
     
+    # ----------------------------------
+    # THRESHOLD ACHIEVEMENT
+    # ----------------------------------
+
+    completed_above_threshold = 0
+    completed_below_threshold = 0
+
+    for plan in plans:
+
+        if plan.get("status") != "COMPLETED":
+            continue
+
+        total = plan.get("total_items") or 0
+        completed = plan.get("completed_items") or 0
+
+        if total == 0:
+            continue
+
+        percentage = (completed / total) * 100
+
+        threshold = (
+            module_lookup
+                .get(plan["module_id"], {})
+                .get("threshold_value")
+        ) or 0
+
+        if percentage >= threshold:
+            completed_above_threshold += 1
+        else:
+            completed_below_threshold += 1
+            
     completed_assignments = sum(
         1
         for plan in plans
@@ -212,6 +281,49 @@ async def get_dashboard_analytics(
     )
     
     # ----------------------------------
+    # ASSESSMENTS
+    # ----------------------------------
+
+    assessment_resp = (
+        db.table("employee_assessments")
+        .select("""
+                *,
+                assessments(
+                    type,
+                    processed_module_id
+                )
+            """)
+        .in_("user_id", user_ids)
+        .execute()
+    )
+
+    assessments = assessment_resp.data or []
+    # ----------------------------------
+    # FETCH PROCESSED MODULES
+    # ----------------------------------
+
+    processed_module_ids = list({
+        a.get("assessments", {}).get("processed_module_id")
+        for a in assessments
+        if a.get("assessments")
+        and a["assessments"].get("processed_module_id")
+    })
+
+    processed_modules = {}
+
+    if processed_module_ids:
+
+        pm_resp = (
+            db.table("processed_modules")
+            .select("processed_module_id, original_module_id")
+            .in_("processed_module_id", processed_module_ids)
+            .execute()
+        )
+
+        for row in (pm_resp.data or []):
+            processed_modules[row["processed_module_id"]] = row
+            
+    # ----------------------------------
     # MODULE STATS
     # ----------------------------------
 
@@ -223,6 +335,63 @@ async def get_dashboard_analytics(
             for p in plans
             if p["module_id"] == module["module_id"]
         ]
+        
+        # -----------------------------
+        # Average quiz score
+        # -----------------------------
+        scores = []
+
+        for assessment in assessments:
+            assessment_row = assessment.get("assessments") or {}
+
+            processed_module_id = assessment_row.get("processed_module_id")
+
+            original_module_id = (
+                processed_modules
+                    .get(processed_module_id, {})
+                    .get("original_module_id")
+            )
+
+            if original_module_id != module["module_id"]:
+                continue
+
+            score = assessment.get("score")
+            max_score = assessment.get("max_score")
+
+            if score is not None and max_score:
+                scores.append((score / max_score) * 100)
+
+        average_score = (
+            round(sum(scores) / len(scores))
+            if scores
+            else 0
+        )
+        
+        completion_times = []
+
+        for plan in module_plans:
+            if (
+                plan.get("status") == "COMPLETED"
+                and plan.get("assigned_on")
+                and plan.get("completed_at")
+            ):
+                assigned = datetime.fromisoformat(
+                    plan["assigned_on"].replace("Z", "+00:00")
+                )
+
+                completed_dt = datetime.fromisoformat(
+                    plan["completed_at"].replace("Z", "+00:00")
+                )
+
+                completion_times.append(
+                    (completed_dt - assigned).days
+                )
+
+        average_completion_time = (
+            round(sum(completion_times) / len(completion_times))
+            if completion_times
+            else 0
+        )
 
         completed = sum(
             1
@@ -234,6 +403,12 @@ async def get_dashboard_analytics(
             1
             for plan in module_plans
             if plan.get("status") == "IN_PROGRESS"
+        )
+        
+        not_started = sum(
+            1
+            for plan in module_plans
+            if plan.get("status") == "ASSIGNED"
         )
             
         total_assigned = len(module_plans)
@@ -252,21 +427,35 @@ async def get_dashboard_analytics(
             "totalAssigned": total_assigned,
             "completed": completed,
             "inProgress": in_progress,
-            "completionRate": completion_rate
+            "notStarted": not_started,
+            "completionRate": completion_rate,
+            "averageScore": average_score,
+            "averageCompletionTime": average_completion_time,
         }
         )
+    
     # ----------------------------------
-    # ASSESSMENTS
+    # FETCH TRAINING MODULE TITLES
     # ----------------------------------
 
-    assessment_resp = (
-        db.table("employee_assessments")
-        .select("*")
-        .in_("user_id", user_ids)
-        .execute()
-    )
+    original_module_ids = list({
+        pm["original_module_id"]
+        for pm in processed_modules.values()
+    })
 
-    assessments = assessment_resp.data or []
+    training_titles = {}
+
+    if original_module_ids:
+
+        tm_resp = (
+            db.table("training_modules")
+            .select("module_id,title")
+            .in_("module_id", original_module_ids)
+            .execute()
+        )
+
+        for row in (tm_resp.data or []):
+            training_titles[row["module_id"]] = row["title"]
     if assessmentType and assessmentType != "all":
         assessments = [
             a
@@ -281,17 +470,32 @@ async def get_dashboard_analytics(
         score = assessment.get("score")
         max_score = assessment.get("max_score")
 
+        assessment_row = assessment.get("assessments") or {}
+
         assessment_type = (
-            assessment.get("type")
+            assessment_row.get("type")
             or "Unknown"
         )
 
-        key = assessment_type
+        processed_module_id = assessment_row.get("processed_module_id")
+
+        original_module_id = (
+            processed_modules
+                .get(processed_module_id, {})
+                .get("original_module_id")
+        )
+
+        module_title = training_titles.get(
+            original_module_id,
+            "Unknown"
+        )
+
+        key = f"{assessment_type}:{module_title}"
 
         if key not in assessment_stats_map:
             assessment_stats_map[key] = {
                 "type": assessment_type,
-                "moduleTitle": assessment_type,
+                "moduleTitle": module_title,
                 "totalAttempts": 0,
                 "completed": 0,
                 "scores": []
@@ -393,20 +597,22 @@ async def get_dashboard_analytics(
         "totalAssessments": len(assessments),
         "completedAssessments": len(
             [a for a in assessments if a.get("score") is not None]
-        ),
-        "averageKpiScore": (
-            kpi_stats[0]["averageScore"]
-            if kpi_stats
-            else 0
-        )
-    },
-    "learningStyles": style_map,
-    "modules": modules,
-    "moduleStats": module_stats,
-    "assessmentStats": assessment_stats,
-    "progressData": progressData,
-    "kpiStats": kpi_stats
-}
+            ),
+            "averageKpiScore": (
+                kpi_stats[0]["averageScore"]
+                if kpi_stats
+                else 0
+            )
+        },
+        "learningStyles": style_map,
+        "modules": modules,
+        "moduleStats": module_stats,
+        "assessmentStats": assessment_stats,
+        "progressData": progressData,
+        "kpiStats": kpi_stats,
+        "completedAboveThreshold": completed_above_threshold,
+        "completedBelowThreshold": completed_below_threshold
+    }
 
     set_cache(
         cache_key,

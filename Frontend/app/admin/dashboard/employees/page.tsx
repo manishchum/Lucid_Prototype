@@ -4393,6 +4393,7 @@ function UpdateEmployeeModal({
               </Button>
               <Button
                 type="submit"
+                variant="outline"
                 disabled={loading || !formData.name || !formData.email || !!fieldErrors.email || !!fieldErrors.phone || !!fieldErrors.name}
               >
                 {loading ? 'Updating...' : 'Update Employee'}

@@ -15,6 +15,7 @@ from utils.auth import (
     get_request_auth_required,
     RequestAuth
 )
+from utils.db.permissions import check_user_permission
 
 router = APIRouter()
 
@@ -254,18 +255,13 @@ async def update_career_journey(
                 status_code=403
             )
 
-        # Permission check: only creator or admin can edit
-        if str(journey.get("created_by")) != str(auth_ctx.user_id):
+        # Permission check: creator or company admin in same company can edit
+        is_creator = str(journey.get("created_by")) == str(auth_ctx.user_id)
+        is_admin = await check_user_permission(auth_ctx.user_id, "company_admin")
+        if not is_creator and not is_admin:
             return JSONResponse(
-                {"error": "Only the creator can edit this draft"},
+                {"error": "Only the creator or a company admin can edit this draft"},
                 status_code=403
-            )
-
-        # Cannot edit published journeys
-        if journey.get("status") == "published":
-            return JSONResponse(
-                {"error": "Cannot edit published journeys"},
-                status_code=400
             )
 
         # Prepare update data
