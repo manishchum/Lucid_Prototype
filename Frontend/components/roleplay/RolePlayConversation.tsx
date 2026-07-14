@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplay/types";
 import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
+import { getFirebaseIdToken } from "@/lib/fetch-with-auth";
 
 interface RolePlayConversationProps {
   scenario: Scenario;
@@ -16,6 +17,7 @@ interface RolePlayConversationProps {
   moduleId?: string;
   employeeId?: string;
   voiceGender?: "female" | "male";
+  isGeneratingAssessment?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -37,6 +39,7 @@ export default function RolePlayConversation({
   moduleId,
   employeeId,
   voiceGender = "female",
+  isGeneratingAssessment = false,
 }: RolePlayConversationProps) {
   const [conversationActive, setConversationActive] = useState(false);
   const [isRecording, setIsRecording]     = useState(false);
@@ -164,10 +167,13 @@ export default function RolePlayConversation({
     }
   };
 
-  const connectToRealtime = (stream: MediaStream) => {
+  const connectToRealtime = async (stream: MediaStream) => {
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
-    const wsUrl      = `${wsProtocol}//${apiHost}/roleplay/realtime`;
+    
+    // Grab the token and put it in the URL
+    const token = await getFirebaseIdToken();
+    const wsUrl = `${wsProtocol}//${apiHost}/roleplay/realtime?token=${token}`;
 
     // console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
 
@@ -401,43 +407,43 @@ export default function RolePlayConversation({
       videoRecorder.start();
       mediaRecorderRef.current = videoRecorder;
 
-      // Start Web Speech API as fallback for user transcription (with auto-restart)
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        let isStopped = false;
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = false;
+      // // Start Web Speech API as fallback for user transcription (with auto-restart)
+      // const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      // if (SpeechRecognition) {
+      //   let isStopped = false;
+      //   const recognition = new SpeechRecognition();
+      //   recognition.continuous = true;
+      //   recognition.interimResults = false;
         
-        recognition.onresult = (event: any) => {
-          // Explicitly ignore interim (incomplete) results to prevent cascading duplicates
-          const latestResult = event.results[event.results.length - 1];
-          if (!latestResult.isFinal) return;
+      //   recognition.onresult = (event: any) => {
+      //     // Explicitly ignore interim (incomplete) results to prevent cascading duplicates
+      //     const latestResult = event.results[event.results.length - 1];
+      //     if (!latestResult.isFinal) return;
 
-          const transcript = latestResult[0].transcript.trim();
-          if (transcript && !isBotSpeakingRef.current) {
-            // Only add if we didn't just receive this exact text
-            const currentTranscript = conversationTranscriptRef.current;
-            const lastUserMsg = currentTranscript.slice().reverse().find(m => m.role === "user");
-            if (!lastUserMsg || lastUserMsg.text !== transcript) {
-               conversationTranscriptRef.current.push({ role: "user", text: transcript });
-            }
-          }
-        };
+      //     const transcript = latestResult[0].transcript.trim();
+      //     if (transcript && !isBotSpeakingRef.current) {
+      //       // Only add if we didn't just receive this exact text
+      //       const currentTranscript = conversationTranscriptRef.current;
+      //       const lastUserMsg = currentTranscript.slice().reverse().find(m => m.role === "user");
+      //       if (!lastUserMsg || lastUserMsg.text !== transcript) {
+      //          conversationTranscriptRef.current.push({ role: "user", text: transcript });
+      //       }
+      //     }
+      //   };
         
-        recognition.onend = () => {
-          if (!isStopped) {
-            try { recognition.start(); } catch {}
-          }
-        };
+      //   recognition.onend = () => {
+      //     if (!isStopped) {
+      //       try { recognition.start(); } catch {}
+      //     }
+      //   };
 
-        try {
-          recognition.start();
-          (speechRecognitionRef as any).current = { stop: () => { isStopped = true; recognition.stop(); } };
-        } catch (e) {
-          console.warn("Speech recognition failed to start", e);
-        }
-      }
+      //   try {
+      //     recognition.start();
+      //     (speechRecognitionRef as any).current = { stop: () => { isStopped = true; recognition.stop(); } };
+      //   } catch (e) {
+      //     console.warn("Speech recognition failed to start", e);
+      //   }
+      // }
 
       connectToRealtime(stream);
       setConversationActive(true);
@@ -656,7 +662,7 @@ export default function RolePlayConversation({
       </div>
 
       {/* Start overlay */}
-      {!conversationActive && (
+      {!conversationActive && !isGeneratingAssessment && (
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 lg:p-12 shadow-2xl max-w-sm sm:max-w-lg w-full text-center">
             <div className="bg-gradient-to-br from-purple-100 to-blue-100 rounded-full p-4 sm:p-6 lg:p-8 mb-4 sm:mb-6 inline-block">
@@ -683,6 +689,18 @@ export default function RolePlayConversation({
                 </>
               )}
             </Button>
+          </div>
+        </div>
+      )}
+
+      {isGeneratingAssessment && !conversationActive && (
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 lg:p-12 shadow-2xl max-w-sm sm:max-w-lg w-full text-center">
+            <Loader2 className="w-16 h-16 animate-spin text-blue-600 mx-auto mb-4" />
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 mb-2 sm:mb-3">Generating assessment...</h3>
+            <p className="text-slate-600 mb-6 sm:mb-8 text-sm sm:text-base lg:text-lg">
+              Please wait while we analyze your session and prepare the report.
+            </p>
           </div>
         </div>
       )}
