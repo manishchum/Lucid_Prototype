@@ -25,7 +25,7 @@ import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
-import type { AssignedTask, AssignmentLevel, SubmissionFormat, QuizQuestion } from "@/types/task";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
 import { FeatureGate } from "@/components/feature-gate";
 import { FEATURES } from "@/contexts/tenant-context";
 
@@ -1317,11 +1317,10 @@ const handleGenerateCertificate = (sprintId: string) => {
                         : "bg-slate-100 text-slate-700"
                     }`}
                   >
-                    {tasks.length}
+                    {_tasks.length}
                   </span>
                 </button>
               </FeatureGate>
-              
             </div>
 
             {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
@@ -1391,9 +1390,13 @@ const handleGenerateCertificate = (sprintId: string) => {
                  </div>
                </CardContent>
              </Card> */}
-            </div>
-          </div>
-        </main>
+           </div>
+          )}
+         </div>
+        </div>
+       </main>
+
+      
 
       {/* Certificate Modal */}
             {selectedCertificateSprint && (
