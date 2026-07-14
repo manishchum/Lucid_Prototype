@@ -544,6 +544,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           moduleId={moduleId || undefined}
           employeeId={employeeId || undefined}
           voiceGender={roleplayConfig?.voiceGender || 'female'}
+          isGeneratingAssessment={isGeneratingAssessment}
         />
       ) : (
         <main className="pt-2 pb-12">
@@ -591,7 +592,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                       ? 'border-2 border-blue-500 shadow-lg'
                       : 'border border-slate-200'
                   }`}
-                  onClick={() => setSelectedScenario(scenario)}
+                  onClick={() => handleScenarioSelect(scenario)}
                 >
                   {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
                   {isAdmin && scenario.isCustom && (
@@ -622,7 +623,9 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                   )}
                   
                   <h3 className="text-xl font-semibold text-gray-800 mb-3 pr-10">{scenario.title}</h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">{scenario.description}</p>
+                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">
+                    {scenario.description || scenario.learnerBrief || 'Click to view scenario details and instructions.'}
+                  </p>
                   
                   {/* Role Information - Hidden */}
                   {/* <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
