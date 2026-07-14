@@ -224,7 +224,7 @@ async def delete_scenario(
 @router.get("/user-data/{user_email}")
 async def fetch_user_data(
     user_email: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
+    auth_ctx = Depends(get_request_auth_required)
 ):
     """
     Fetch user data (user_id and company_id) by email

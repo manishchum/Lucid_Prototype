@@ -33,7 +33,13 @@ interface CareerJourney {
 interface SkillUpgradeProps {
   onNotification?: (message: string, type: 'success' | 'error' | 'info') => void;
 }
-
+const titleCase = (value: string) => {
+  return value
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 // ─── Shared glass style ────────────────────────────────────────────────────────
 const glass: CSSProperties = {
   background: 'rgba(255,255,255,0.02)',
@@ -335,8 +341,8 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors uppercase tracking-tight leading-snug">
-                          {journey.roleName}
+                          <h3 className="text-lg font-bold text-white group-hover:text-blue-400 transition-colors tracking-tight leading-snug">
+                            {titleCase(journey.roleName)}
                         </h3>
                         <div className="flex items-center gap-3 mt-3">
                           <span
@@ -386,8 +392,8 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
               <div className="flex flex-col gap-14">
                 {/* Role Title */}
                 <div className="w-full text-center space-y-5">
-                  <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter uppercase leading-tight">
-                    {selectedJourney.roleName}
+                  <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter leading-tight">
+                    {titleCase(selectedJourney.roleName)}
                   </h2>
                   <div className="flex items-center justify-center gap-4">
                     <div
@@ -518,10 +524,10 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                   {activeLevel.levelNumber}
                                 </div>
                                 <div>
-                                  <h3 className="font-black text-3xl text-white uppercase tracking-tight">
+                                  <h3 className="font-black text-3xl text-white tracking-tight">
                                     Level {activeLevel.levelNumber}
                                   </h3>
-                                  <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mt-2">
+                                  <p className="text-[10px] font-black text-slate-600 tracking-widest mt-2">
                                     Master {activeLevel.sprints.length} Core Skills for this stage
                                   </p>
                                 </div>
@@ -558,20 +564,14 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                     </div>
                                   </div>
                                   <div className="flex flex-col gap-1">
-                                    <span className="font-black text-slate-200 group-hover/sprint:text-blue-400 transition-colors uppercase text-sm tracking-tight leading-snug">
-                                      {sprint.name}
+                                    <span className="font-black text-slate-200 group-hover/sprint:text-blue-400 transition-colors text-sm tracking-tight leading-snug">
+                                      {titleCase(sprint.name)}
                                     </span>
                                     {sprint.completionTime && (
                                       <div className="flex items-center gap-1.5 text-[10px] font-black text-blue-400 uppercase tracking-widest opacity-70">
                                         <Clock size={11} />
                                         {sprint.completionTime}{' '}
-                                        {sprint.timeUnit === 'hours'
-                                          ? 'hours'
-                                          : sprint.timeUnit === 'weeks'
-                                          ? 'weeks'
-                                          : sprint.timeUnit === 'months'
-                                          ? 'months'
-                                          : 'days'}
+                                        {titleCase(sprint.timeUnit || 'hours')}
                                       </div>
                                     )}
                                   </div>

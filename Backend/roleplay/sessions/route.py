@@ -38,6 +38,8 @@ async def create_roleplay_session(
     auth_ctx = Depends(get_request_auth_required)
 ):
     try:
+        if payload.employee_id != auth_ctx.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to create sessions for other users")
         # Check attempts
         user_res = supabase_admin.table('users').select('company_id, department_id').eq('user_id', payload.employee_id).execute()
         if not user_res.data:
@@ -121,12 +123,14 @@ async def create_roleplay_assessment(
     auth_ctx = Depends(get_request_auth_required)
 ):
     try:
+        if payload.employee_id != auth_ctx.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to create assessments for other users")
         insert_data = {
             "session_id": payload.session_id,
             "employee_id": payload.employee_id,
             "overall_score": payload.overallScore,
             "summary": payload.summary,
-            "parameters": [p.dict() for p in payload.parameters],
+            "parameters": [p.model_dump() for p in payload.parameters],
             "recommendations": payload.recommendations
         }
         res = supabase_admin.table('roleplay_assessments').insert(insert_data).execute()

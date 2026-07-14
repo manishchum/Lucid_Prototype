@@ -3,6 +3,9 @@ import logging
 import asyncio
 from fastapi import APIRouter, WebSocket
 from websockets.asyncio.client import connect
+from utils.supabase_client import supabase_admin
+from fastapi import WebSocket, status
+from utils.auth import _verify_firebase_token, resolve_user_context_from_claims
 
 from config import OPENAI_API_KEY, OPENAI_REALTIME_MODEL
 
@@ -63,6 +66,21 @@ AI character objective: {ai_objectives}"""
 
 @router.websocket("/roleplay/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
+    # Security: Grab the token from the URL query
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+        
+    # Security: Verify the token is real
+    try:
+        claims = _verify_firebase_token(token)
+        resolve_user_context_from_claims(claims) 
+    except Exception as e:
+        await websocket.close(code=1008)
+        return
+
+    # If the token is valid, accept the connection!
     await websocket.accept()
 
     conversation_transcript = []
@@ -103,7 +121,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         if not _OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is empty after stripping")
 
-        logger.info(f"[Realtime] 🔑 API Key: {_OPENAI_API_KEY[:15]}...{_OPENAI_API_KEY[-5:]}")
+        logger.info("[Realtime] 🔑 API Key: loaded and verified")
         logger.info(f"[Realtime] 🌐 URL: {OPENAI_REALTIME_URL}")
 
         headers = {
@@ -144,9 +162,9 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             },
                             "turn_detection": {
                                 "type": "server_vad",
-                                "threshold": 0.5,
+                                "threshold": 0.7,
                                 "prefix_padding_ms": 300,
-                                "silence_duration_ms": 500
+                                "silence_duration_ms": 600
                             }
                         }
                     }
@@ -344,3 +362,15 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         logger.info(f"[Realtime] 🔌 Disconnected, session {sid}. Final backend transcript has {len(final_transcript)} messages.")
         if len(final_transcript) > 0:
             logger.info(f"[Realtime] Last message: {final_transcript[-1]['text'][:100]}")
+                    # --- START PHASE 2 ENTERPRISE STATE MANAGEMENT ---
+        if sid != "unknown":
+                try:
+                    logger.info(f"[Realtime] 💾 Auto-saving {len(final_transcript)} messages to DB for session {sid}...")
+                    supabase_admin.table('roleplay_sessions').update({
+                        "conversation_transcript": final_transcript,
+                        "message_count": len(final_transcript)
+                    }).eq('id', sid).execute()
+                    logger.info("[Realtime] ✅ Transcript safely stored on disconnect.")
+                except Exception as e:
+                    logger.error(f"[Realtime] ❌ Failed to auto-save transcript: {str(e)}")
+            # --- END PHASE 2 ENTERPRISE STATE MANAGEMENT ---
