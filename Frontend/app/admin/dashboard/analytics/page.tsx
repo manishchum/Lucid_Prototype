@@ -204,7 +204,9 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
     totalAssessments: 0,
     completedAssessments: 0,
     averageKpiScore: 0,
-    learningStylesCompleted: 0
+    learningStylesCompleted: 0,
+    completedAboveThreshold: 0,
+    completedBelowThreshold: 0
   });
   const [loading, setLoading] = useState(true);
   const [selectedModule, setSelectedModule] = useState<string>('all');
@@ -214,6 +216,37 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
   const [companyLearningStyleEnabled, setCompanyLearningStyleEnabled] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('Overview');
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 50;
+  const filteredProgressData = progressData.filter((row: any) => {
+
+        const name =
+            row.users?.name?.toLowerCase() || "";
+
+        const email =
+            row.users?.email?.toLowerCase() || "";
+
+        const sprint =
+            row.training_modules?.title?.toLowerCase() || "";
+
+        const search = searchTerm.toLowerCase();
+
+        return (
+            name.includes(search) ||
+            email.includes(search) ||
+            sprint.includes(search)
+        );
+    });
+    const totalPages = Math.ceil(
+        filteredProgressData.length / PAGE_SIZE
+    );
+
+    const paginatedProgressData =
+        filteredProgressData.slice(
+            (currentPage - 1) * PAGE_SIZE,
+            currentPage * PAGE_SIZE
+        );
 
   // Memoize loadAnalyticsData to avoid recreating it on every render
   const loadAnalyticsDataHandler = async () => {
@@ -234,6 +267,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       );
 
       const data = await response.json();
+      console.log(data.overallStats);
 
       // console.log("TYPE", typeof data);
       // console.log("RAW", data);
@@ -280,6 +314,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           completedAssessments: 0,
           averageKpiScore: 0,
           learningStylesCompleted: 0,
+          completedAboveThreshold: 0,
+          completedBelowThreshold: 0
         }
       );
       setModuleStats(data.moduleStats || []);
@@ -1303,7 +1339,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                 </div>
 
                 {/* Assessment Statistics */}
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                {/* <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-4">Assessment Performance</h3>
                   {assessmentStats.length === 0 ? (
                     <div className="py-12 text-center text-sm text-gray-400">
@@ -1330,8 +1366,39 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       ))}
                     </div>
                   )}
-                </div>
+                </div> */}
+                {/* <Card>
+                  <CardHeader>
+                      <CardTitle>Sprint Threshold Achievement</CardTitle>
+                      <CardDescription>
+                          Completed users meeting the sprint passing threshold
+                      </CardDescription>
+                  </CardHeader>
 
+                  <CardContent>
+
+                      <div className="space-y-4">
+
+                          <div className="flex justify-between">
+                              <span>Passed Threshold</span>
+
+                              <span className="font-semibold text-green-600">
+                                  {overallStats.completedAboveThreshold}
+                              </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                              <span>Below Threshold</span>
+
+                              <span className="font-semibold text-red-600">
+                                  {overallStats.completedBelowThreshold}
+                              </span>
+                          </div>
+
+                      </div>
+
+                  </CardContent>
+              </Card> */}
                 {/* Learning Styles Distribution */}
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-4">Learning Styles Distribution</h3>
@@ -1694,7 +1761,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
               <div className="grid grid-cols-2 gap-4">
                 {/* Assessment Performance Bar Chart */}
-                <Card>
+                {/* <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center">
                       <Award className="w-5 h-5 mr-2" />
@@ -1783,8 +1850,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                       />
                     </div>
                   </CardContent>
-                </Card>
-
+                </Card> */}
                 {/* Learning Style Distribution Pie Chart - Only show if learning style is enabled */}
                 {/* {companyLearningStyleEnabled ? (
                   <Card>
@@ -1878,7 +1944,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               </div>
 
               {/* Assessment Performance Table */}
-              <Card>
+              {/* <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <FileText className="w-5 h-5 mr-2" />
@@ -1911,10 +1977,11 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                     </table>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
+
 
               {/* KPI Performance Table */}
-              <Card>
+              {/* <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center">
                     <Target className="w-5 h-5 mr-2" />
@@ -1947,7 +2014,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                     </table>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
 
               {/* Detailed Progress Table */}
               <Card>
@@ -1960,6 +2027,23 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
+                    <div className="flex justify-between items-center mb-4">
+
+                    <Input
+                        placeholder="Search employee, email or sprint..."
+                        value={searchTerm}
+                        onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setCurrentPage(1);
+                        }}
+                        className="w-96"
+                    />
+
+                    <div className="text-sm text-gray-500">
+                        {filteredProgressData.length} Records
+                    </div>
+
+                </div>
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b">
@@ -1969,7 +2053,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {progressData.slice(0, 50).map((item: any, i: number) => (
+                        {paginatedProgressData.map((item: any, i: number) => (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="px-3 py-2">{item.users?.name || 'Unknown'}</td>
                             <td className="px-3 py-2">{item.training_modules?.title || '—'}</td>
@@ -1982,6 +2066,36 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                         ))}
                       </tbody>
                     </table>
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-gray-500">
+                          Showing {(currentPage - 1) * PAGE_SIZE + 1}
+                          -
+                          {Math.min(currentPage * PAGE_SIZE, filteredProgressData.length)}
+                          of {filteredProgressData.length}
+                      </div>
+
+                      <div className="flex gap-2">
+                          <Button
+                              variant="outline"
+                              disabled={currentPage === 1}
+                              onClick={() => setCurrentPage(currentPage - 1)}
+                          >
+                              Previous
+                          </Button>
+
+                          <span className="px-4 py-2">
+                              {currentPage} / {totalPages}
+                          </span>
+
+                          <Button
+                              variant="outline"
+                              disabled={currentPage === totalPages}
+                              onClick={() => setCurrentPage(currentPage + 1)}
+                          >
+                              Next
+                          </Button>
+                      </div>
+                  </div>
                   </div>
                   
                   {progressData.length === 0 && (
