@@ -783,20 +783,13 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             db
             .table("task_submissions")
             .select("*")
-            .eq("task_id", resolved_task_id)
+            .eq("task_id", payload.task_id)
             .eq("user_id", payload.user_id)
             .execute()
         )
         rows = existing_res.data or []
-        if is_bundle_submission:
-            for row in rows:
-                answers = row.get("answers") or []
-                if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
-                    existing_row = row
-                    break
-        else:
-            if rows:
-                existing_row = rows[0]
+        if rows:
+            existing_row = rows[0]
 
     if existing_row:
         # Check if the specific format is already submitted in the existing row
@@ -889,14 +882,12 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         input_data = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
 
     db_answers = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
-    if is_bundle_submission:
-        db_answers.append({"child_task_id": payload.task_id})
 
     # Save submission record with pending status
     insert_data = {
         "submission_id": submission_id,
         "company_id": company_id,
-        "task_id": resolved_task_id,
+        "task_id": payload.task_id,
         "user_id": payload.user_id,
         "assignment_id": payload.assignment_id,
         "submission_type": payload.submission_type,
@@ -942,20 +933,13 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                     db
                     .table("task_submissions")
                     .select("*")
-                    .eq("task_id", resolved_task_id)
+                    .eq("task_id", payload.task_id)
                     .eq("user_id", payload.user_id)
                     .execute()
                 )
                 rows = existing_res.data or []
-                if is_bundle_submission:
-                    for row in rows:
-                        answers = row.get("answers") or []
-                        if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
-                            existing_row = row
-                            break
-                else:
-                    if rows:
-                        existing_row = rows[0]
+                if rows:
+                    existing_row = rows[0]
                 if not existing_row:
                     raise e
             else:
@@ -969,13 +953,7 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                       "ai_status", "analysis_status", "status", "submission_type", "submitted_at"]:
             val = insert_data.get(field)
             if val is not None:
-                if field == "answers" and is_bundle_submission and existing_row.get("answers"):
-                    existing_answers = existing_row.get("answers") or []
-                    merged_answers = [a for a in existing_answers if not (isinstance(a, dict) and a.get("child_task_id") == payload.task_id)]
-                    merged_answers.extend(val)
-                    update_data[field] = merged_answers
-                else:
-                    update_data[field] = val
+                update_data[field] = val
         
         result = (
             db
