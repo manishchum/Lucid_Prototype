@@ -6,9 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download, Globe, ChevronDown, Check } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download, Globe, ChevronDown, Check, Loader2, AlertCircle, PlayCircle } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
+import InteractiveVideoPlayer from "@/components/interactive-video/InteractiveVideoPlayer";
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, FEATURES } from "@/contexts/tenant-context";
@@ -1425,7 +1426,7 @@ function ContentTransformer({
   };
   const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
   const [language, setLanguage] = useState<AudioVideoLanguage>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | null>(null);
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | 'interactive_video' | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
   const [flashcardSections, setFlashcardSections] = useState<any[] | null>(null);
@@ -1684,6 +1685,22 @@ function ContentTransformer({
               <div className="text-3xl mb-3">🎬</div>
               <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
               <div className="text-slate-500 text-xs mt-1">Video lesson</div>
+            </div>
+          )}
+
+          {canUseVideo && (
+            <div
+              onClick={() => setSelectedOption('interactive_video')}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'interactive_video'
+                  ? 'bg-slate-50 border-indigo-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🧠</div>
+              <div className="font-bold text-slate-900 text-sm">Interactive Video</div>
+              <div className="text-slate-500 text-xs mt-1">Interactive course</div>
             </div>
           )}
 
@@ -2234,8 +2251,15 @@ function ContentTransformer({
           </div>
         )}
 
+        {selectedOption === 'interactive_video' && (
+          <InteractiveVideoTab
+            processedModuleId={module.processed_module_id}
+            originalModuleId={module.original_module_id}
+          />
+        )}
+
         {/* Placeholder / generated output for other options */}
-        {selectedOption !== 'audio' && selectedOption !== 'video' && (
+        {selectedOption !== 'audio' && selectedOption !== 'video' && selectedOption !== 'interactive_video' && (
           <div className="text-slate-600 text-sm text-left">
 
                   {selectedOption === 'flashcard' && (
@@ -3089,4 +3113,178 @@ function buildFlashcardSVG(sections: any[], title: string) {
   </svg>`;
 
   return svg;
+}
+
+function InteractiveVideoTab({ processedModuleId, originalModuleId }: { processedModuleId: string; originalModuleId: string }) {
+  const [course, setCourse] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [job, setJob] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const fetchCourse = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetchWithAuth(`${API_BASE}/api/interactive-video/course/${processedModuleId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCourse(data);
+      } else if (res.status === 404) {
+        const data = await res.json();
+        if (data.in_progress_job) {
+          setJob(data.in_progress_job);
+          setIsGenerating(true);
+        } else {
+          setCourse(null);
+        }
+      } else {
+        setError("Failed to fetch interactive video details");
+      }
+    } catch (e: any) {
+      setError(e.message || "An unexpected error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCourse();
+  }, [processedModuleId]);
+
+  // Poll for job status if isGenerating is true
+  useEffect(() => {
+    if (!isGenerating || !job?.job_id) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetchWithAuth(`${API_BASE}/api/interactive-video/status/${job.job_id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setJob(data);
+          if (data.status === "completed") {
+            setIsGenerating(false);
+            fetchCourse();
+          } else if (data.status === "failed") {
+            setIsGenerating(false);
+            setError(data.error || "Generation pipeline failed.");
+          }
+        }
+      } catch (e) {
+        console.error("Error polling job status:", e);
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [isGenerating, job?.job_id]);
+
+  const handleStartGeneration = async () => {
+    try {
+      setIsGenerating(true);
+      setError(null);
+      const res = await fetchWithAuth(`${API_BASE}/api/interactive-video/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ processed_module_id: processedModuleId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setJob({ job_id: data.job_id, status: data.status });
+      } else {
+        const data = await res.json();
+        setError(data.detail || "Failed to start interactive video generation");
+        setIsGenerating(false);
+      }
+    } catch (e: any) {
+      setError(e.message || "An error occurred");
+      setIsGenerating(false);
+    }
+  };
+
+  const getProgressPercentage = (status: string) => {
+    const steps: Record<string, number> = {
+      pending: 5,
+      w1_parsing: 15,
+      w2_topics: 25,
+      w3_designing: 35,
+      w4_storyboarding: 45,
+      w5_slides: 60,
+      w6_voice: 70,
+      w7_avatar: 80,
+      w8_quiz: 90,
+      w9_publishing: 95,
+      completed: 100,
+    };
+    return steps[status] || 0;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+        <Loader2 className="animate-spin h-8 w-8 text-blue-500 mb-3" />
+        <span>Loading interactive course manifest...</span>
+      </div>
+    );
+  }
+
+  if (isGenerating) {
+    const percent = getProgressPercentage(job?.status || "pending");
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-8 sm:p-12 text-center max-w-xl mx-auto shadow-md">
+        <div className="w-16 h-16 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-500 mx-auto mb-4 animate-pulse">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-800">Generating Interactive Course</h3>
+        <p className="text-sm text-slate-500 mt-2">
+          Our 9-worker AI pipeline is building lecture segment scripts, slides, TTS audio voiceovers, avatar compositions, software simulation walkthroughs, and knowledge quizzes.
+        </p>
+
+        {/* Status indicator bar */}
+        <div className="mt-8 flex flex-col gap-2">
+          <div className="flex justify-between items-center text-xs font-semibold text-slate-500">
+            <span>Progress: {percent}%</span>
+            <span className="capitalize">{job?.worker_name || "Initiating..."}</span>
+          </div>
+          <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+            <div
+              className="bg-blue-600 h-full rounded-full transition-all duration-500"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (course) {
+    return <InteractiveVideoPlayer manifest={course} />;
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-8 sm:p-12 text-center max-w-xl mx-auto shadow-md flex flex-col items-center gap-6">
+      <div className="w-16 h-16 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+        <PlayCircle className="w-8 h-8" />
+      </div>
+      <div>
+        <h3 className="text-xl font-bold text-slate-800">Interactive Video Course</h3>
+        <p className="text-sm text-slate-500 mt-2">
+          Create a state-of-the-art interactive training course for this module. Includes modular topics, speaking avatar explanations, quiz gate checkpoints, and click-through software simulations.
+        </p>
+      </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm text-left flex items-start gap-2 w-full">
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <Button
+        onClick={handleStartGeneration}
+        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-6 rounded-xl"
+      >
+        Generate Interactive Course
+      </Button>
+    </div>
+  );
 }

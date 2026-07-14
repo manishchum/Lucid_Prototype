@@ -40,6 +40,7 @@ from routes.employee_dashboard import router as employee_dashboard_router
 from routes.analytics import router as analytics_router
 from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
+from interactive_video.route import router as interactive_video_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -214,6 +215,8 @@ app.include_router(employee_dashboard_router)  # employee dashboard summary rout
 app.include_router(analytics_router)  # analytics router with dashboard and other analytics endpoints
 app.include_router(admin_uploads_router)  # admin uploads router
 app.include_router(voice_document_router)  # voice-to-document agent router
+app.include_router(interactive_video_router) # interactive video pipeline router
+
 
 
 # Router Includes are here
