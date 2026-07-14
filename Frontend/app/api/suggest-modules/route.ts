@@ -3,9 +3,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { createClient } from '@supabase/supabase-js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const supabaseServerKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+  supabaseServerKey
 );
 
 export async function POST(request: NextRequest) {
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use Gemini to suggest modules (both from database and new ones)
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
     const dbModulesText = dbModules && dbModules.length > 0
       ? `\n\nExisting Training Modules in Database:\n${dbModules.map((m, i) => `${i + 1}. ${m.title}: ${m.description || m.gpt_summary || 'No description'}`).join('\n')}`
@@ -40,11 +41,10 @@ export async function POST(request: NextRequest) {
     const prompt = `You are a training and development expert with deep knowledge of business data systems. Based on the following KPI indicators for the role of "${roleName}", suggest training modules that would help develop the required skills and competencies.
 
 Lead Indicators (Behavioral/Predictive):
-${leadIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
+${leadIndicators.map((ind: string, i: number) => `${i + 1}. ${ind}`).join('\n')}
 
 Lag Indicators (Outcome-based):
-${lagIndicators.map((ind, i) => `${i + 1}. ${ind}`).join('\n')}
-${dbModulesText}
+${lagIndicators.map((ind: string, i: number) => `${i + 1}. ${ind}`).join('\n')}
 
 For each KPI indicator (both lead and lag), suggest 1-2 relevant training modules.
 
@@ -57,7 +57,7 @@ For each suggested module, you must provide:
 6. **content_type**: e.g., "video", "interactive course", "workshop", "assessment"
 7. **relevance_score**: 0-100 based on how well it addresses the specific KPI
 8. **database_title_match**: exact title from database if source is database, otherwise null
-9. **suggested_datasets**: An array of 2-4 specific company data sources/systems that should be integrated or monitored to track this KPI and support the training module. Be specific about:
+9. **suggested_datasets**: An array of 2-4 specific company data sources/systems and dataset that should be referred to build the training modules. Be specific about:
    - What system/tool (e.g., "Salesforce CRM", "Google Analytics", "HubSpot", "JIRA", "Employee Survey Platform")
    - What specific data points to track (e.g., "Deal progression stages", "Customer engagement metrics", "Ticket resolution times")
    - How this data relates to the module and KPI
@@ -99,7 +99,10 @@ Provide a response in the following JSON format:
   ]
 }
 
-Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems and tools. Ensure each KPI has at least one module suggestion with relevant datasets.`;
+Focus on practical, actionable training that directly addresses each specific KPI. Suggest real-world, commonly used business systems, tools and datatypes. Ensure each KPI has at least one module suggestion with relevant datasets.
+NOTE : INSTEAD OF THE WORD "module" use the word "sprint" whereever possible
+
+`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;

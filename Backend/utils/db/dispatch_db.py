@@ -1,0 +1,127 @@
+from typing import Dict, Any, List
+from ..auth_bridge import get_service_supabase_client
+
+
+async def get_sprints_by_company(company_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
+    """Get all training_modules (sprints) for a company."""
+    try:
+        response = (
+            supabase.table("training_modules")
+            .select("module_id, title, description, processing_status, review_stage")
+            .eq("company_id", company_id)
+            .eq("processing_status", "completed")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"data": response.data, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}
+
+
+async def get_sub_modules_by_sprint(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
+    """Get all processed_modules for a given training_module (sprint)."""
+    try:
+        response = (
+            supabase.table("processed_modules")
+            .select("processed_module_id, title, section_type, order_index")
+            .eq("original_module_id", module_id)
+            .order("order_index")
+            .execute()
+        )
+        return {"data": response.data, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}
+
+
+async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
+    """
+    Get all users assigned to a sprint via the learning_plan table.
+    Returns user_id list from learning_plan, then fetches user details.
+    
+    ⭐ IMPORTANT: Now includes email_unsubscribed for GDPR/CAN-SPAM compliance.
+    Falls back to basic columns if new unsubscribe columns don't exist yet.
+    """
+    try:
+        # Get user_ids from learning_plan for this module
+        lp_response = (
+            supabase.table("learning_plan")
+            .select("user_id")
+            .eq("module_id", module_id)
+            .execute()
+        )
+        if not lp_response.data:
+            return {"data": [], "error": None}
+
+        user_ids = list({row["user_id"] for row in lp_response.data if row.get("user_id")})
+        if not user_ids:
+            return {"data": [], "error": None}
+
+        # Try to fetch user details WITH unsubscribe columns (if they exist)
+        try:
+            users_response = (
+                supabase.table("users")
+                .select("user_id, name, email, email_unsubscribed, unsubscribed_at")
+                .in_("user_id", user_ids)
+                .eq("is_active", True)
+                .execute()
+            )
+            return {"data": users_response.data, "error": None}
+        except Exception as e:
+            # If columns don't exist, fall back to basic columns
+            if "email_unsubscribed" in str(e) or "unsubscribed_at" in str(e):
+                users_response = (
+                    supabase.table("users")
+                    .select("user_id, name, email")
+                    .in_("user_id", user_ids)
+                    .eq("is_active", True)
+                    .execute()
+                )
+                # Add email_unsubscribed field with default value
+                for user in users_response.data:
+                    user["email_unsubscribed"] = False
+                    user["unsubscribed_at"] = None
+                return {"data": users_response.data, "error": None}
+            else:
+                # Re-raise other errors
+                raise
+    except Exception as e:
+        return {"data": None, "error": str(e)}
+
+
+async def get_sprint_image(module_id: str) -> Dict[str, Any]:
+    supabase = get_service_supabase_client()
+    """
+    Fetch the first available image for a sprint from the vectordb_images table.
+    Returns the public image_url or None if no images exist.
+    """
+    try:
+        response = (
+            supabase.table("vectordb_images")
+            .select("image_url")
+            .eq("module_id", module_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return {"data": response.data[0]["image_url"], "error": None}
+        return {"data": None, "error": None}
+    except Exception as e:
+        return {"data": None, "error": str(e)}
+    
+async def get_dispatch_bootstrap(module_id: str):
+    sub_modules = await get_sub_modules_by_sprint(module_id)
+    users = await get_assigned_users_for_sprint(module_id)
+    image = await get_sprint_image(module_id)
+
+    return {
+        "data": {
+            "sub_modules": sub_modules.get("data", []),
+            "users": users.get("data", []),
+            "user_count": len(users.get("data", [])),
+            "image_url": image.get("data")
+        },
+        "error": None
+    }

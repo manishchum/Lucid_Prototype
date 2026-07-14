@@ -42,8 +42,19 @@ export async function POST(req: Request) {
 		}
 		let created = 0, updated = 0, skipped: { row: number; reason: string }[] = [];
 					for (let i = 0; i < rows.length; i++) {
-						const [rawName, rawDesc, rawBenchmark, rawDatatype] = rows[i];
+						const [rawName, rawDesc, rawFormula,rawBenchmark] = rows[i];
+
+						// console.log('Data for each row',rows[i])
+						// console.log(rawName,rawDesc,rawName,rawBenchmark)
+						// console.log(rows[i])
+						const rawDatatype = typeof rows[i][4];
+						
+						// console.log(rawDatatype)
+						// console.log(rows[i][3])
+						// console.log(rows[i][4])
+						// Optional 4th column for datatype
 						if (!rawName || typeof rawName !== "string") {
+							// console.log("Inside the skip part",typeof rawName);
 							skipped.push({ row: i + 1, reason: "Missing KPI name" });
 							continue;
 						}
@@ -53,7 +64,7 @@ export async function POST(req: Request) {
 						let datatype: string | null = null;
 						if (rawDatatype && typeof rawDatatype === "string") {
 							const dt = rawDatatype.trim().toLowerCase();
-							if (["percentage", "numeric", "ratio"].includes(dt)) {
+							if (["percentage", "numeric", "ratio","number"].includes(dt)) {
 								datatype = dt;
 							} else {
 								datatype = null; // Accept only valid types, else null
@@ -75,7 +86,7 @@ export async function POST(req: Request) {
 									skipped.push({ row: i + 1, reason: "Benchmark out of range (0-100)" });
 									continue;
 								}
-							} else if (datatype === "numeric") {
+							} else if (datatype === "numeric"||datatype==="number") {
 								const val = parseFloat(rawBenchmark);
 								benchmark = isNaN(val) ? null : val;
 							} else if (datatype === "ratio") {
@@ -134,6 +145,8 @@ export async function POST(req: Request) {
 							}
 						}
 					}
+
+		// console.log(skipped);
 		return NextResponse.json({ created, updated, skipped });
 	} catch (err) {
 		return NextResponse.json({ error: "Fatal error", detail: String(err) }, { status: 500 });

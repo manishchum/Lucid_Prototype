@@ -1,19 +1,189 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft } from "lucide-react";
-import EmployeeNavigation from "@/components/employee-navigation";
+import { ChevronLeft, CheckCircle2, XCircle } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-export default function ModuleQuizPage({ params }: { params: { module_id: string } }) {
-  let originalModuleId :any = null;
+const parseMaybeJson = (value: any) => {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return value;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    try {
+      return JSON.parse(trimmed.replace(/^"+|"+$/g, ""));
+    } catch {
+      return value;
+    }
+  }
+};
+
+const normalizeStoredAnswers = (storedAnswers: any, quizData: any[]) => {
+  const parsed = parseMaybeJson(storedAnswers);
+  const answersArray = Array.isArray(parsed) ? parsed : [];
+
+  return quizData.map((q, idx) => {
+    const rawAnswer = answersArray[idx];
+    const options = Array.isArray(q?.options) ? q.options : [];
+
+    if (typeof rawAnswer === "number" && rawAnswer >= 0 && rawAnswer < options.length) {
+      return rawAnswer;
+    }
+
+    if (typeof rawAnswer === "string") {
+      const normalized = rawAnswer.trim();
+      const matchedIndex = options.findIndex((opt: string) => String(opt).trim() === normalized);
+      if (matchedIndex >= 0) {
+        return matchedIndex;
+      }
+    }
+
+    return -1;
+  });
+};
+
+const parseQuestionFeedback = (storedQuestionFeedback: any) => {
+  const parsed = parseMaybeJson(storedQuestionFeedback);
+
+  if (Array.isArray(parsed)) {
+    return parsed.map((item) => String(item ?? ""));
+  }
+
+  if (typeof parsed === "string") {
+    return parsed
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+};
+
+const calculateLocalQuizResult = (quizData: any[], answerState: Array<number | string | number[] | Record<string, string>>) => {
+  const questionFeedback: string[] = [];
+  const correctAnswers: Array<{
+    questionIndex: number;
+    question: any;
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
+    explanation: any;
+    bloomLevel: any;
+  }> = [];
+
+  let score = 0;
+  const maxScore = Array.isArray(quizData) ? quizData.length : 0;
+
+  quizData.forEach((question, index) => {
+    const options = Array.isArray(question?.options) ? question.options : [];
+    const correctIndex = typeof question?.correctIndex === "number" ? question.correctIndex : -1;
+    const selectedIndex = typeof answerState[index] === "number" ? (answerState[index] as number) : -1;
+
+    const correctAnswer = correctIndex >= 0 && options[correctIndex] !== undefined
+      ? String(options[correctIndex]).trim()
+      : "Correct answer unavailable";
+
+    const userAnswer = selectedIndex >= 0 && options[selectedIndex] !== undefined
+      ? String(options[selectedIndex]).trim()
+      : "No answer provided";
+
+    const isCorrect = selectedIndex >= 0 && selectedIndex === correctIndex;
+
+    if (isCorrect) {
+      score += 1;
+      questionFeedback.push("Correct! Well done.");
+    } else {
+      const explanation = question?.explanation;
+      questionFeedback.push(
+        explanation || `Incorrect. The correct answer is: "${correctAnswer}". You answered: "${userAnswer}".`
+      );
+    }
+
+    correctAnswers.push({
+      questionIndex: index,
+      question: question?.question,
+      userAnswer,
+      correctAnswer,
+      isCorrect,
+      explanation: question?.explanation ?? null,
+      bloomLevel: question?.bloomLevel ?? null,
+    });
+  });
+
+  const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+
+  return {
+    score,
+    maxScore,
+    percentage,
+    questionFeedback,
+    correctAnswers,
+  };
+};
+
+const fetchUserByEmail = async (email: string) => {
+  if(!email) return null;
+  try {
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.data ?? payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e) {
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
+export default function ModuleQuizPage({ params }: { params: Promise<{ module_id: string }> }) {
+  const unwrappedParams = use(params);
+  
+  const [originalModuleId, setOriginalModuleId] = useState<string>(unwrappedParams.module_id);
 
   const { user, loading: authLoading } = useAuth();
+
+  const refreshScoreHistoryCache = async (employeeId: string) => {
+    const assessmentsCacheKey = createCacheKey({
+      namespace: "assessments",
+      userId: String(employeeId),
+      path: "/employee-assessments",
+    });
+
+    sharedDataClient.invalidate(assessmentsCacheKey);
+
+    await sharedDataClient.query(
+      assessmentsCacheKey,
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`,
+          {
+            headers: { "X-User-ID": employeeId },
+          },
+        );
+        if (!res.ok) {
+          throw new Error("Failed to refetch employee assessments");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 2 * 60 * 1000,
+        swr: true,
+        forceRefresh: true,
+      },
+    );
+  };
   
   // Handler for navigation
   const handleNext = () => {
@@ -39,11 +209,17 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     // Ensure assessmentId is set before submission
     if (!assessmentId) {
       // console.log("Inside thse !assessmentId block")
-      setFeedback("Error: Could not identify assessment. Please refresh and try again.");
+      setError("Error: Could not identify assessment. Please refresh and try again.");
       return;
     }
     setSubmitted(true);
     setIsSubmitting(true);
+
+    const localResult = calculateLocalQuizResult(quiz, answers);
+    setScore(localResult.score);
+    setMaxScore(localResult.maxScore);
+    setQuestionFeedback(localResult.questionFeedback);
+
     // Normalize answers for MCQ questions (send selected option values, not indices)
     // console.log("Outside the last return before userAnswers")
     const userAnswers = answers.map((ans, i) => {
@@ -66,19 +242,17 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     let employeeName: string | null = null;
     if (!authLoading && user?.email) {
       try {
-        const { data: emp } = await supabase
-          .from('users')
-          .select('user_id')
-          .eq('email', user.email)
-          .single();
+        const emp = await fetchUserByEmail(user.email);
         employeeId = emp?.user_id || null;
-  employeeName = (user as any)?.displayName || user.email || null;
+        employeeName = (user as any)?.displayName || user.email || null;
       } catch (err) {
         // console.log('[QUIZ] Error fetching employee record:', err);
       }
     }
     if (!employeeId) {
       setFeedback("Error: Could not identify employee. Please refresh and try again.");
+      setSubmitted(false);
+      setIsSubmitting(false);
       return;
     }
     const payload = {
@@ -92,33 +266,53 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     };
     let feedbackText = "";
     try {
-      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeId,
+        },
         body: JSON.stringify(payload),
       });
       // console.log(payload);
       // console.log(res);
       const result = await res.json();
       feedbackText = result.feedback || "";
-      if (typeof result.score === 'number') setScore(result.score);
-      if (typeof result.maxScore === 'number') setMaxScore(result.maxScore);
       setFeedback(feedbackText);
+      if (Array.isArray(result.questionFeedback) && result.questionFeedback.length > 0) {
+        setQuestionFeedback(result.questionFeedback.map((item: any) => String(item ?? "")));
+      }
+
+      if (res.ok) {
+        try {
+          await refreshScoreHistoryCache(employeeId);
+        } catch (cacheErr) {
+          console.warn('[QUIZ] score-history cache refresh failed', cacheErr);
+        }
+      }
+
       // Log quiz taken into module_progress
       try {
         // console.log(result);
-        await fetch('/api/module-progress', {
+        await fetchWithAuth(`${API_BASE}/api/module-progress`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': employeeId,
+          },
           body: JSON.stringify({
             user_id: employeeId,
             processed_module_id: resolvedModuleId || moduleId,
-            quiz_score: typeof result.score === 'number' ? result.score : null,
-            max_score: typeof result.maxScore === 'number' ? result.maxScore : quiz.length,
+            module_id: originalModuleId,
+            quiz_score: localResult.score,
+            max_score: localResult.maxScore,
             quiz_feedback: feedbackText,
             completed_at: new Date().toISOString(),
           }),
         });
+        
+        sharedDataClient.invalidateByPrefix("v1|dashboard");
+        sharedDataClient.invalidateByPrefix("v1|training-plan");
       } catch (e) {
         // console.log('[QUIZ] progress log error', e);
       }
@@ -130,7 +324,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     }
   };
 
-  const moduleId = params.module_id;
+  const moduleId = unwrappedParams.module_id;
   const [quiz, setQuiz] = useState<any[] | null>(null);
   const [moduleName, setModuleName] = useState<string>("Module Quiz");
   const [loading, setLoading] = useState(true);
@@ -141,10 +335,12 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const [score, setScore] = useState<number | null>(null);
   const [maxScore, setMaxScore] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [questionFeedback, setQuestionFeedback] = useState<string[]>([]);
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
+  const [isReviewMode, setIsReviewMode] = useState(false);
   const router = useRouter();
   let  userId:any = null;
   let companyId:any = null;
@@ -153,6 +349,67 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   const currentQuestions = quiz ? quiz.slice(currentPage * questionsPerPage, (currentPage + 1) * questionsPerPage) : [];
   const answeredQuestions = answers.filter(a => a !== -1 && a !== '').length;
   const progressPercentage = quiz ? (answeredQuestions / quiz.length) * 100 : 0;
+
+  const loadExistingAttempt = async (currentAssessmentId: string, quizData: any[], employeeId: string, processedModuleId: string | null) => {
+    try {
+      if (!processedModuleId) return false;
+
+      const progressRes = await fetchWithAuth(
+        `${API_BASE}/api/module-progress/user/${encodeURIComponent(employeeId)}/module/${encodeURIComponent(processedModuleId)}`,
+        {
+          headers: { "X-User-ID": employeeId },
+        },
+      );
+
+      if (!progressRes.ok) return false;
+
+      const progressPayload = await progressRes.json();
+      const progressRecord = progressPayload?.progress ?? progressPayload?.data?.progress ?? progressPayload?.data ?? null;
+      const isCompleted = Boolean(progressRecord?.completed_at || progressRecord?.quiz_score != null);
+
+      if (!isCompleted) return false;
+
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}?assessment_id=${encodeURIComponent(currentAssessmentId)}&limit=5`,
+        {
+          headers: { "X-User-ID": employeeId },
+        },
+      );
+
+      if (!res.ok) return false;
+
+      const payload = await res.json();
+      const attempts = payload?.data?.assessments ?? payload?.assessments ?? [];
+      const latestAttempt = Array.isArray(attempts) ? attempts[0] : null;
+
+      if (!latestAttempt) return false;
+
+      const hasTakenQuiz = Boolean(
+        latestAttempt.completed_at ||
+        latestAttempt.score != null ||
+        latestAttempt.feedback ||
+        latestAttempt.question_feedback,
+      );
+
+      if (!hasTakenQuiz) return false;
+
+      setAnswers(normalizeStoredAnswers(latestAttempt.answers, quizData));
+      setScore(typeof latestAttempt.score === "number" ? latestAttempt.score : null);
+      setMaxScore(
+        typeof latestAttempt.max_score === "number" && latestAttempt.max_score > 0
+          ? latestAttempt.max_score
+          : quizData.length,
+      );
+      setFeedback(typeof latestAttempt.feedback === "string" ? latestAttempt.feedback : null);
+      setQuestionFeedback(parseQuestionFeedback(latestAttempt.question_feedback));
+      setSubmitted(true);
+      setIsReviewMode(true);
+      return true;
+    } catch (error) {
+      console.warn("[QUIZ] Failed to load existing attempt:", error);
+      return false;
+    }
+  };
 
   // Handler for MCQ selection
   const handleSelect = (qIdx: number, oIdx: number) => {
@@ -191,61 +448,97 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
     const fetchOrGenerateQuiz = async () => {
       setLoading(true);
       setError(null);
-      
-      // Fetch module metadata and resolve canonical processed_module_id
-      try {
-        let moduleData: any = null;
-        const byProcessed = await supabase
-          .from('processed_modules')
-          .select('processed_module_id, original_module_id, title')
-          .eq('processed_module_id', moduleId)
-          .maybeSingle();
-        moduleData = byProcessed?.data || null;
+      setSubmitted(false);
+      setIsReviewMode(false);
+      setScore(null);
+      setMaxScore(null);
+      setFeedback(null);
+      setQuestionFeedback([]);
 
-        if (!moduleData) {
-          const byOriginal = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, original_module_id, title')
-            .eq('original_module_id', moduleId)
-            .maybeSingle();
-          moduleData = byOriginal?.data || null;
-        }
-
-        if (moduleData) {
-          if (moduleData.title) setModuleName(moduleData.title);
-          if(moduleData.original_module_id) originalModuleId = moduleData.original_module_id;
-          if (moduleData.processed_module_id) setResolvedModuleId(String(moduleData.processed_module_id));
-          console.log('Value of originalModuleId:', originalModuleId);
-        }
-      } catch (e) {
-        // console.log('[quiz] module metadata fetch error', e);
-      }
-      
+      // Fetch employee data first to get userId for API calls
       let learningStyle: string | null = null;
+      let canonicalProcessedModuleId: string | null = null;
       if (!authLoading && user?.email) {
         // console.log("Inside the quiz tab")
         // console.log(user.email)
         try {
-          const { data: emp } = await supabase
-            .from('users')
-            .select('user_id,company_id')
-            .eq('email', user.email)
-            .single();
-            userId = emp?.user_id || null;
-            companyId = emp?.company_id || null;
-            // console.log(userId)
+          const emp = await fetchUserByEmail(user.email);
+          userId = emp?.user_id || null;
+          companyId = emp?.company_id || null;
           if (emp?.user_id) {
-            const { data: styleData } = await supabase
-              .from('employee_learning_style')
-              .select('learning_style')
-              .eq('user_id', emp.user_id)
-              .maybeSingle();
-            if (styleData?.learning_style) {
-              learningStyle = styleData.learning_style;
+            try {
+              const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${emp.user_id}`, {
+                headers: { 'X-User-ID': emp.user_id }
+              });
+              if (styleRes.ok) {
+                const styleJson = await styleRes.json();
+                const styleData = styleJson?.data || styleJson;
+                if (styleData?.learning_style) {
+                  learningStyle = styleData.learning_style;
+                }
+                // console.log("Style Data:- ", styleData);
+              }
+            } catch (styleErr) {
+              console.error('[quiz] error fetching learning style', styleErr);
             }
           }
         } catch (e) {
           // console.log('[quiz] employee fetch error', e);
+        }
+      }
+      
+      // Fetch module metadata and resolve canonical processed_module_id
+      if (userId) {
+        try {
+          let moduleData: any = null;
+          
+          // First try: fetch by processed_module_id
+          try {
+            const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
+              headers: {
+                'X-User-ID': userId
+              }
+            });
+
+            if (res.ok) {
+              const payload = await res.json();
+              moduleData = payload?.data || payload;
+            }
+          } catch (error) {
+            console.error('[quiz] Error fetching by processed_module_id:', error);
+          }
+
+          // Second try: if not found, fetch by original_module_id
+          if (!moduleData) {
+            try {
+              const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+                headers: {
+                  'X-User-ID': userId
+                }
+              });
+
+              if (res.ok) {
+                const payload = await res.json();
+                const modules = payload?.data || payload || [];
+                // Take the first match
+                moduleData = modules[0] || null;
+              }
+            } catch (error) {
+              console.error('[quiz] Error fetching by original_module_id:', error);
+            }
+          }
+
+          if (moduleData) {
+            if (moduleData.title) setModuleName(moduleData.title);
+            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+            if (moduleData.processed_module_id) {
+              canonicalProcessedModuleId = String(moduleData.processed_module_id);
+              setResolvedModuleId(canonicalProcessedModuleId);
+            }
+            // console.log('Value of originalModuleId:', originalModuleId);
+          }
+        } catch (e) {
+          // console.log('[quiz] module metadata fetch error', e);
         }
       }
       if (!learningStyle) {
@@ -254,14 +547,22 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       // 1. Try to fetch existing quiz for this module and Performance Sprint
-      let query = supabase
-        .from("assessments")
-        .select("assessment_id, questions, processed_modules!inner(original_module_id,user_id)")
-        .eq("type", "module")
-        .eq("processed_modules.original_module_id", moduleId)
-        .eq('processed_modules.user_id', userId)
-        .eq("learning_style", learningStyle);
-      const { data: assessment } = await query.maybeSingle();
+      let assessment = null;
+      try {
+        const res = await fetchWithAuth(
+          `${API_BASE}/api/assessments/filter/search?type=module&original_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}&user_id_filter=${userId}`,
+          {
+            headers: { 'X-User-ID': userId }
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const assessmentList = data?.data?.assessments ?? data?.assessments ?? [];
+          assessment = assessmentList.length > 0 ? assessmentList[0] : null;
+        }
+      } catch (e) {
+        console.error('[QUIZ] Error fetching assessment:', e);
+      }
       // console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
       // console.log(moduleId, learningStyle);
       if (assessment && assessment.questions) {
@@ -271,6 +572,9 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
           setQuiz(quizData);
           setAnswers(new Array(quizData.length).fill(-1));
           setAssessmentId(assessment.assessment_id);
+          if (userId) {
+            await loadExistingAttempt(String(assessment.assessment_id), quizData, String(userId), canonicalProcessedModuleId || resolvedModuleId || moduleId);
+          }
         } catch (e) {
           // console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
           setQuiz(null);
@@ -280,7 +584,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         return;
       }
       try {
-        const res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+        const res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ moduleId, learningStyle, userId,companyId }),
@@ -290,16 +594,30 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
         if (result.quiz) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-          const { data: newAssessment } = await supabase
-            .from("assessments")
-            .select("assessment_id")
-            .eq("type", "module")
-            .eq("processed_module_id", moduleId)
-            .eq("learning_style", learningStyle)
-            .maybeSingle();
-            // console.log("This is the module id:", moduleId)
-          // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
-          if (newAssessment && newAssessment.assessment_id) setAssessmentId(newAssessment.assessment_id);
+                    if (result.assessmentId) {
+             setAssessmentId(result.assessmentId);
+          }
+          // Fetch the newly created assessment from backend
+          try {
+            const assessmentRes = await fetchWithAuth(
+              `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}`,
+              {
+                headers: { 'X-User-ID': userId }
+              }
+            );
+            if (assessmentRes.ok) {
+              const assessmentData = await assessmentRes.json();
+              const newAssessmentList = assessmentData?.data?.assessments ?? assessmentData?.assessments ?? [];
+              const newAssessment = newAssessmentList.length > 0 ? newAssessmentList[0] : null;
+              // console.log("This is the module id:", moduleId)
+              // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
+              if (newAssessment && newAssessment.assessment_id) {
+                setAssessmentId(newAssessment.assessment_id);
+              }
+            }
+          } catch (e) {
+            console.error('[QUIZ] Error fetching new assessment:', e);
+          }
        
        
        
@@ -458,20 +776,8 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation 
-        customBackPath={`/employee/module/${params.module_id}`}
-        showForward={false}
-      />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4 py-8">
+      <div className="max-w-7xl mx-auto">
           {/* Back Button */}
           <button
             onClick={() => router.back()}
@@ -558,23 +864,23 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                               key={oIdx}
                               onClick={() => handleSelect(globalIdx, oIdx)}
                               disabled={submitted}
-                              className={`w-full p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md ${
+                                className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 hover:shadow-md active:scale-[0.99] ${
                                 answers[globalIdx] === oIdx
-                                  ? "border-blue-500 bg-blue-50 shadow-sm"
-                                  : "border-gray-200 hover:border-gray-300"
+                                  ? "border-blue-500 bg-blue-50 shadow-sm ring-1 ring-blue-500/50"
+                                  : "border-gray-200 hover:border-gray-300 hover:bg-slate-50"
                               } ${submitted ? "cursor-not-allowed" : "cursor-pointer"}`}
                             >
-                              <div className="flex items-center gap-3">
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
+                                <div className={`w-5 h-5 aspect-square shrink-0 rounded-full border-2 flex items-center justify-center mt-0.5 ${
                                   answers[globalIdx] === oIdx
                                     ? "border-blue-500 bg-blue-500"
                                     : "border-gray-300"
-                                }`}>
-                                  {answers[globalIdx] === oIdx && (
-                                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                                  }`}>
+                                    {answers[globalIdx] === oIdx && (
+                                    <div className="w-2 h-2 rounded-full bg-white animate-in zoom-in duration-200 ease-out"></div>
                                   )}
                                 </div>
-                                <span className="text-sm sm:text-base">{opt}</span>
+                                <span className="min-w-0 text-sm sm:text-base leading-snug break-words">{opt}</span>
                               </div>
                             </button>
                           ))}
@@ -591,7 +897,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             </div>
 
             {/* Navigation */}
-            <div className="flex justify-between items-center mt-6">
+            <div className="flex justify-between items-center gap-3 mt-6 px-1">
               <Button
                 variant="outline"
                 onClick={handlePrevious}
@@ -621,13 +927,13 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                   )}
                 </Button>
               ) : (
-                <Button
+                                                <Button
                   onClick={handleNext}
                   disabled={currentQuestions.some((_, idx) => {
                     const globalIdx = currentPage * questionsPerPage + idx;
                     return answers[globalIdx] === -1 || answers[globalIdx] === '';
                   })}
-                  className="px-6 py-3"
+                  className="px-6 py-3 min-w-[96px] bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-100 disabled:bg-blue-200 disabled:text-blue-700 disabled:border disabled:border-blue-300"
                 >
                   Next
                 </Button>
@@ -635,12 +941,18 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
             </div>
           </>
         ) : (
-          /* Results Card */
+          <>
+          {/* Results Card */}
           <Card className="shadow-2xl border-t-4 border-t-green-500">
             <CardHeader className="bg-gradient-to-r from-green-50 to-blue-50 text-center">
               <CardTitle className="text-3xl font-bold text-gray-800 mb-2">
                 Quiz Complete! 🎉
               </CardTitle>
+              <CardDescription className="text-gray-600">
+                {isReviewMode
+                  ? "This quiz was already taken, so you are viewing a read-only review."
+                  : "Your answers have been scored and saved."}
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-8">
               <div className="text-center mb-8">
@@ -660,7 +972,7 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
                   </div>
                 )}
                 
-                {feedback && (
+                {submitted && (
                   <Button
                     onClick={() => router.push('/employee/score-history')}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold rounded-lg shadow-lg transition-all"
@@ -671,8 +983,118 @@ export default function ModuleQuizPage({ params }: { params: { module_id: string
               </div>
             </CardContent>
           </Card>
-        )}
-        </div>
+          <div className="space-y-8 mt-6">
+            {currentQuestions.map((q, idx) => {
+              const globalIdx = currentPage * questionsPerPage + idx;
+              const selectedIndex = typeof answers[globalIdx] === "number" ? (answers[globalIdx] as number) : -1;
+              const correctIndex = typeof q.correctIndex === "number" ? q.correctIndex : -1;
+              const isCorrect = selectedIndex !== -1 && selectedIndex === correctIndex;
+              const selectedText = selectedIndex >= 0 && q.options?.[selectedIndex] ? q.options[selectedIndex] : "No answer provided";
+              const correctText = correctIndex >= 0 && q.options?.[correctIndex] ? q.options[correctIndex] : "Correct answer unavailable";
+              const perQuestionFeedback = questionFeedback[globalIdx] || "";
+
+              return (
+                <Card key={globalIdx} className={`shadow-lg border-2 ${isCorrect ? "border-green-200" : "border-red-200"}`}>
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="font-medium text-base sm:text-lg">
+                        {globalIdx + 1}. {q.question}
+                      </div>
+                      <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold ${isCorrect ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                        {isCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                        {isCorrect ? "Correct" : "Incorrect"}
+                      </div>
+                    </div>
+
+                    {(Array.isArray(q.options) && q.options.length > 0) ? (
+                      <div className="space-y-2 mt-3">
+                        {q.options.map((opt: string, oIdx: number) => {
+                          const isSelected = selectedIndex === oIdx;
+                          const isAnswerKey = correctIndex === oIdx;
+                          const optionClass = isCorrect
+                            ? (isSelected ? "border-green-500 bg-green-50" : isAnswerKey ? "border-green-300 bg-green-50/70" : "border-gray-200 bg-white")
+                            : (isSelected ? "border-red-500 bg-red-50" : isAnswerKey ? "border-green-300 bg-green-50/70" : "border-gray-200 bg-white");
+
+                          return (
+                            <div
+                              key={oIdx}
+                              className={`w-full p-3 sm:p-4 text-left border-2 rounded-lg transition-all duration-200 ${optionClass}`}
+                            >
+                              <div className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-3">
+                                <div className={`w-5 h-5 aspect-square shrink-0 rounded-full border-2 flex items-center justify-center mt-0.5 ${
+                                  isSelected
+                                    ? isCorrect
+                                      ? "border-green-500 bg-green-500"
+                                      : "border-red-500 bg-red-500"
+                                    : isAnswerKey
+                                      ? "border-green-500 bg-green-500"
+                                      : "border-gray-300"
+                                }`}>
+                                  {(isSelected || isAnswerKey) && (
+                                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                                  )}
+                                </div>
+                                <span className="min-w-0 text-sm sm:text-base leading-snug break-words">{opt}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-red-600 text-sm bg-red-50 p-3 rounded">
+                        No options available for this question.
+                      </div>
+                    )}
+
+                    {/* <div className="grid gap-3 sm:grid-cols-2 mt-5">
+                      <div className="rounded-lg bg-slate-50 p-3 border border-slate-200">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Your answer</div>
+                        <div className={`text-sm font-medium ${isCorrect ? "text-green-700" : "text-red-700"}`}>
+                          {selectedText}
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-green-50 p-3 border border-green-200">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-green-600 mb-1">Correct answer</div>
+                        <div className="text-sm font-medium text-green-800">{correctText}</div>
+                      </div>
+                    </div> */}
+
+                    {perQuestionFeedback && (
+                      <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                        {perQuestionFeedback}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex justify-between items-center gap-3 mt-6 px-1">
+              <Button
+                variant="outline"
+                onClick={handlePrevious}
+                disabled={currentPage === 0}
+                className="px-6 py-3"
+              >
+                Previous
+              </Button>
+
+              <div className="text-sm text-gray-500">
+                {`Page ${currentPage + 1} of ${totalPages}`}
+              </div>
+
+              <Button
+                onClick={handleNext}
+                disabled={currentPage >= totalPages - 1}
+                className="px-6 py-3 min-w-[96px] bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-100 disabled:bg-blue-200 disabled:text-blue-700 disabled:border disabled:border-blue-300"
+              >
+                Next
+              </Button>
+            </div>
+          )}
+          </>
+        )} 
       </div>
     </div>
   );

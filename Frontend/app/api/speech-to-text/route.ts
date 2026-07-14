@@ -1,136 +1,293 @@
-import { NextRequest, NextResponse } from "next/server";
-import os from 'os';
-import fs from 'fs';
-const base64Key = process.env.GOOGLE_STT_JSON;
-let credentialsPath: string | undefined;
-let serviceAccountCredentials: any = null;
+// import { NextRequest, NextResponse } from "next/server";
+// import { GoogleAuth } from "google-auth-library";
 
-if (base64Key) {
-  try {
-    const decoded = Buffer.from(base64Key, 'base64').toString('utf8');
-    serviceAccountCredentials = JSON.parse(decoded);
-    const tempPath = os.tmpdir() + `/google-credentials-${Date.now()}.json`;
-    fs.writeFileSync(tempPath, decoded, { encoding: 'utf8' });
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = tempPath;
-    credentialsPath = tempPath;
-    console.log('[STT API] Decoded Google credentials from GOOGLE_STT_JSON and set GOOGLE_APPLICATION_CREDENTIALS');
-  } catch (e) {
-    console.error('[STT API] Failed to decode/write Google credentials:', e);
-  }
-} else {
-  console.warn('[STT API] GOOGLE_STT_JSON not set.');
-}
+// /* ======================================================
+//    🔐 Load Service Account Credentials (Base64)
+//    ====================================================== */
 
-// Helper function to get OAuth2 access token
-async function getAccessToken() {
-  if (!serviceAccountCredentials) {
-    throw new Error('Service account credentials not loaded');
-  }
+// const credentials = process.env.GOOGLE_STT_JSON
+//   ? JSON.parse(
+//       Buffer.from(process.env.GOOGLE_STT_JSON, "base64").toString("utf8")
+//     )
+//   : null;
 
-  const { GoogleAuth } = await import('google-auth-library');
-  const auth = new GoogleAuth({
-    credentials: serviceAccountCredentials,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-  });
+// /* ======================================================
+//    🔑 Get OAuth2 Access Token
+//    ====================================================== */
 
-  const client = await auth.getClient();
-  const accessToken = await client.getAccessToken();
-  
-  if (!accessToken.token) {
-    throw new Error('Failed to get access token');
-  }
+// async function getAccessToken(): Promise<string> {
+//   if (!credentials) {
+//     throw new Error("Google STT credentials not configured");
+//   }
 
-  return accessToken.token;
-}
+//   const auth = new GoogleAuth({
+//     credentials,
+//     scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+//   });
 
-export async function POST(request: NextRequest) {
-  try {
-    if (!serviceAccountCredentials) {
-      return NextResponse.json(
-        { error: "Google Speech-to-Text credentials not configured" },
-        { status: 500 }
-      );
-    }
+//   const client = await auth.getClient();
+//   const token = await client.getAccessToken();
 
-    const formData = await request.formData();
-    const audioFile = formData.get("audio") as File;
+//   if (!token.token) {
+//     throw new Error("Failed to obtain Google access token");
+//   }
 
-    if (!audioFile) {
-      return NextResponse.json(
-        { error: "No audio file provided" },
-        { status: 400 }
-      );
-    }
+//   return token.token;
+// }
 
-    // Convert audio to base64
-    const buffer = Buffer.from(await audioFile.arrayBuffer());
-    const base64Audio = buffer.toString("base64");
+// /* ======================================================
+//    🎙 Transcribe Single Chunk
+//    ====================================================== */
 
-    console.log("[Speech-to-Text] Sending request to Google Speech API...");
-    console.log("[Speech-to-Text] Audio size:", buffer.length, "bytes");
+// async function transcribeChunk(
+//   base64Audio: string,
+//   chunkIndex: number,
+//   accessToken: string
+// ): Promise<{ text: string; chunkIndex: number }> {
+//   const response = await fetch(
+//     "https://speech.googleapis.com/v1/speech:longrunningrecognize",
+//     {
+//       method: "POST",
+//       headers: {
+//         "Content-Type": "application/json",
+//         Authorization: `Bearer ${accessToken}`,
+//       },
+//       body: JSON.stringify({
+//         config: {
+//           encoding: "WEBM_OPUS", // must match frontend
+//           sampleRateHertz: 48000,
+//           languageCode: "en-US",
+//           enableAutomaticPunctuation: true,
+//         },
+//         audio: {
+//           content: base64Audio,
+//         },
+//       }),
+//     }
+//   );
 
-    // Get OAuth2 access token
-    const accessToken = await getAccessToken();
+//   if (!response.ok) {
+//     const errorText = await response.text();
+//     throw new Error(
+//       `Chunk ${chunkIndex} transcription failed (${response.status}): ${errorText}`
+//     );
+//   }
 
-    // Use Google Cloud Speech-to-Text REST API with OAuth2 authentication
-    const apiUrl = `https://speech.googleapis.com/v1/speech:recognize`;
-    
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        config: {
-          encoding: "WEBM_OPUS",
-          sampleRateHertz: 48000,
-          languageCode: "en-US",
-          enableAutomaticPunctuation: true,
-        },
-        audio: {
-          content: base64Audio,
-        },
-      }),
-    });
+//   const data = await response.json();
+//   const operationName = data.name;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[Speech-to-Text] API error response:", response.status, errorText);
-      
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { message: errorText };
-      }
-      
-      throw new Error(
-        errorData.error?.message || 
-        errorData.message || 
-        `API returned ${response.status}`
-      );
-    }
+//   if (!operationName) {
+//     throw new Error(`Chunk ${chunkIndex} failed to start operation`);
+//   }
 
-    const data = await response.json();
-    console.log("[Speech-to-Text] API response:", JSON.stringify(data, null, 2));
+//   // Poll until done
+//   const operationUrl = `https://speech.googleapis.com/v1/operations/${operationName}`;
 
-    // Extract transcript from response
-    const transcript = data.results?.[0]?.alternatives?.[0]?.transcript;
+//   let attempts = 0;
+//   const maxAttempts = 30; // ~30 seconds
+//   const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-    if (!transcript) {
-      return NextResponse.json(
-        { error: "No speech detected" },
-        { status: 400 }
-      );
-    }
+//   while (attempts < maxAttempts) {
+//     await delay(1000);
+//     attempts++;
 
-    return NextResponse.json({ text: transcript });
-  } catch (err: any) {
-    console.error("Speech-to-text error:", err);
-    return NextResponse.json(
-      { error: err.message || "Speech-to-text failed" },
-      { status: 500 }
-    );
-  }
-}
+//     const pollResponse = await fetch(operationUrl, {
+//       headers: {
+//         Authorization: `Bearer ${accessToken}`,
+//       },
+//     });
+
+//     const pollData = await pollResponse.json();
+
+//     if (pollData.done) {
+//       if (pollData.error) {
+//         throw new Error(
+//           `Chunk ${chunkIndex} operation error: ${JSON.stringify(pollData.error)}`
+//         );
+//       }
+
+//  const transcript =
+//         pollData.response?.results
+//           ?.map((r: any) => r.alternatives?.[0]?.transcript || "")
+//           .join(" ") || "";
+
+//       return {
+//         text: transcript.trim(),
+//         chunkIndex,
+//       };
+//     }
+//   }
+
+//   throw new Error(`Chunk ${chunkIndex} transcription timeout`);
+// }
+
+// /* ======================================================
+//    🔗 Merge Chunk Transcriptions
+//    ====================================================== */
+
+// function mergeTranscriptions(
+//   transcriptions: Array<{ text: string; chunkIndex: number }>
+// ): string {
+//   if (transcriptions.length === 0) return "";
+//   if (transcriptions.length === 1) return transcriptions[0].text;
+
+//   // Sort by chunk index
+//   transcriptions.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+//   let merged = transcriptions[0].text;
+
+//   for (let i = 1; i < transcriptions.length; i++) {
+//     const current = transcriptions[i].text;
+
+//     const overlap = findOverlap(merged, current);
+
+//     if (overlap.length > 0) {
+//       const uniquePart = current.slice(overlap.length).trim();
+//       merged = `${merged} ${uniquePart}`;
+//     } else {
+//       merged = `${merged} ${current}`;
+//     }
+//   }
+
+//   return merged.trim();
+// }
+
+// function normalize(text: string): string {
+//   return text
+//     .toLowerCase()
+//     .replace(/[.,!?]/g, "")
+//     .trim();
+// }
+
+// function findOverlap(text1: string, text2: string): string {
+//   const words1 = normalize(text1).split(/\s+/);
+//   const words2 = normalize(text2).split(/\s+/);
+
+//   const minOverlapWords = 2;
+//   const maxOverlapWords = Math.min(8, words1.length, words2.length);
+
+//   for (let overlapLen = maxOverlapWords; overlapLen >= minOverlapWords; overlapLen--) {
+//     const end1 = words1.slice(-overlapLen).join(" ");
+//     const start2 = words2.slice(0, overlapLen).join(" ");
+
+//     if (end1 === start2) {
+//       return words2.slice(0, overlapLen).join(" ");
+//     }
+//   }
+
+//   return "";
+// }
+
+// /* ======================================================
+//    🚀 Main POST Handler
+//    ====================================================== */
+
+// export async function POST(request: NextRequest) {
+//   try {
+//     if (!credentials) {
+//       return NextResponse.json(
+//         { error: "Google Speech-to-Text credentials not configured" },
+//         { status: 500 }
+//       );
+//     }
+
+//     const formData = await request.formData();
+
+//     const isChunked = formData.has("chunkCount");
+
+//     const accessToken = await getAccessToken();
+
+//     /* --------------------------------------------
+//        🟢 SINGLE AUDIO FILE
+//        -------------------------------------------- */
+
+//     if (!isChunked) {
+//       const audioFile = formData.get("audio") as File;
+
+//       if (!audioFile) {
+//         return NextResponse.json(
+//           { error: "No audio file provided" },
+//           { status: 400 }
+//         );
+//       }
+
+//       const buffer = Buffer.from(await audioFile.arrayBuffer());
+//       const base64Audio = buffer.toString("base64");
+
+//       const result = await transcribeChunk(base64Audio, 0, accessToken);
+
+//       if (!result.text) {
+//         return NextResponse.json(
+//           { error: "No speech detected" },
+//           { status: 400 }
+//         );
+//       }
+
+//       return NextResponse.json({
+//         text: result.text,
+//         processingMethod: "single",
+//       });
+//     }
+
+//     /* --------------------------------------------
+//        🟢 CHUNKED AUDIO (Parallel)
+//        -------------------------------------------- */
+
+//     const chunkCount = parseInt(formData.get("chunkCount") as string, 10);
+
+//     if (!chunkCount || chunkCount <= 0) {
+//       return NextResponse.json(
+//         { error: "Invalid chunk count" },
+//         { status: 400 }
+//       );
+//     }
+
+//     const chunks: Array<{ blob: File; index: number }> = [];
+
+//     for (let i = 0; i < chunkCount; i++) {
+//       const chunkBlob = formData.get(`chunk_${i}`) as File;
+//       if (chunkBlob) {
+//         chunks.push({ blob: chunkBlob, index: i });
+//       }
+//     }
+
+//     if (chunks.length === 0) {
+//       return NextResponse.json(
+//         { error: "No audio chunks provided" },
+//         { status: 400 }
+//       );
+//     }
+
+//     const transcriptionPromises = chunks.map(async (chunk) => {
+//       const buffer = Buffer.from(await chunk.blob.arrayBuffer());
+//       const base64Audio = buffer.toString("base64");
+
+//       return transcribeChunk(base64Audio, chunk.index, accessToken);
+//     });
+
+//     const transcriptions = await Promise.all(transcriptionPromises);
+
+//     const mergedText = mergeTranscriptions(transcriptions);
+
+//     if (!mergedText) {
+//       return NextResponse.json(
+//         { error: "No speech detected in audio" },
+//         { status: 400 }
+//       );
+//     }
+
+//     return NextResponse.json({
+//       text: mergedText,
+//       chunkCount: transcriptions.length,
+//       processingMethod: "async-parallel",
+//     });
+
+//   } catch (err: any) {
+//     console.error("[Async STT] Error:", err);
+
+//     return NextResponse.json(
+//       { error: err.message || "Async transcription failed" },
+//       { status: 500 }
+//     );
+//   }
+// }

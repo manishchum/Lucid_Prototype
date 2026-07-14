@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react';
-import EmployeeNavigation from '@/components/employee-navigation';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import ModuleSuggestions from '@/components/module-suggestions';
+import { SuggestedModule } from '@/components/module-suggestions';
+import { generateKPIReport } from '@/lib/kpi-pdf-generator';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,9 +22,13 @@ import {
   AlertCircle,
   Calculator,
   File,
-  X
+  X,
+  Download
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface KPIIndicator {
   name: string;
@@ -39,6 +44,8 @@ interface ParsedKPIData {
 }
 
 export default function KPIIntelligencePage() {
+  const {user, loading:authLoading} = useAuth();
+  const router = useRouter();
   const [roleName, setRoleName] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +53,30 @@ export default function KPIIntelligencePage() {
   const [error, setError] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isParsingFile, setIsParsingFile] = useState(false);
+  const [suggestedModules, setSuggestedModules] = useState<SuggestedModule[]>([]);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading);
 
+  // Memoize indicator name arrays so they keep stable references
+  const leadIndicatorNames = useMemo(
+    () => parsedData?.leadIndicators.map(ind => ind.name) ?? [],
+    [parsedData]
+  );
+  const lagIndicatorNames = useMemo(
+    () => parsedData?.lagIndicators.map(ind => ind.name) ?? [],
+    [parsedData]
+  );
+
+  const handleModulesLoaded = useCallback((modules: SuggestedModule[]) => {
+    setSuggestedModules(modules);
+  }, []);
+
+  useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          // else checkAdminAccess();
+          
+        }
+      }, [user, authLoading, router]);
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -71,7 +101,7 @@ export default function KPIIntelligencePage() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/parse-file', {
+      const response = await fetchWithAuth('/api/parse-file', {
         method: 'POST',
         body: formData,
       });
@@ -113,7 +143,7 @@ export default function KPIIntelligencePage() {
     setParsedData(null);
 
     try {
-      const response = await fetch('/api/parse-job-description', {
+      const response = await fetchWithAuth('/api/parse-job-description', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -138,23 +168,39 @@ export default function KPIIntelligencePage() {
     }
   };
 
+  const handleExportPDF = () => {
+    if (!parsedData) return;
+    generateKPIReport({
+      roleName,
+      leadIndicators: parsedData.leadIndicators,
+      lagIndicators: parsedData.lagIndicators,
+      suggestedModules,
+    });
+  };
+
   const handleReset = () => {
     setRoleName('');
     setJobDescription('');
     setParsedData(null);
     setError('');
+    setSuggestedModules([]);
   };
 
+  if (authLoading) {
+    return (
+      showLoadingProgress
+        ? <LoadingProgress label="Loading KPI intelligence..." progress={loadingProgress} />
+        : <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-72 transition-all duration-300">
-        <div className="p-8">
-          {/* Header Section */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">KPI Intelligence</h1>
-            <p className="text-gray-600 mt-1">Turn job descriptions into actionable KPIs & high impact learning sprints</p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <main className="p-8">
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Intelligence</h1>
+            <p className="text-slate-600">Upload job descriptions to extract KPIs, strategies, and learning indicators</p>
           </div>
 
           {/* Input Section - Full Width */}
@@ -189,7 +235,7 @@ export default function KPIIntelligencePage() {
                 <div className="flex items-center gap-3">
                   <label
                     htmlFor="file-upload"
-                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
+                    className={`flex-1 flex flex-col sm:flex-row items-center justify-center gap-2 px-4 py-8 border-2 border-dashed rounded-lg transition-colors cursor-pointer ${
                       uploadedFile
                         ? 'border-green-300 bg-green-50'
                         : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
@@ -220,10 +266,10 @@ export default function KPIIntelligencePage() {
                     ) : (
                       <>
                         <Upload className="w-5 h-5 text-gray-400" />
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-gray-600 text-center">
                           Click to upload or drag and drop
                         </span>
-                        <span className="text-xs text-gray-500">PDF or Word document</span>
+                        <span className="text-xs text-gray-500 hidden sm:inline">PDF or Word document</span>
                       </>
                     )}
                   </label>
@@ -267,11 +313,11 @@ export default function KPIIntelligencePage() {
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
                 <Button 
                   onClick={handleParseJD} 
                   disabled={isLoading || isParsingFile || !roleName.trim() || !jobDescription.trim()}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
                 >
                   {isLoading ? (
                     <>
@@ -289,6 +335,7 @@ export default function KPIIntelligencePage() {
                   variant="outline" 
                   onClick={handleReset}
                   disabled={isLoading || isParsingFile}
+                  className="w-full sm:w-auto"
                 >
                   Reset
                 </Button>
@@ -334,7 +381,7 @@ export default function KPIIntelligencePage() {
                           <h3 className="font-semibold text-lg text-gray-900">Lead Indicators</h3>
                           <span className="text-xs text-gray-500 ml-2">(Predictive Metrics)</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {parsedData.leadIndicators.map((indicator, index) => (
                             <Card 
                               key={index}
@@ -372,7 +419,7 @@ export default function KPIIntelligencePage() {
                           <h3 className="font-semibold text-lg text-gray-900">Lag Indicators</h3>
                           <span className="text-xs text-gray-500 ml-2">(Outcome Metrics)</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {parsedData.lagIndicators.map((indicator, index) => (
                             <Card 
                               key={index}
@@ -433,21 +480,23 @@ export default function KPIIntelligencePage() {
 
               {/* Module Suggestions Section */}
               <ModuleSuggestions
-                leadIndicators={parsedData?.leadIndicators.map(ind => ind.name)}
-                lagIndicators={parsedData?.lagIndicators.map(ind => ind.name)}
+                leadIndicators={leadIndicatorNames}
+                lagIndicators={lagIndicatorNames}
                 roleName={roleName}
+                onModulesLoaded={handleModulesLoaded}
               />
 
               {/* Action Buttons */}
               <Card>
                 <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-center sm:text-left">
                       <h3 className="font-semibold text-gray-900 mb-1">Save KPI Configuration</h3>
                       <p className="text-sm text-gray-600">Save these indicators and strategies for {roleName}</p>
                     </div>
-                    <div className="flex gap-3">
-                      <Button variant="outline">
+                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                      <Button variant="outline" onClick={handleExportPDF} className="w-full sm:w-auto">
+                        <Download className="w-4 h-4 mr-2" />
                         Export as PDF
                       </Button>
                       <Button className="bg-green-600 hover:bg-green-700">
@@ -459,8 +508,56 @@ export default function KPIIntelligencePage() {
               </Card>
             </>
           )}
-        </div>
       </main>
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing KPI intelligence. This may take a moment.</p>
+      </div>
     </div>
   );
 }

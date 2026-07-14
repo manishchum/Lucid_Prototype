@@ -68,12 +68,12 @@ export async function POST(request: NextRequest) {
     const voiceConfig = voiceGender === 'male' 
       ? {
           languageCode: "hi-IN",
-          name: "hi-IN-Chirp3-HD-Enceladus", // Indian English male voice (Rahul)
+          name: "en-IN-Wavenet-C", // Indian English male voice (Rahul)
           ssmlGender: "MALE"
         }
       : {
           languageCode: "hi-IN",
-          name: "hi-IN-Chirp3-HD-Autonoe", // Indian English female voice (Pooja)
+          name: "hi-IN-Wavenet-D", // Indian English female voice (Pooja)
           ssmlGender: "FEMALE"
         };
 

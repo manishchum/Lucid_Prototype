@@ -2,7 +2,7 @@
 "use client"
 
 import React, { useRef, useState, useEffect } from "react"
-import { Download } from 'lucide-react'
+import jsPDF from "jspdf"
 
 export type FlashcardSection = {
   heading: string
@@ -12,9 +12,10 @@ export type FlashcardSection = {
 
 type Props = {
   sections?: FlashcardSection[] | null
+  onExportReady?: (fn: () => Promise<void>) => void
 }
 
-export default function FlashcardCards({ sections }: Props) {
+export default function FlashcardCards({ sections, onExportReady }: Props) {
   const items = (sections && Array.isArray(sections) ? sections.slice(0, 6) : [])
 
   if (!items || items.length === 0) return (
@@ -48,8 +49,8 @@ export default function FlashcardCards({ sections }: Props) {
     el.scrollBy({ left: dir === 'left' ? -amount : amount, behavior: 'smooth' })
   }
 
-  // export helper: build SVG with wrapped text and rasterize to PNG with high DPR
-  const exportAsPNG = async () => {
+  // export helper: build SVG with wrapped text and rasterize to PDF with high DPR
+  const exportAsPDF = async () => {
     try {
       const cards = items
       if (!cards || cards.length === 0) return
@@ -116,9 +117,6 @@ export default function FlashcardCards({ sections }: Props) {
         if (cardH > maxCardH) maxCardH = cardH
       }
 
-      const totalWidth = cards.length * cardW + Math.max(0, cards.length - 1) * gap + pad * 2
-      const totalHeight = Math.round(maxCardH) + pad * 2
-
       const defs = `
         <linearGradient id="gblue" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="#EFF6FF" />
@@ -132,18 +130,12 @@ export default function FlashcardCards({ sections }: Props) {
 
       const escape = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-      let inner = ''
-      for (let i = 0; i < cards.length; i++) {
-        const c = cards[i]
-        const x = pad + i * (cardW + gap)
-        const y = pad
-        const grad = i % 2 === 0 ? 'url(#gblue)' : 'url(#gpurple)'
-        const r = rendered[i]
-
-        inner += `<g transform="translate(${x},${y})">` +
+      const renderCardSvg = (index: number) => {
+        const r = rendered[index]
+        const grad = index % 2 === 0 ? 'url(#gblue)' : 'url(#gpurple)'
+        let inner = `<g transform="translate(${pad},${pad})">` +
           `<rect x="0" y="0" rx="12" ry="12" width="${cardW}" height="${r.height}" fill="${grad}" stroke="#0000001f" stroke-width="1"/>`
 
-        // heading lines
         inner += `<text x="16" y="${16 + headingLineHeight - 2}" font-family="Inter, Arial, sans-serif" font-size="${headingFontSize}px" fill="#0f172a" font-weight="600">`
         for (let li = 0; li < r.headingLines.length; li++) {
           const line = escape(r.headingLines[li])
@@ -152,7 +144,6 @@ export default function FlashcardCards({ sections }: Props) {
         }
         inner += `</text>`
 
-        // bullets
         let currentY = 16 + r.headingLines.length * headingLineHeight + 12
         for (let bi = 0; bi < r.bulletLines.length; bi++) {
           const block = r.bulletLines[bi]
@@ -164,60 +155,74 @@ export default function FlashcardCards({ sections }: Props) {
         }
 
         inner += `</g>`
+        const svgWidth = cardW + pad * 2
+        const svgHeight = Math.round(r.height) + pad * 2
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}"><defs>${defs}</defs><rect x="0" y="0" width="${svgWidth}" height="${svgHeight}" fill="#ffffff"/>${inner}</svg>`
       }
 
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}"><defs>${defs}</defs><rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#ffffff"/>${inner}</svg>`
-
-      // rasterize with higher DPR for clarity
-      const svg64 = btoa(unescape(encodeURIComponent(svg)))
-      const imgSrc = 'data:image/svg+xml;base64,' + svg64
-      const DPR = Math.min(4, Math.max(2, Math.round((window.devicePixelRatio || 1) * 2)))
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.round(totalWidth * DPR)
-      canvas.height = Math.round(totalHeight * DPR)
-      canvas.style.width = totalWidth + 'px'
-      canvas.style.height = totalHeight + 'px'
-      const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('Canvas not supported')
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0)
-
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload = () => {
-        try {
-          ctx.clearRect(0, 0, totalWidth, totalHeight)
-          ctx.drawImage(img, 0, 0, totalWidth, totalHeight)
-          canvas.toBlob((blob) => {
-            if (!blob) return
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = 'flashcards.png'
-            document.body.appendChild(a)
-            a.click()
-            a.remove()
-            setTimeout(() => URL.revokeObjectURL(url), 5000)
-          }, 'image/png')
-        } catch (e) {
-          console.error('rasterize failed', e)
-        }
+      const rasterizeSvgToDataUrl = (svg: string) => {
+        return new Promise<string>((resolve, reject) => {
+          const svg64 = btoa(unescape(encodeURIComponent(svg)))
+          const imgSrc = 'data:image/svg+xml;base64,' + svg64
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          img.onload = () => {
+            try {
+              const dpr = Math.min(4, Math.max(2, Math.round((window.devicePixelRatio || 1) * 2)))
+              const canvas = document.createElement('canvas')
+              canvas.width = Math.round(img.width * dpr)
+              canvas.height = Math.round(img.height * dpr)
+              const ctx = canvas.getContext('2d')
+              if (!ctx) throw new Error('Canvas not supported')
+              ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+              ctx.clearRect(0, 0, img.width, img.height)
+              ctx.drawImage(img, 0, 0, img.width, img.height)
+              resolve(canvas.toDataURL('image/png'))
+            } catch (err) {
+              reject(err)
+            }
+          }
+          img.onerror = (ev) => reject(ev)
+          img.src = imgSrc
+        })
       }
-      img.onerror = (ev) => console.error('image load failed', ev)
-      img.src = imgSrc
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 40
+
+      for (let i = 0; i < cards.length; i++) {
+        if (i > 0) pdf.addPage()
+        const svg = renderCardSvg(i)
+        const imgData = await rasterizeSvgToDataUrl(svg)
+        const r = rendered[i]
+        const imgWidth = cardW + pad * 2
+        const imgHeight = Math.round(r.height) + pad * 2
+        const scale = Math.min(
+          (pageWidth - margin * 2) / imgWidth,
+          (pageHeight - margin * 2) / imgHeight
+        )
+        const drawWidth = imgWidth * scale
+        const drawHeight = imgHeight * scale
+        const x = (pageWidth - drawWidth) / 2
+        const y = (pageHeight - drawHeight) / 2
+        pdf.addImage(imgData, 'PNG', x, y, drawWidth, drawHeight)
+      }
+
+      pdf.save('flashcards.pdf')
 
     } catch (err) {
       console.error('export failed', err)
     }
   }
 
+  useEffect(() => {
+    if (onExportReady) onExportReady(exportAsPDF)
+  }, [items])
+
   return (
     <section aria-label="Flashcard cards" className="py-0 relative overflow-visible">
-      {/* Download button above the cards */}
-      <div className="mb-3 flex justify-end pr-3">
-        <button onClick={exportAsPNG} className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center" title="Download flashcards image">
-          <Download size={16} />
-        </button>
-      </div>
 
       {/* scroller has modest horizontal padding; arrows will be positioned outside the scroller so they don't overlap cards */}
       <div

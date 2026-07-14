@@ -4,17 +4,22 @@ __pycache__/
 *$py.class
 
 # Virtual Environment
-venv/
-env/
-ENV/
+/.venv
+.venv/bin
+env
+./venv
+/venv
 
 # Environment variables
 .env
+.env.*
 
 # IDE
 .vscode/
 .idea/
 *.swp
+
+
 *.swo
 
 # Testing
@@ -24,3 +29,6 @@ htmlcov/
 
 # Logs
 *.log
+
+/storage
+/ingestion/figures

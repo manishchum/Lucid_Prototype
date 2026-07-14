@@ -1,6 +1,20 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import crypto from 'crypto';
 
+/** Races a thenable (Supabase builder or Promise) against a timeout.
+ *  Resolves with { data: null, error: TimeoutError } on timeout so callers
+ *  can treat it the same as a Supabase error response.
+ */
+function withTimeout<T>(
+  thenable: PromiseLike<T>,
+  ms: number
+): Promise<T | { data: null; error: Error }> {
+  const timeout = new Promise<{ data: null; error: Error }>((resolve) =>
+    setTimeout(() => resolve({ data: null, error: new Error(`Supabase call timed out after ${ms}ms`) }), ms)
+  );
+  return Promise.race([Promise.resolve(thenable), timeout]);
+}
+
 /**
  * New approach:
  * - compute a deterministic `dedupe_key` (sha256 of selected fields)
@@ -49,27 +63,35 @@ export async function logError(payload: {
     // compute dedupe key
     row.dedupe_key = makeDedupeKeyForPayload(row);
 
+    const fallbackRow = {
+      email_id: row.email_id,
+      error: row.error,
+      stack_trace: row.stack_trace,
+      error_type: row.error_type,
+      browser: row.browser,
+      os: row.os,
+      device: row.device,
+      action: row.action,
+      page_url: row.page_url,
+    };
+
     try {
       // call the DB helper function which will perform insert or increment atomically
-      const { error: rpcErr } = await supabaseAdmin.rpc('log_error_dedupe', { p: row });
+      const rpcResult = await withTimeout(
+        supabaseAdmin.rpc('log_error_dedupe', { p: row }),
+        4000 // fail fast — do not block login for >4s
+      );
+      const rpcErr = (rpcResult as any)?.error;
       if (rpcErr) {
-        // RPC not available or failed. Fallback to a plain insert using only known columns
-        // console.error('logError: rpc error, falling back to plain insert', rpcErr);
-        const fallbackRow: any = {
-          email_id: row.email_id,
-          error: row.error,
-          stack_trace: row.stack_trace,
-          error_type: row.error_type,
-          browser: row.browser,
-          os: row.os,
-          device: row.device,
-          action: row.action,
-          page_url: row.page_url,
-        };
-        const { error } = await supabaseAdmin.from('error_logs').insert([fallbackRow]);
-        if (error) {
-          console.error('logError: supabase insert error (fallback)', error);
-          return { ok: false, error: String(error.message || error) };
+        // RPC not available or failed — fallback to plain insert
+        const insertResult = await withTimeout(
+          supabaseAdmin.from('error_logs').insert([fallbackRow]),
+          4000
+        );
+        const insertErr = (insertResult as any)?.error;
+        if (insertErr) {
+          console.error('logError: supabase insert error (fallback)', insertErr);
+          return { ok: false, error: String(insertErr?.message || insertErr) };
         }
         return { ok: true };
       }
@@ -77,21 +99,14 @@ export async function logError(payload: {
     } catch (e) {
       console.error('logError: rpc failed', e);
       try {
-        const fallbackRow: any = {
-          email_id: row.email_id,
-          error: row.error,
-          stack_trace: row.stack_trace,
-          error_type: row.error_type,
-          browser: row.browser,
-          os: row.os,
-          device: row.device,
-          action: row.action,
-          page_url: row.page_url,
-        };
-        const { error } = await supabaseAdmin.from('error_logs').insert([fallbackRow]);
-        if (error) {
-          console.error('logError: supabase insert error (final fallback)', error);
-          return { ok: false, error: String(error.message || error) };
+        const insertResult = await withTimeout(
+          supabaseAdmin.from('error_logs').insert([fallbackRow]),
+          4000
+        );
+        const insertErr = (insertResult as any)?.error;
+        if (insertErr) {
+          console.error('logError: supabase insert error (final fallback)', insertErr);
+          return { ok: false, error: String(insertErr?.message || insertErr) };
         }
         return { ok: true };
       } catch (ie) {

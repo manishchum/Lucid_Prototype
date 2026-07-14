@@ -135,7 +135,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
               <div className="mb-8">
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-3">
                   <MessageSquare className="w-5 h-5 text-blue-600" />
-                  Instructions for Learners
+                  Instructions For Individuals
                 </label>
                 <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-5">
                   <div className="text-slate-700 whitespace-pre-line leading-relaxed">
@@ -187,7 +187,7 @@ In this exercise, you will interact with a virtual character to practice and imp
               <Button
                 onClick={() => {
                   // Add save draft functionality here
-                  console.log('Draft saved:', config);
+                  // console.log('Draft saved:', config);
                 }}
                 variant="outline"
                 size="lg"

@@ -1,4 +1,4 @@
-# Role Play Pro - Integration Guide
+<!-- # Role Play Pro - Integration Guide
 
 ## Overview
 This is a standalone Vite + React app that provides AI-powered sales role-play practice. It's integrated with the main Lucid LMS through a button in the module page.
@@ -135,4 +135,4 @@ Edit `services/geminiService.ts` to modify the system prompts and behavior.
 
 ## Contact
 
-For questions or issues with the role-play integration, contact the development team.
+For questions or issues with the role-play integration, contact the development team. -->

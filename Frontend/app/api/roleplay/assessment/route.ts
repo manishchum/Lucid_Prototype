@@ -5,6 +5,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 export async function POST(request: NextRequest) {
   try {
     if (!GEMINI_API_KEY) {
+      console.error('[assessment] GEMINI_API_KEY not configured');
       return NextResponse.json(
         { error: 'Gemini API key not configured' },
         { status: 500 }
@@ -13,7 +14,15 @@ export async function POST(request: NextRequest) {
 
     const { messages, scenarioTitle, scenarioRole, userRole } = await request.json();
 
+    //console.log('[assessment] Received request:', {
+    //   messagesCount: messages?.length,
+    //   scenarioTitle,
+    //   scenarioRole,
+    //   userRole
+    // });
+
     if (!messages || messages.length === 0) {
+      console.error('[assessment] No messages provided');
       return NextResponse.json(
         { error: 'Conversation messages are required' },
         { status: 400 }
@@ -24,16 +33,22 @@ export async function POST(request: NextRequest) {
     const userMessages = messages.filter((msg: any) => msg.sender === 'user');
     const aiMessages = messages.filter((msg: any) => msg.sender === 'avatar');
     
+    //console.log('[assessment] Message breakdown:', {
+    //   userMessages: userMessages.length,
+    //   aiMessages: aiMessages.length,
+    //   total: messages.length
+    // });
+    
     // If there are fewer than 3 exchanges or the conversation is very short, return zero score
     const minExchanges = 3;
     const minUserMessages = 2;
     
     if (userMessages.length < minUserMessages || messages.length < minExchanges * 2) {
-      console.log('⚠️ Conversation too short - returning zero score', {
-        totalMessages: messages.length,
-        userMessages: userMessages.length,
-        aiMessages: aiMessages.length
-      });
+      //console.log('⚠️ Conversation too short - returning zero score', {
+      //   totalMessages: messages.length,
+      //   userMessages: userMessages.length,
+      //   aiMessages: aiMessages.length
+      // });
       
       return NextResponse.json({
         overallScore: 0,
@@ -222,13 +237,23 @@ Provide ONLY the JSON object, no additional text.`;
 
     // Validate the assessment structure
     if (!assessment.overallScore || !assessment.summary || !assessment.parameters || !assessment.recommendations) {
+      console.error('[assessment] Invalid assessment structure:', assessment);
       throw new Error('Invalid assessment report structure');
     }
+
+    //console.log('[assessment] Generated assessment:', {
+    //   overallScore: assessment.overallScore,
+    //   parametersCount: assessment.parameters.length
+    // });
 
     return NextResponse.json(assessment);
 
   } catch (error: any) {
-    console.error('Assessment generation error:', error);
+    console.error('[assessment] Error:', {
+      message: error.message,
+      status: error.status,
+      name: error.name
+    });
     return NextResponse.json(
       { error: error.message || 'Failed to generate assessment' },
       { status: 500 }

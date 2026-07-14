@@ -3,24 +3,28 @@ import json
 import hashlib
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from utils.auth import get_request_auth_required_from_request
+from utils.auth_bridge import get_service_supabase_client
+from utils.redis_client import get_cache, set_cache, redis_client
+from utils.redis_limiter import check_rate_limit
 
-from supabase import create_client, Client
+# from db import create_client, Client
 import google.generativeai as genai
 
 
 router = APIRouter()
 
-# Supabase init (equivalent of import { supabase } from "@/lib/supabase")
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or ""
-)
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# Supabase init (equivalent of import { db } from "@/lib/db")
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or ""
+# )
+# db: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
 genAI = genai
@@ -71,18 +75,33 @@ def parseGeminiJSON(raw_text: str) -> dict:
 @router.post("/training-plan")
 async def POST(request: Request):
     try:
+        auth_ctx = get_request_auth_required_from_request(request)
+        db = get_service_supabase_client()
         body = await request.json()
-        user_id = body.get("user_id")
+        user_id = body.get("user_id") or auth_ctx.user_id
         module_id = body.get("module_id")
         processedModuleIds = body.get("processedModuleIds")
+        
+        cache_key = f"training_plan:{user_id}:{module_id}"
+        cached = get_cache(cache_key)
+        if cached:
+            print(f"TRAINING PLAN CACHE HIT {cache_key}")
+            return JSONResponse(content=cached)
+        print(f"TRAINING PLAN CACHE MISS {cache_key}")
 
         if not user_id:
             return JSONResponse(content={"error": "user_id is required"}, status_code=400)
 
+        if str(user_id) != str(auth_ctx.user_id):
+            return JSONResponse(
+                content={"error": "user_id does not match authenticated token"},
+                status_code=403,
+            )
+
         # Resolve company_id upfront
         company_id = None
         empRes = (
-            supabase
+            db
             .table("users")
             .select("company_id")
             .eq("user_id", user_id)
@@ -102,7 +121,7 @@ async def POST(request: Request):
 
         # Fetch company's learning_style setting
         companyRes = (
-            supabase
+            db
             .table("companies")
             .select("learning_style")
             .eq("company_id", company_id)
@@ -114,18 +133,20 @@ async def POST(request: Request):
         
         # Only use learning style if company has learning_style set to FALSE
         useLearningStyle = False
-        if companyData and companyData.get("learning_style") == False:
-            useLearningStyle = False
-            print(f"[Training Plan API] Company {company_id} has learning_style=FALSE, will use employee learning style")
+        if companyData and companyData.get("learning_style") == True:
+            useLearningStyle = True
+            print(f"[Training Plan API] Company {company_id} has learning_style=TRUE, will use employee learning style")
         else:
             print(f"[Training Plan API] Company {company_id} does not use learning styles, skipping learning style customization")
 
         checkForBaselineRes = (
-            supabase
+            db
             .table("learning_plan")
-            .select("baseline_assessment")
+            .select("learning_plan_id, baseline_assessment, status, assigned_on")
             .eq("user_id", user_id)
             .eq("module_id", module_id)
+            .order("assigned_on", desc=True)
+            .limit(1)
             .execute()
         )
         checkForBaseline = getattr(checkForBaselineRes, "data", None)
@@ -136,7 +157,7 @@ async def POST(request: Request):
 
         # NOTE: table name has trailing space in TS: 'employee_assessments '
         assessmentDataRes = (
-            supabase
+            db
             .table("employee_assessments")
             .select("assessment_id,assessments!inner(type)")
             .eq("user_id", user_id)
@@ -170,7 +191,7 @@ async def POST(request: Request):
         # Check if we already have a learning plan for this user and module
         if module_id:
             existingPlanRes = (
-                supabase
+                db
                 .table("learning_plan")
                 .select("learning_plan_id, plan_json, status, reasoning")
                 .eq("user_id", user_id)
@@ -197,12 +218,31 @@ async def POST(request: Request):
 
                 if planContent:
                     # ensureProcessedModulesForPlan intentionally commented (same as TS)
+                    additional_readings = []
+                    try:
+                        moduleRes = (
+                            db
+                            .table("training_modules")
+                            .select("additional_readings")
+                            .eq("module_id", module_id)
+                            .maybe_single()
+                            .execute()
+                        )
+
+                        if moduleRes.data:
+                            additional_readings = moduleRes.data.get("additional_readings") or []
+
+                        print("ADDITIONAL READINGS:", additional_readings)
+
+                    except Exception as e:
+                        print("FAILED TO LOAD ADDITIONAL READINGS:", e)
                     return JSONResponse(
                         content={
                             "plan": planContent,
                             "reasoning": existingPlan.get("reasoning"),
                             "planId": existingPlan.get("learning_plan_id"),
                             "status": existingPlan.get("status"),
+                            "additional_readings": additional_readings,
                             "message": "Using existing stable learning plan - no regeneration needed",
                         }
                     )
@@ -227,7 +267,7 @@ async def POST(request: Request):
         baselineRequired = False
         try:
             baselineDefsRes = (
-                supabase
+                db
                 .table("assessments")
                 .select("assessment_id, type, employee_assessments!inner(user_id)")
                 .eq("type", "baseline")
@@ -249,7 +289,7 @@ async def POST(request: Request):
                 ]
                 if len(baselineIds) > 0:
                     userBaselinesRes = (
-                        supabase
+                        db
                         .table("employee_assessments")
                         .select("assessment_id")
                         .in_("assessment_id", baselineIds)
@@ -273,7 +313,7 @@ async def POST(request: Request):
 
         # Fetch all assessments for this employee, including baseline
         assessmentsRes = (
-            supabase
+            db
             .table("employee_assessments")
             .select("score, max_score, feedback, assessment_id, assessments(type, questions)")
             .eq("user_id", user_id)
@@ -321,7 +361,7 @@ async def POST(request: Request):
                 }
             )
 
-        print("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments)
+        # print("[Training Plan API] Baseline percent assessments:", baselinePercentAssessments)
 
         # Compute assessmentHash using SHA256
         assessmentHash = hashlib.sha256(
@@ -339,7 +379,7 @@ async def POST(request: Request):
         try:
             if module_id:
                 epRes = (
-                    supabase
+                    db
                     .table("learning_plan")
                     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
                     .eq("user_id", user_id)
@@ -352,7 +392,7 @@ async def POST(request: Request):
                 )
             else:
                 epRes = (
-                    supabase
+                    db
                     .table("learning_plan")
                     .select("learning_plan_id, plan_json, reasoning, status, assessment_hash, module_id")
                     .eq("user_id", user_id)
@@ -375,13 +415,19 @@ async def POST(request: Request):
 
         # If any plan exists for this user/module combination, return it (stable behavior)
         if existingPlan and existingPlan.get("plan_json"):
-            return JSONResponse(
-                content={
-                    "plan": existingPlan.get("plan_json"),
-                    "reasoning": existingPlan.get("reasoning"),
-                    "message": "Using existing stable learning plan",
-                }
+            response_payload = {
+                "plan": existingPlan.get("plan_json"),
+                "reasoning": existingPlan.get("reasoning"),
+                "message": "Using existing stable learning plan",
+            }
+
+            set_cache(
+                cache_key,
+                response_payload,
+                ttl=3600
             )
+
+            return JSONResponse(content=response_payload)
 
         # Fetch all processed modules for this company
         modules: List[Any] = []
@@ -389,15 +435,16 @@ async def POST(request: Request):
         if module_id:
             try:
                 moduleCheckRes = (
-                    supabase
+                    db
                     .table("training_modules")
-                    .select("module_id, title")
+                    .select("module_id, title, additional_readings")
                     .eq("module_id", module_id)
                     .eq("company_id", company_id)
-                    .single()
+                    .maybe_single()
                     .execute()
                 )
                 moduleCheck = getattr(moduleCheckRes, "data", None)
+                print("MODULE CHECK: ", moduleCheck)
                 moduleCheckError = getattr(moduleCheckRes, "error", None)
 
                 if moduleCheckError or (not moduleCheck):
@@ -411,7 +458,7 @@ async def POST(request: Request):
                     )
 
                 pmRes = (
-                    supabase
+                    db
                     .table("processed_modules")
                     .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
                     .eq("original_module_id", module_id)
@@ -429,9 +476,9 @@ async def POST(request: Request):
 
                 if len(modules) == 0 and (not baselineRequired):
                     tmFallbackRes = (
-                        supabase
+                        db
                         .table("training_modules")
-                        .select("module_id, title, gpt_summary, company_id")
+                        .select("module_id, title, gpt_summary, company_id, additional_readings")
                         .eq("module_id", module_id)
                         .eq("company_id", company_id)
                         .execute()
@@ -463,7 +510,7 @@ async def POST(request: Request):
             # print("Inside the else statement", company_id)
 
             trainingModuleRowsRes = (
-                supabase
+                db
                 .table("training_modules")
                 .select("module_id")
                 .eq("company_id", company_id)
@@ -485,7 +532,7 @@ async def POST(request: Request):
 
             if len(tmIds) > 0:
                 pmRes = (
-                    supabase
+                    db
                     .table("processed_modules")
                     .select("processed_module_id, title, content, order_index, original_module_id, training_modules(company_id)")
                     .in_("original_module_id", tmIds)
@@ -503,9 +550,9 @@ async def POST(request: Request):
 
                 if len(modules) == 0 and (not baselineRequired):
                     tmFallbackRes = (
-                        supabase
+                        db
                         .table("training_modules")
-                        .select("module_id, title, content, company_id")
+                        .select("module_id, title, content, company_id, additional_readings")
                         .in_("module_id", tmIds)
                         .eq("company_id", company_id)
                         .execute()
@@ -527,17 +574,17 @@ async def POST(request: Request):
                             for m in tmRows
                         ]
 
-        print("[Training Plan API] Modules for company_id:", company_id, modules)
+        # print("[Training Plan API] Modules for company_id:", company_id, modules)
 
         # Fetch learning style only if company uses learning styles (learning_style = FALSE)
         geminiText = ""
         if useLearningStyle:
             lsRes = (
-                supabase
+                db
                 .table("employee_learning_style")
                 .select("learning_style")
                 .eq("user_id", user_id)
-                .single()
+                .maybe_single()
                 .execute()
             )
             lsData = getattr(lsRes, "data", None)
@@ -548,7 +595,7 @@ async def POST(request: Request):
 
         # Fetch employee KPIs
         kpiRes = (
-            supabase
+            db
             .table("employee_kpi")
             .select("score, kpis(description, target, datatype)")
             .eq("user_id", user_id)
@@ -638,8 +685,8 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 5, "order": 2 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 5, "order": 2 }\n'
             + "    ],\n"
             + '    "tips": "' + ('General study tips and strategies for success' if not useLearningStyle else 'Study tips tailored to learning style') + '..."\n'
             + "  },\n"
@@ -688,9 +735,9 @@ async def POST(request: Request):
             + "{\n"
             + '  "plan": {\n'
             + '    "modules": [\n'
-            + '      { "title": "Module Name", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "recommended_time": 4, "order": 2 },\n'
-            + '      { "title": "Module Name 3", "recommended_time": 5, "order": 3 }\n'
+            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 4, "order": 2 },\n'
+            + '      { "title": "Module Name 3", "processed_module_id": "id-here", "recommended_time": 5, "order": 3 }\n'
             + "    ],\n"
             + '    "tips": "' + ('Study tips tailored to learning style' if useLearningStyle else 'General study tips and strategies for success') + '..."\n'
             + "  },\n"
@@ -721,12 +768,40 @@ async def POST(request: Request):
             + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
         )
 
-        prompt = prompt1 if len(baselinePercentAssessments) > 0 else prompt2
+        # Check if baseline is enabled for this learning plan
+        # If baseline_assessment === 0 (OFF), use prompt2 (all modules, no score references)
+        # If baseline_assessment === 1 (ON), use prompt1 if assessments exist, else prompt2
+        baselineEnabledForPlan = True  # Default to ON
+        if (
+            checkForBaseline
+            and isinstance(checkForBaseline, list)
+            and len(checkForBaseline) > 0
+        ):
+            baselineEnabledForPlan = checkForBaseline[0].get("baseline_assessment") == 1
+            print(f"[Training Plan API] Baseline assessment enabled for plan: {baselineEnabledForPlan}")
+        
+        # Select prompt based on baseline setting and assessment availability
+        if not baselineEnabledForPlan:
+            # Baseline is OFF - always use prompt2 (all modules, no score analysis)
+            prompt = prompt2
+            print("[Training Plan API] Using prompt2 (baseline OFF - all modules)")
+        elif len(baselinePercentAssessments) > 0:
+            # Baseline is ON and assessments exist - use prompt1 (personalized)
+            prompt = prompt1
+            # print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+        else:
+            # Baseline is ON but no assessments - use prompt2 (all modules)
+            prompt = prompt2
+            # print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
 
         # Call Gemini
         planJsonRaw = ""
         try:
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            await check_rate_limit(
+                user_id=auth_ctx.user_id,
+                endpoint="training-plan"
+            )
+            model = genai.GenerativeModel("gemini-3.1-pro-preview")
             result = model.generate_content(prompt)
             planJsonRaw = (result.text or "").strip()
         except Exception as err:
@@ -734,9 +809,10 @@ async def POST(request: Request):
             return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
 
         # Clean response
-        print('[Training Plan API] Raw Gemini response:', planJsonRaw)
-        print("Modules that have been sent", modules)
+        # print('[Training Plan API] Raw Gemini response:', planJsonRaw)
+        # print("Modules that have been sent", modules)
         cleanedContent = planJsonRaw.strip()
+        print("[Training Plan API] Cleaned Gemini response:", cleanedContent)
         if cleanedContent.lower().startswith("```json"):
             cleanedContent = cleanedContent.replace("```json", "", 1).strip()
         elif cleanedContent.lower().startswith("```"):
@@ -766,7 +842,7 @@ async def POST(request: Request):
             return out
 
         def tryParse(raw: str):
-            print(raw)
+            # print(raw)
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, dict) and ("plan" in parsed or "reasoning" in parsed):
@@ -852,11 +928,73 @@ async def POST(request: Request):
 
         plan = deduplicateModules(plan)
 
+        # Enrich returned modules with real IDs from the available module list.
+        # The model may omit or invent processed_module_id, so we resolve it here.
+        def normalize_text(value: Any) -> str:
+            return str(value or "").strip().lower()
+
+        available_module_lookup = []
+        for module in (modules or []):
+            if not isinstance(module, dict):
+                continue
+            available_module_lookup.append(
+                {
+                    "processed_module_id": module.get("processed_module_id"),
+                    "original_module_id": module.get("original_module_id"),
+                    "title": normalize_text(module.get("title") or module.get("name")),
+                }
+            )
+
+        def resolve_processed_module_id(module_item: Dict[str, Any], fallback_index: int) -> Optional[str]:
+            explicit_id = module_item.get("processed_module_id")
+            if explicit_id:
+                return str(explicit_id)
+
+            item_title = normalize_text(module_item.get("title") or module_item.get("name"))
+            item_order = module_item.get("order")
+            if item_title:
+                for candidate in available_module_lookup:
+                    if candidate["title"] == item_title and candidate.get("processed_module_id"):
+                        return str(candidate["processed_module_id"])
+
+            if isinstance(item_order, int) and 0 < item_order <= len(available_module_lookup):
+                ordered_candidate = available_module_lookup[item_order - 1]
+                if ordered_candidate.get("processed_module_id"):
+                    return str(ordered_candidate["processed_module_id"])
+
+            if fallback_index < len(available_module_lookup):
+                fallback_candidate = available_module_lookup[fallback_index]
+                if fallback_candidate.get("processed_module_id"):
+                    return str(fallback_candidate["processed_module_id"])
+
+            return None
+
+        if isinstance(plan, dict) and isinstance(plan.get("modules"), list):
+            enriched_modules = []
+            for index, module_item in enumerate(plan["modules"]):
+                if not isinstance(module_item, dict):
+                    continue
+
+                enriched_item = dict(module_item)
+                resolved_processed_module_id = resolve_processed_module_id(enriched_item, index)
+                if resolved_processed_module_id:
+                    enriched_item["processed_module_id"] = resolved_processed_module_id
+
+                if not enriched_item.get("original_module_id") and index < len(available_module_lookup):
+                    candidate = available_module_lookup[index]
+                    if candidate.get("original_module_id"):
+                        enriched_item["original_module_id"] = candidate["original_module_id"]
+
+                enriched_modules.append(enriched_item)
+
+            plan["modules"] = enriched_modules
+
         # Save plan
         dbResult = None
         if existingPlan:
+            redis_client.delete(f"training_plan:{user_id}:{module_id}")
             dbResult = (
-                supabase
+                db
                 .table("learning_plan")
                 .update(
                     {
@@ -870,8 +1008,9 @@ async def POST(request: Request):
                 .execute()
             )
         else:
+            redis_client.delete(f"training_plan:{user_id}:{module_id}")
             dbResult = (
-                supabase
+                db
                 .table("learning_plan")
                 .insert(
                     {
@@ -903,9 +1042,9 @@ async def POST(request: Request):
                 try:
                     print("Inside the try catch second")
                     insertRes = (
-                        supabase
+                        db
                         .table("module_progress")
-                        .insert({"user_id": user_id, "module_id": m, "status": "NOT_STARTED"})
+                        .upsert({"user_id": user_id, "processed_module_id": m, "status": "NOT_STARTED"})
                         .execute()
                     )
                     insertedData = getattr(insertRes, "data", None)
@@ -914,8 +1053,39 @@ async def POST(request: Request):
                     # TS does not fail the whole request, it just logs.
                     print("[Training Plan API] module_progress insert failed:", e)
 
-        return JSONResponse(content={"plan": plan, "reasoning": reasoning})
+        additional_readings = []
 
+        try:
+            moduleRes = (
+                db
+                .table("training_modules")
+                .select("additional_readings")
+                .eq("module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if moduleRes.data:
+                additional_readings = moduleRes.data.get("additional_readings") or []
+
+        except Exception as e:
+            print("Failed loading additional readings", e)
+
+        response_payload = {
+            "plan": plan,
+            "reasoning": reasoning,
+            "additional_readings": additional_readings
+        }
+        set_cache(
+            cache_key,
+            response_payload,
+            ttl=3600
+        )
+        return JSONResponse(content=response_payload)
+
+    except HTTPException as error:
+        print("[Training Plan API] HTTP error:", error.detail)
+        return JSONResponse(content={"error": error.detail}, status_code=error.status_code)
     except Exception as error:
         print("[Training Plan API] Unexpected error:", error)
-        return JSONResponse(content={"error": "Unexpected error occurred"}, status_code=500)
+        return JSONResponse(content={"error": "Unexpected error occurred", "details": str(error)}, status_code=500)

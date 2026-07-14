@@ -1,4 +1,6 @@
 import React, { useRef } from "react";
+import { sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 interface AudioPlayerProps {
   employeeId: string;
@@ -10,14 +12,20 @@ interface AudioPlayerProps {
   className?: string;
 }
 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+
 export default function AudioPlayer({ employeeId, processedModuleId, moduleId, audioUrl, onTimeUpdate, onPlayExtra, className }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   const handlePlay = async () => {
     if (onPlayExtra) onPlayExtra();
-    await fetch('/api/module-progress', {
+    await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,
@@ -25,13 +33,18 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
         audio_listen_duration: 0,
       }),
     });
+    sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   const handleEnded = async () => {
     const duration = audioRef.current?.duration || 0;
-    await fetch('/api/module-progress', {
+    await fetchWithAuth(`${API_URL}/api/module-progress`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': employeeId,
+      },
       body: JSON.stringify({
         user_id: employeeId,
         processed_module_id: processedModuleId,
@@ -39,6 +52,8 @@ export default function AudioPlayer({ employeeId, processedModuleId, moduleId, a
         audio_listen_duration: Math.round(duration),
       }),
     });
+    sharedDataClient.invalidateByPrefix("v1|dashboard");
+    sharedDataClient.invalidateByPrefix("v1|training-plan");
   };
 
   return (

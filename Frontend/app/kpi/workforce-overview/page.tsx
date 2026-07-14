@@ -14,8 +14,80 @@ import {
   BarChart3,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+
+function parseArrayFromPayload(payload: any): any[] {
+if (!payload) return [];
+if (Array.isArray(payload)) return payload;
+if (Array.isArray(payload.data)) return payload.data;
+if (Array.isArray(payload.items)) return payload.items;
+if (payload.data && Array.isArray(payload.data.items)) return payload.data.items;
+console.warn('Unexpected payload shape for array parsing', payload);
+return [];
+}
+// helper: fetch users by filter via backend (do not query users table from frontend)
+const fetchUsersByFilter = async (filters: {
+  functionId?: string;
+  subFunctionId?: string;
+  titleId?: string;
+}) => {
+  try {
+    // Build query params
+    const params = new URLSearchParams();
+    if (filters.functionId) params.append('function_id', filters.functionId);
+    if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
+    if (filters.titleId) params.append('title_id', filters.titleId);
+    params.append('is_active', 'true');
+    params.append('employment_status', 'ACTIVE');
+
+    // Note: This assumes you have a backend endpoint that supports these filters
+    // If not available, you'll need to create one or fetch all and filter client-side
+    const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
+    if (!res.ok) return [];
+    const payload = await res.json();
+    const users = payload?.data?.users ?? payload?.users ?? payload;
+    return Array.isArray(users) ? users : users ? [users] : [];
+  } catch (e) {
+    console.error('[fetchUsersByFilter] error', e);
+    return [];
+  }
+};
+
+// const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+// // helper: fetch users by filter via backend (do not query users table from frontend)
+// const fetchUsersByFilter = async (filters: {
+//   functionId?: string;
+//   subFunctionId?: string;
+//   titleId?: string;
+// }) => {
+//   try {
+//     // Build query params
+//     const params = new URLSearchParams();
+//     if (filters.functionId) params.append('function_id', filters.functionId);
+//     if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
+//     if (filters.titleId) params.append('title_id', filters.titleId);
+//     params.append('is_active', 'true');
+//     params.append('employment_status', 'ACTIVE');
+
+//     // Note: This assumes you have a backend endpoint that supports these filters
+//     // If not available, you'll need to create one or fetch all and filter client-side
+//     const res = await fetch(`${API_BASE}/api/users?${params.toString()}`);
+//     if (!res.ok) return [];
+//     const payload = await res.json();
+//     const users = payload?.data?.users ?? payload?.users ?? payload;
+//     return Array.isArray(users) ? users : users ? [users] : [];
+//   } catch (e) {
+//     console.error('[fetchUsersByFilter] error', e);
+//     return [];
+//   }
+// };
 
 interface ModuleAssignment {
   module_name: string;
@@ -37,6 +109,9 @@ interface KPIMapping {
 }
 
 export default function WorkforceOverview() {
+  const {user, loading: authLoading} = useAuth();
+
+  const router = useRouter();
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
@@ -46,13 +121,41 @@ export default function WorkforceOverview() {
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   
   const [loading, setLoading] = useState(true);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [userData, setUserData] = useState<any>(null);
   const [activeEmployees, setActiveEmployees] = useState({ count: 0, region: 'All Regions' });
   const [moduleAssignments, setModuleAssignments] = useState<ModuleAssignment[]>([]);
   const [kpiMappings, setKpiMappings] = useState<KPIMapping[]>([]);
 
   useEffect(() => {
-    loadFilters();
-  }, []);
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            else fetchCurrentUser();
+          }
+        }, [user, authLoading, router]);
+
+  const fetchCurrentUser = async () => {
+    if (!user?.email) return;
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(user.email)}`);
+      if (!res.ok) {
+        console.error('Error fetching current user');
+        return;
+      }
+      const payload = await res.json();
+      let userData = payload?.user ?? payload;
+      if (Array.isArray(userData)) userData = userData[0];
+      
+      if (userData && userData.user_id) {
+        setCurrentUserId(userData.user_id);
+        setUserData(userData);
+        loadFilters();
+      }
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+    }
+  };
 
   useEffect(() => {
     if (selectedFunctionId) {
@@ -164,26 +267,13 @@ export default function WorkforceOverview() {
 
   const fetchActiveEmployees = async () => {
     try {
-      let query = supabase
-        .from('users')
-        .select('user_id, name, function_id, sub_function_id, title_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      // Only apply filters if they are selected (not empty string)
-      if (selectedTitleId) {
-        query = query.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        query = query.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        query = query.eq('function_id', selectedFunctionId);
-      }
-      // If all are empty, query returns all active employees
-
-      const { data, count } = await query;
-
+      const users = await fetchUsersByFilter({
+        functionId: selectedFunctionId || undefined,
+        subFunctionId: selectedSubFunctionId || undefined,
+        titleId: selectedTitleId || undefined
+      });
       setActiveEmployees({
-        count: count || data?.length || 0,
+        count: users.length,
         region: 'All Regions'
       });
     } catch (error) {
@@ -193,49 +283,64 @@ export default function WorkforceOverview() {
 
   const fetchModuleAssignments = async () => {
     try {
-      let userQuery = supabase
-        .from('users')
-        .select('user_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      // Only apply filters if they are selected (not empty string)
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-      // If all are empty, query returns all active employees
-
-      const { data: users } = await userQuery;
-      console.log(users)
-      const userIds = users?.map(u => u.user_id) || [];
+      const users = await fetchUsersByFilter({
+        functionId: selectedFunctionId || undefined,
+        subFunctionId: selectedSubFunctionId || undefined,
+        titleId: selectedTitleId || undefined
+      });
+      // console.log(users);
+      const userIds = users.map((u: any) => u.user_id);
 
       if (userIds.length === 0) {
         setModuleAssignments([]);
         return;
       }
 
-      const { data: learningPlans } = await supabase
-        .from('learning_plan')
-        .select('module_id, user_id, status')
-        .in('user_id', userIds)
-        .in('status', ['ASSIGNED', 'IN_PROGRESS']);
+      // Fetch learning plans via backend API (filter by IN_PROGRESS status on frontend)
+      const lpRes = await fetchWithAuth(
+        `${API_BASE}/api/learning-plans/?limit=1000`,
+        { headers: { 'X-User-ID': currentUserId } }
+      );
+
+      if (!lpRes.ok) {
+        console.error('[workforce-overview] Error fetching learning plans');
+        setModuleAssignments([]);
+        return;
+      }
+
+      const lpData = await lpRes.json();
+      const allPlans = lpData?.plans || [];
+      
+      // Filter to only users in userIds and status ASSIGNED or IN_PROGRESS
+      const learningPlans = allPlans.filter((lp: any) =>
+        userIds.includes(lp.user_id) &&
+        ['ASSIGNED', 'IN_PROGRESS'].includes(lp.status)
+      );
 
       if (!learningPlans || learningPlans.length === 0) {
         setModuleAssignments([]);
         return;
       }
 
-      const moduleIds = [...new Set(learningPlans.map(lp => lp.module_id))];
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title')
-        .in('module_id', moduleIds);
+      const moduleIds = [...new Set(learningPlans.map((lp: { module_id: string }) => lp.module_id))];
+      
+      // Fetch modules from backend API
+      let modules: any[] = [];
+      if (userData?.company_id && moduleIds.length > 0) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        });
 
-      const moduleCounts = learningPlans.reduce((acc: any, lp) => {
+        if (res.ok) {
+          const payload = await res.json();
+          const allModules = parseArrayFromPayload(payload);
+          modules = allModules.filter((m: any) => moduleIds.includes(m.module_id));
+        }
+      }
+
+      const moduleCounts = learningPlans.reduce((acc: any, lp: { module_id: string }) => {
         const moduleId = lp.module_id;
         acc[moduleId] = (acc[moduleId] || 0) + 1;
         return acc;
@@ -283,12 +388,22 @@ export default function WorkforceOverview() {
         return;
       }
 
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title, content_type')
-        .limit(20);
+      // Fetch modules from backend API
+      let modules: any[] = [];
+      if (userData?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${userData.company_id}`, {
+          headers: {
+            'X-User-ID': currentUserId
+          }
+        });
 
-      const mappings: KPIMapping[] = kpis.map(kpi => {
+        if (res.ok) {
+          const payload = await res.json();
+          modules = parseArrayFromPayload(payload).slice(0,20);
+        }
+      }
+
+      const mappings: KPIMapping[] = kpis.map((kpi: { name: string; description: string; target: number; datatype: string }) => {
         const relatedModules = (modules || [])
           .slice(0, 3)
           .map(module => ({
@@ -345,19 +460,25 @@ export default function WorkforceOverview() {
   const getTotalAssignments = () => moduleAssignments.reduce((sum, m) => sum + m.count, 0);
   const maxCount = moduleAssignments.length > 0 ? Math.max(...moduleAssignments.map(m => m.count)) : 1;
 
+  if (loading) {
+    return (
+      showLoadingProgress
+        ? <LoadingProgress label="Loading workforce overview..." progress={loadingProgress} />
+        : <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <main className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Workforce Overview</h1>
             <p className="text-gray-600 text-sm">Monitor workforce capabilities and sprint allocation.</p>
           </div>
           
-          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6">
+          <Button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 mt-4 md:mt-0">
             <Filter size={16} className="mr-2" />
             Export Report
           </Button>
@@ -365,23 +486,17 @@ export default function WorkforceOverview() {
 
         {/* Role Analysis Section */}
         <Card className="bg-white border-gray-200 shadow-sm p-6">
-          {/* <div className="flex items-center gap-2 mb-6">
-            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
-            <h2 className="text-sm font-bold text-blue-600 uppercase tracking-wider">Role Analysis</h2>
-          </div> */}
-
           <h3 className="text-2xl font-bold text-gray-900 mb-4">Learning Overview</h3>
-          {/* <p className="text-gray-600 text-sm mb-6">Map business KPIs directly to learning modules by role.</p> */}
 
           {/* Filters */}
-          <div className="flex items-center gap-4 mb-8">
+          <div className="flex flex-col md:flex-row items-center gap-4 mb-8">
             <div className="flex items-center gap-2 text-gray-600">
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
             
-            <div className="flex items-center gap-3 flex-1">
-              <div className="flex-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1 w-full">
+              <div className="w-full">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
                 <select 
                   value={selectedFunctionId}
@@ -433,7 +548,7 @@ export default function WorkforceOverview() {
               <div className="text-gray-500">Retrieving information…</div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Module Assignments Distribution */}
               <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -528,7 +643,7 @@ export default function WorkforceOverview() {
           ) : (
             <div className="space-y-6">
               {/* Header Row */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="hidden md:grid grid-cols-2 gap-6">
                 <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                   Key Performance Indicator (KPI)
                 </div>
@@ -539,7 +654,7 @@ export default function WorkforceOverview() {
 
               {/* KPI Mappings - Each KPI with its modules in a row */}
               {kpiMappings.map((kpi, idx) => (
-                <div key={idx} className="grid grid-cols-2 gap-6">
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Business KPI Card */}
                   <Card className="bg-gray-50 border-gray-200 shadow-sm p-6">
                     <h4 className="text-lg font-bold text-gray-900 mb-2">{kpi.kpi_name}</h4>
@@ -589,6 +704,55 @@ export default function WorkforceOverview() {
           )}
         </Card>
       </main>
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing workforce overview. This may take a moment.</p>
+      </div>
     </div>
   );
 }

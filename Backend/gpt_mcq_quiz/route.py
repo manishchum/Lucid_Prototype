@@ -4,9 +4,12 @@ import json
 import hashlib
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
+from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth_bridge import get_service_supabase_client
 
 import google.generativeai as genai
 
@@ -14,15 +17,15 @@ import google.generativeai as genai
 router = APIRouter()
 
 # Equivalent of: import { supabase } from '@/lib/supabase';
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
-supabaseKey = (
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-    or os.getenv("SUPABASE_ANON_KEY")
-    or ""
-)
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL") or ""
+# supabaseKey = (
+#     os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+#     or os.getenv("SUPABASE_ANON_KEY")
+#     or ""
+# )
 
-supabase: Client = create_client(supabaseUrl, supabaseKey)
+# supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Verify GEMINI_API_KEY is loaded
 if not os.getenv("GEMINI_API_KEY"):
@@ -108,7 +111,7 @@ Objectives: {json.dumps(objectives)}
 """
 
     try:
-        model = genai.GenerativeModel("gemini-3-pro-preview")
+        model = genai.GenerativeModel("gemini-2.5-pro")
         result = model.generate_content(prompt)
         content = result.text if result else None
 
@@ -157,8 +160,12 @@ Objectives: {json.dumps(objectives)}
 
 
 @router.post("/gpt-mcq-quiz")
-async def POST(request: Request):
+async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_auth_required)):
     body = await request.json()
+
+    query_client = supabase
+    if auth_ctx.claims:
+        query_client = get_service_supabase_client()
 
     # Derive learning style from provided user_id when available
     reqUserId = body.get("userId") or body.get("user_id") or None
@@ -167,7 +174,7 @@ async def POST(request: Request):
     if reqUserId:
         try:
             lsRes = (
-                supabase
+                query_client
                 .table("employee_learning_style")
                 .select("learning_style")
                 .eq("user_id", reqUserId)
@@ -183,18 +190,25 @@ async def POST(request: Request):
             print("[gpt-mcq-quiz] Error fetching learning style:", e)
 
     # Determine if baseline request
+
+    print("baseline check - body:", body)
     isBaselineRequest = body.get("isBaseline") is True or body.get("assessmentType") == "baseline"
 
     # Per-module quiz branch: supports BOTH keys exactly like TS
     explicitModuleId = (
-        body.get("moduleIds")
-        or body.get("moduleId")
+        body.get("moduleId")
         or body.get("processed_module_id")
         or body.get("module_id")
         or None
     )
-    singleFromArray = str(body["moduleIds"][0]) if isinstance(body.get("moduleIds"), list) and len(body.get("moduleIds")) == 1 else None
-    moduleId = str(explicitModuleId) if explicitModuleId else singleFromArray
+    
+    # Handle moduleIds array - extract first element if it's a list
+    if not explicitModuleId and body.get("moduleIds"):
+        moduleIds = body.get("moduleIds")
+        if isinstance(moduleIds, list) and len(moduleIds) > 0:
+            explicitModuleId = moduleIds[0]
+    
+    moduleId = str(explicitModuleId) if explicitModuleId else None
 
     if moduleId and (not isBaselineRequest):
         if (not moduleId) or moduleId == "undefined" or moduleId == "null":
@@ -213,7 +227,7 @@ async def POST(request: Request):
         # lookup processed_modules by processed_module_id first
         try:
             pmRes = (
-                supabase
+                query_client
                 .table("processed_modules")
                 .select("processed_module_id, title, content, original_module_id, learning_style")
                 .eq("processed_module_id", moduleId)
@@ -236,8 +250,8 @@ async def POST(request: Request):
         if not processedModuleId:
             try:
                 pmOrigRes = (
-                    supabase
-                    .table("processed_modules")
+                    query_client
+                .table("processed_modules")
                     .select("processed_module_id, title, content, original_module_id, learning_style")
                     .eq("original_module_id", moduleId)
                     .execute()
@@ -254,16 +268,17 @@ async def POST(request: Request):
                 # TS has an extra fallback: if pmByOriginal is empty, query by processed_module_id again
                 if (not processedModuleId) and isinstance(pmByOriginal, list) and len(pmByOriginal) == 0:
                     pmRes2 = (
-                        supabase
+                        query_client
                         .table("processed_modules")
                         .select("processed_module_id, title, content, original_module_id, learning_style")
                         .eq("processed_module_id", moduleId)
+                        .maybe_single()
                         .execute()
                     )
                     module_idd = getattr(pmRes2, "data", None)
-                    if isinstance(module_idd, list) and len(module_idd) > 0 and module_idd[0].get("processed_module_id"):
-                        existingProcessed = module_idd[0]
-                        processedModuleId = module_idd[0].get("processed_module_id")
+                    if isinstance(module_idd, dict) and module_idd.get("processed_module_id"):
+                        existingProcessed = module_idd
+                        processedModuleId = module_idd.get("processed_module_id")
 
             except Exception as e:
                 print("[gpt-mcq-quiz] Error querying processed_modules by original_module_id:", e)
@@ -272,11 +287,11 @@ async def POST(request: Request):
         if not processedModuleId:
             try:
                 tmRes = (
-                    supabase
+                    query_client
                     .table("training_modules")
-                    .select("module_id, title, gpt_summary, content")
+                    .select("module_id, title, gpt_summary")
                     .eq("module_id", moduleId)
-                    .single()
+                    .maybe_single()
                     .execute()
                 )
                 trainingModule = getattr(tmRes, "data", None)
@@ -290,12 +305,12 @@ async def POST(request: Request):
                     )
 
                 insertRes = (
-                    supabase
-                    .table("processed_modules")
+                    query_client
+                .table("processed_modules")
                     .insert({
                         "original_module_id": str(moduleId),
                         "title": trainingModule.get("title"),
-                        "content": trainingModule.get("gpt_summary") or trainingModule.get("content"),
+                        "content": trainingModule.get("gpt_summary") or "",
                         "learning_style": learningStyle,
                     }, returning="representation")
                     .execute()
@@ -315,8 +330,8 @@ async def POST(request: Request):
 
                     if insert_code == "23505":
                         reRes = (
-                            supabase
-                            .table("processed_modules")
+                            query_client
+                .table("processed_modules")
                             .select("processed_module_id, title, content")
                             .eq("original_module_id", moduleId)
                             .eq("learning_style", learningStyle)
@@ -353,8 +368,8 @@ async def POST(request: Request):
 
         # Existing quiz check
         assessmentsRes = (
-            supabase
-            .table("assessments")
+            query_client
+                .table("assessments")
             .select("assessment_id, questions")
             .eq("type", "module")
             .eq("processed_module_id", processedModuleId)
@@ -423,7 +438,8 @@ Modules: {json.dumps([moduleTitle])}
 Objectives: {json.dumps([moduleContent])}"""
 
         try:
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            model = genai.GenerativeModel("gemini-3.1-pro-preview")
+            # model = genai.GenerativeModel("gemini-3.1-pro-preview")
             result = model.generate_content(prompt)
             content = result.text if result else ""
 
@@ -455,7 +471,7 @@ Objectives: {json.dumps([moduleContent])}"""
             stableId = f"{hash_hex[0:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
 
             insertAssessmentRes = (
-                supabase
+                query_client
                 .table("assessments")
                 .insert({
                     "assessment_id": stableId,
@@ -475,7 +491,7 @@ Objectives: {json.dumps([moduleContent])}"""
 
                 if insert_code in ["23505", "409"]:
                     existingListAfterRes = (
-                        supabase
+                        query_client
                         .table("assessments")
                         .select("assessment_id, questions")
                         .eq("type", "module")
@@ -493,15 +509,15 @@ Objectives: {json.dumps([moduleContent])}"""
                         try:
                             quizExisting = existingAfter.get("questions")
                             quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
-                            return JSONResponse(content={"quiz": quizExisting})
+                            return JSONResponse(content={"quiz": quizExisting, "assessmentId": existingAfter.get("assessment_id")})
                         except Exception:
-                            return JSONResponse(content={"quiz": existingAfter.get("questions")})
+                            return JSONResponse(content={"quiz": existingAfter.get("questions"), "assessmentId": existingAfter.get("assessment_id")})
 
-                    return JSONResponse(content={"quiz": quiz})
+                    return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
 
                 return JSONResponse(content={"error": "Failed to save assessment"}, status_code=500)
 
-            return JSONResponse(content={"quiz": quiz})
+            return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
 
         except Exception as error:
             print("Error generating quiz with Gemini:", error)
@@ -524,8 +540,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
     # 1) training_modules for company
     tmRes = (
-        supabase
-        .table("training_modules")
+        query_client
+                .table("training_modules")
         .select("module_id, title, gpt_summary, ai_modules, ai_objectives, company_id")
         .in_("module_id", moduleIds)
         .eq("company_id", companyId)
@@ -544,8 +560,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
     # 2) Ensure processed_modules exist per original_module_id
     processedRes = (
-        supabase
-        .table("processed_modules")
+        query_client
+                .table("processed_modules")
         .select("processed_module_id, original_module_id")
         .in_("original_module_id", moduleIds)
         .execute()
@@ -576,8 +592,8 @@ Objectives: {json.dumps([moduleContent])}"""
             })
 
         upsertRes = (
-            supabase
-            .table("processed_modules")
+            query_client
+                .table("processed_modules")
             .upsert(inserts, on_conflict="original_module_id")
             .execute()
         )
@@ -586,7 +602,7 @@ Objectives: {json.dumps([moduleContent])}"""
         insData = None
         if not insErr:
             requeryRes = (
-                supabase
+                query_client
                 .table("processed_modules")
                 .select("processed_module_id, original_module_id")
                 .in_("original_module_id", missingModuleIds)
@@ -598,8 +614,8 @@ Objectives: {json.dumps([moduleContent])}"""
                 print("[gpt-mcq-quiz] upsert failed (no unique constraint). Falling back to insert + re-query.", insErr.get("message"))
 
                 insertRes = (
-                    supabase
-                    .table("processed_modules")
+                    query_client
+                .table("processed_modules")
                     .insert(inserts)
                     .execute()
                 )
@@ -608,8 +624,8 @@ Objectives: {json.dumps([moduleContent])}"""
                     print("[gpt-mcq-quiz] insert fallback failed; re-querying processed_modules for missing module ids.", insertErr)
 
                 requeryRes = (
-                    supabase
-                    .table("processed_modules")
+                    query_client
+                .table("processed_modules")
                     .select("processed_module_id, original_module_id")
                     .in_("original_module_id", missingModuleIds)
                     .execute()
@@ -636,8 +652,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
     # 3) Baseline template check using employee_assessments join assessments
     existingEmployeeAssessmentsRes = (
-        supabase
-        .table("employee_assessments")
+        query_client
+                .table("employee_assessments")
         .select("assessment_id, assessments(assessment_id, processed_module_id, company_id, type)")
         .execute()
     )
@@ -671,8 +687,8 @@ Objectives: {json.dumps([moduleContent])}"""
         templateIds = list(templateMap.keys())
 
         assessmentsRowsRes = (
-            supabase
-            .table("assessments")
+            query_client
+                .table("assessments")
             .select("assessment_id, questions, processed_module_id")
             .in_("assessment_id", templateIds)
             .execute()
@@ -723,8 +739,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
             if len(rowsToUpsert) > 0:
                 upsertEARes = (
-                    supabase
-                    .table("employee_assessments")
+                    query_client
+                .table("employee_assessments")
                     .upsert(rowsToUpsert, on_conflict="user_id,assessment_id")
                     .execute()
                 )
@@ -744,7 +760,7 @@ Objectives: {json.dumps([moduleContent])}"""
         # bulk assign
         try:
             plansRes = (
-                supabase
+                query_client
                 .table("learning_plan")
                 .select("user_id")
                 .eq("company_id", companyId)
@@ -770,8 +786,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
             if len(bulkRows) > 0:
                 bulkRes = (
-                    supabase
-                    .table("employee_assessments")
+                    query_client
+                .table("employee_assessments")
                     .upsert(bulkRows, on_conflict="user_id,assessment_id")
                     .execute()
                 )
@@ -805,8 +821,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
     # 5) Check existing assessment with snapshot for ANY of processedIds
     existingAssessmentRes = (
-        supabase
-        .table("assessments")
+        query_client
+                .table("assessments")
         .select("assessment_id, questions, company_id, modules_snapshot, processed_module_id")
         .eq("type", "baseline")
         .eq("company_id", companyId)
@@ -855,8 +871,8 @@ Objectives: {json.dumps([moduleContent])}"""
     # update or insert
     if existingAssessment and isinstance(existingAssessment, dict) and existingAssessment.get("assessment_id"):
         updateRes = (
-            supabase
-            .table("assessments")
+            query_client
+                .table("assessments")
             .update({
                 "questions": json.dumps(quiz),
                 "modules_snapshot": normalizedSnapshot
@@ -899,8 +915,8 @@ Objectives: {json.dumps([moduleContent])}"""
 
     # supabase-py/postgrest does not support chaining `.select()` after `.insert()` in this environment
     insertAssessmentRes = (
-        supabase
-        .table("assessments")
+        query_client
+                .table("assessments")
         .insert(rowsToInsert)
         .execute()
     )
@@ -915,7 +931,7 @@ Objectives: {json.dumps([moduleContent])}"""
         if insert_code in ["23505", "409"]:
             stableIds = [r.get("assessment_id") for r in rowsToInsert if isinstance(r, dict) and r.get("assessment_id")]
             reRes = (
-                supabase
+                query_client
                 .table("assessments")
                 .select("assessment_id, processed_module_id")
                 .in_("assessment_id", stableIds)

@@ -1,3 +1,4 @@
+from email.header import Header
 import os
 import re
 import json
@@ -6,13 +7,29 @@ import shutil
 import asyncio
 import platform
 from typing import Any, Dict, List, Optional, Union
-
+from ingestion.ingestion_sales_tool import ingest_by_document_id
+from PyPDF2 import PdfMerger, PdfReader
+import io
+from fastapi import BackgroundTasks
+from fastapi import Header
+import tempfile
+from lucid_tools.stage_one import create_tool_generation_jobs
+# ... (rest of your existing imports)
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
-
-from supabase import create_client, Client
+from ingestion import ingest_from_upload
+from fastapi import UploadFile, File, Form
+# ... (rest of your existing imports)
+# from supabase import create_client, Client
+from utils.auth_bridge import get_service_supabase_client
+supabase = get_service_supabase_client()
+print("=" * 80)
+print("SUPABASE_URL =", os.getenv("SUPABASE_URL"))
+print("NEXT_PUBLIC_SUPABASE_URL =", os.getenv("NEXT_PUBLIC_SUPABASE_URL"))
+print("=" * 80)
+from ingestion.parser import parse_excel_first_sheet
 
 # ✅ Gemini v1 SDK
 from google import genai  # type: ignore
@@ -37,23 +54,141 @@ def get_cloudconvert_client():
 
 router = APIRouter()
 
-# -------------------------
-# Supabase client (same role as "../../../lib/supabase")
-# -------------------------
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+@router.post("/lucid_tool_upload")
+async def lucid_tool_upload(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    category: str = Form(...),
+    contextText: str = Form(None), # Optional context from the textarea
+    user_id: str = Header(..., alias="X-User-ID"),
+    company_id: str = Header(..., alias="X-Company-ID"),
+):
+    """
+    This endpoint handles the document upload for Lucid Tools.
+    It will:
+    1. Save the uploaded document to the 'sales tool document' table.
+    2. Kick off the Stage 1 background task to generate retrieval queries.
+    """
+    try:
+        if not user_id or not company_id:
+            return JSONResponse(
+                status_code=401,
+                content={"error": "User authentication is required."},
+            )
+        
 
-print(supabase_url)
-if not supabase_url:
-    print("[openai_upload] ERROR: NEXT_PUBLIC_SUPABASE_URL not set!")
-if not supabase_key:
-    print("[openai_upload] ERROR: Neither SUPABASE_SERVICE_ROLE_KEY nor SUPABASE_ANON_KEY is set!")
-else:
-    key_preview = f"{supabase_key[:20]}...{supabase_key[-10:]}" if len(supabase_key) > 30 else "***"
-    print(f"[openai_upload] Using Supabase key: {key_preview}")
+        # --- 2. Get the Category ID ---
+        category_res = supabase.table("salestool_categories").select("id").eq("name", category).single().execute()
+        if not category_res.data:
+            return JSONResponse(status_code=400, content={"error": f"Category '{category}' not found."})
+        category_id = category_res.data['id']
 
-supabase: Client = create_client(supabase_url, supabase_key)
+        # Read uploaded file
+        file_contents = await file.read()
+        file_name = file.filename
 
+        document_text = ""
+
+        if file.content_type == "application/pdf":
+            pdf_reader = PdfReader(io.BytesIO(file_contents))
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    document_text += page_text
+        else:
+            try:
+                document_text = file_contents.decode("utf-8")
+            except UnicodeDecodeError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "File is not a valid PDF or plain text file."}
+                )
+        if contextText:
+            document_text += "\n\n--- Additional Context ---\n" + contextText
+
+        # --- 3. Save the uploaded document as a new 'training_module' ---
+        sales_doc_res = supabase.table("sales_tool_documents").insert({
+            "company_id": company_id,
+            "user_id": user_id,
+            "category_id": category_id,
+            "file_name": file_name   
+        }).execute()
+
+        if not sales_doc_res.data:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to save document"}
+            )
+        source_document_id = sales_doc_res.data[0]["document_id"]
+        
+        # Upload to Storage
+        storage_path = f"sales-tool/{source_document_id}/{file_name}"
+
+        upload_res = supabase.storage.from_("content library").upload(
+            storage_path,
+            file_contents,
+            {
+                "content-type": file.content_type or "application/octet-stream"
+            }
+        )
+        if hasattr(upload_res, "error") and upload_res.error:
+            raise Exception(f"Storage upload failed: {upload_res.error}")
+
+        # Generate url
+        url_res = supabase.storage.from_("content library").get_public_url(storage_path)
+
+        if isinstance(url_res, str):
+            context_url = url_res
+        elif isinstance(url_res, dict):
+            context_url = (
+                url_res.get("publicUrl")
+                or url_res.get("public_url")
+            )
+        else:
+            context_url = None
+        if not context_url:
+            raise Exception("Failed to generate storage URL")
+
+        # Save url in database
+        supabase.table("sales_tool_documents").update({
+            "context_url": context_url
+        }).eq(
+            "document_id",
+            source_document_id
+        ).execute()
+
+
+        print(f"[lucid_tool_upload] Created source document record: {source_document_id}")
+        # --- 4. Start the Stage 1 background task ---
+        background_tasks.add_task(
+            create_tool_generation_jobs,
+            source_document_id=source_document_id,
+            document_content= document_text,
+            category_id=category_id,
+            user_id=user_id,
+            company_id=company_id
+        )
+
+        background_tasks.add_task(
+            ingest_by_document_id,
+            source_document_id
+        )
+
+        return JSONResponse(
+            status_code=202, # 202 Accepted is appropriate for a background job
+            content={
+                "message": "Tool generation process started successfully.",
+                "source_document_id": source_document_id
+            }
+        )
+
+    except Exception as e:
+        print(f"❌ Fatal Error in /lucid_tool_upload: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal server error", "detail": str(e)},
+        )
 # -------------------------
 # CloudConvert setup
 # -------------------------
@@ -130,47 +265,152 @@ if not os.getenv("GEMINI_API_KEY"):
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
 
+SOURCE_FACT_INDEX_PROMPT = """
+You are extracting FACTS from a single source document.
 
-INSTRUCTION_PROMPT = """You are an expert instructional designer. Your job is to decompose a learning asset into a clear sequence of self-contained learning modules. CRITICAL RULES:
+Your task:
+- Identify ONLY facts explicitly stated in the document.
+- Facts must be domain-specific and concrete.
+- Do NOT infer, generalize, or teach.
 
-⚠️ STRICTLY FOLLOW THESE RULES:
-1. **ONLY USE SOURCE MATERIAL** - Every module, topic, and objective MUST be derived from the provided content. Do NOT add, infer, or extrapolate information outside the source.
-2. **ACCURATE MODULE TITLES** - Use descriptive titles directly reflecting the source content (e.g., "Introduction to REST API Architecture" not "API Basics").
-3. **EXTRACT TOPICS FROM SOURCE** - List only topics explicitly mentioned or directly implied in the source material.
-4. **GROUND OBJECTIVES IN SOURCE** - Each objective must state what learners will know/do based on content present in the source.
-5. **NO HALLUCINATION** - Do not create, assume, or infer learning outcomes not supported by the source material.
+FACT TYPES TO EXTRACT:
+- Core domain concepts explicitly defined
+- Named frameworks, models, or methods
+- Rules, constraints, or principles
+- Named risks or limitations
+- Explicitly described outcomes or goals
 
-Processing steps (apply exactly):
-1. Identify Overall Learning Goal
-  - State the single end competency learners achieve after completing ALL modules, derived ONLY from source content.
-2. Segment into Themes
-  - Cluster related ideas from the SOURCE into natural, self-contained modules.
-3. Apply One Core Idea Rule
-  - Each module centers on ONE core concept from the source. If a module mixes unrelated source topics, split it.
-4. Apply Module Splitting Checks (for every module)
-  - Time-to-Mastery Rule: If the source topic is complex, split into smaller modules.
-  - Single-Outcome Rule: Split if the source presents multiple distinct learning outcomes.
-  - Cognitive Load Rule: Split if the source introduces >1–3 new concepts at once.
-  - For each module, list which rules triggered a split based on SOURCE ANALYSIS.
-5. Arrange Modules Logically
-  - Order from foundational → intermediate → advanced based on the SOURCE structure.
-  - Provide sequencing rationale based on source material flow.
-6. Validate Module Independence
-  - Ensure each module is self-contained using only source content and delivers one clear learning outcome assessable from the source.
+DO NOT INCLUDE:
+- Analogies
+- Examples not present in the text
+- Organizational theory unless explicitly mentioned
+- Cross-domain interpretations
 
-Output format for each module:
-#### Module [#]: [Accurate Title from Source]
+OUTPUT FORMAT (JSON ONLY):
+
+{
+  "source_facts": [
+    {
+      "id": "F1",
+      "fact": "<verbatim or near-verbatim statement>",
+      "type": "concept | framework | risk | rule | goal"
+    }
+  ]
+}
+
+If something is not clearly stated in the document, do NOT include it.
+"""
+
+INSTRUCTION_PROMPT = """
+You are an expert instructional designer analyzing a SINGLE provided learning asset.
+
+Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
+grounded in the source content.
+
+Treat extracted text, headings, tables, product names, timelines, numeric limits, and
+regulatory references as authoritative source material.
+
+CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
+learning modules using ONLY those facts.
+
+-------------------------------------------------
+STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
+-------------------------------------------------
+
+Before creating modules, internally extract a list of facts from the document.
+
+Rules for SOURCE FACT INDEX:
+- Include ONLY facts explicitly stated in the document
+- No inference, no teaching, no cross-domain reasoning
+- No organizational theory unless explicitly present
+- No examples unless present in the document
+
+Fact types allowed:
+- Defined concepts
+- Named frameworks, models, or methods
+- Explicit risks or limitations
+- Explicit goals or outcomes
+- Explicit metrics or constraints
+
+If a fact is not clearly stated in the document, it MUST NOT appear later.
+
+-------------------------------------------------
+NON-NEGOTIABLE GROUNDING RULES
+-------------------------------------------------
+
+1. FACT-LOCK
+- Every module title, topic, and objective MUST map to at least one source fact.
+- If a concept could exist without this document, DO NOT include it.
+
+2. NO CROSS-DOMAIN LEAKAGE
+- Do NOT introduce organizational theory, productivity models, security metrics,
+  system design concepts, or management frameworks unless explicitly named
+  in the document.
+
+3. NO GENERIC KNOWLEDGE
+- Do NOT “educate beyond the document” by adding external frameworks.
+- Elaboration is allowed ONLY to clarify document facts.
+
+4. VERBATIM ANCHORING
+- Reuse document terminology exactly (framework names, prompt patterns, risks).
+- Do not rename or abstract them.
+
+5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
+
+If the source document explicitly names:
+- a company,
+- brand,
+- organization,
+- founders,
+- locations,
+- mission statements,
+- strategic positioning,
+- product portfolios tied to the organization,
+- products
+
+THEN:
+
+- The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
+- Use direct, natural phrasing such as:
+  “At <Company Name>…”
+  “For sales representatives at <Company Name>…”
+  “<Company Name>’s mission emphasizes…”
+
+- Do NOT anonymize, generalize, or abstract company identity.
+- This is a company onboarding asset, not a generic industry guide.
+
+If the document is company-specific, the learning modules MUST be company-specific.
+
+-------------------------------------------------
+PROCESSING STEPS
+-------------------------------------------------
+1. Identify ONE overall learning goal using document language.
+2. Segment modules strictly along document sections.
+3. Each module must cover ONE dominant document idea.
+4. Preserve document order.
+
+-------------------------------------------------
+OUTPUT FORMAT (MARKDOWN ONLY)
+-------------------------------------------------
+
+#### Module [#]: [Source-anchored title]
+
 **Topics:**
-- [topic explicitly in source]
-- [topic explicitly in source]
+- Topic using exact or near-exact source terminology
+- Topic using exact or near-exact source terminology
 
 **Objectives:**
-- Learners will [action] [concept from source]
-- Learners will [action] [concept from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
+- Learners will [action] [specific concept, product, rule, or process from source]
 
-⚠️ IF SOURCE IS INCOMPLETE: List clarifying questions about missing context (e.g., target proficiency, compliance requirements) but DO NOT INVENT CONTENT.
-⚠️ NEVER EXTRAPOLATE: Strictly bind all content to source material. Gaps in source = gaps in modules, not invention.
-Respond ONLY in MARKDOWN format with NO additional commentary and always return a module related to the provided content.
+-------------------------------------------------
+SOURCE GAP HANDLING
+-------------------------------------------------
+If the source does NOT explicitly define something:
+- List a clarifying question
+- Do NOT invent or generalize
+
+Respond ONLY in Markdown.
 """
 
 
@@ -213,12 +453,18 @@ async def processAndStoreResults(moduleId: str, message: str):
         if modulesStart:
             modulesSection = modulesSection[modulesStart.start():]
 
-        cutoffRegex = re.search(r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions)", modulesSection, re.I)
+        # Enhanced cutoff to handle various footer sections that aren't modules
+        cutoffRegex = re.search(
+            r"(Module Splitting Checks|Sequencing Rationale|Module Independence|Additional Clarifying Questions|Clarifying Questions|###\s*Sequencing|###\s*Clarifying|\*\*Module Splitting Checks)", 
+            modulesSection, 
+            re.I
+        )
         if cutoffRegex:
             modulesSection = modulesSection[:cutoffRegex.start()]
 
+        # Updated regex to handle both ### and #### module headers
         moduleRegex = re.compile(
-            r"(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
+            r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|\d+\.\s*\*\*[^*]+\*\*|$))",
             re.I
         )
 
@@ -230,8 +476,9 @@ async def processAndStoreResults(moduleId: str, message: str):
             })
 
         if len(moduleMatches) == 0:
+            # Fallback regex also handles both ### and #### formats
             fallbackRegex = re.compile(
-                r"(####\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(####\s*Module\s*\d+:|Module\s*\d+:|$))",
+                r"(#{3,4}\s*Module\s*\d+:|Module\s*\d+:)([\s\S]*?)(?=(#{3,4}\s*Module\s*\d+:|Module\s*\d+:|$))",
                 re.I
             )
             for m in fallbackRegex.finditer(message):
@@ -247,8 +494,17 @@ async def processAndStoreResults(moduleId: str, message: str):
             
             print(f"[processAndStoreResults] Processing module {i + 1}/{len(moduleMatches)}")
 
-            titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
-            title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
+            # titleMatch = re.search(r"^(?:\*\*|###)?\s*([A-Za-z0-9 .\-]+)(?:\*\*|:)?", block)
+            # title = titleMatch.group(1).strip() if titleMatch else f"Module {i + 1}"
+
+            titleMatch = re.search(r"^(?:\*\*|###|####)?\s*Module\s*\d+[:\-]\s*(.*)", block, re.I)
+            if titleMatch:
+                title = titleMatch.group(1).strip().strip('*').strip(':').strip('"')
+            else:
+                # Fallback: take the first line if regex fails
+                first_line = block.split('\n')[0]
+                title = re.sub(r"^(?:\*\*|###|####)?\s*Module\s*\d+[:\-]\s*", "", first_line).strip().strip('*')
+
             
             print(f"[processAndStoreResults] Module title: {title}")
 
@@ -304,12 +560,14 @@ async def processAndStoreResults(moduleId: str, message: str):
 
             print(f"[processAndStoreResults] Final counts for module {i + 1}: topics={len(topics)}, objectives={len(objectives)}")
             
-            if topics or objectives:  # Only add module if it has content
+            # Stricter validation: require BOTH topics AND objectives
+            if topics and objectives and len(topics) >= 1 and len(objectives) >= 1:
                 ai_modules.append({"title": title, "topics": topics, "objectives": objectives})
                 ai_topics.extend(topics)
                 ai_objectives.extend(objectives)
             else:
-                print(f"[processAndStoreResults] WARNING: Module {i + 1} ({title}) has no topics or objectives, skipping")
+                print(f"[processAndStoreResults] ⚠️ WARNING: Module {i + 1} ({title}) rejected - topics={len(topics)}, objectives={len(objectives)}")
+                print(f"[processAndStoreResults] Module content preview: {block[:200]}...")
         
         print(f"[processAndStoreResults] Total accumulated: {len(ai_modules)} modules, {len(ai_topics)} topics, {len(ai_objectives)} objectives")
 
@@ -327,6 +585,11 @@ async def processAndStoreResults(moduleId: str, message: str):
     if not ai_modules or len(ai_modules) == 0:
         error_msg = f"[processAndStoreResults] ERROR: ai_modules is empty for moduleId: {moduleId}"
         print(error_msg)
+
+        supabase.table("training_modules").update({
+            "processing_status": "failed"
+        }).eq("module_id", moduleId).execute()
+
         return {"error": "ai_modules is empty - parsing may have failed", "moduleId": moduleId}
 
     if not ai_topics or len(ai_topics) == 0:
@@ -346,9 +609,11 @@ async def processAndStoreResults(moduleId: str, message: str):
     print(f"[processAndStoreResults] - ai_objectives: {len(ai_objectives)} objectives")
 
     # First, verify the row exists
+    # print("Insetion se phle tkk sab theek hai")
     check_res = supabase.table("training_modules").select("module_id, processing_status").eq("module_id", moduleId).execute()
     check_data = getattr(check_res, "data", None)
     check_error = getattr(check_res, "error", None)
+    # print("Insertion ke baad bhi theek hai")
     
     if check_error:
         print(f"[processAndStoreResults] Error checking row existence: {check_error}")
@@ -436,15 +701,93 @@ async def processAndStoreResults(moduleId: str, message: str):
 # -------------------------
 # handleTextContent
 # -------------------------
+from google.genai import types
+
+def normalize_gemini_contents(contents):
+    """
+    Convert dict-based messages to Gemini Content/Part objects.
+    Keeps existing Content objects untouched.
+    """
+
+    normalized = []
+
+    for item in contents:
+
+        # already correct
+        if isinstance(item, types.Content):
+            normalized.append(item)
+            continue
+
+        # convert dict -> Content
+        if isinstance(item, dict):
+            role = item.get("role", "user")
+            parts = item.get("parts", [])
+
+            normalized_parts = []
+
+            for p in parts:
+                if isinstance(p, types.Part):
+                    normalized_parts.append(p)
+                elif isinstance(p, str):
+                    normalized_parts.append(types.Part(text=p))
+                else:
+                    normalized_parts.append(types.Part(text=str(p)))
+
+            normalized.append(types.Content(role=role, parts=normalized_parts))
+            continue
+
+        # convert raw string
+        if isinstance(item, str):
+            normalized.append(
+                types.Content(role="user", parts=[types.Part(text=item)])
+            )
+            continue
+
+        # fallback
+        normalized.append(
+            types.Content(role="user", parts=[types.Part(text=str(item))])
+        )
+
+    return normalized
+
+from PyPDF2 import PdfReader
+
+def get_pdf_page_count(file_path: str) -> int:
+            reader = PdfReader(file_path)
+            return len(reader.pages)
+def get_match_chunks(page_count: int) -> int:
+    if page_count <= 15:
+        return 2
+    elif page_count <= 30:
+        return 4
+    elif page_count <= 50:
+        return 5
+    elif page_count <= 70:
+        return 6
+    elif page_count <= 100:
+        return 7
+    else:
+        return 8
+    
 async def processTextContent(text: str, moduleId: str):
     # ✅ same logic: previously OpenAI chat completion
     # Now: Gemini text-only generation (no file upload), but flow unchanged.
+    # response = gemini_client.models.generate_content(
+    #     model="gemini-3-flash-preview",
+    #     contents=[
+    #         {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+    #         {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
+    #     ],
+    # )
+
+    payload = [
+        {"role": "user", "parts": [INSTRUCTION_PROMPT]},
+        {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
+    ]
+
     response = gemini_client.models.generate_content(
         model="gemini-3-flash-preview",
-        contents=[
-            {"role": "user", "parts": [INSTRUCTION_PROMPT]},
-            {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
-        ],
+        contents=normalize_gemini_contents(payload)
     )
 
     message = getattr(response, "text", "") or ""
@@ -452,137 +795,335 @@ async def processTextContent(text: str, moduleId: str):
     return JSONResponse(content=results)
 
 
-async def handleTextUpload(req: Request):
-    body = await req.json()
-    text = body.get("text")
-    moduleId = body.get("moduleId")
+from fastapi import Body
+
+@router.post("/openai-upload/text")
+async def openai_upload_text(payload: dict = Body(...)):
+    text = payload.get("text")
+    moduleId = payload.get("moduleId")
 
     if not text or not moduleId:
         return JSONResponse(content={"error": "Missing text or moduleId"}, status_code=400)
 
     return await processTextContent(text, moduleId)
 
+@router.post("/openai-upload/file")
+async def openai_upload_file(
+    files: List[UploadFile] = File(...),
+    moduleId: str = Form(...)
+):
+    temp_files = []
+    pdf_files = []
+    # excel_blocks = []
+    merged_pdf_path = None
+    source_file_paths = []
 
-async def handleFileUpload(req: Request):
-    tempFilePath: Optional[str] = None
+    allowed_extensions = {"pdf", "doc", "docx", "ppt", "pptx"}
+    extensions = [f.filename.lower().split(".")[-1] for f in files]
+
+    invalid_files = [f.filename for f in files if f.filename.lower().split(".")[-1] not in allowed_extensions]
+    if invalid_files:
+        raise Exception(
+            f"Unsupported file type(s): {', '.join(invalid_files)}. "
+            "Only PDF, DOC, DOCX, PPT, and PPTX are allowed."
+        )
+
+  
+
+    # if any(ext == "xls" for ext in extensions):
+    #     raise Exception(".xls files are not supported. Please upload .xlsx")
+
+    # has_excel = any(ext == "xlsx" for ext in extensions)
+    # has_docs = any(ext in ["pdf", "doc", "docx", "ppt", "pptx"] for ext in extensions)
+
+    # if has_excel and has_docs:
+    #     raise Exception(
+    #         "Mixed uploads not allowed. Upload Excel files separately from PDF/DOC/PPT."
+    #     )
 
     try:
-        form = await req.form()
-        file: UploadFile = form.get("file")
-        moduleId = form.get("moduleId")
+        print("FILES RECEIVED COUNT:", len(files))
+        print("MODULE ID:", moduleId)
 
-        if not file or not file.filename or not moduleId or moduleId == "null":
-            return JSONResponse(content={"error": "Missing file or moduleId"}, status_code=400)
+        if not files or not moduleId:
+            return JSONResponse(content={"error": "No files provided"}, status_code=400)
 
-        tempDir = os.getenv("TEMP", "C:\\Windows\\Temp") if platform.system().lower().startswith("win") else "/tmp"
-        tempFilePath = os.path.join(tempDir, f"{uuid.uuid4()}_{file.filename}")
+        tempDir = tempfile.gettempdir()
 
-        with open(tempFilePath, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        for file in files:
+            safe_name = file.filename.replace(" ", "_")
+            temp_path = os.path.join(tempDir, f"{uuid.uuid4()}_{safe_name}")
 
-        isDocx = re.search(r"\.docx$", file.filename, re.I)
-        isDoc = re.search(r"\.doc$", file.filename, re.I)
-        isSpreadsheet = re.search(r"\.(xlsx|xls|csv)$", file.filename, re.I)
+            with open(temp_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
 
-        # Convert doc/docx to PDF via CloudConvert
-        if isDocx or isDoc:
-            try:
-                pdfPath = re.sub(r"\.docx?$", ".pdf", tempFilePath, flags=re.I)
-                await convertDocToPdf(tempFilePath, pdfPath)
-                try:
-                    os.unlink(tempFilePath)
-                except Exception:
-                    pass
-                tempFilePath = pdfPath
-                print(f"Converted {file.filename} to PDF for processing via CloudConvert")
-            except Exception as conversionError:
-                print("CloudConvert conversion failed:", conversionError)
-                raise Exception("Failed to convert document to PDF via CloudConvert.")
+            # -------- Upload individual file to Supabase --------
+            with open(temp_path, "rb") as f:
+                file_bytes = f.read()
 
-        if isSpreadsheet:
-            extractedText = f"Spreadsheet Analysis: {file.filename}\n\n"
+            source_storage_path = f"uploads/{moduleId}/source/{safe_name}"
 
-            if re.search(r"\.csv$", file.filename, re.I):
-                df = pd.read_csv(tempFilePath)
-                extractedText += df.to_string(index=False)
+            supabase.storage.from_("content library").remove([source_storage_path])
+
+            print("ATTEMPTING SOURCE FILE UPLOAD")
+            print("PATH:", source_storage_path)
+            print("FILENAME:", file.filename)
+
+            upload_source = supabase.storage.from_("content library").upload(
+                source_storage_path,
+                file_bytes,
+                {"content-type": file.content_type or "application/octet-stream"}
+            )
+            
+            print("STEP 2")
+            print(upload_source)    
+
+            if hasattr(upload_source, "error") and upload_source.error:
+                raise Exception(f"Failed to upload source file: {upload_source.error}")
+
+            source_file_paths.append(source_storage_path)
+            # ----------------------------------------------------
+
+            temp_files.append(temp_path)
+
+            filename_lower = file.filename.lower()
+
+            # Reject legacy excel
+            if filename_lower.endswith(".xls"):
+                raise Exception(".xls files are not supported. Please upload .xlsx")
+
+            # Excel mode
+            # elif filename_lower.endswith(".xlsx"):
+
+            #     parsed_blocks = parse_excel_first_sheet(temp_path)
+
+            #     if not parsed_blocks:
+            #         raise Exception(f"No usable data found in first sheet for {file.filename}")
+
+            #     excel_blocks.extend(parsed_blocks)
+
+            # PDF-like mode
+            elif filename_lower.endswith((".pdf", ".doc", ".docx", ".ppt", ".pptx")):
+
+                # convert office docs to pdf
+                if filename_lower.endswith((".doc", ".docx", ".ppt", ".pptx")):
+                    converted_pdf = temp_path.rsplit(".", 1)[0] + ".pdf"
+                    await convertDocToPdf(temp_path, converted_pdf)
+                    pdf_files.append(converted_pdf)
+                else:
+                    pdf_files.append(temp_path)
+
             else:
-                xls = pd.ExcelFile(tempFilePath)
-                for sheetName in xls.sheet_names:
-                    extractedText += f"\n=== Sheet: {sheetName} ===\n"
-                    df = pd.read_excel(tempFilePath, sheet_name=sheetName, header=None).fillna("")
-                    for idx, row in df.iterrows():
-                        row_values = [str(x) for x in row.values.tolist()]
-                        if len(row_values) > 0:
-                            extractedText += f"Row {idx + 1}: {' | '.join(row_values)}\n"
+                raise Exception(f"Unsupported file type: {file.filename}")
+            
+        # Reject heterogeneous upload
+        # if excel_blocks and pdf_files:
+        #     raise Exception(
+        #         "Mixed uploads not allowed. Upload Excel files separately from PDF/DOC/PPT."
+        #     )
+        
+        # ==========================
+        # EXCEL MODE
+        # ==========================
+        # if excel_blocks:
 
-            try:
-                os.unlink(tempFilePath)
-            except Exception:
-                pass
+        #     combined_text = "\n\n".join(block["content"] for block in excel_blocks)
 
-            return await processTextContent(extractedText, moduleId)
+        #     # update module metadata
+        #     supabase.table("training_modules").update({
+        #         "source_files": source_file_paths,
+        #         "processing_status": "summarizing"
+        #     }).eq("module_id", moduleId).execute()
 
-        # ------------------------------------------------------------------
-        # ✅ GEMINI FILE UPLOAD + PROCESSING (replaces OpenAI Assistants)
-        # ------------------------------------------------------------------
-        # Keep variable names same:
-        # - openaiFile -> geminiFile (but we keep openaiFile variable name for flow parity)
-        # - assistantId remains unused (but not needed)
-        # - messages parsing becomes direct response.text extraction
-        # ------------------------------------------------------------------
+        #     # attach preview url of first excel file
+        #     if source_file_paths:
 
-        # Upload to Gemini Files API
-        with open(tempFilePath, "rb") as f:
-            # Gemini SDK expects a path OR file=...
-            # Use the official upload method as per spec.
-            openaiFile = gemini_client.files.upload(file=tempFilePath)
+        #         url_res = supabase.storage.from_("content library").get_public_url(
+        #             source_file_paths[0]
+        #         )
 
-        # Generate content using uploaded file
-        response = gemini_client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=[
-                INSTRUCTION_PROMPT,
-                openaiFile  # Pass file object directly, same flow as SDK doc
-            ],
+        #         if isinstance(url_res, str):
+        #             source_url = url_res
+        #         elif isinstance(url_res, dict):
+        #             source_url = url_res.get("publicUrl") or url_res.get("public_url")
+        #         else:
+        #             source_url = None
+
+        #         if source_url:
+        #             supabase.table("training_modules").update({
+        #                 "content_url": source_url
+        #             }).eq("module_id", moduleId).execute()
+
+        #     # send text to Gemini
+        #     return await processTextContent(combined_text, moduleId)
+        
+        
+        merged_pdf_path = os.path.join(tempDir, f"{moduleId}_combined.pdf")
+
+        merger = PdfMerger()
+        for pdf in pdf_files:
+            merger.append(pdf)
+
+        merger.write(merged_pdf_path)
+        merger.close()
+        total_pages = get_pdf_page_count(merged_pdf_path)
+        print(f"[PAGE COUNT] Total pages in merged PDF: {total_pages}")
+
+        match_chunks = get_match_chunks(total_pages)
+
+        print(f"[MATCH CHUNKS] Selected: {match_chunks}")
+
+        # Upload merged PDF to SAME bucket
+        with open(merged_pdf_path, "rb") as f:
+            combined_bytes = f.read()
+
+        storage_path = f"uploads/{moduleId}_combined.pdf"
+        supabase.storage.from_("content library").remove([storage_path])
+        upload_res = supabase.storage.from_("content library").upload(
+            storage_path,
+            combined_bytes,
+            {"content-type": "application/pdf"}
+        )
+        if hasattr(upload_res, "error") and upload_res.error:
+            raise Exception(f"Failed to upload merged PDF: {upload_res.error}")
+
+        # Correct public URL extraction
+        url_res = supabase.storage.from_("content library").get_public_url(storage_path)
+        print("Public URL response:", url_res)
+        
+
+        # Handle both possible return types
+        if isinstance(url_res, str):
+            combined_url = url_res
+        elif isinstance(url_res, dict):
+            combined_url = url_res.get("publicUrl") or url_res.get("public_url")
+        else:
+            combined_url = None
+
+        if not combined_url:
+            raise Exception("Failed to generate public URL for merged PDF")
+
+    
+
+        # Update training_modules to point to merged file
+        supabase.table("training_modules").update({
+            "content_url": combined_url
+        }).eq("module_id", moduleId).execute()
+
+        supabase.table("training_modules").update({
+            "source_files": source_file_paths
+        }).eq("module_id", moduleId).execute()
+
+        supabase.table("training_modules").update({
+            "processing_status": "summarizing",
+            "page_count": total_pages,
+            "match_chunks": match_chunks
+        }).eq("module_id", moduleId).execute()
+
+        geminiFile = gemini_client.files.upload(file=merged_pdf_path)
+
+        response = await asyncio.to_thread(
+            lambda: gemini_client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[INSTRUCTION_PROMPT, geminiFile],
+            )
         )
 
         message = getattr(response, "text", "") or ""
 
-        try:
-            os.unlink(tempFilePath)
-        except Exception:
-            pass
-
-        results = await processAndStoreResults(moduleId, message.strip())
-        return JSONResponse(content=results)
+        return await processAndStoreResults(moduleId, message.strip())
 
     except Exception as err:
-        if tempFilePath:
-            try:
-                os.unlink(tempFilePath)
-            except Exception:
-                pass
-        raise err
+        print("Upload error:", err)
 
+        supabase.table("training_modules").update({
+            "processing_status": "failed"
+        }).eq("module_id", moduleId).execute()
+
+        return JSONResponse(content={"error": str(err)}, status_code=500)
+
+    finally:
+        for path in temp_files:
+            try:
+                if path and os.path.exists(path):
+                    os.unlink(path)
+            except Exception as e:
+                print(f"Cleanup warning: could not delete {path} -> {e}")
+
+        try:
+            if merged_pdf_path and os.path.exists(merged_pdf_path):
+                os.unlink(merged_pdf_path)
+        except Exception as e:
+            print(f"Cleanup warning: could not delete merged pdf -> {e}")
+
+@router.post("/preview-file")
+async def preview_file(payload: dict):
+    file_path = payload.get("filePath")
+
+    if not file_path:
+        return JSONResponse({"error": "Missing filePath"}, status_code=400)
+
+    try:
+        temp_dir = tempfile.gettempdir()
+
+        # Download file from Supabase
+        res = supabase.storage.from_("content library").download(file_path)
+
+        if not res:
+            raise Exception("File not found in storage")
+
+        original_path = os.path.join(temp_dir, os.path.basename(file_path))
+
+        with open(original_path, "wb") as f:
+            f.write(res)
+
+        # If already PDF → return directly
+        if original_path.lower().endswith(".pdf"):
+            public = supabase.storage.from_("content library").get_public_url(file_path)
+            return {"previewUrl": public}
+
+        # Convert DOC/DOCX → PDF
+        converted_pdf = original_path.rsplit(".", 1)[0] + "_preview.pdf"
+
+        await convertDocToPdf(original_path, converted_pdf)
+
+        # Upload preview PDF
+        preview_storage_path = f"preview/{uuid.uuid4()}.pdf"
+
+        with open(converted_pdf, "rb") as f:
+            supabase.storage.from_("content library").upload(
+                preview_storage_path,
+                f.read(),
+                {"content-type": "application/pdf"}
+            )
+
+        url = supabase.storage.from_("content library").get_public_url(preview_storage_path)
+
+        return {"previewUrl": url}
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # -------------------------
 # Main POST route (equivalent export async function POST)
 # -------------------------
-@router.post("/openai-upload")
-async def POST(req: Request):
-    try:
-        contentType = req.headers.get("content-type")
+# @router.post("/openai-upload")
+# async def POST(req: Request):
+#     try:
+#         contentType = (req.headers.get("content-type") or"").lower()
 
-        if contentType and "multipart/form-data" in contentType:
-            return await handleFileUpload(req)
-        elif contentType and "application/json" in contentType:
-            return await handleTextUpload(req)
-        else:
-            return JSONResponse(content={"error": "Unsupported content type"}, status_code=400)
+#         if "multipart/form-data" in contentType:
+#             return await handleFileUpload(req)
+#         elif contentType and "application/json" in contentType:
+#             return await handleTextUpload(req)
+#         else:
+#             return JSONResponse(content={"error": "Unsupported content type"}, status_code=400)
 
-    except Exception as error:
-        print("❌ Fatal Error:", error)
-        return JSONResponse(
-            content={"error": "Internal server error", "detail": str(error)},
-            status_code=500
-        )
+#     except Exception as error:
+#         print("❌ Fatal Error:", error)
+#         return JSONResponse(
+#             content={"error": "Internal server error", "detail": str(error)},
+#             status_code=500
+#         )
+
+

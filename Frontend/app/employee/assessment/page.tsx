@@ -4,9 +4,10 @@ export const dynamic = "force-dynamic";
 import React, { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import MCQQuiz from "./mcq-quiz";
 import { useAuth } from "@/contexts/auth-context";
-import EmployeeNavigation from "@/components/employee-navigation";
 import { ChevronLeft, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 interface TrainingModule {
@@ -40,31 +41,45 @@ const AssessmentContent = () => {
 
   const router = useRouter();
 
+
+  const fetchUserByEmail = async (email: string | undefined | null) => {
+    if (!email) return null;
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok){
+      const txt = await res.text().catch(() => "No response body");
+      throw new Error(`Failed to fetch user by email: ${res.status} ${txt}`);
+    }
+    const data = await res.json();
+    let user = data?.user ?? data;
+    if (Array.isArray(user)) user = user[0];
+    return user || null;
+  };
+
   useEffect(() => {
     const fetchModules = async () => {
       setLoading(true);
       setError("");
       try {
-        // Get employee's company_id first
+        // Get employee's company_id first via backend API
         let companyId: string | null = null;
+        let fetchedUserId: string | null = null;
         if (user?.email) {
-          const { data: empData } = await supabase
-            .from("users")
-            .select("company_id, user_id")
-            .eq("email", user.email)
-            .maybeSingle();
+          const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
-          setUserId(empData?.user_id || null);
+          fetchedUserId = empData?.user_id || null;
+          setUserId(fetchedUserId);
         }
         if (!companyId) throw new Error("Could not find company for user");
         // Get modules for this company only
-        const { data, error } = await supabase
-          .from("training_modules")
-          .select("module_id, title, ai_modules")
-          .eq("company_id", companyId)
-          .order("created_at", { ascending: true });
-        if (error) throw error;
-        setModules(data || []);
+        const moduleRes = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
+          headers: {'X-User-ID': fetchedUserId || ''}
+        });
+        if (!moduleRes.ok) {
+          const txt = await moduleRes.text().catch(() => "");
+          throw new Error(`Failed to fetch modules: ${moduleRes.status} ${txt}`);
+        }
+        const modulesPayload = await moduleRes.json().catch(() => ({}));
+        setModules(modulesPayload.modules || []);
         setCompanyId(companyId);
       } catch (err: any) {
   setError("Failed to load modules: " + err.message);
@@ -83,46 +98,82 @@ const AssessmentContent = () => {
       setLoading(true);
       setError("");
       try {
-        // Get employee's company_id and id
+        // Get employee's company_id and id via backend API
         let companyId: string | null = null;
         let employeeId: string | null = null;
         if (user?.email) {
-          const { data: empData } = await supabase
-            .from("users")
-            .select("user_id, company_id")
-            .eq("email", user.email)
-            .maybeSingle();
+          const empData = await fetchUserByEmail(user.email);
           companyId = empData?.company_id || null;
           employeeId = empData?.user_id || null;
         }
+        // console.log("the gpt mcq quiz is called");
         if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
         
+        // Fetch user's learning style
+        let learningStyle: string | null = null;
+        try {
+          const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employeeId}`, {
+            headers: { 'X-User-ID': employeeId }
+          });
+          if (styleRes.ok) {
+            const styleJson = await styleRes.json();
+            const learningStyleData = styleJson?.data || styleJson;
+            learningStyle = learningStyleData?.learning_style || 'default';
+          }
+        } catch (styleErr) {
+          console.error('[assessment] error fetching learning style:', styleErr);
+          learningStyle = 'default';
+        }
         // If a moduleId query param is present, request a per-module quiz.
         const urlModuleId = searchParams.get('moduleId');
+        // console.log("URL Module ID:", urlModuleId);
+        // console.log(urlModuleId);
+
         let isBaselineRequest = false;
-        // console.log("Error in getting learning_plan");
         let res;
         if (urlModuleId) {
-          // Check if this is a baseline assessment request by looking at learning plan
-          const { data: learningPlan } = await supabase
-            .from('learning_plan')
-            .select('baseline_assessment')
-            .eq('user_id', employeeId)
-            .eq('module_id', urlModuleId)
-            .single()
+          // Check if this is a baseline assessment request by looking at learning plan via backend API
+          try {
+            const lpRes = await fetchWithAuth(
+              `${API_BASE}/api/learning-plans/?user_id=${employeeId}&module_id=${urlModuleId}`,
+              { headers: { 'X-User-ID': employeeId } }
+            );
 
-          isBaselineRequest = Boolean(learningPlan && learningPlan.baseline_assessment === 1);
+            // console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
+            
+            if (lpRes.ok) {
+              const lpData = await lpRes.json();
+              const learningPlan = lpData?.plans?.[0] || null;
+              
+              // console.log("Learning Plan Data:", learningPlan);
+              
+              // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
+              if (learningPlan) {
+                // console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
+                isBaselineRequest = learningPlan.baseline_assessment === true;
+              }
+            } else {
+              const errorData = await lpRes.json();
+              console.error("Error fetching learning plan:", errorData);
+            }
+            
+            // console.log("Is Baseline Request:", isBaselineRequest);
+          } catch (err) {
+            console.error("Exception while checking learning plan:", err);
+            isBaselineRequest = false;
+          }
           // console.log(isBaselineRequest)
           // console.log")
             // console.log("Inside the if statement for per-module quiz request.");
           // console.log(urlModuleId)
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               moduleIds: [urlModuleId],
               companyId:companyId, 
               user_id: employeeId,
+              learningStyle: learningStyle,
               isBaseline: isBaselineRequest,
               assessmentType: isBaselineRequest ? 'baseline' : 'module'
             }),
@@ -130,12 +181,14 @@ const AssessmentContent = () => {
         } else {
           // Request a baseline quiz for all assigned modules (multi-module baseline)
           // console.log("Inside the else statement for per-module quiz request.");
-          res = await fetch(`${API_BASE}/api/gpt-mcq-quiz`, {
+          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               moduleIds: modules.map(m => m.module_id), 
               companyId,
+              user_id: employeeId,
+              learningStyle: learningStyle,
               isBaseline: true,
               assessmentType: 'baseline'
             }),
@@ -241,14 +294,10 @@ const AssessmentContent = () => {
     setScore(result.score);
     setLoading(true);
     try {
-      // 1. Fetch employee UUID from users table using user.email
+      // 1. Fetch employee UUID via backend API
       let employeeId: string | null = null;
       if (user?.email) {
-        const { data: empData, error: empError } = await supabase
-          .from("users")
-          .select("user_id")
-          .eq("email", user.email)
-          .maybeSingle();
+        const empData = await fetchUserByEmail(user.email);
         if (empData?.user_id) {
           employeeId = empData.user_id;
         } else {
@@ -280,34 +329,51 @@ const AssessmentContent = () => {
           throw new Error('moduleId query param required to resolve baseline assessment');
         }
 
-        // Look up (or create) the baseline assessment for this company
-        // console.log("Inside in this else 1")
-        const { data: assessmentDef } = await supabase
-          .from('assessments')
-          .select('assessment_id')
-          .eq('type', 'baseline')
-          .eq('company_id', companyId)
-          .eq('original_module_id', urlModuleId)
-          .limit(1)
-          .maybeSingle();
+        if (!urlModuleId) {
+          throw new Error('moduleId query param required to resolve baseline assessment');
+        }
 
-        // console.log("New Query to get the result")
-        // console.log(assessmentDef)
-        if (assessmentDef?.assessment_id) {
-          // console.log("Inside in this if 2")
-          assessmentId = assessmentDef.assessment_id;
-        } else {
-          // console.log("Inside in this else 2")
-          // console.log(mcqQuestionsByModule)
-          const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
-          const { data: newDef } = await supabase
-            .from('assessments')
-            .insert({ type: 'baseline', company_id: companyId, original_module_id: urlModuleId, learning_style: null, questions: JSON.stringify(questionsForModule) })
-            .select()
-            .single();
-            assessmentId = newDef?.assessment_id || null;
+        // Look up baseline assessment via backend API
+        const q = new URLSearchParams({
+          type: 'baseline',
+          company_id: companyId || '',
+          original_module_id: urlModuleId
+        });
+        const assessRes = await fetchWithAuth(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
+          headers: { 'X-User-ID': employeeId || '' }
+        });
+        if (assessRes.ok) {
+          const payload = await assessRes.json().catch(() => ({}));
+          const found = payload.assessments ?? payload.data ?? payload ?? [];
+          if (found && found.length > 0) {
+            assessmentId = found[0]?.assessment_id ?? null;
           }
-          // console.log(assessmentId)
+        }
+
+        // If no baseline exists, create it via backend route
+        if (!assessmentId) {
+          const questionsForModule = mcqQuestionsByModule.find((m) => m.moduleId === 'baseline')?.questions || [];
+          const createRes = await fetchWithAuth(`${API_BASE}/api/assessments/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId || '' },
+            body: JSON.stringify({
+              type: 'baseline',
+              company_id: companyId,
+              original_module_id: urlModuleId,
+              learning_style: null,
+              questions: questionsForModule
+            })
+          });
+          if (createRes.ok) {
+            const created = await createRes.json().catch(() => ({}));
+            const createdAssessment = created.assessment ?? created;
+            assessmentId = createdAssessment?.assessment_id ?? createdAssessment?.data?.assessment_id ?? null;
+          } else {
+            // creation failed — continue without assessmentId (fallback behavior)
+            console.warn('Failed to create baseline assessment via backend', await createRes.text().catch(()=>''));
+          }
+        }
+        // console.log(assessmentId)
       }
 
       // Log score in terminal
@@ -317,9 +383,12 @@ const AssessmentContent = () => {
       // console.log("Employee Feedback:", result.feedback.join("\n"));
 
       // Call GPT feedback API for AI-generated feedback and store in Supabase
-      const res = await fetch(`${API_BASE}/api/gpt-feedback`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeId || '',
+        },
         body: JSON.stringify({
           score: result.score,
           maxScore: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
@@ -335,6 +404,67 @@ const AssessmentContent = () => {
       // console.log("Response from the /api/gpt-feedback endpoint:");
       // console.log(res)
       setFeedback(data.feedback || "");
+
+      try {
+        const moduleTitle = mcqQuestionsByModule[0]?.title || (moduleId === 'baseline' ? 'Baseline Assessment' : 'Module Assessment');
+        sessionStorage.setItem(
+          'pending_score_history_assessment',
+          JSON.stringify({
+            assessment_id: assessmentId,
+            score: result.score,
+            max_score: (mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []).length,
+            feedback: data.feedback || '',
+            question_feedback: data.question_feedback || null,
+            type: moduleId === 'baseline' ? 'baseline' : 'module',
+            module_title: moduleTitle,
+            created_at: new Date().toISOString(),
+          }),
+        );
+      } catch {
+        // Ignore storage errors in private browsing or restricted contexts.
+      }
+
+      if (employeeId) {
+        const assessmentsKey = createCacheKey({
+          namespace: "assessments",
+          userId: String(employeeId),
+          path: "/employee-assessments",
+        });
+        const detailsPrefix = createCacheKey({
+          namespace: "assessment-details",
+          userId: String(employeeId),
+          path: "/assessments/batch",
+        });
+        const modulesPrefix = createCacheKey({
+          namespace: "modules",
+          userId: String(employeeId),
+          path: "/processed-modules/batch",
+        });
+
+        // Remove stale cache immediately after successful submit.
+        sharedDataClient.invalidate(assessmentsKey);
+        sharedDataClient.invalidateByPrefix(detailsPrefix);
+        sharedDataClient.invalidateByPrefix(modulesPrefix);
+
+        // Warm fresh data so score-history sees latest without waiting for TTL.
+        await sharedDataClient.query(
+          assessmentsKey,
+          async () => {
+            const freshRes = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employeeId)}`, {
+              headers: { "X-User-ID": employeeId },
+            });
+            if (!freshRes.ok) {
+              throw new Error("Failed to refetch employee assessments");
+            }
+            return freshRes.json();
+          },
+          {
+            ttlMs: 2 * 60 * 1000,
+            swr: true,
+            forceRefresh: true,
+          },
+        );
+      }
       
       setQuizQuestions(mcqQuestionsByModule.find(m => m.moduleId === 'baseline')?.questions || []);
       
@@ -364,25 +494,17 @@ const AssessmentContent = () => {
   };
 
   return (
-    <div className="min-h-screen w-full">
-      <EmployeeNavigation showBack={true} showForward={false} />
-      
-      <div 
-        className="transition-all duration-300 ease-in-out py-10"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        <div className="max-w-8xl mx-auto px-4">
+    <div className="min-h-screen w-full py-6 sm:py-10">
+      <div className="max-w-8xl mx-auto px-3 sm:px-4 lg:px-6">
           <button
             onClick={() => router.back()}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
+            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-4 sm:mb-6 transition-colors"
           >
             <ChevronLeft className="w-5 h-5" />
             Back
           </button>
-          <h1 className="text-3xl font-bold mb-4">Starting Baseline</h1>
-          <p className="mb-6 text-gray-700">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">Starting Baseline</h1>
+          <p className="mb-5 sm:mb-6 text-sm sm:text-base leading-relaxed text-gray-700">
             Every learner is different. This short assessment helps us tailor the program to your strengths and needs, so you can learn smarter, apply faster and move closer to your career ambitions.
           </p>
           {error && <div className="mb-4 text-red-600">{error}</div>}
@@ -401,9 +523,9 @@ const AssessmentContent = () => {
             />
           )}
           {!loading && score !== null && (
-            <div className="space-y-6 w-full">
+            <div className="space-y-4 sm:space-y-6 w-full">
               {/* Main Results Card - Similar to Learning Style */}
-              <div className="bg-white rounded-lg shadow-lg p-8 border-t-4 border-blue-600 w-full">
+              <div className="bg-white rounded-lg shadow-lg p-4 sm:p-8 border-t-4 border-blue-600 w-full">
                 {(() => {
                   const { mainTitle, sections } = parseFeedbackSections(feedback);
                   // console.log(feedback)
@@ -411,30 +533,30 @@ const AssessmentContent = () => {
                   
                   return (
                     <>
-                      <div className="text-center mb-8">
-                        <h2 className="text-4xl font-bold text-gray-900 mb-4">{mainTitle}</h2>
-                        <p className="text-gray-600 mb-6">
+                      <div className="text-center mb-5 sm:mb-8">
+                        <h2 className="text-2xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 leading-tight">{mainTitle}</h2>
+                        <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-6 leading-relaxed">
                           Understand your performance to achieve better outcomes
                         </p>
                       </div>
 
                       {/* Score Display */}
-                      <div className="bg-blue-50 rounded-lg p-6 mb-8 border-2 border-blue-200">
-                        <div className="flex items-center justify-between mb-4">
-                          <div>
-                            <p className="text-sm text-gray-600 mb-1">Assessment Score</p>
-                            <div className="flex items-baseline gap-3">
-                              <span className="text-4xl font-bold text-blue-600">
+                      <div className="bg-blue-50 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8 border-2 border-blue-200">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 mb-4">
+                          <div className="min-w-0">
+                            <p className="text-xs sm:text-sm text-gray-600 mb-1">Assessment Score</p>
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="text-3xl sm:text-4xl font-bold text-blue-600 leading-none">
                                 {score}/{(mcqQuestionsByModule[0]?.questions || []).length}
                               </span>
-                              <span className="text-2xl text-gray-600">
+                              <span className="text-lg sm:text-2xl text-gray-600">
                                 ({Math.round((score / (mcqQuestionsByModule[0]?.questions || []).length) * 100)}%)
                               </span>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-600">Completed:</span>
-                            <span className="text-sm font-medium text-green-600">
+                          <div className="flex items-center gap-2 sm:justify-end sm:text-right">
+                            <span className="text-xs sm:text-sm text-gray-600">Completed:</span>
+                            <span className="text-xs sm:text-sm font-medium text-green-600 whitespace-nowrap">
                               {new Date().toLocaleDateString()}
                             </span>
                           </div>
@@ -448,7 +570,7 @@ const AssessmentContent = () => {
                       </div>
 
                       {/* Performance Insights - Expandable Sections */}
-                      <div className="mb-8">
+                      <div className="mb-6 sm:mb-8">
                         {/* <h3 className="text-2xl font-bold text-gray-900 mb-4">Your Performance Insights</h3> */}
                         <div className="space-y-3">
                           {sectionKeys.map((sectionTitle, idx) => {
@@ -486,9 +608,9 @@ const AssessmentContent = () => {
               <div className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <button
                   onClick={() => toggleSection('questions')}
-                  className="w-full px-8 py-6 flex items-center justify-between bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
+                  className="w-full px-4 sm:px-8 py-4 sm:py-6 flex items-center justify-between gap-3 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 transition-colors border-b-2 border-blue-200"
                 >
-                  <h3 className="text-2xl font-bold text-gray-900">Question-by-Question Review</h3>
+                  <h3 className="text-lg sm:text-2xl font-bold text-gray-900 text-left leading-tight">Question-by-Question Review</h3>
                   {expandedSections.questions ? (
                     <ChevronUp className="w-6 h-6 text-gray-600 flex-shrink-0" />
                   ) : (
@@ -496,11 +618,11 @@ const AssessmentContent = () => {
                   )}
                 </button>
                 {expandedSections.questions && (
-                  <div className="p-8 space-y-6">
+                  <div className="p-4 sm:p-8 space-y-4 sm:space-y-6">
                     {correctAnswers.map((answer, idx) => (
                       <div 
                         key={idx} 
-                        className={`p-6 rounded-lg border-2 ${
+                        className={`p-4 sm:p-6 rounded-lg border-2 ${
                           answer.isCorrect 
                             ? 'bg-green-50 border-green-300' 
                             : 'bg-red-50 border-red-300'
@@ -513,23 +635,23 @@ const AssessmentContent = () => {
                             <XCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
                           )}
                           <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-semibold text-gray-900">Question {idx + 1}</h4>
-                              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                              <h4 className="font-semibold text-gray-900 text-sm sm:text-base">Question {idx + 1}</h4>
+                              <span className="self-start sm:self-auto px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                                 {answer.bloomLevel}
                               </span>
                             </div>
-                            <p className="text-gray-800 font-medium mb-4">{answer.question}</p>
+                            <p className="text-gray-800 font-medium mb-4 text-sm sm:text-base leading-relaxed">{answer.question}</p>
                             
                             <div className="space-y-2 mb-4">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                 <span className="font-semibold text-gray-700">Your answer:</span>
                                 <span className={answer.isCorrect ? 'text-green-700' : 'text-red-700'}>
                                   {answer.userAnswer}
                                 </span>
                               </div>
                               {!answer.isCorrect && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                                   <span className="font-semibold text-gray-700">Correct answer:</span>
                                   <span className="text-green-700">{answer.correctAnswer}</span>
                                 </div>
@@ -554,16 +676,16 @@ const AssessmentContent = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-4 justify-center">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
                 <button
                   onClick={() => router.push('/employee/welcome')}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                  className="w-full sm:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                 >
                   Return to Dashboard
                 </button>
                 <button
                   onClick={() => router.push('/employee/score-history')}
-                  className="px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+                  className="w-full sm:w-auto px-6 py-3 bg-white text-blue-600 border-2 border-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
                 >
                   View Reports
                 </button>
@@ -571,7 +693,6 @@ const AssessmentContent = () => {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 };

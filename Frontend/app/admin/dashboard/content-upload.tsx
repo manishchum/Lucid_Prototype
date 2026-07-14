@@ -508,7 +508,7 @@
 
 //         <div className="mt-4 text-xs text-gray-500">
 //           <p className="font-medium mb-1">Supported formats:</p>
-//           <div className="grid grid-cols-2 gap-1">
+//           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
 //             <span>• Documents: PDF, DOC, DOCX, PPT, PPTX</span>
 //             <span>• Spreadsheets: XLS, XLSX, CSV</span>
 //             <span>• Media: MP4, MP3, WAV, AVI, MOV</span>

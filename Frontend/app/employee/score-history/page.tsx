@@ -1,16 +1,20 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronDown, BookOpen } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
+// import { supabase } from "@/lib/supabase";
+import { sharedDataClient, createCacheKey } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import AIFeedbackSections from "@/app/employee/assessment/ai-feedback-sections";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import RolePlayReports from "@/components/roleplay/RolePlayReports";
 
+
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
 const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
@@ -29,10 +33,10 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((raw: string) => {
-              if (typeof raw !== 'string') return { status: 'Unknown' };
+              if (typeof raw !== 'string') return { status: 'Incorrect' };
               if (raw.startsWith('Correct')) return { status: 'Correct' };
               if (raw.startsWith('Incorrect')) return { status: 'Incorrect', explanation: raw.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: arr.length
           };
@@ -57,11 +61,11 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
         if (Array.isArray(arr)) {
           return {
             answers: arr.map((token: string) => {
-              if (typeof token !== 'string') return { status: 'Unknown' };
+              if (typeof token !== 'string') return { status: 'Incorrect' };
               const clean = token.trim();
               if (clean.startsWith('Correct')) return { status: 'Correct' };
               if (clean.startsWith('Incorrect')) return { status: 'Incorrect', explanation: clean.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || arr.length
           };
@@ -74,7 +78,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
             answers: parts.map(p => {
               if (p.startsWith('Correct')) return { status: 'Correct' };
               if (p.startsWith('Incorrect')) return { status: 'Incorrect', explanation: p.replace(/^Incorrect\.\s*/,'').trim() };
-              return { status: 'Unknown' };
+              return { status: 'Incorrect' };
             }),
             total: totalQuestions || parts.length
           };
@@ -111,7 +115,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
                   <div key={idx} className={`${baseClasses} ${palette}`}>
                     <div className="text-center leading-tight">
                       <div className="text-[10px] text-gray-600">Q{idx + 1}</div>
-                      <div className="font-semibold text-base">{isCorrect ? '✓' : isIncorrect ? '✗' : '?'}</div>
+                      <div className="font-semibold text-base">{isCorrect ? 'OK' : isIncorrect ? 'X' : '?'}</div>
                     </div>
                   </div>
                 );
@@ -244,111 +248,388 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
 };
 
 export default function ScoreHistoryPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, employeeData: authEmployeeData, loading: authLoading } = useAuth();
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState<string>("");
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
+  const groupedScoreHistory = scoreHistory.reduce((acc: any, item: any) => {
+    const moduleId =
+      item.assessments?.original_module_id ||
+      item.assessments?.processed_module_id ||
+      item.assessment_id ||
+      item.employee_assessment_id;
+
+    if (!moduleId) return acc;
+
+    if (!acc[moduleId]) {
+      acc[moduleId] = {
+        moduleId,
+        moduleTitle:
+          item.assessments?.parent_module_title ||
+          item.assessments?.module_title ||
+          item.assessments?.title ||
+          "Untitled Module",
+        assessments: [],
+      };
+    }
+
+    acc[moduleId].assessments.push(item);
+    return acc;
+  }, {});
+
+  const groupedHistory = Object.values(groupedScoreHistory).map((group: any) => ({
+    ...group,
+    assessments: group.assessments.sort((a: any, b: any) => {
+      if (a.assessments?.type === "baseline") return -1;
+      if (b.assessments?.type === "baseline") return 1;
+      return 0;
+    }),
+  }));
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
-  const [expanded, setExpanded] = useState<{ [key: number]: boolean }>({});
+  const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
   const [reportOpenSections, setReportOpenSections] = useState<string[]>([]);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const router = useRouter();
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchEmployeeAndHistory(user.email);
-    }
-  }, [user, authLoading]);
+   useEffect(() => {
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchAllData();
+          
+        }
+      }, [user, authLoading, router]);
 
-  const fetchEmployeeAndHistory = async (email: string) => {
+  const getEmployee = async () => {
+    if (authEmployeeData?.user_id) {
+      return authEmployeeData;
+    }
+
+    const email = user?.email ?? "";
+    if (!email) {
+      return null;
+    }
+
+    const userCacheId =
+      (user as any)?.uid ||
+      (user as any)?.id ||
+      authEmployeeData?.user_id ||
+      email;
+
+    const { data: employeePayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "employee",
+        userId: String(userCacheId),
+        path: "/employee/me",
+      }),
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`,
+      {headers:{ "X-User-ID": authEmployeeData?.user_id || "" }});
+        if (!res.ok) {
+          throw new Error("Failed to fetch employee");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    let employee = (employeePayload as any)?.data?.user ?? (employeePayload as any)?.data ?? (employeePayload as any)?.user ?? employeePayload;
+    if (Array.isArray(employee)) {
+      employee = employee[0];
+    }
+
+    return employee || null;
+  };
+
+  const getCompany = async (employee: any) => {
+    if (!employee?.company_id) {
+      return null;
+    }
+
+    const { data: companyPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "company",
+        tenantId: String(employee.company_id),
+        path: `/company/${employee.company_id}`,
+      }),
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employee.company_id)}`,{headers:{ "X-User-ID": employee.user_id }});
+        if (!res.ok) {
+          throw new Error("Failed to fetch company");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    return (companyPayload as any)?.data?.company ?? (companyPayload as any)?.data ?? (companyPayload as any)?.company ?? companyPayload;
+  };
+
+  const getAssessments = async (employee: any) => {
+    const { data: assessmentsPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "assessments",
+        userId: String(employee.user_id),
+        path: "/employee-assessments",
+      }),
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/user/${encodeURIComponent(employee.user_id)}`,
+          {
+            headers: { "X-User-ID": employee.user_id },
+          },
+        );
+        if (!res.ok) {
+          throw new Error("Failed to fetch employee assessments");
+        }
+        return res.json();
+      },
+      {
+        ttlMs: 2 * 60 * 1000,
+        swr: true,
+      },
+    );
+
+    const assessments = assessmentsPayload?.data?.assessments ?? assessmentsPayload?.assessments ?? 
+      (Array.isArray((assessmentsPayload as any)?.data) ? (assessmentsPayload as any).data : []);
+
+    // console.log("[score-history] assessments payload", assessmentsPayload);
+    // console.log(
+    //   "[score-history] assessments sample",
+    //   (assessments || []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // );
+
+    const assessmentIds: string[] = Array.from(
+      new Set<string>(
+        assessments
+          .map((ea: any) => ea?.assessment_id)
+          .filter(Boolean)
+          .map((id: any) => String(id)),
+      ),
+    );
+
+    if (!assessmentIds.length) {
+      return assessments;
+    }
+
+    const { data: detailsPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "assessment-details",
+        userId: String(employee.user_id),
+        path: "/assessments/batch",
+        query: { ids: assessmentIds },
+      }),
+      async () => {
+        const res = await fetchWithAuth(
+          `${API_BASE}/api/assessments/batch`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": employee.user_id,
+            },
+            body: JSON.stringify({
+              assessment_ids: assessmentIds,
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch assessment details");
+        }
+
+        return res.json();
+      },
+      {
+        ttlMs: 5 * 60 * 1000,
+      },
+    );
+
+    const assessmentMap = new Map<string, any>();
+    const assessmentsData =
+      detailsPayload?.data ||
+      [];
+
+    assessmentsData.forEach((payload: any) => {
+      const assessment = payload?.data?.assessment ?? payload?.data ?? payload?.assessment ?? payload;
+      if (assessment?.assessment_id) {
+        assessmentMap.set(String(assessment.assessment_id), assessment);
+      }
+    });
+
+    return assessments.map((ea: any) => {
+      const mapped = assessmentMap.get(String(ea.assessment_id));
+      return {
+        ...ea,
+        assessments: mapped || ea?.assessments || null,
+      };
+    });
+  };
+
+  const getModules = async (employee: any, assessments: any[]) => {
+    // console.log("[score-history] getModules input", {
+    //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+    //   sample: (Array.isArray(assessments) ? assessments : []).slice(0, 5).map((ea: any) => ({
+    //     assessment_id: ea?.assessment_id,
+    //     type: ea?.assessments?.type,
+    //     processed_module_id: ea?.assessments?.processed_module_id,
+    //   })),
+    // });
+
+    const moduleIds = (assessments || [])
+      .filter((a: any) => a?.assessments?.type === "module" && a.assessments?.processed_module_id)
+      .map((a: any) => String(a.assessments.processed_module_id));
+
+    // console.log("[score-history] module IDs for title lookup", moduleIds);
+
+    if (!moduleIds.length) {
+      return assessments;
+    }
+
+    const { data: modulesPayload } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "modules",
+        userId: String(employee.user_id),
+        path: "/processed-modules/batch",
+        query: { ids: moduleIds },
+      }),
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/batch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": employee.user_id,
+          },
+          body: JSON.stringify({ processed_module_ids: moduleIds }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch module titles");
+        }
+
+        return res.json();
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    // console.log("[score-history] processed-modules response", modulesPayload);
+
+    const mods = modulesPayload?.data?.modules ?? modulesPayload?.data ?? modulesPayload?.modules ?? modulesPayload ?? [];
+    const moduleMap = new Map();
+
+    mods.forEach((m) => {
+        moduleMap.set(m.processed_module_id, {
+            module_title: m.title,
+            original_module_id: m.original_module_id,
+            parent_module_title: m.parent_module_title,
+        });
+    });
+
+    // console.log("[score-history] processed-modules title map", Array.from(titleMap.entries()));
+    return assessments.map((a: any) => {
+
+    const pid = String(a.assessments?.processed_module_id || "");
+
+    // const title = pid ? titleMap.get(pid) : undefined;
+
+    const module = moduleMap.get(pid);
+
+return {
+    ...a,
+    assessments: {
+        ...a.assessments,
+        module_title: module?.module_title,
+        original_module_id: module?.original_module_id,
+        parent_module_title: module?.parent_module_title,
+    },
+};
+
+});
+  };
+
+    // return assessments.map((a: any) => {
+  //     if (a?.assessments?.type !== "module") {
+  //       return a;
+  //     }
+
+  //     const pid = String(a.assessments?.processed_module_id || "");
+  //     const title = pid ? titleMap.get(pid) : undefined;
+  //     // console.log("[score-history] module title resolved", {
+  //     //   processed_module_id: pid,
+  //     //   title,
+  //     //   assessment_id: a?.assessment_id,
+  //     // });
+  //     return { ...a, assessments: { ...a.assessments, module_title: title } };
+  //   });
+  // };
+
+  const getLearningStyle = async (employee: any) => {
+    const { data: learningStyle } = await sharedDataClient.query(
+      createCacheKey({
+        namespace: "learning-style",
+        userId: String(employee.user_id),
+        path: "/learning-style",
+      }),
+      async () => {
+        try {
+          const res = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employee.user_id}`, {
+            headers: { "X-User-ID": employee.user_id }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            return result?.data || result || null;
+          }
+        } catch (e) {
+          console.error("Error fetching learning style", e);
+        }
+        return null;
+      },
+      {
+        ttlMs: 10 * 60 * 1000,
+      },
+    );
+
+    return learningStyle;
+  };
+
+  const fetchAllData = async () => {
     setLoading(true);
     try {
-      // First, get employee data including name and company_id
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id, name, company_id")
-        .eq("email", email)
-        .single();
-      
-      if (!employeeData?.user_id) {
-        setLoading(false);
+      const employee = await getEmployee();
+      if (!employee?.user_id) {
         return;
       }
-      
-      setEmployeeId(employeeData.user_id);
-      setEmployeeName(employeeData.name || "");
 
-      // Fetch company's learning_style setting
-      if (employeeData.company_id) {
-        const { data: companyData } = await supabase
-          .from("companies")
-          .select("learning_style")
-          .eq("company_id", employeeData.company_id)
-          .single();
-        
-        if (companyData) {
-          setCompanyUsesLearningStyle(companyData.learning_style === true);
-        }
-      }
+      setEmployeeId(employee.user_id);
+      setEmployeeName(employee.name || "");
 
-      // Fetch assessment history
-      const { data: assessments } = await supabase
-        .from("employee_assessments")
-        .select("employee_assessment_id, score, max_score, feedback, question_feedback, assessment_id, assessments(type, questions, processed_module_id)")
-        .eq("user_id", employeeData.user_id)
-        .order("employee_assessment_id", { ascending: false });
+      // const company = await getCompany(employee);
+      // const assessments = await getAssessments(employee);
+      // // console.log("[score-history] fetchAllData assessments", {
+      // //   count: Array.isArray(assessments) ? assessments.length : "not-array",
+      // // });
+      // const assessmentsWithModules = await getModules(employee, assessments);
+      // const learningStyle = await getLearningStyle(employee);
 
-      // Enrich with module titles for non-baseline assessments
-      let enriched = assessments || [];
-      try {
-        const moduleIds = (enriched || [])
-          .filter((a: any) => a?.assessments?.type === 'module' && a.assessments?.processed_module_id)
-          .map((a: any) => String(a.assessments.processed_module_id));
-        if (moduleIds.length) {
-          const { data: mods } = await supabase
-            .from('processed_modules')
-            .select('processed_module_id, title')
-            .in('processed_module_id', moduleIds);
-          const titleMap = new Map<string, string>();
-          (mods || []).forEach((m: any) => {
-            if (m?.processed_module_id && m?.title) {
-              titleMap.set(String(m.processed_module_id), m.title);
-            }
-          });
-          enriched = enriched.map((a: any) => {
-            if (a?.assessments?.type === 'module') {
-              const pid = String(a.assessments?.processed_module_id || '');
-              const title = pid ? titleMap.get(pid) : undefined;
-              return { ...a, assessments: { ...a.assessments, module_title: title } };
-            }
-            return a;
-          });
-        }
-      } catch (e) {
-        // console.log('[score-history] module title enrich error', e);
-      }
+      const [company, assessments, learningStyle] = await Promise.all([ getCompany(employee), getAssessments(employee), getLearningStyle(employee) ]);
+      const assessmentsWithModules = await getModules(employee, assessments);
 
-      setScoreHistory(enriched);
-
-      // Fetch learning style data
-      const { data: learningStyle, error: learningStyleError } = await supabase
-        .from("employee_learning_style")
-        .select("user_id, answers, learning_style, gpt_analysis, created_at, updated_at")
-        .eq("user_id", employeeData.user_id)
-        .single();
-      
-      if (learningStyleError) {
-        console.warn("Learning style fetch error:", learningStyleError);
-        setLearningStyleData(null);
-      } else {
-        setLearningStyleData(learningStyle);
-      }
-      
+      setCompanyUsesLearningStyle(Boolean(company?.learning_style));
+      setScoreHistory(assessmentsWithModules);
+      setLearningStyleData(learningStyle || null);
     } catch (err) {
       console.error("Error fetching data:", err);
     } finally {
@@ -356,296 +637,334 @@ export default function ScoreHistoryPage() {
     }
   };
 
-  const toggleExpand = (idx: number) => {
-    setExpanded((prev) => ({ ...prev, [idx]: !prev[idx] }));
-  };
+  const toggleExpand = (id:string)=>{
+
+    setExpanded(prev=>({
+
+        ...prev,
+
+        [id]:!prev[id]
+
+    }));
+
+}
 
   if (showLoadingProgress) {
     return <LoadingProgress label="Loading score history" progress={loadingProgress} />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <EmployeeNavigation showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <main 
-        className="transition-all duration-300 ease-in-out pt-8 pb-12"
-        style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-      >
-        <div className="max-w-6xl mx-auto px-6 lg:px-8">
-          
-          {/* Dashboard Header */}
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100">
-              <div className="text-2xl">📊</div>
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-                Your Learning Journey
-              </h1>
-              <p className="text-slate-500 font-medium text-sm">Review your style & scores</p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-4 py-8">
+        <div className="container mx-auto">
+          <div className="mb-8 rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+            <h1 className="mb-2 text-3xl font-bold text-gray-800">Sprint Performance Reports</h1>
+            <p className="text-slate-600">Comprehensive analysis of your scores and performance metrics</p>
           </div>
 
-          {/* Tabs Navigation */}
-          <div className="flex gap-2 mb-8">
-            <button
-              onClick={() => setActiveTab('assessments')}
-              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
-                activeTab === 'assessments'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-              }`}
-            >
-              📚 Assessments
-            </button>
-            <button
-              onClick={() => setActiveTab('roleplay')}
-              className={`px-6 py-3 rounded-xl font-bold text-sm transition-all ${
-                activeTab === 'roleplay'
-                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-200'
-                  : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-              }`}
-            >
-              🎭 Role-Play Sessions
-            </button>
-          </div>
-        
-        {activeTab === 'assessments' && (
-        <div className="grid gap-8">
-        {/* Learning Style Section - Only show if company uses learning styles */}
-        {companyUsesLearningStyle && learningStyleData ? (
-          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-            <CardContent className="p-8">
-              <div className="border-b pb-6 mb-6">
-                <div className="flex items-center justify-between cursor-pointer" onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}>
-                  <div className="flex items-center gap-6">
-                    <div className="w-20 h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-center leading-tight text-sm font-black shadow-xl shadow-blue-100">
-                      {/* {learningStyleData.learning_style} */}
-                      Primary Style
-                    </div>
-                    <div>
-                      {/* <span className="text-xs font-bold tracking-wide text-blue-600 uppercase">Primary Style</span> */}
-                      <div className="text-lg font-bold text-slate-900 mt-1">
-                        {getLearningStyleInfo(learningStyleData.learning_style).label}
-                      </div>
-                      <span className="text-sm text-slate-500">
-                        Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <button
-                      aria-label={learningStyleExpanded ? 'Collapse details' : 'Expand details'}
-                      className="focus:outline-none p-2 rounded-full hover:bg-slate-100 transition-colors"
-                      tabIndex={-1}
-                      type="button"
-                    >
-                      <ChevronDown className={`w-6 h-6 text-slate-600 transition-transform ${learningStyleExpanded ? 'rotate-180' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-                {learningStyleExpanded && (
-                  <div className="mt-8 space-y-4">
-                    <h3 className="text-xl font-bold text-slate-900">Your Learning Insights</h3>
-                    {buildLearningSections(learningStyleData.gpt_analysis || '', getLearningStyleInfo(learningStyleData.learning_style).description).filter(section => section.id !== 'checklist').map(section => {
-                      const isOpen = reportOpenSections.includes(section.id)
-                      const toggle = () => {
-                        setReportOpenSections(prev => (
-                          prev.includes(section.id)
-                            ? prev.filter(id => id !== section.id)
-                            : [...prev, section.id]
-                        ))
-                      }
-                      return (
-                        <Card key={section.id} className={`bg-gradient-to-br ${section.accent} border-2 shadow-sm rounded-xl`}>
-                          <CardHeader className="cursor-pointer" onClick={toggle}>
-                            <CardTitle className="flex items-center justify-between text-lg font-semibold text-gray-900">
-                              <span>{section.title}</span>
-                              <ChevronDown className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                            </CardTitle>
-                          </CardHeader>
-                          {isOpen && (
-                            <CardContent className="space-y-4">
-                              {section.paragraphs.map((para, idx) => (
-                                <p key={idx} className="text-gray-800 leading-relaxed text-sm">
-                                  {para}
-                                </p>
-                              ))}
-                              {section.bullets && section.bullets.length > 0 && (
-                                <ul className="list-disc list-inside space-y-1 text-gray-800 text-sm pl-1">
-                                  {section.bullets.map((item, bIdx) => (
-                                    <li key={bIdx}>{item}</li>
-                                  ))}
-                                </ul>
-                              )}
-                              {section.subsections.length > 0 && (
-                                <div className="space-y-4">
-                                  {section.subsections.map((sub, subIdx) => (
-                                    <div key={subIdx}>
-                                      <h4 className="font-bold text-gray-900 mb-2 text-sm">{sub.subtitle}</h4>
-                                      <ul className="space-y-1 ml-2">
-                                        {sub.items.map((item, itemIdx) => (
-                                          <li key={itemIdx} className="flex gap-2 text-gray-800 leading-relaxed text-sm">
-                                            <span className="text-blue-600 font-semibold mt-0.5 flex-shrink-0">•</span>
-                                            <span>{item}</span>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </CardContent>
-                          )}
-                        </Card>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ) : companyUsesLearningStyle ? (
-          <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-            <CardContent className="p-8">
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
-                  <BookOpen size={32} />
-                </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-2">Discover Your Performance Sprint</h4>
-                <p className="text-slate-500 mb-6">
-                  Complete your Performance Sprint assessment to see personalized recommendations
-                </p>
-                <button 
-                  onClick={() => router.push("/employee/learning-style")}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Take Performance Sprint Assessment
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-        
-        {/* Assessment History Section */}
-        <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-          <CardContent className="p-8">
-            <div className="border-b pb-6 mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
-              <p className="text-slate-500 text-sm mt-1">Review your scores & track growth</p>
+          <main className="w-full px-6 lg:px-8">
+            <div className="mb-8 flex gap-2">
+              <button
+                onClick={() => setActiveTab("assessments")}
+                className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
+                  activeTab === "assessments"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Assessments
+              </button>
+              <button
+                onClick={() => setActiveTab("roleplay")}
+                className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
+                  activeTab === "roleplay"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Role-Play Sessions
+              </button>
             </div>
-            
-            {scoreHistory.length === 0 && (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-4 mx-auto">
-                  <BookOpen size={32} />
-                </div>
-                <div className="text-slate-600 text-base font-medium mb-2">No assessments taken yet</div>
-                <p className="text-slate-400 text-sm">Complete your first assessment to see detailed feedback and insights here</p>
-              </div>
-            )}
-            
-            {scoreHistory.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {scoreHistory.map((item, idx) => {
-                  const isExpanded = expanded[idx] || false;
-                  const isBaseline = item.assessments?.type === 'baseline';
-                  const percentage = Math.round((item.score / (item.max_score || 1)) * 100);
-                  
-                  // Expanded tile
-                  if (isExpanded) {
-                    return (
-                      <div key={idx} className="col-span-1 sm:col-span-2 lg:col-span-3 border border-slate-200 rounded-xl p-8 bg-gradient-to-br from-slate-50 to-white shadow-sm hover:shadow-md transition-all">
-                        <div className="flex items-center justify-between mb-6 cursor-pointer" onClick={() => toggleExpand(idx)}>
-                          <div className="flex flex-col gap-3 flex-1">
-                            <span className="text-xl font-bold text-slate-900">
-                              {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
-                            </span>
-                            <div className="flex items-center gap-4 mt-2">
-                              <span className="text-slate-500 font-medium">Score:</span>
-                              <span className="font-bold text-slate-900 text-lg">{item.score} / {item.max_score ?? '?'}</span>
-                              <div className={`px-3 py-1.5 rounded-lg text-sm font-bold ${
-                                percentage >= 80 ? 'bg-green-100 text-green-700' :
-                                percentage >= 60 ? 'bg-blue-100 text-blue-700' :
-                                'bg-slate-100 text-slate-700'
-                              }`}>
-                                {percentage}%
+
+            {activeTab === "assessments" && (
+              <div className="grid gap-8">
+                {companyUsesLearningStyle && learningStyleData ? (
+                  <Card className="overflow-hidden rounded-2xl border-none bg-white shadow-sm">
+                    <CardContent className="p-8">
+                      <div className="mb-6 border-b pb-6">
+                        <div
+                          className="flex cursor-pointer items-center justify-between"
+                          onClick={() => setLearningStyleExpanded(!learningStyleExpanded)}
+                        >
+                          <div className="flex items-center gap-6">
+                            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-center text-sm font-black leading-tight text-white shadow-xl shadow-blue-100">
+                              Primary Style
+                            </div>
+                            <div>
+                              <div className="mt-1 text-lg font-bold text-slate-900">
+                                {getLearningStyleInfo(learningStyleData.learning_style).label}
                               </div>
+                              <span className="text-sm text-slate-500">
+                                Completed: {new Date(learningStyleData.updated_at || learningStyleData.created_at).toLocaleDateString()}
+                              </span>
                             </div>
                           </div>
                           <button
-                            aria-label="Collapse details"
-                            className="focus:outline-none p-3 rounded-full hover:bg-slate-100 transition-colors"
+                            aria-label={learningStyleExpanded ? "Collapse details" : "Expand details"}
+                            className="rounded-full p-2 transition-colors hover:bg-slate-100 focus:outline-none"
                             tabIndex={-1}
                             type="button"
                           >
-                            <ChevronDown className="w-6 h-6 text-slate-600 rotate-180" />
+                            <ChevronDown
+                              className={`h-6 w-6 text-slate-600 transition-transform ${
+                                learningStyleExpanded ? "rotate-180" : ""
+                              }`}
+                            />
                           </button>
                         </div>
-                        
-                        <div className="mt-8 space-y-8">
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-900 mb-4">AI Feedback Summary</h3>
-                            <AIFeedbackSections feedback={item.feedback?.replace('[Your Name]', 'Lucid').replace('Dear Employee', `Dear ${employeeName || 'Employee'}`) || 'No feedback available.'} />
+
+                        {learningStyleExpanded && (
+                          <div className="mt-8 space-y-4">
+                            <h3 className="text-xl font-bold text-slate-900">Your Insights</h3>
+                            {buildLearningSections(
+                              learningStyleData.gpt_analysis || "",
+                              getLearningStyleInfo(learningStyleData.learning_style).description,
+                            )
+                              .filter((section) => section.id !== "checklist")
+                              .map((section) => {
+                                const isOpen = reportOpenSections.includes(section.id);
+                                const toggle = () => {
+                                  setReportOpenSections((prev) =>
+                                    prev.includes(section.id)
+                                      ? prev.filter((id) => id !== section.id)
+                                      : [...prev, section.id],
+                                  );
+                                };
+
+                                return (
+                                  <Card
+                                    key={section.id}
+                                    className={`rounded-xl border-2 bg-gradient-to-br shadow-sm ${section.accent}`}
+                                  >
+                                    <CardHeader className="cursor-pointer" onClick={toggle}>
+                                      <CardTitle className="flex items-center justify-between text-lg font-semibold text-gray-900">
+                                        <span>{section.title}</span>
+                                        <ChevronDown
+                                          className={`h-5 w-5 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                        />
+                                      </CardTitle>
+                                    </CardHeader>
+                                    {isOpen && (
+                                      <CardContent className="space-y-4">
+                                        {section.paragraphs.map((para, idx) => (
+                                          <p key={idx} className="text-sm leading-relaxed text-gray-800">
+                                            {para}
+                                          </p>
+                                        ))}
+                                        {section.bullets && section.bullets.length > 0 && (
+                                          <ul className="list-disc list-inside space-y-1 pl-1 text-sm text-gray-800">
+                                            {section.bullets.map((item, bIdx) => (
+                                              <li key={bIdx}>{item}</li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                        {section.subsections.length > 0 && (
+                                          <div className="space-y-4">
+                                            {section.subsections.map((sub, subIdx) => (
+                                              <div key={subIdx}>
+                                                <h4 className="mb-2 text-sm font-bold text-gray-900">{sub.subtitle}</h4>
+                                                <ul className="ml-2 space-y-1">
+                                                  {sub.items.map((item, itemIdx) => (
+                                                    <li key={itemIdx} className="flex gap-2 text-sm leading-relaxed text-gray-800">
+                                                      <span className="mt-0.5 flex-shrink-0 font-semibold text-blue-600">-</span>
+                                                      <span>{item}</span>
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </CardContent>
+                                    )}
+                                  </Card>
+                                );
+                              })}
                           </div>
-                          {item.question_feedback && (
-                            <div>
-                              <h3 className="text-lg font-bold text-slate-900 mb-4">Question-Specific Feedback</h3>
-                              <QuestionFeedbackDisplay 
-                                feedback={item.question_feedback} 
-                                employeeName={employeeName} 
-                                totalQuestions={item.max_score}
-                              />
-                            </div>
-                          )}
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : companyUsesLearningStyle ? (
+                  <Card className="overflow-hidden rounded-2xl border-none bg-white shadow-sm">
+                    <CardContent className="p-8">
+                      <div className="py-8 text-center">
+                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                          <BookOpen size={32} />
                         </div>
+                        <h4 className="mb-2 text-lg font-bold text-slate-900">Discover Your Sprint</h4>
+                        <p className="mb-6 text-slate-500">
+                          Complete Your Performance Sprint Assessment To See Personalized Recommendations
+                        </p>
+                        <button
+                          onClick={() => router.push("/employee/learning-style")}
+                          className="rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+                        >
+                          Take Sprint Assessment
+                        </button>
                       </div>
-                    );
-                  }
-                  
-                  // Collapsed tile
-                  return (
-                    <div 
-                      key={idx} 
-                      className="border border-slate-200 rounded-xl p-5 bg-white hover:shadow-md transition-all cursor-pointer group"
-                      onClick={() => toggleExpand(idx)}
-                    >
-                      <span className="text-base font-bold text-slate-900 block mb-3">
-                        {isBaseline ? 'Baseline Assessment' : (item.assessments?.module_title || 'Module Assessment')}
-                      </span>
-                      <div className="flex items-center gap-3 mb-4">
-                        <span className="text-slate-500 text-sm font-medium">Score:</span>
-                        <span className="font-bold text-slate-900">{item.score} / {item.max_score ?? '?'}</span>
-                        <div className={`px-2 py-1 rounded-md text-xs font-bold ${
-                          percentage >= 80 ? 'bg-green-100 text-green-700' :
-                          percentage >= 60 ? 'bg-blue-100 text-blue-700' :
-                          'bg-slate-100 text-slate-700'
-                        }`}>
-                          {percentage}%
-                        </div>
-                      </div>
-                      <div className="flex justify-end">
-                        <ChevronDown className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                <Card className="overflow-hidden rounded-2xl border-none bg-white shadow-sm">
+                  <CardContent className="p-8">
+                    <div className="mb-6 border-b pb-6">
+                      <h2 className="text-2xl font-bold text-slate-900">Your Growth Record</h2>
+                      <p className="mt-1 text-sm text-slate-500">Review Your Scores & Track Growth</p>
                     </div>
-                  );
-                })}
+
+                    {scoreHistory.length === 0 ? (
+                      <div className="py-12 text-center">
+                        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                          <BookOpen size={32} />
+                        </div>
+                        <div className="mb-2 text-base font-medium text-slate-600">No assessments taken yet</div>
+                        <p className="text-sm text-slate-400">
+                          Complete your first assessment to see detailed feedback and insights here
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {groupedHistory.map((group: any) => (
+                          <Card key={group.moduleId} className="rounded-xl border border-slate-200">
+                            <CardHeader>
+                              <CardTitle>{group.moduleTitle}</CardTitle>
+                              <CardDescription>{group.assessments.length} Assessments</CardDescription>
+                            </CardHeader>
+                            <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                              {group.assessments.map((item: any) => {
+                                const key = item.employee_assessment_id || item.assessment_id;
+                                const isExpanded = expanded[key] || false;
+                                const isBaseline = item.assessments?.type === "baseline";
+                                const percentage = Math.round((item.score / (item.max_score || 1)) * 100);
+                                const title = isBaseline
+                                  ? "Baseline Assessment"
+                                  : item.assessments?.module_title || "Module Assessment";
+
+                                if (isExpanded) {
+                                  return (
+                                    <div
+                                      key={key}
+                                      className="col-span-1 rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-8 shadow-sm transition-all hover:shadow-md sm:col-span-2 lg:col-span-3"
+                                    >
+                                      <div
+                                        className="mb-6 flex cursor-pointer items-center justify-between"
+                                        onClick={() => toggleExpand(key)}
+                                      >
+                                        <div className="flex flex-1 flex-col gap-3">
+                                          <span className="text-xl font-bold text-slate-900">{title}</span>
+                                          <div className="mt-2 flex items-center gap-4">
+                                            <span className="font-medium text-slate-500">Score:</span>
+                                            <span className="text-lg font-bold text-slate-900">
+                                              {item.score} / {item.max_score ?? "?"}
+                                            </span>
+                                            <div
+                                              className={`rounded-lg px-3 py-1.5 text-sm font-bold ${
+                                                percentage >= 80
+                                                  ? "bg-green-100 text-green-700"
+                                                  : percentage >= 60
+                                                    ? "bg-blue-100 text-blue-700"
+                                                    : "bg-slate-100 text-slate-700"
+                                              }`}
+                                            >
+                                              {percentage}%
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <button
+                                          aria-label="Collapse details"
+                                          className="rounded-full p-3 transition-colors hover:bg-slate-100 focus:outline-none"
+                                          tabIndex={-1}
+                                          type="button"
+                                        >
+                                          <ChevronDown className="h-6 w-6 rotate-180 text-slate-600" />
+                                        </button>
+                                      </div>
+
+                                      <div className="mt-8 space-y-8">
+                                        <div>
+                                          <h3 className="mb-4 text-lg font-bold text-slate-900">AI Feedback Summary</h3>
+                                          <AIFeedbackSections
+                                            feedback={
+                                              item.feedback?.replace("[Your Name]", "Lucid").replace("Dear Employee", `Dear ${employeeName || "Employee"}`) ||
+                                              "No feedback available."
+                                            }
+                                          />
+                                        </div>
+                                        {item.question_feedback && (
+                                          <div>
+                                            <h3 className="mb-4 text-lg font-bold text-slate-900">Question-Specific Feedback</h3>
+                                            <QuestionFeedbackDisplay
+                                              feedback={item.question_feedback}
+                                              employeeName={employeeName}
+                                              totalQuestions={item.max_score}
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div
+                                    key={key}
+                                    className="cursor-pointer rounded-xl border border-slate-200 bg-white p-5 transition-all hover:shadow-md group"
+                                    onClick={() => toggleExpand(key)}
+                                  >
+                                    <span className="mb-3 block text-base font-bold text-slate-900">{title}</span>
+                                    <div className="mb-4 flex items-center gap-3">
+                                      <span className="text-sm font-medium text-slate-500">Score:</span>
+                                      <span className="font-bold text-slate-900">
+                                        {item.score} / {item.max_score ?? "?"}
+                                      </span>
+                                      <div
+                                        className={`rounded-md px-2 py-1 text-xs font-bold ${
+                                          percentage >= 80
+                                            ? "bg-green-100 text-green-700"
+                                            : percentage >= 60
+                                              ? "bg-blue-100 text-blue-700"
+                                              : "bg-slate-100 text-slate-700"
+                                        }`}
+                                      >
+                                        {percentage}%
+                                      </div>
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <ChevronDown className="h-5 w-5 text-slate-400 transition-colors group-hover:text-slate-600" />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
-          </CardContent>
-        </Card>
-        </div>
-        )}
 
-        {/* Role-Play Sessions Tab */}
-        {activeTab === 'roleplay' && employeeId && (
-          <RolePlayReports employeeId={employeeId} />
-        )}
-
+            {activeTab === "roleplay" && employeeId && (
+              <div className="grid grid-cols-1 gap-10">
+                <RolePlayReports employeeId={employeeId} />
+              </div>
+            )}
+          </main>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
@@ -761,7 +1080,7 @@ const parseReportIntoTabs = (reportText: string) => {
   reportText = reportText.replace(/^Title:\s*Your Personal Learning Style Insights\s*\n\n/i, '')
   reportText = reportText.replace(/^Here is your personalized learning style report:\s*\n\n/i, '')
 
-  const lines = reportText.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^[-=•·]+$/))
+  const lines = reportText.split('\n').map(l => l.trim()).filter(l => l && !l.match(/^[-=-Â·]+$/))
   let currentTab: any = null
   let currentSub: any = null
 
@@ -779,7 +1098,7 @@ const parseReportIntoTabs = (reportText: string) => {
     }
 
     // Subsection headers: lines ending with : but not starting with bullet
-    const subHeader = line.match(/^(?![•*\-·])(\w.+?):\s*$/)
+    const subHeader = line.match(/^(?![-*\-Â·])(\w.+?):\s*$/)
     if (subHeader && currentTab && !line.match(/^\d+\./)) {
       const subtitle = subHeader[1].trim()
       if (subtitle && subtitle.length < 100) {
@@ -789,7 +1108,7 @@ const parseReportIntoTabs = (reportText: string) => {
       }
     }
 
-    const bullet = line.match(/^[•*\-·]\s*(.+)$/)
+    const bullet = line.match(/^[-*\-Â·]\s*(.+)$/)
     if (bullet) {
       const rawItem = bullet[1].trim()
       const item = rawItem.length ? rawItem : bullet[1]
@@ -899,7 +1218,7 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
       if (tab.subsections?.length) {
         section.subsections = tab.subsections.map(sub => ({
           subtitle: sub.subtitle,
-          items: sub.items.map(item => item.replace(/^[*•\-·]+\s*/, ''))
+          items: sub.items.map(item => item.replace(/^[*-\-Â·]+\s*/, ''))
         }))
       }
     }
@@ -908,3 +1227,4 @@ const buildLearningSections = (gptAnalysis: string, fallbackDescription: string)
 
   return sections
 }
+

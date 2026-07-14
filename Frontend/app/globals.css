@@ -6,6 +6,39 @@
   .text-balance {
     text-wrap: balance;
   }
+  .animate-float-left {
+    animation: float-left 5s ease-in-out infinite;
+  }
+  .animate-float-right {
+    animation: float-right 6s ease-in-out infinite;
+  }
+}
+
+[data-radix-navigation-menu-viewport] {
+  position: absolute;
+  left: var(--radix-navigation-menu-viewport-left, 0px) !important;
+  width: auto !important;
+  min-width: var(--radix-navigation-menu-item-width);
+}
+
+@keyframes float-left {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(10px, -20px);
+  }
+}
+
+@keyframes float-right {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-10px, 20px);
+  }
 }
 
 @layer base {
@@ -16,7 +49,7 @@
     --card-foreground: 0 0% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 3.9%;
-    --primary: 217.2 91.2% 59.8%;
+  --primary: oklch(0.52 0.28 290);
     --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 9%;
@@ -28,7 +61,7 @@
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
-    --ring: 217.2 91.2% 59.8%;
+  --ring: oklch(0.52 0.28 290 / 0.5);
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -51,7 +84,7 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 217.2 91.2% 70%;
+  --primary: oklch(0.52 0.28 290);
     --primary-foreground: 0 0% 98%;
     --secondary: 0 0% 14.9%;
     --secondary-foreground: 0 0% 98%;
@@ -63,7 +96,7 @@
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
-    --ring: 217.2 91.2% 70%;
+  --ring: oklch(0.52 0.28 290 / 0.5);
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
@@ -128,4 +161,14 @@
 
 .prose pre {
   @apply bg-gray-100 p-4 rounded-lg overflow-x-auto my-4;
+}
+
+/* Hide scrollbar but keep scrolling */
+.custom-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari */
 }

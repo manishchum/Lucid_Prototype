@@ -20,20 +20,19 @@ interface AssessmentReport {
 interface AssessmentReportProps {
   report: AssessmentReport;
   scenarioTitle: string;
+  passingScore?: number;
   onStartNew: () => void;
 }
 
-export default function AssessmentReportComponent({ report, scenarioTitle, onStartNew }: AssessmentReportProps) {
+export default function AssessmentReportComponent({ report, scenarioTitle, passingScore = 60, onStartNew }: AssessmentReportProps) {
   const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600 bg-green-100';
-    if (score >= 60) return 'text-yellow-600 bg-yellow-100';
-    return 'text-red-600 bg-red-100';
+    return score >= passingScore ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100';
   };
 
   const getScoreBadge = (score: number) => {
-    if (score >= 80) return { label: 'Excellent', color: 'bg-green-500' };
-    if (score >= 60) return { label: 'Good', color: 'bg-yellow-500' };
-    return { label: 'Needs Improvement', color: 'bg-red-500' };
+    return score >= passingScore
+      ? { label: 'Passed', color: 'bg-green-500' }
+      : { label: 'Needs Improvement', color: 'bg-red-500' };
   };
 
   const badge = getScoreBadge(report.overallScore);
@@ -75,7 +74,13 @@ export default function AssessmentReportComponent({ report, scenarioTitle, onSta
           <h3 className="text-lg font-semibold text-slate-800">Performance Breakdown</h3>
         </div>
         <div className="space-y-4">
-          {report.parameters.map((param, index) => (
+          {report.parameters
+            .filter((param) => {
+              // Hide visual/non-verbal parameters that score 0 in a voice-only session
+              const voiceOnlyParams = ['Eye Contact & Engagement', 'Hand Gestures & Body Language', 'Facial Expressions'];
+              return !(voiceOnlyParams.includes(param.name) && param.score === 0);
+            })
+            .map((param, index) => (
             <div key={index} className="border-b border-slate-200 pb-4 last:border-0">
               <div className="flex justify-between items-center mb-2">
                 <span className="font-semibold text-slate-700">{param.name}</span>
@@ -86,9 +91,7 @@ export default function AssessmentReportComponent({ report, scenarioTitle, onSta
               <div className="w-full bg-slate-200 rounded-full h-2 mb-2">
                 <div
                   className={`h-2 rounded-full transition-all ${
-                    param.score >= 80 ? 'bg-green-500' :
-                    param.score >= 60 ? 'bg-yellow-500' :
-                    'bg-red-500'
+                    param.score >= passingScore ? 'bg-green-500' : 'bg-red-500'
                   }`}
                   style={{ width: `${param.score}%` }}
                 />
@@ -119,7 +122,7 @@ export default function AssessmentReportComponent({ report, scenarioTitle, onSta
       <div className="flex justify-center">
         <Button
           onClick={onStartNew}
-          className="px-8 py-3 text-lg"
+          className="px-8 py-3 text-lg bg-purple-600 hover:bg-purple-700 text-white"
         >
           Start New Role-Play
         </Button>

@@ -22,10 +22,16 @@ let googleProvider: any = null;
 try {
   app = initializeApp(firebaseConfig)
   auth = getAuth(app)
+  auth.useDeviceLanguage();
   googleProvider = new GoogleAuthProvider()
+  googleProvider.addScope("email")
+  googleProvider.addScope("profile")
+  // Always show account chooser — prevents silent COOP-related popup failures
+  googleProvider.setCustomParameters({ prompt: "select_account" })
   
-  // Initialize Analytics (only in browser)
-  if (typeof window !== "undefined") {
+  // Initialize Analytics only outside localhost to reduce local dev noise
+  const isLocalhost = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  if (typeof window !== "undefined" && !isLocalhost && firebaseConfig.measurementId) {
     try {
       getAnalytics(app);
     } catch (e) {

@@ -11,7 +11,6 @@ export interface AudioChunk {
   endTime: number;
   chunkIndex: number;
 }
-
 export interface ChunkingOptions {
   chunkDurationMs?: number;  // Duration of each chunk in milliseconds
   overlapMs?: number;         // Overlap between chunks to prevent speech cutoff
@@ -48,8 +47,8 @@ export async function splitAudioIntoChunks(
   audioBlob: Blob,
   options?: ChunkingOptions
 ): Promise<AudioChunk[]> {
-  console.log('🔪 Starting audio chunking...');
-  console.log('📦 Original audio size:', audioBlob.size, 'bytes');
+  // console.log('🔪 Starting audio chunking...');
+  // console.log('📦 Original audio size:', audioBlob.size, 'bytes');
 
   // Decode audio to get duration
   const audioContext = new AudioContext();
@@ -57,15 +56,15 @@ export async function splitAudioIntoChunks(
   const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
   
   const durationMs = audioBuffer.duration * 1000;
-  console.log('⏱️ Audio duration:', durationMs, 'ms', `(${Math.floor(durationMs / 1000)}s)`);
+  // console.log('⏱️ Audio duration:', durationMs, 'ms', `(${Math.floor(durationMs / 1000)}s)`);
 
   // Calculate optimal chunking parameters
   const params = options || calculateChunkParams(durationMs);
-  console.log('⚙️ Chunk parameters:', params);
+  // console.log('⚙️ Chunk parameters:', params);
 
   // If no chunking needed, return original blob
   if (params.maxChunks === 1) {
-    console.log('✅ Audio under 60s, no chunking needed');
+    // console.log('✅ Audio under 60s, no chunking needed');
     await audioContext.close();
     return [{
       blob: audioBlob,
@@ -88,7 +87,7 @@ export async function splitAudioIntoChunks(
     const startTime = Math.max(0, currentTime);
     const endTime = Math.min(audioBuffer.duration, currentTime + chunkDurationSec);
     
-    console.log(`✂️ Creating chunk ${chunkIndex + 1}: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s`);
+    // console.log(`✂️ Creating chunk ${chunkIndex + 1}: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s`);
 
     // Extract chunk from audio buffer
     const chunkDuration = endTime - startTime;
@@ -120,7 +119,7 @@ export async function splitAudioIntoChunks(
       chunkIndex: chunkIndex
     });
 
-    console.log(`📦 Chunk ${chunkIndex + 1} size:`, chunkBlob.size, 'bytes');
+    // console.log(`📦 Chunk ${chunkIndex + 1} size:`, chunkBlob.size, 'bytes');
 
     currentTime += effectiveChunkDuration;
     chunkIndex++;
@@ -133,7 +132,7 @@ export async function splitAudioIntoChunks(
   }
 
   await audioContext.close();
-  console.log(`✅ Created ${chunks.length} chunks for async processing`);
+  // console.log(`✅ Created ${chunks.length} chunks for async processing`);
   
   return chunks;
 }
@@ -221,6 +220,27 @@ function writeString(view: DataView, offset: number, string: string) {
 }
 
 /**
+ * Convert any audio blob (webm, mp3, etc.) to WAV format
+ * This improves transcription quality with Google Speech-to-Text
+ */
+export async function convertToWav(audioBlob: Blob): Promise<Blob> {
+  // console.log('[Audio Converter] Converting audio to WAV format...');
+  // console.log('[Audio Converter] Original size:', audioBlob.size, 'bytes');
+  
+  const audioContext = new AudioContext();
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  
+  // Convert to WAV
+  const wavBlob = audioBufferToWav(audioBuffer);
+  
+  await audioContext.close();
+  
+  // console.log('[Audio Converter] ✅ Converted to WAV, size:', wavBlob.size, 'bytes');
+  return wavBlob;
+}
+
+/**
  * Merge transcription results from multiple chunks
  * Handles overlap by removing duplicate text at boundaries
  */
@@ -231,7 +251,7 @@ export function mergeTranscriptions(
   if (transcriptions.length === 0) return '';
   if (transcriptions.length === 1) return transcriptions[0].text;
 
-  console.log('🔗 Merging', transcriptions.length, 'transcriptions...');
+  // console.log('🔗 Merging', transcriptions.length, 'transcriptions...');
 
   // Sort by chunk index
   transcriptions.sort((a, b) => a.chunkIndex - b.chunkIndex);
@@ -246,15 +266,15 @@ export function mergeTranscriptions(
       // Remove overlapping portion from beginning of current text
       const uniquePart = current.slice(overlap.length).trim();
       merged = merged + ' ' + uniquePart;
-      console.log(`🔗 Chunk ${i}: Found ${overlap.length} char overlap, merged unique part`);
+      // console.log(`🔗 Chunk ${i}: Found ${overlap.length} char overlap, merged unique part`);
     } else {
       // No overlap detected, just concatenate
       merged = merged + ' ' + current;
-      console.log(`🔗 Chunk ${i}: No overlap, concatenated`);
+      // console.log(`🔗 Chunk ${i}: No overlap, concatenated`);
     }
   }
 
-  console.log('✅ Merged transcription length:', merged.length, 'characters');
+  // console.log('✅ Merged transcription length:', merged.length, 'characters');
   return merged.trim();
 }
 

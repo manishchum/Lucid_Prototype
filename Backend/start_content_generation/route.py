@@ -1,14 +1,16 @@
 import os
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+from ingestion.ingest_from_upload import ingest_by_module_id
 
 router = APIRouter()
 
 # Supabase admin client
-supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-supabaseAdmin: Client = create_client(supabase_url, supabase_service_role_key)
+# supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+# supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# supabaseAdmin: Client = create_client(supabase_url, supabase_service_role_key)
 
 
 # Enqueue content generation for a training module
@@ -31,7 +33,7 @@ async def POST(req: Request):
 
         # Prevent duplicate jobs for the same module while pending/in-progress
         existing_resp = (
-            supabaseAdmin
+            supabase
             .table("content_jobs")
             .select("id, status")
             .eq("module_id", module_id)
@@ -55,9 +57,23 @@ async def POST(req: Request):
                 "job_status": existing[0].get("status"),
             })
 
+        try:
+            print("inside try")
+            
+            print("imported ingest_by_module_id")
+            
+            ingest_by_module_id(module_id)
+            print("[RAG] Ingestion completed successfully")
+             
+        except Exception as ingest_error:
+            print(f"[RAG ERROR] Error during ingestion: {type(ingest_error).__name__}")
+            print(f"[RAG ERROR] Error message: {str(ingest_error)}")
+            import traceback
+            print(f"[RAG ERROR] Traceback:\n{traceback.format_exc()}") 
+
         # Enqueue new job
         inserted_resp = (
-            supabaseAdmin
+            supabase
             .table("content_jobs")
             .insert({"module_id": module_id, "status": "pending"}, returning="representation")
             .execute()
@@ -80,7 +96,7 @@ async def POST(req: Request):
         # Some PostgREST setups may not return representation; fallback to lookup
         if not inserted:
             requery_resp = (
-                supabaseAdmin
+                supabase
                 .table("content_jobs")
                 .select("id, status")
                 .eq("module_id", module_id)

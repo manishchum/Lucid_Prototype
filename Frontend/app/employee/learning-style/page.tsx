@@ -7,9 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import EmployeeNavigation from "@/components/employee-navigation"
 import { BookOpen, Smile, Meh, Frown, ChevronLeft, ChevronRight, CheckCircle, Star, Target, Lightbulb, Trophy, ChevronDown } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
@@ -351,13 +351,13 @@ export default function LearningStyleSurvey() {
     async function fetchEmployeeId() {
       if (authLoading || !user?.email) return
       // Fetch employee_id from Supabase using user email
-      const res = await fetch(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
+      const res = await fetchWithAuth(`/api/get-employee-id?email=${encodeURIComponent(user.email)}`)
       const data = await res.json()
       if (data.user_id) {
         setEmployeeId(data.user_id)
         
         // Check if user already has learning style data
-        const styleRes = await fetch(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
+        const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${data.user_id}`)
         const styleData = await styleRes.json()
         if (styleData.success && styleData.data?.gpt_analysis && styleData.data?.learning_style) {
           const learningStyleMap = {
@@ -412,7 +412,7 @@ export default function LearningStyleSurvey() {
         setSurveyFrozen(false);
         return
       }
-      const res = await fetch(`${API_BASE}/api/learning-style`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/learning-style`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: employeeId, answers })
@@ -436,9 +436,9 @@ export default function LearningStyleSurvey() {
       } else {
         // Parse GPT result from backend response
         const gptResult = data.gpt || {}
-        console.log('[Learning Style Submit] Full response data:', data)
-        console.log('[Learning Style Submit] gptResult:', gptResult)
-        console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
+        //console.log('[Learning Style Submit] Full response data:', data)
+        //console.log('[Learning Style Submit] gptResult:', gptResult)
+        //console.log('[Learning Style Submit] gptResult.report:', gptResult.report)
         
         const learningStyleMap = {
           'CS': { code: 'CS', label: 'Concrete Sequential', description: 'The Planner - Prefers structure, clear steps, and hands-on practice.' },
@@ -480,17 +480,8 @@ export default function LearningStyleSurvey() {
   // Intro page
   if (page === 'intro') {
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
-            marginLeft: 'var(--sidebar-width, 0px)',
-          }}
-        >
-          <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
+      <div className="min-h-screen py-10">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col items-center">
         <BookOpen className="w-20 h-20 text-blue-500 mb-4" />
         <h1 className="text-3xl font-bold mb-6">Performance Sprint Survey</h1>
         
@@ -633,7 +624,6 @@ export default function LearningStyleSurvey() {
         
         <Button className="mt-8 px-8 py-3 text-lg" onClick={() => setPage('survey')}>Start Survey</Button>
         </div>
-      </div>
     </div>
     )
   }
@@ -641,24 +631,15 @@ export default function LearningStyleSurvey() {
   // Summary page
   if (page === 'summary' && learningStyleResult) {
     const rawAnalysis = learningStyleResult.gptAnalysis || learningStyleResult.description
-    console.log('[Learning Style] Raw Analysis:', rawAnalysis)
+    //console.log('[Learning Style] Raw Analysis:', rawAnalysis)
     const reportText = extractReportFromJson(rawAnalysis) || rawAnalysis
-    console.log('[Learning Style] Extracted Report Text:', reportText)
+    //console.log('[Learning Style] Extracted Report Text:', reportText)
     const accordionSections = buildAccordionSections(reportText, learningStyleResult.description)
-    console.log('[Learning Style] Accordion Sections:', accordionSections)
+    //console.log('[Learning Style] Accordion Sections:', accordionSections)
     
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ 
-            marginLeft: 'var(--sidebar-width, 0px)',
-          }}
-        >
-          <div className="max-w-4xl mx-auto px-4">
+      <div className="min-h-screen py-10">
+        <div className="max-w-4xl mx-auto px-4">
         
         {/* Header Section */}
         <div className="text-center mb-8">
@@ -746,7 +727,6 @@ export default function LearningStyleSurvey() {
           </Button>
         </div>
         </div>
-      </div>
     </div>
     )
   }
@@ -761,13 +741,7 @@ export default function LearningStyleSurvey() {
 
   if (page === 'survey') {
     return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        {/* Main content area that adapts to sidebar */}
-        <div 
-          className="transition-all duration-300 ease-in-out py-10"
-          style={{ marginLeft: 'var(--sidebar-width, 0px)' }}
-        >
+      <div className="min-h-screen py-10">
           <div className="max-w-4xl mx-auto px-4">
         {/* Progress Bar */}
         <Card className="shadow-sm mb-6">
@@ -867,7 +841,6 @@ export default function LearningStyleSurvey() {
          </div>
           </div>
         </div>
-      </div>
     )
   }
 }

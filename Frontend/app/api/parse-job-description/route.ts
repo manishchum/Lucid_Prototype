@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-pro-preview' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
     const prompt = `Analyze the following job description for the role of "${roleName}" and extract Key Performance Indicators (KPIs).
 

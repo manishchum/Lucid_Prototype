@@ -4,9 +4,13 @@ import ast
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase
+from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth_bridge import get_service_supabase_client
+from utils.redis_client import get_cache, set_cache, redis_client
 
 import google.generativeai as genai
 
@@ -35,19 +39,23 @@ def _get_supabase_error_code(err: Any) -> Optional[str]:
 # const adminClient = createClient(supabaseUrl, supabaseServiceKey)
 #
 # In FastAPI Python we do it here similarly.
-def _get_admin_client():
-    supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    supabaseServiceKey = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-    if not supabaseUrl or not supabaseServiceKey:
-        return None, supabaseUrl, supabaseServiceKey
-    adminClient: Client = create_client(supabaseUrl, supabaseServiceKey)
-    return adminClient, supabaseUrl, supabaseServiceKey
+# def _get_admin_client():
+#     supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+#     supabaseServiceKey = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+#     if not supabaseUrl or not supabaseServiceKey:
+#         return None, supabaseUrl, supabaseServiceKey
+#     adminClient: Client = create_client(supabaseUrl, supabaseServiceKey)
+#     return adminClient, supabaseUrl, supabaseServiceKey
 
 
 @router.post("/learning-style")
-async def POST(req: Request):
+async def POST(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_required)):
     stage = "start"
     try:
+        query_client = supabase
+        if auth_ctx.claims:
+            query_client = get_service_supabase_client()
+
         stage = "read_body"
         body = await req.json()
         user_id = body.get("user_id")
@@ -58,10 +66,10 @@ async def POST(req: Request):
             return JSONResponse(content={"error": "Invalid payload"}, status_code=400)
 
         # Use supabase admin client for server-side inserts
-        stage = "get_admin_client"
-        adminClient, supabaseUrl, supabaseServiceKey = _get_admin_client()
-        if not supabaseUrl or not supabaseServiceKey or not adminClient:
-            return JSONResponse(content={"error": "Supabase service key missing"}, status_code=500)
+        # stage = "get_admin_client"
+        # adminClient, supabaseUrl, supabaseServiceKey = _get_admin_client()
+        # if not supabaseUrl or not supabaseServiceKey or not adminClient:
+        #     return JSONResponse(content={"error": "Supabase service key missing"}, status_code=500)
 
         # Check if already exists for this employee
         stage = "fetch_existing"
@@ -69,7 +77,7 @@ async def POST(req: Request):
         fetchError: Any = None
         try:
             fetch_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .select("user_id, learning_style, gpt_analysis, answers")
                 .eq("user_id", user_id)
@@ -129,7 +137,7 @@ async def POST(req: Request):
             stage = "existing_has_analysis_update_answers"
             # Update only the answers to keep record of latest submission
             update_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .update({"answers": answers, "updated_at": now})
                 .eq("user_id", user_id)
@@ -154,7 +162,7 @@ async def POST(req: Request):
             stage = "existing_no_analysis_update_answers"
             # If a row exists but no learning style determined yet, update answers and continue with analysis
             update_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .update({"answers": answers, "updated_at": now})
                 .eq("user_id", user_id)
@@ -167,7 +175,7 @@ async def POST(req: Request):
             stage = "insert_new_row"
             # Insert new entry
             insert_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .insert({"user_id": user_id, "answers": answers, "created_at": now, "updated_at": now})
                 .execute()
@@ -198,7 +206,7 @@ async def POST(req: Request):
 
             # Save fallback learning style immediately so row isn't left null
             fallback_update_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .update({"learning_style": fallbackStyle, "updated_at": _to_iso_now()})
                 .eq("user_id", user_id)
@@ -212,6 +220,7 @@ async def POST(req: Request):
                 pass
         except Exception as e:
             print("[LearningStyle] Fallback computation error", e)
+        redis_client.delete(f"learning_style:{user_id}")
 
         # Call Gemini for learning style analysis
         gptResult: Any = None
@@ -225,7 +234,7 @@ async def POST(req: Request):
                 raise Exception("GEMINI_API_KEY is missing")
 
             genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model = genai.GenerativeModel("gemini-3-pro-preview")
+            model = genai.GenerativeModel("gemini-3.1-pro-preview")
 
             # List of 48 learning style questions
             questions = [
@@ -388,8 +397,8 @@ Survey Responses:
             # If we have something besides updated_at to save, update the row
             if len(updatePayload.keys()) > 1:
                 save_resp = (
-                    adminClient
-                    .table("employee_learning_style")
+                    query_client
+                .table("employee_learning_style")
                     .update(updatePayload)
                     .eq("user_id", user_id)
                     .execute()
@@ -399,6 +408,7 @@ Survey Responses:
                     print("[LearningStyle] Failed to save GPT analysis", saveErr)
                 else:
                     print(f"[LearningStyle][POST] stage={stage} saved learning_style={updatePayload.get('learning_style')} gpt_analysis_len={len(str(updatePayload.get('gpt_analysis') or ''))}")
+                redis_client.delete(f"learning_style:{user_id}")
 
             # Ensure response contains dominant_style
             if gptResult and isinstance(gptResult, dict):
@@ -419,22 +429,33 @@ Survey Responses:
 
 
 @router.get("/learning-style")
-async def GET(req: Request):
+async def GET(req: Request, auth_ctx: RequestAuth = Depends(get_request_auth_required)):
     try:
+        query_client = supabase
+        if auth_ctx.claims:
+            query_client = get_service_supabase_client()
+
         user_id = req.query_params.get("user_id")
 
         if not user_id:
             return JSONResponse(content={"error": "user_id required"}, status_code=400)
 
-        adminClient, supabaseUrl, supabaseServiceKey = _get_admin_client()
-        if not supabaseUrl or not supabaseServiceKey or not adminClient:
-            return JSONResponse(content={"error": "Supabase service key missing"}, status_code=500)
+        cache_key = f"learning_style:{user_id}"
+        cached = get_cache(cache_key)
+        if cached:
+            print(f"LEARNING STYLE CACHE HIT {cache_key}")
+            return JSONResponse(content=cached)
+        print(f"LEARNING STYLE CACHE MISS {cache_key}")
+        
+        # adminClient, supabaseUrl, supabaseServiceKey = _get_admin_client()
+        # if not supabaseUrl or not supabaseServiceKey or not adminClient:
+        #     return JSONResponse(content={"error": "Supabase service key missing"}, status_code=500)
 
         record = None
         error: Any = None
         try:
             fetch_resp = (
-                adminClient
+                query_client
                 .table("employee_learning_style")
                 .select("learning_style, gpt_analysis")
                 .eq("user_id", user_id)
@@ -489,13 +510,15 @@ async def GET(req: Request):
         if gpt_analysis and isinstance(gpt_analysis, str):
             gpt_analysis = gpt_analysis.replace("\\n", "\n")
 
-        return JSONResponse(content={
+        response_payload = {
             "success": True,
             "data": {
                 "learning_style": record.get("learning_style"),
                 "gpt_analysis": gpt_analysis
             }
-        })
+        }
+        set_cache(cache_key, response_payload, ttl=3600)
+        return JSONResponse(content=response_payload)
 
     except Exception as err:
         return JSONResponse(content={"error": str(err) if str(err) else "Unknown error"}, status_code=500)

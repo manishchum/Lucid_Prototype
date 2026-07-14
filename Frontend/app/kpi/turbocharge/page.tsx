@@ -1,13 +1,14 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
+import { supabaseAdmin as supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { 
-  TrendingUp, 
-  Target, 
-  Users, 
-  ChevronDown, 
+import {
+  TrendingUp,
+  Target,
+  Users,
+  ChevronDown,
   Activity,
   Zap,
   ThumbsUp,
@@ -16,8 +17,9 @@ import {
   Sparkles,
   Filter
 } from 'lucide-react';
-import EmployeeNavigation from '@/components/employee-navigation';
-import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/auth-context';
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface KPIData {
   id: string;
@@ -69,18 +71,70 @@ interface HeatmapData {
   }[];
 }
 
+interface BackendUser {
+  user_id: string;
+  company_id: string;
+  name: string;
+  email?: string;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchBackendUserByEmail = async (email: string): Promise<BackendUser | null> => {
+  try {
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    let user = payload?.user ?? payload;
+    if (Array.isArray(user)) user = user[0];
+    return user || null;
+  } catch (error) {
+    console.error('Error fetching backend user:', error);
+    return null;
+  }
+};
+
+const fetchUserByFilter = async (filters: {
+  functionId?: string;
+  subFunctionId?: string;
+  titleId?: string;
+}): Promise<BackendUser[]> => {
+  try{
+    const params = new URLSearchParams();
+    if (filters.functionId) params.append('function_id', filters.functionId);
+    if (filters.subFunctionId) params.append('sub_function_id', filters.subFunctionId);
+    if (filters.titleId) params.append('title_id', filters.titleId);
+    params.append('is_active', 'true');
+    params.append('employment_status', 'ACTIVE');
+
+    const res = await fetchWithAuth(`${API_BASE}/api/users?${params.toString()}`);
+    if (!res.ok) return [];
+    const payload = await res.json();
+
+
+    //console.log(payload)
+    const users = payload?.data?.users ?? payload;
+    //console.log(users)
+    return Array.isArray(users) ? users : users ? [users] : [];
+  } catch(e) {
+    console.error('Error fetching users:', e);
+    return [];
+  }
+};
 export default function KPITurbocharge() {
   const [functions, setFunctions] = useState<Array<{ function_id: string; function_name: string }>>([]);
   const [subFunctions, setSubFunctions] = useState<Array<{ sub_function_id: string; sub_function_name: string }>>([]);
   const [titles, setTitles] = useState<Array<{ title_id: string; title_name: string }>>([]);
   const [modules, setModules] = useState<Array<{ module_id: string; title: string }>>([]);
-  
+ 
   const [selectedFunctionId, setSelectedFunctionId] = useState<string>('');
   const [selectedSubFunctionId, setSelectedSubFunctionId] = useState<string>('');
   const [selectedTitleId, setSelectedTitleId] = useState<string>('');
   const [selectedModuleId, setSelectedModuleId] = useState<string>('');
   const [selectedKpiId, setSelectedKpiId] = useState<string>('');
-  
+  const {user, loading:authLoading} = useAuth();
+  const router = useRouter();
+  const [currentEmployee, setCurrentEmployee] = useState<BackendUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [kpiData, setKpiData] = useState<KPIData[]>([]);
   const [topModules, setTopModules] = useState<ModulePerformance[]>([]);
@@ -92,11 +146,32 @@ export default function KPITurbocharge() {
   const [heatmapData, setHeatmapData] = useState<HeatmapData[]>([]);
   const [lucidAnalysis, setLucidAnalysis] = useState<string>('');
   const [workforceReadiness, setWorkforceReadiness] = useState({ score: 0, change: 0, status: 'Calculating...' });
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
+  useEffect(() => {
+          if (!authLoading) {
+            if (!user) router.push("/login");
+            // else checkAdminAccess();
+           
+          }
+        }, [user, authLoading, router]);
+  useEffect(() => {
+    const loadCurrentEmployee = async () => {
+      if (!user?.email) {
+        setCurrentEmployee(null);
+        return;
+      }
+
+      const backendUser = await fetchBackendUserByEmail(user.email);
+      // console.log("Backend User", backendUser)
+      setCurrentEmployee(backendUser);
+    };
+
+    loadCurrentEmployee();
+  }, [user?.email]);
   useEffect(() => {
     loadFilters();
 
-    loadModules();
     if (selectedFunctionId) {
       loadSubFunctions(selectedFunctionId);
     } else {
@@ -108,6 +183,12 @@ export default function KPITurbocharge() {
   }, [selectedFunctionId]);
 
   useEffect(() => {
+    if (currentEmployee) {
+      loadModules();
+    }
+  }, [currentEmployee]);
+
+  useEffect(() => {
     if (selectedSubFunctionId) {
       loadTitles(selectedSubFunctionId);
     } else if (selectedFunctionId) {
@@ -117,21 +198,22 @@ export default function KPITurbocharge() {
   }, [selectedSubFunctionId]);
 
   useEffect(() => {
-    
-    console.log("Changes in the selectedSubFunctionId, selectedTitleId")
+    if (!currentEmployee) return;
+    //console.log("Changes in the selectedSubFunctionId, selectedTitleId")
     fetchAllData();
-  }, [selectedSubFunctionId, selectedTitleId]);
+  }, [selectedSubFunctionId, selectedTitleId, currentEmployee]);
   useEffect(() => {
-    console.log("Changes in the selectedKPiId, selectedModuleId")
+    if (!currentEmployee) return;
+    //console.log("Changes in the selectedKPiId, selectedModuleId")
     fetchAllData();
-  }, [selectedKpiId,selectedModuleId]);
-  
-  
+  }, [selectedKpiId, selectedModuleId, currentEmployee]);
+ 
+ 
   useEffect(() => {
-
-    console.log("Calling beacause of the changes in function Id")
+    if (!currentEmployee) return;
+    //console.log("Calling beacause of the changes in function Id")
     fetchAllData();
-  },[selectedFunctionId]);
+  },[selectedFunctionId, currentEmployee]);
 
   const loadFilters = async () => {
     try {
@@ -142,9 +224,13 @@ export default function KPITurbocharge() {
         .order('function_name');
 
       if (functionsData && functionsData.length > 0) {
-        console.log("Selected Functions:", functionsData);
-        console.log("Selected Function Id:", selectedFunctionId);
-        setFunctions(functionsData);
+        // Remove duplicates by function_name, keeping first occurrence
+        const uniqueFunctions = Array.from(
+          new Map(functionsData.map(f => [f.function_name, f])).values()
+        );
+        //console.log("Selected Functions:", uniqueFunctions);
+        //console.log("Selected Function Id:", selectedFunctionId);
+        setFunctions(uniqueFunctions);
         // setSelectedFunctionId('');
       }
     } catch (error) {
@@ -162,7 +248,11 @@ export default function KPITurbocharge() {
         .order('sub_function_name');
 
       if (subFunctionsData && subFunctionsData.length > 0) {
-        setSubFunctions(subFunctionsData);
+        // Remove duplicates by sub_function_name, keeping first occurrence
+        const uniqueSubFunctions = Array.from(
+          new Map(subFunctionsData.map(sf => [sf.sub_function_name, sf])).values()
+        );
+        setSubFunctions(uniqueSubFunctions);
         setSelectedSubFunctionId('');
       } else {
         setSubFunctions([]);
@@ -196,13 +286,30 @@ export default function KPITurbocharge() {
 
   const loadModules = async () => {
     try {
-      const { data: modulesData } = await supabase
-        .from('training_modules')
-        .select('module_id, title')
-        .order('title');
+      if (!currentEmployee?.company_id) return;
 
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+        headers: {
+          'X-User-ID': currentEmployee.user_id
+        }
+      });
+
+      if (!res.ok) {
+        console.error('Error loading modules:', await res.text());
+        return;
+      }
+
+      const payload = await res.json();
+      const modulesData = payload?.data || payload?.modules|| payload;
+      //console.log(payload)
+
+      //console.log(modulesData)
       if (modulesData && modulesData.length > 0) {
-        setModules(modulesData);
+        //console.log(modulesData)
+        setModules(modulesData.map((m: any) => ({
+          module_id: m.module_id,
+          title: m.title
+        })));
       }
     } catch (error) {
       console.error('Error loading modules:', error);
@@ -210,8 +317,12 @@ export default function KPITurbocharge() {
   };
 
   const fetchAllData = async () => {
+    if (!currentEmployee?.company_id) {
+      console.warn('currentEmployee not ready, skipping fetchAllData');
+      return;
+    }
     setLoading(true);
-    console.log("Calling the fetch all data")
+    //console.log("Calling the fetch all data")
     try {
       await Promise.all([
         fetchKPIData(),
@@ -232,27 +343,27 @@ export default function KPITurbocharge() {
 
   const fetchKPIData = async () => {
     try {
-      console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
-      
+      //console.log('Fetching KPIs with filters:', { selectedFunctionId, selectedSubFunctionId, selectedTitleId });
+     
       let kpiQuery = supabase
         .from('kpis')
         .select('kpi_id, name, description, target, datatype, function_id, sub_function_id, title_id');
 
       // Apply filters in order of specificity
       if (selectedTitleId && selectedTitleId !== '') {
-        console.log('Filtering by title_id:', selectedTitleId);
+        //console.log('Filtering by title_id:', selectedTitleId);
         kpiQuery = kpiQuery.eq('title_id', selectedTitleId);
       } else if (selectedSubFunctionId && selectedSubFunctionId !== '') {
-        console.log('Filtering by sub_function_id:', selectedSubFunctionId);
+        //console.log('Filtering by sub_function_id:', selectedSubFunctionId);
         kpiQuery = kpiQuery.eq('sub_function_id', selectedSubFunctionId);
       } else if (selectedFunctionId && selectedFunctionId !== '') {
-        console.log('Filtering by function_id:', selectedFunctionId);
+        //console.log('Filtering by function_id:', selectedFunctionId);
         kpiQuery = kpiQuery.eq('function_id', selectedFunctionId);
       }
 
       const { data: kpis, error: kpiError } = await kpiQuery.limit(3);
 
-      console.log('KPI Query Result:', { kpis, kpiError });
+      //console.log('KPI Query Result:', { kpis, kpiError });
 
       if (kpiError) {
         console.error('Error fetching KPIs:', kpiError);
@@ -261,21 +372,39 @@ export default function KPITurbocharge() {
       }
 
       if (!kpis || kpis.length === 0) {
-        console.log('No KPIs found for selected filters');
+        //console.log('No KPIs found for selected filters');
         setKpiData([]);
         return;
       }
 
+
+      //console.log("Till here no error");
+
       // Fetch related modules for each KPI
       const kpiDataWithModules = await Promise.all(
-        kpis.map(async (kpi) => {
-          const { data: modules } = await supabase
-            .from('training_modules')
-            .select('title')
-            .limit(2);
+        kpis.map(async (kpi: any) => {
+          let modules: any[] = [];
+          if (currentEmployee?.company_id) {
+            const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+              headers: {
+                'X-User-ID': currentEmployee.user_id
+              }
+            });
+
+
+            //console.log("This is the response of hte training_modules",res);
+            if (res.ok) {
+              const payload = await res.json();
+
+              //console.log("This is causing the error",payload)
+              const modulesData = payload?.modules ||payload?.data|| payload;
+              //console.log("No this is no causing the error")
+              modules = (modulesData || []).slice(0, 2);
+            }
+          }
 
           const current = kpi.target ? parseFloat(kpi.target.toString()) : 0;
-          
+         
           return {
             id: kpi.kpi_id,
             name: kpi.name,
@@ -287,7 +416,7 @@ export default function KPITurbocharge() {
         })
       );
 
-      console.log('Setting KPI Data:', kpiDataWithModules);
+      //console.log('Setting KPI Data:', kpiDataWithModules);
       setKpiData(kpiDataWithModules);
     } catch (error) {
       console.error('Error fetching KPI data:', error);
@@ -297,33 +426,38 @@ export default function KPITurbocharge() {
 
   const fetchModulePerformance = async () => {
     try {
-      let userQuery = supabase
-        .from('users')
-        .select('user_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
+      //console.log("Users to fecth the training modules",users)
+      const userIds = users[0]?.data?.map(u => u.user_id);
 
-      const { data: users } = await userQuery;
-      const userIds = users?.map(u => u.user_id) || [];
-
-      if (userIds.length === 0) {
+      // console.log(users[0]);
+      if (userIds?.length === 0) {
         setTopModules([]);
         setNeedsOptimization([]);
         return;
       }
 
       // Get all training modules
-      const { data: allModules } = await supabase
-        .from('training_modules')
-        .select('module_id, title, content_type');
+      let allModules: any[] = [];
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
+
+        //console.log(res);
+        if (res.ok) {
+          const payload = await res.json();
+          //console.log(payload)
+          allModules = payload?.modules || payload?.data || [];
+        }
+      }
 
       if (!allModules || allModules.length === 0) {
         setTopModules([]);
@@ -332,6 +466,7 @@ export default function KPITurbocharge() {
       }
 
       // Calculate performance for each module
+      //console.log("User Ids",userIds)
       const moduleStats = await Promise.all(
         allModules.map(async (module) => {
           // Get learning plans for this module and filtered users
@@ -341,13 +476,14 @@ export default function KPITurbocharge() {
             .eq('module_id', module.module_id)
             .in('user_id', userIds);
 
+
           if (!learningPlans || learningPlans.length === 0) {
             return null; // No data for this module
           }
 
           // Filter only users who have started the module (processed_module_ids is not null/empty)
           const startedUsers = learningPlans.filter(
-            lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+            (lp: { processed_module_ids: string | null; overall_status: boolean | null }) => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
           );
 
           if (startedUsers.length === 0) {
@@ -355,7 +491,7 @@ export default function KPITurbocharge() {
           }
 
           // Count users who passed (overall_status === true)
-          const passedUsers = startedUsers.filter(lp => lp.overall_status === true).length;
+          const passedUsers = startedUsers.filter((lp: { overall_status: boolean | null }) => lp.overall_status === true).length;
           const totalStartedUsers = startedUsers.length;
 
           // Calculate pass rate (completion rate)
@@ -369,7 +505,7 @@ export default function KPITurbocharge() {
             module_name: module.title,
             completion_rate: passRate,
             impact_score: impactScore,
-            module_type: module.content_type === 'pdf' ? 'SOP' : 
+            module_type: module.content_type === 'pdf' ? 'SOP' :
                         module.content_type === 'video' ? 'Video' : 'Simulation'
           };
         })
@@ -406,21 +542,14 @@ export default function KPITurbocharge() {
 
   const fetchRecommendedActions = async () => {
     try {
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name, function_id, sub_function_id, title_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
+      const allUsers = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery.limit(4);
+      //console.log(allUsers)
+      const users = allUsers.data?.slice(0, 4);
 
       if (!users || users.length === 0) {
         setRecommendedActions([]);
@@ -428,7 +557,8 @@ export default function KPITurbocharge() {
       }
 
       const userIds = users.map(u => u.user_id);
-
+      //console.log("User Ids 2",userIds)
+      //console.log(users)
       const { data: learningPlans } = await supabase
         .from('learning_plan')
         .select('user_id, module_id, status')
@@ -436,9 +566,19 @@ export default function KPITurbocharge() {
         .in('status', ['ASSIGNED', 'IN_PROGRESS', 'COMPLETED'])
         .order('assigned_on', { ascending: false });
 
-      const { data: modules } = await supabase
-        .from('training_modules')
-        .select('module_id, title');
+      let modules: any[] = [];
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          modules = payload?.data || payload || [];
+        }
+      }
 
       const { data: kpis } = await supabase
         .from('kpis')
@@ -446,14 +586,14 @@ export default function KPITurbocharge() {
         .limit(3);
 
       const actions: RecommendedAction[] = users.slice(0, 4).map((user, idx) => {
-        const userPlans = learningPlans?.filter(lp => lp.user_id === user.user_id) || [];
+        const userPlans = learningPlans?.filter((lp: { user_id: string }) => lp.user_id === user.user_id) || [];
         const latestPlan = userPlans[0];
-        
+       
         const module = modules?.find(m => m.module_id === latestPlan?.module_id);
         const kpi = kpis?.[idx % kpis.length];
 
         const nameParts = user.name.split(' ');
-        const initials = nameParts.length >= 2 
+        const initials = nameParts.length >= 2
           ? `${nameParts[0][0]}${nameParts[1][0]}`
           : nameParts[0]?.substring(0, 2) || 'XX';
 
@@ -481,22 +621,11 @@ export default function KPITurbocharge() {
 
   const fetchScatterPlotData = async () => {
     try {
-      // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setScatterData([]);
@@ -504,7 +633,7 @@ export default function KPITurbocharge() {
         return;
       }
 
-      const userIds = users.map(u => u.user_id);
+      const userIds = users[0].data?.map(u => u.user_id);
 
       // If a specific KPI is selected, fetch its details including target
       if (selectedKpiId) {
@@ -539,22 +668,49 @@ export default function KPITurbocharge() {
       const { data: kpiScores } = await kpiScoreQuery;
 
       // Get module performance (average quiz scores from employee_assessments)
-      const { data: assessmentScores } = await supabase
-        .from('employee_assessments')
-        .select('user_id, score, max_score, completed_at')
-        .in('user_id', userIds)
-        .not('score', 'is', null)
-        .not('max_score', 'is', null);
+      let assessmentScores: any[] = [];
+
+
+      // console.log()
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
+
+        // console.log("Response foom the database",res);
+
+        if (res.ok) {
+          const payload = await res.json();
+
+          // console.log("This is the payload",payload)
+          //console.log("This is the payload for scatter plot",payload);
+          const allAssessments = payload?.assessments || payload?.data?.assessments || [];
+
+          // console.log("This is the parsed data",allAssessments)
+          //console.log("This is for the scatter plot",allAssessments)
+          // Filter by userIds and only include rows with valid scores
+          assessmentScores = allAssessments.filter(
+            (a: any) => userIds.includes(a.user_id) && a.score != null && a.max_score != null
+          );
+        } else {
+          console.error('Error loading employee assessments:', await res.text());
+        }
+      }
 
       // Calculate data for each user
       const scatterPoints: ScatterDataPoint[] = [];
-
-      for (const user of users) {
+      // console.log(users)
+      for (const user of users[0]?.data) {
+        // console.log(user)
+        // console.log(kpiScores)
         // Get KPI scores for this user
-        const userKpiScores = kpiScores?.filter(k => k.user_id === user.user_id) || [];
-        
-        if (userKpiScores.length === 0) continue;
+        const userKpiScores = kpiScores?.filter((k: { user_id: string; score: number }) => k.user_id === user.user_id) || [];
+       
 
+        if (userKpiScores.length === 0) continue;
+        
         // Calculate average KPI score
         let avgKpiScore;
         if (selectedKpiId) {
@@ -562,12 +718,16 @@ export default function KPITurbocharge() {
           avgKpiScore = Number(userKpiScores[0].score);
         } else {
           // Otherwise, average across all KPIs
-          avgKpiScore = userKpiScores.reduce((sum, k) => sum + Number(k.score), 0) / userKpiScores.length;
+          avgKpiScore = userKpiScores.reduce((sum: number, k: { score: number }) => sum + Number(k.score), 0) / userKpiScores.length;
         }
 
+          // console.log(avgKpiScore)
         // Get assessment scores for this user
         const userAssessments = assessmentScores?.filter(a => a.user_id === user.user_id) || [];
-        
+       
+
+        // console.log(assessmentScores)
+        // console.log(userAssessments)
         if (userAssessments.length === 0) continue;
 
         // Calculate average module performance (percentage)
@@ -583,7 +743,7 @@ export default function KPITurbocharge() {
           module_performance: Math.round(avgModulePerformance)
         });
       }
-
+      // console.log("Adding the data",scatterPoints);
       setScatterData(scatterPoints);
     } catch (error) {
       console.error('Error fetching scatter plot data:', error);
@@ -594,22 +754,11 @@ export default function KPITurbocharge() {
 
   const fetchHeatmapData = async () => {
     try {
-      // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, name')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setHeatmapData([]);
@@ -617,20 +766,30 @@ export default function KPITurbocharge() {
       }
 
       // Get all training modules
-      const { data: allModules } = await supabase
-        .from('training_modules')
-        .select('module_id, title')
-        .order('title')
-        .limit(10); // Limit to 10 modules for better visualization
+      let allModules: any[] = [];
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          //console.log("This is the module Data",payload)
+          allModules = (payload?.data?.data ||payload?.modules||payload.data|| payload || []).slice(0, 10);
+        }
+      }
 
       if (!allModules || allModules.length === 0) {
         setHeatmapData([]);
         return;
       }
 
-      const userIds = users.map(u => u.user_id);
+      const userIds = users[0].data.map(u => u.user_id);
       const moduleIds = allModules.map(m => m.module_id);
 
+      //console.log("User Ids 3",userIds);
       // Get all learning plans for these users and modules
       const { data: learningPlans } = await supabase
         .from('learning_plan')
@@ -638,43 +797,85 @@ export default function KPITurbocharge() {
         .in('user_id', userIds)
         .in('module_id', moduleIds);
 
-      // Get all module progress with quiz scores
-      const { data: moduleProgress } = await supabase
-        .from('module_progress')
-        .select('user_id, processed_module_id, quiz_score, pass_status')
-        .in('user_id', userIds)
-        .not('quiz_score', 'is', null);
+      // Get all module progress with quiz scores via backend
+      let moduleProgress: any[] = [];
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/module-progress/company/${currentEmployee.company_id}`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
 
+        if (res.ok) {
+          const payload = await res.json();
+          //console.log("This progress is causing the error",payload)
+          const allProgress = payload?.progress || payload?.data || payload || [];
+          moduleProgress = allProgress.filter((mp: any) => userIds.includes(mp.user_id) && mp.quiz_score != null);
+        } else {
+          console.error('Error loading module progress:', await res.text());
+        }
+      }
 
-        // Get max_score for each sub-module (processed_module_id)
-      console.log(userIds);
-      const { maxScoreData, error } = await supabase
-      .from('employee_assessments')
-      .select(`
-        user_id,
-        score,
-        max_score,
-        assessments!inner (
-          processed_module_id,
-          original_module_id
-        )
-      `)
-      .in('user_id', userIds)
-      .not('max_score', 'is', null);
+      // Get max_score for each sub-module (processed_module_id) via backend
+      //console.log(userIds);
+      let maxScoreData: any[] = [];
+      if (currentEmployee?.company_id) {
+        const res = await fetchWithAuth(`${API_BASE}/api/employee-assessments/company/${currentEmployee.company_id}?limit=500`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
 
-        console.log(maxScoreData);
+        if (res.ok) {
+          const payload = await res.json();
+          //console.log("This is the payload data for the employee-assessments",payload)
+          const allAssessments =  payload?.data?.assessments ||payload?.assessments ||payload?.data|| [];
+          //console.log(allAssessments)
+          // Filter by userIds and only include rows with valid max_score and assessments data
+          maxScoreData = allAssessments.filter(
+            (a: any) => userIds.includes(a.user_id) && a.max_score != null && a.assessments
+          ).map((a: any) => ({
+            user_id: a.user_id,
+            score: a.score,
+            max_score: a.max_score,
+            assessments: a.assessments
+          }));
+        } else {
+          console.error('Error loading employee assessments:', await res.text());
+        }
+      }
+
+      //console.log(maxScoreData);
       // Get processed modules mapping
-      const { data: processedModules } = await supabase
-        .from('processed_modules')
-        .select('processed_module_id, original_module_id')
-        .in('original_module_id', moduleIds);
+      let processedModules: Array<{ processed_module_id: string; original_module_id: string }> = [];
+      
+      // Fetch processed modules for each original module
+      for (const moduleId of moduleIds) {
+        if (!currentEmployee?.user_id) continue;
+        
+        const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+          headers: {
+            'X-User-ID': currentEmployee.user_id
+          }
+        });
+
+        if (res.ok) {
+          const payload = await res.json();
+          //console.log("This is the allModules.",payload)
+          const modules = payload?.data || payload.data.data ||payload|| [];
+          processedModules.push(...modules.map((m: any) => ({
+            processed_module_id: m.processed_module_id,
+            original_module_id: m.original_module_id
+          })));
+        }
+      }
 
       // Build heatmap data structure
       const heatmap: HeatmapData[] = users.map(user => {
         const userModules = allModules.map(module => {
           // Find learning plan for this user-module combination
           const plan = learningPlans?.find(
-            lp => lp.user_id === user.user_id && lp.module_id === module.module_id
+            (lp: { user_id: string; module_id: string; processed_module_ids: string | null; overall_status: boolean | null }) => lp.user_id === user.user_id && lp.module_id === module.module_id
           );
 
           if (!plan) {
@@ -687,8 +888,8 @@ export default function KPITurbocharge() {
           }
 
           // Check if module has been started
-          const hasStarted = plan.processed_module_ids && 
-                           plan.processed_module_ids !== '' && 
+          const hasStarted = plan.processed_module_ids &&
+                           plan.processed_module_ids !== '' &&
                            plan.processed_module_ids !== '[]';
 
           if (!hasStarted) {
@@ -702,12 +903,12 @@ export default function KPITurbocharge() {
 
           // Get all processed module IDs for this module
           const processedModuleIds = processedModules
-            ?.filter(pm => pm.original_module_id === module.module_id)
-            .map(pm => pm.processed_module_id) || [];
+            ?.filter((pm: { original_module_id: string; processed_module_id: string }) => pm.original_module_id === module.module_id)
+            .map((pm: { processed_module_id: string }) => pm.processed_module_id) || [];
 
           // Get quiz scores for this user's sub-modules
           const userQuizzes = moduleProgress?.filter(
-            mp => mp.user_id === user.user_id && 
+            (mp: { user_id: string; processed_module_id: string; quiz_score: number | null }) => mp.user_id === user.user_id &&
                   processedModuleIds.includes(mp.processed_module_id)
           ) || [];
 
@@ -722,7 +923,7 @@ export default function KPITurbocharge() {
 
           // Calculate average quiz score
           const avgScore = Math.round(
-            userQuizzes.reduce((sum, q) => sum + (q.quiz_score || 0), 0) / userQuizzes.length
+            userQuizzes.reduce((sum: number, q: { quiz_score: number | null }) => sum + (q.quiz_score || 0), 0) / userQuizzes.length
           );
 
           // Determine status
@@ -759,21 +960,21 @@ export default function KPITurbocharge() {
     // Generate sample correlation data based on time period
     const data = [];
     const today = new Date();
-    
+   
     for (let i = 12; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - (i * 2));
-      
+     
       const baseEco = 52 + (12 - i) * 2.5;
       const baseCompetency = 55 + (12 - i) * 2.4;
-      
+     
       data.push({
         date: date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
         eco: Math.round(Math.min(baseEco, 85)),
         competency: Math.round(Math.min(baseCompetency, 88))
       });
     }
-    
+   
     setCorrelationData(data);
   };
 
@@ -781,17 +982,27 @@ export default function KPITurbocharge() {
     try {
       // Get modules based on filter
       let modulesToProcess;
-      
+     
       if (selectedModuleId) {
         // Single module selected - get only that module
         modulesToProcess = [{ module_id: selectedModuleId }];
       } else {
         // No module filter - get all modules
-        const { data: allModules } = await supabase
-          .from('training_modules')
-          .select('module_id');
-        
-        modulesToProcess = allModules || [];
+        let allModules: any[] = [];
+        if (currentEmployee?.company_id) {
+          const res = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${currentEmployee.company_id}`, {
+            headers: {
+              'X-User-ID': currentEmployee.user_id
+            }
+          });
+
+          if (res.ok) {
+            const payload = await res.json();
+            allModules = payload?.data || payload || [];
+          }
+        }
+       
+        modulesToProcess = allModules;
       }
 
       if (modulesToProcess.length === 0) {
@@ -800,27 +1011,18 @@ export default function KPITurbocharge() {
       }
 
       // Get users based on selected filters
-      let userQuery = supabase
-        .from('users')
-        .select('user_id')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
-      const userIds = users?.map(u => u.user_id) || [];
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
+     
+      const userIds = users[0].data?.map((u: BackendUser) => u.user_id);
 
       if (userIds.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
         return;
-      }
+      } 
 
       // Module-wise calculation
       let totalReadyCount = 0;
@@ -830,22 +1032,26 @@ export default function KPITurbocharge() {
         let moduleReadyCount = 0;
         let moduleNotReadyCount = 0;
 
+        //console.log('UserId 4',userIds)
         for (const userId of userIds) {
+
+          // console.log("This is causing error")
           // Get learning plan for this user and module
           const { data: learningPlan } = await supabase
             .from('learning_plan')
             .select('overall_status, processed_module_ids')
             .eq('user_id', userId)
             .eq('module_id', module.module_id)
-            .single();
+            // .single();
+            let temp  =learningPlan[0];
 
-          if (learningPlan) {
+          if (temp) {
             // Check if user has passed the module (overall_status is true)
-            if (learningPlan.overall_status === true) {
+            if (temp.overall_status === true) {
               moduleReadyCount++;
             } else {
               // User has not passed - check processed_module_ids
-              if (learningPlan.processed_module_ids === null || learningPlan.processed_module_ids === '') {
+              if (temp.processed_module_ids === null || temp.processed_module_ids === '') {
                 // Don't count this user (not started yet)
                 continue;
               } else {
@@ -862,7 +1068,7 @@ export default function KPITurbocharge() {
       }
 
       const totalUsers = totalReadyCount + totalNotReadyCount;
-      
+     
       if (totalUsers === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Training Data' });
         return;
@@ -870,7 +1076,7 @@ export default function KPITurbocharge() {
 
       const score = Math.round((totalReadyCount / totalUsers) * 100);
       const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
-      
+     
       let status = 'Developing';
       if (score >= 80) status = 'High Performance Zone';
       else if (score >= 60) status = 'On Track';
@@ -885,22 +1091,11 @@ export default function KPITurbocharge() {
 
   const calculateOrganizationFunctionReadiness = async () => {
     try {
-      // Get users based on selected filters (function or organization level)
-      let userQuery = supabase
-        .from('users')
-        .select('user_id, ready_status')
-        .eq('is_active', true)
-        .eq('employment_status', 'ACTIVE');
-
-      if (selectedTitleId) {
-        userQuery = userQuery.eq('title_id', selectedTitleId);
-      } else if (selectedSubFunctionId) {
-        userQuery = userQuery.eq('sub_function_id', selectedSubFunctionId);
-      } else if (selectedFunctionId) {
-        userQuery = userQuery.eq('function_id', selectedFunctionId);
-      }
-
-      const { data: users } = await userQuery;
+      const users = await fetchUserByFilter({
+        functionId: selectedFunctionId,
+        subFunctionId: selectedSubFunctionId,
+        titleId: selectedTitleId
+      });
 
       if (!users || users.length === 0) {
         setWorkforceReadiness({ score: 0, change: 0, status: 'No Users Found' });
@@ -910,8 +1105,10 @@ export default function KPITurbocharge() {
       let readyCount = 0;
       let notReadyCount = 0;
 
+
+      // console.log('UserId 5',users)
       // Check each user
-      for (const user of users) {
+      for (const user of users[0].data) {
         // Get all learning plans for this user
         const { data: learningPlans, error } = await supabase
           .from('learning_plan')
@@ -925,7 +1122,7 @@ export default function KPITurbocharge() {
 
         // Filter out modules that haven't been started (processed_module_ids is null or empty)
         const startedModules = learningPlans.filter(
-          lp => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
+          (lp: { processed_module_ids: string | null; overall_status: boolean | null }) => lp.processed_module_ids !== null && lp.processed_module_ids !== ''
         );
 
         // If no modules have been started, don't count this user
@@ -934,7 +1131,7 @@ export default function KPITurbocharge() {
         }
 
         // Check if user has passed ALL their started modules
-        const allModulesPassed = startedModules.every(lp => lp.overall_status === true);
+        const allModulesPassed = startedModules.every((lp: { overall_status: boolean | null }) => lp.overall_status === true);
 
         if (allModulesPassed) {
           // User has completed all assigned modules
@@ -955,7 +1152,7 @@ export default function KPITurbocharge() {
       // Calculate readiness score
       const score = Math.round((readyCount / totalUsers) * 100);
       const change = Math.round((Math.random() * 5) + 1); // Simulated improvement - can be calculated from historical data
-      
+     
       let status = 'Developing';
       if (score >= 80) status = 'High Performance Zone';
       else if (score >= 60) status = 'On Track';
@@ -970,7 +1167,7 @@ export default function KPITurbocharge() {
 
   const generateLucidAnalysis = async () => {
     const hasData = kpiData.length > 0 && correlationData.length > 0;
-    
+   
     if (!hasData) {
       setLucidAnalysis('LUCID here. Awaiting sufficient data for analysis. Please ensure KPIs and training modules are properly configured for your selected role.');
       return;
@@ -980,7 +1177,7 @@ export default function KPITurbocharge() {
     const topModule = topModules[0]?.module_name || 'training module';
     const trend = workforceReadiness.change > 0 ? 'upward' : 'steady';
     const recentDate = correlationData[correlationData.length - 1]?.date || 'recent period';
-    
+   
     setLucidAnalysis(
       `LUCID here. I have analyzed your ${kpiName} performance data, which shows a consistent ${trend} trend. This improvement correlates directly with the deployment of the "${topModule}" module. The data suggests that the team is successfully applying new strategies, resulting in gains in overall efficiency. With a workforce readiness score of ${workforceReadiness.score}%, the team is ${workforceReadiness.status.toLowerCase()}. I recommend reinforcing the specific techniques covered in high-impact training during your next team huddle.`
     );
@@ -1001,84 +1198,86 @@ export default function KPITurbocharge() {
     return '';
   };
 
+  if (loading) {
+    return (
+      showLoadingProgress
+        ? <LoadingProgress label="Loading KPI turbocharge..." progress={loadingProgress} />
+        : <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" /></div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <EmployeeNavigation />
-      
-      <main className="flex-1 lg:ml-[280px] p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <h1 className="text-3xl font-bold text-gray-900">KPI Turbocharge</h1>
-              {/* <span className="px-2.5 py-1 text-xs font-bold text-blue-600 bg-blue-50 rounded-full border border-blue-200">
-                Beta
-              </span> */}
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <main className="p-6 space-y-6">
+        {/* Header Card */}
+        <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200">
+          <div className="flex flex-col md:flex-row items-start justify-between gap-4">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Turbocharge</h1>
+              <p className="text-slate-600 max-w-md">Outcome-based learning engine mapping capability to business performance.</p>
             </div>
-            <p className="text-gray-600 text-sm">Outcome-based learning engine. Mapping capability to production.</p>
+            {/* Workforce Readiness Index */}
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4 w-full md:w-auto">
+              <div className="flex items-center gap-6">
+                <div>
+                  <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
+                    Workforce Readiness Index
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
+                    {workforceReadiness.change > 0 && (
+                      <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
+                        {/* <ArrowUpRight size={14} /> */}
+                        {/* {workforceReadiness.change}% */}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Activity size={12} className="text-blue-600" />
+                    <span className="text-xs text-gray-600">{workforceReadiness.status}</span>
+                  </div>
+                </div>
+                <div className="relative w-24 h-24">
+                  <svg className="transform -rotate-90 w-24 h-24">
+                    <circle cx="48" cy="48" r="40" stroke="#E0E7FF" strokeWidth="8" fill="none" />
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r="40"
+                      stroke="url(#gradient)"
+                      strokeWidth="8"
+                      fill="none"
+                      strokeDasharray={`${2 * Math.PI * 40 * (workforceReadiness.score / 100)} ${2 * Math.PI * 40}`}
+                      strokeLinecap="round"
+                    />
+                    <defs>
+                      <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#818CF8" />
+                        <stop offset="100%" stopColor="#3B66F5" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </Card>
           </div>
-          
-          {/* Workforce Readiness Index */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 px-6 py-4">
-            <div className="flex items-center gap-6">
-              <div>
-                <div className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
-                  Workforce Readiness Index
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-gray-900">{workforceReadiness.score}%</span>
-                  {workforceReadiness.change > 0 && (
-                    <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
-                      {/* <ArrowUpRight size={14} /> */}
-                      {/* {workforceReadiness.change}% */}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <Activity size={12} className="text-blue-600" />
-                  <span className="text-xs text-gray-600">{workforceReadiness.status}</span>
-                </div>
-              </div>
-              <div className="relative w-24 h-24">
-                <svg className="transform -rotate-90 w-24 h-24">
-                  <circle cx="48" cy="48" r="40" stroke="#E0E7FF" strokeWidth="8" fill="none" />
-                  <circle 
-                    cx="48" 
-                    cy="48" 
-                    r="40" 
-                    stroke="url(#gradient)" 
-                    strokeWidth="8" 
-                    fill="none"
-                    strokeDasharray={`${2 * Math.PI * 40 * (workforceReadiness.score / 100)} ${2 * Math.PI * 40}`}
-                    strokeLinecap="round"
-                  />
-                  <defs>
-                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#818CF8" />
-                      <stop offset="100%" stopColor="#3B66F5" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse" />
-                </div>
-              </div>
-            </div>
-          </Card>
         </div>
 
         {/* Filters */}
         <Card className="bg-white border-gray-200 shadow-sm p-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col md:flex-row items-center gap-4 w-full">
             <div className="flex items-center gap-2 text-gray-600">
               <Filter size={18} />
               <span className="text-sm font-medium">Select Role:</span>
             </div>
-            
-            <div className="flex items-center gap-3 flex-1">
-              <div className="flex-1">
+           
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1 w-full">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Function</div>
-                <select 
+                <select
                   value={selectedFunctionId}
                   onChange={(e) => setSelectedFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1090,9 +1289,9 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Sub-Function</div>
-                <select 
+                <select
                   value={selectedSubFunctionId}
                   onChange={(e) => setSelectedSubFunctionId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1105,9 +1304,9 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Role</div>
-                <select 
+                <select
                   value={selectedTitleId}
                   onChange={(e) => setSelectedTitleId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1120,9 +1319,9 @@ export default function KPITurbocharge() {
                 </select>
               </div>
 
-              <div className="flex-1">
+              <div className="flex-1 min-w-[150px]">
                 <div className="text-xs text-gray-500 uppercase font-semibold mb-1 tracking-wide">Module</div>
-                <select 
+                <select
                   value={selectedModuleId}
                   onChange={(e) => setSelectedModuleId(e.target.value)}
                   className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -1144,10 +1343,10 @@ export default function KPITurbocharge() {
         ) : (
           <>
             {/* KPI Cards */}
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {kpiData.length > 0 ? kpiData.map((kpi) => (
-                <Card 
-                  key={kpi.id} 
+                <Card
+                  key={kpi.id}
                   className={`bg-white border-blue-200 shadow-sm p-6 hover:border-blue-300 transition-all cursor-pointer ${
                     selectedKpiId === kpi.id ? 'border-blue-500' : ''
                   }`}
@@ -1172,7 +1371,7 @@ export default function KPITurbocharge() {
                     <div className="text-xs text-gray-500 uppercase font-semibold tracking-wide">Mapped Modules</div>
                     <div className="flex flex-wrap gap-2">
                       {kpi.mapped_modules.length > 0 ? kpi.mapped_modules.map((module, idx) => (
-                        <span 
+                        <span
                           key={idx}
                           className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium border border-blue-200"
                         >
@@ -1198,7 +1397,7 @@ export default function KPITurbocharge() {
                   <div className="text-sm text-gray-600 mb-1">Actual vs Target</div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-3xl font-bold text-gray-900">
-                      Actual: {scatterData.length > 0 
+                      Actual: {scatterData.length > 0
                         ? `${Math.round(scatterData.reduce((sum, d) => sum + d.module_performance, 0) / scatterData.length)}%`
                         : '0%'}
                     </span>
@@ -1234,20 +1433,20 @@ export default function KPITurbocharge() {
                     {/* Y-axis grid lines and labels */}
                     {[0, 20, 40, 60, 80, 100].map((val, idx) => (
                       <g key={`y-${idx}`}>
-                        <line 
-                          x1="60" 
-                          y1={280 - (val * 2.6)} 
-                          x2="680" 
-                          y2={280 - (val * 2.6)} 
-                          stroke="#E5E7EB" 
+                        <line
+                          x1="60"
+                          y1={280 - (val * 2.6)}
+                          x2="680"
+                          y2={280 - (val * 2.6)}
+                          stroke="#E5E7EB"
                           strokeWidth="1"
                           strokeDasharray="2,2"
                         />
-                        <text 
-                          x="45" 
-                          y={280 - (val * 2.6)} 
-                          dy="4" 
-                          fill="#6B7280" 
+                        <text
+                          x="45"
+                          y={280 - (val * 2.6)}
+                          dy="4"
+                          fill="#6B7280"
                           fontSize="11"
                           textAnchor="end"
                         >
@@ -1259,19 +1458,19 @@ export default function KPITurbocharge() {
                     {/* X-axis grid lines and labels */}
                     {[0, 20, 40, 60, 80, 100].map((val, idx) => (
                       <g key={`x-${idx}`}>
-                        <line 
-                          x1={60 + (val * 6.2)} 
-                          y1="20" 
-                          x2={60 + (val * 6.2)} 
-                          y2="280" 
-                          stroke="#E5E7EB" 
+                        <line
+                          x1={60 + (val * 6.2)}
+                          y1="20"
+                          x2={60 + (val * 6.2)}
+                          y2="280"
+                          stroke="#E5E7EB"
                           strokeWidth="1"
                           strokeDasharray="2,2"
                         />
-                        <text 
-                          x={60 + (val * 6.2)} 
-                          y="295" 
-                          fill="#6B7280" 
+                        <text
+                          x={60 + (val * 6.2)}
+                          y="295"
+                          fill="#6B7280"
                           fontSize="11"
                           textAnchor="middle"
                         >
@@ -1283,20 +1482,20 @@ export default function KPITurbocharge() {
                     {/* Target line - only show if KPI is selected */}
                     {selectedKpiInfo && selectedKpiInfo.target > 0 && (
                       <g>
-                        <line 
-                          x1="60" 
-                          y1={280 - (selectedKpiInfo.target * 2.6)} 
-                          x2="680" 
-                          y2={280 - (selectedKpiInfo.target * 2.6)} 
-                          stroke="#EF4444" 
+                        <line
+                          x1="60"
+                          y1={280 - (selectedKpiInfo.target * 2.6)}
+                          x2="680"
+                          y2={280 - (selectedKpiInfo.target * 2.6)}
+                          stroke="#EF4444"
                           strokeWidth="2"
                           strokeDasharray="8,4"
                         />
-                        <text 
-                          x="685" 
-                          y={280 - (selectedKpiInfo.target * 2.6)} 
-                          dy="4" 
-                          fill="#EF4444" 
+                        <text
+                          x="685"
+                          y={280 - (selectedKpiInfo.target * 2.6)}
+                          dy="4"
+                          fill="#EF4444"
                           fontSize="12"
                           fontWeight="600"
                         >
@@ -1306,21 +1505,21 @@ export default function KPITurbocharge() {
                     )}
 
                     {/* Axis labels */}
-                    <text 
-                      x="370" 
-                      y="295" 
-                      fill="#374151" 
-                      fontSize="13" 
+                    <text
+                      x="370"
+                      y="295"
+                      fill="#374151"
+                      fontSize="13"
                       fontWeight="600"
                       textAnchor="middle"
                     >
                       KPI Score {selectedKpiInfo ? `(${selectedKpiInfo.name})` : '(Average)'} →
                     </text>
-                    <text 
-                      x="25" 
-                      y="150" 
-                      fill="#374151" 
-                      fontSize="13" 
+                    <text
+                      x="25"
+                      y="150"
+                      fill="#374151"
+                      fontSize="13"
                       fontWeight="600"
                       textAnchor="middle"
                       transform="rotate(-90, 25, 150)"
@@ -1332,11 +1531,11 @@ export default function KPITurbocharge() {
                     {scatterData.map((d, i) => {
                       const x = 60 + ((d.kpi_score / 100) * 620);
                       const y = 280 - ((d.module_performance / 100) * 260);
-                      
+                     
                       return (
                         <g key={i}>
                           {/* Outer glow */}
-                          <circle 
+                          <circle
                             cx={x}
                             cy={y}
                             r="10"
@@ -1344,7 +1543,7 @@ export default function KPITurbocharge() {
                             opacity="0.2"
                           />
                           {/* Main circle */}
-                          <circle 
+                          <circle
                             cx={x}
                             cy={y}
                             r="7"
@@ -1355,7 +1554,7 @@ export default function KPITurbocharge() {
                             className="hover:r-9 transition-all cursor-pointer"
                           />
                           {/* User name label */}
-                          <text 
+                          <text
                             x={x}
                             y={y - 18}
                             fill="#1F2937"
@@ -1367,7 +1566,7 @@ export default function KPITurbocharge() {
                             {d.user_name.split(' ')[0]}
                           </text>
                           {/* Score tooltip */}
-                          <text 
+                          <text
                             x={x}
                             y={y + 25}
                             fill="#6B7280"
@@ -1413,7 +1612,7 @@ export default function KPITurbocharge() {
               </div>
             </Card>
             {/* Content Evaluation & Recommended Actions */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Content Evaluation */}
               <Card className="bg-white border-gray-200 shadow-sm p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -1497,12 +1696,12 @@ export default function KPITurbocharge() {
                     <div key={idx} className="p-4 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all">
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 rounded-full ${
-                          action.status === 'Completed' ? 'bg-green-50 text-green-700' : 
-                          action.status === 'In Progress' ? 'bg-orange-50 text-orange-700' : 
+                          action.status === 'Completed' ? 'bg-green-50 text-green-700' :
+                          action.status === 'In Progress' ? 'bg-orange-50 text-orange-700' :
                           'bg-yellow-50 text-yellow-700'
                         } flex items-center justify-center font-bold text-sm shrink-0 border ${
-                          action.status === 'Completed' ? 'border-green-200' : 
-                          action.status === 'In Progress' ? 'border-orange-200' : 
+                          action.status === 'Completed' ? 'border-green-200' :
+                          action.status === 'In Progress' ? 'border-orange-200' :
                           'border-yellow-200'
                         }`}>
                           {action.employee_initials}
@@ -1539,7 +1738,7 @@ export default function KPITurbocharge() {
               </Card>
             </div>
 
-            
+           
 
             {/* Employee Performance Heatmap */}
             {/* <Card className="bg-white border-gray-200 shadow-sm p-6">
@@ -1583,13 +1782,13 @@ export default function KPITurbocharge() {
                         Employee
                       </div>
                       {heatmapData[0]?.modules.map((module, idx) => (
-                        <div 
-                          key={idx} 
+                        <div
+                          key={idx}
                           className="w-20 shrink-0 p-2 bg-gray-50 border-r border-gray-200 last:border-r-0"
                         >
                           <div className="text-[10px] font-semibold text-gray-700 transform -rotate-45 origin-left whitespace-nowrap">
-                            {module.module_name.length > 20 
-                              ? module.module_name.substring(0, 20) + '...' 
+                            {module.module_name.length > 20
+                              ? module.module_name.substring(0, 20) + '...'
                               : module.module_name}
                           </div>
                         </div>
@@ -1610,7 +1809,7 @@ export default function KPITurbocharge() {
                         {employee.modules.map((module, modIdx) => {
                           let bgColor = 'bg-gray-200';
                           let textColor = 'text-gray-600';
-                          
+                         
                           if (module.score !== null) {
                             if (module.score >= 81) {
                               bgColor = 'bg-green-500';
@@ -1628,13 +1827,13 @@ export default function KPITurbocharge() {
                           }
 
                           return (
-                            <div 
-                              key={modIdx} 
+                            <div
+                              key={modIdx}
                               className={`w-20 shrink-0 p-2 border-r border-gray-200 last:border-r-0 flex items-center justify-center ${bgColor} ${textColor} font-semibold text-xs transition-all hover:scale-105 hover:shadow-lg cursor-pointer relative group`}
                               title={`${employee.employee_name} - ${module.module_name}: ${module.score !== null ? module.score + '%' : 'Not Started'} (${module.status})`}
                             >
                               {module.score !== null ? `${module.score}%` : '-'} */}
-                              
+                             
                               {/* Tooltip on hover */}
                               {/* <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1.5 bg-gray-900 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg">
                                 <div className="font-semibold mb-0.5">{module.module_name}</div>
@@ -1657,14 +1856,14 @@ export default function KPITurbocharge() {
                         const scores = heatmapData
                           .map(emp => emp.modules[modIdx]?.score)
                           .filter(score => score !== null) as number[];
-                        
-                        const avg = scores.length > 0 
+                       
+                        const avg = scores.length > 0
                           ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
                           : 0;
 
                         let bgColor = 'bg-gray-300';
                         let textColor = 'text-gray-700';
-                        
+                       
                         if (avg >= 81) {
                           bgColor = 'bg-green-400';
                           textColor = 'text-green-900';
@@ -1680,8 +1879,8 @@ export default function KPITurbocharge() {
                         }
 
                         return (
-                          <div 
-                            key={modIdx} 
+                          <div
+                            key={modIdx}
                             className={`w-20 shrink-0 p-2 border-r border-gray-200 last:border-r-0 flex items-center justify-center ${bgColor} ${textColor} font-bold text-xs`}
                           >
                             {scores.length > 0 ? `${avg}%` : '-'}
@@ -1704,6 +1903,55 @@ export default function KPITurbocharge() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing KPI turbocharge. This may take a moment.</p>
+      </div>
     </div>
   );
 }

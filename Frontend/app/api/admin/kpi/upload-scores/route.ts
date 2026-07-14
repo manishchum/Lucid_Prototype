@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 			return NextResponse.json({ error: "No file uploaded or file has no name" }, { status: 400 });
 		}
 		const companyId = await getCompanyId(req);
-		console.log(companyId)
+		// console.log(companyId)
 		if (!companyId) {
 			return NextResponse.json({ error: "Missing company_id (admin auth required)" }, { status: 401 });
 		}
@@ -43,8 +43,9 @@ export async function POST(req: Request) {
 		let affectedEmployees: string[] = [];
 		for (let i = 0; i < rows.length; i++) {
 			const [companyEmpId, email, rawKpi, rawScore] = rows[i];
-			console.log("Row data")
-			console.log(rows[i]);
+			// console.log("Row data")
+			// console.log("Inside the scores upload")
+			// console.log(rows[i]);
 			if (!email || !rawKpi || !rawScore) {
 				skipped.push({ row: i + 1, reason: "Missing required fields" });
 				continue;
@@ -98,9 +99,9 @@ export async function POST(req: Request) {
 				.eq("name", kpiName)
 				.eq("company_id", companyId)
 				.maybeSingle()
-			console.log("KPI Name",kpiName)
+			// console.log("KPI Name",kpiName)
 
-			console.log(kpiData)
+			// console.log(kpiData)
 			if (kpiErr) {
 				skipped.push({ row: i + 1, reason: "DB error finding KPI" });
 				continue;
@@ -166,7 +167,7 @@ export async function POST(req: Request) {
 					.from("employee_kpi")
 					.insert({ user_id: employeeId, company_id: companyId, kpi_id: kpiId, score, scored_at: new Date().toISOString() });
 
-					console.log("Data added successfully:", employeeKPI);
+					// console.log("Data added successfully:", employeeKPI);
 				if (insertErr) {
 					skipped.push({ row: i + 1, reason: "Failed to insert employee_kpi" });
 				} else {

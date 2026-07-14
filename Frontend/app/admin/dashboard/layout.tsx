@@ -1,30 +1,14 @@
 "use client"
 
-// Using the shared Radix-based Toaster (rendered from root layout)
-import EmployeeNavigation from "@/components/employee-navigation";
-
 export default function AdminDashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-gray-50">
-      
-      {/* Employee Navigation includes admin sub-navigation */}
-      <EmployeeNavigation showBack={false} showForward={false} />
-      
-      {/* Main content area that adapts to sidebar */}
-      <div 
-        className="transition-all duration-300 ease-in-out"
-        style={{ 
-          marginLeft: 'var(--sidebar-width, 0px)',
-        }}
-      >
-        {/* Page Content */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {children}
       </div>
     </div>
   );

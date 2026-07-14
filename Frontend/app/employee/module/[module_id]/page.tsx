@@ -1,192 +1,267 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, RefObject, useEffect, useMemo, useRef, useState, use } from "react";
 import AudioPlayer from "./AudioPlayer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { Button } from "@/components/ui/button";
-import EmployeeNavigation from "@/components/employee-navigation";
-import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download } from "lucide-react";
+import { ChevronLeft, Info, Lightbulb, BookOpen, Zap, Download, Globe, ChevronDown, Check } from "lucide-react";
 import FlashcardCards from '@/components/FlashcardCards'
 import MindmapViewer from '@/components/MindmapViewer'
 import clsx from "clsx";
 import { useAuth } from "@/contexts/auth-context";
+import { useTenant, FEATURES } from "@/contexts/tenant-context";
+import { getCompanyEnabledLanguages } from '@/lib/languages';
 import jsPDF from 'jspdf';
 import VoiceInput from '@/components/VoiceInput';
 import VoiceOutput from '@/components/VoiceOutput';
+import { FeatureGate } from "@/components/feature-gate";
+import { callGemini } from "@/lib/gemini-helper";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { MediaAwareHtml } from '@/lib/module-media-embeds';
 
-export default function ModuleContentPage({ params }: { params: { module_id: string } }) {
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const SECTION_TRANSLATION_CACHE_STORAGE_KEY = "lucid_module_section_translation_cache";
+
+const SUPPORTED_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'de', name: 'German' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'fr', name: 'French' },
+  { code: 'it', name: 'Italian' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'uk', name: 'Ukrainian' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'nl', name: 'Dutch' },
+] as const;
+
+
+
+type SupportedLanguage = string;
+type AudioVideoLanguage = string;
+
+const readSectionTranslationCache = (employeeId?: string, moduleId?: string) => {
+  if (typeof window === "undefined" || !moduleId) return {} as Record<string, SectionBlock>;
+
+  try {
+    const storageKey = `${SECTION_TRANSLATION_CACHE_STORAGE_KEY}:${employeeId || "anonymous"}:${moduleId}`;
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return {} as Record<string, SectionBlock>;
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("[module] Failed to read section translation cache", error);
+    return {} as Record<string, SectionBlock>;
+  }
+};
+
+const writeSectionTranslationCache = (employeeId: string | undefined, moduleId: string | undefined, cache: Record<string, SectionBlock>) => {
+  if (typeof window === "undefined" || !moduleId) return;
+
+  try {
+    // console.log(" writeSectionTranslationCache called");
+    const storageKey = `${SECTION_TRANSLATION_CACHE_STORAGE_KEY}:${employeeId || "anonymous"}:${moduleId}`;
+    window.sessionStorage.setItem(storageKey, JSON.stringify(cache));
+  } catch (error) {
+    console.warn("[module] Failed to persist section translation cache", error);
+  }
+};
+
+const normalizeModulePayload = (raw: any, moduleId: string) => {
+  const payload = raw?.data ?? raw;
+  if (!payload) return null;
+
+  const base = Array.isArray(payload) ? payload[0] : (payload?.module ?? payload);
+  if (!base) return null;
+
+  return {
+    ...base,
+    processed_module_id: base.processed_module_id ?? base.module_id ?? moduleId,
+    original_module_id: base.original_module_id ?? base.module_id ?? base.id ?? moduleId,
+  };
+};
+
+const fetchModuleData = async (employee: any, moduleId: string) => {
+  return sharedDataClient.query(
+    createCacheKey({
+      namespace: "module",
+      userId: employee.user_id,
+      path: `/module/${moduleId}`,
+    }),
+    async () => {
+      const headers = {
+        "X-User-ID": employee.user_id,
+      };
+
+      const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
+        headers,
+      });
+
+      if (res.ok) {
+        return res.json();
+      }
+
+      // Fallback for cases where navigation passes original_module_id instead of processed_module_id.
+      if (res.status === 404) {
+        const originalRes = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
+          headers,
+        });
+
+        if (originalRes.ok) {
+          const originalPayload = await originalRes.json();
+          const modules = originalPayload?.data || [];
+          if (Array.isArray(modules) && modules.length > 0) {
+            return { data: modules[0] };
+          }
+        }
+      }
+
+      throw new Error(`Failed to load module: ${res.status}`);
+    },
+    {
+      ttlMs: 5 * 60 * 1000,
+      swr: true,
+    }
+  );
+};
+
+export default function ModuleContentPage({ params }: { params: Promise<{ module_id: string }> }) {
+  const unwrappedParams = use(params);
   const [lastUserInputWasVoice, setLastUserInputWasVoice] = useState(false);
-  const { user, loading: authLoading, logout } = useAuth()
-  const moduleId = params.module_id;
+  const { user, employeeData, loading: authLoading } = useAuth();
+  const moduleId = unwrappedParams.module_id;
   const [module, setModule] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [generatingContent, setGeneratingContent] = useState(false);
-  const [employee, setEmployee] = useState<any>(null);
-  const [learningStyle, setLearningStyle] = useState<string | null>(null);
+  const [contentLanguage, setContentLanguage] = useState<SupportedLanguage>('en');
+  const [contentTranslating, setContentTranslating] = useState(false);
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
   const [audioExpanded, setAudioExpanded] = useState(false);
+  const sectionTranslationCache = useRef<Record<string, SectionBlock>>({});
+
+  useEffect(() => {
+    if (!moduleId) return;
+    sectionTranslationCache.current = readSectionTranslationCache(employeeData?.user_id, moduleId);
+  }, [employeeData?.user_id, moduleId]);
+
+  const persistSectionTranslationCache = (cache: Record<string, SectionBlock>) => {
+    // console.log(" persistSectionTranslationCache called");
+    writeSectionTranslationCache(employeeData?.user_id, moduleId, cache);
+  };
   const [liveTranscript, setLiveTranscript] = useState("");
-  const [plainTranscript, setPlainTranscript] = useState("");
-  const [hasVideo, setHasVideo] = useState(false);
-  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const router = useRouter();
-  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading || generatingContent);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
   const [autoStartMic, setAutoStartMic] = useState(false);
+  // const { hasFeature } = useTenant();
+
+  // const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  // const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  // const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  // const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  // const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+  // const canUseFlashcard
+  const { hasFeature, activeCompany } = useTenant();
+
+  const enabledLanguages = useMemo(
+    () => getCompanyEnabledLanguages(activeCompany),
+    [activeCompany]
+  );
+
+
+  const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+  // const canUseFlashcard
+
   useEffect(() => {
-    const fetchModule = async () => {
-      setLoading(true);
-      if (!moduleId || moduleId === 'undefined' || moduleId === 'null') {
-        console.error('[module] Invalid module id:', moduleId);
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
+  const loadModule = async () => {
+    if (!employeeData || !moduleId || moduleId === "undefined" || moduleId === "null") {
+      setModule(null);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await fetchModuleData(employeeData, moduleId);
+      const normalizedModule = normalizeModulePayload(result.data, moduleId);
+
+      if (!normalizedModule) {
+        console.error("[module] No module data found for id:", moduleId);
         setModule(null);
-        setLoading(false);
         return;
       }
-      let empObj = null;
-      let style = null;
-      try {
-        const { data: userData } = await supabase.auth.getUser();
-        const employeeEmail = userData?.user?.email || null;
-        if (user?.email) {
-          const { data: emp } = await supabase
-            .from('users')
-            .select('user_id')
-            .eq('email', user?.email)
-            .maybeSingle();
-          if (emp?.user_id) {
-            empObj = emp;
-            setEmployee(emp);
-            const { data: styleData } = await supabase
-              .from('employee_learning_style')
-              .select('learning_style')
-              .eq('user_id', emp.user_id)
-              .maybeSingle();
-            if (styleData?.learning_style) {
-              style = styleData.learning_style;
-              setLearningStyle(style);
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[module] employee fetch error', e);
-      }
-      const selectCols = "processed_module_id, title, content, audio_url, audio_url_hinglish, original_module_id, learning_style, podcast_timeline, podcast_timeline_hinglish, podcast_transcript, podcast_transcript_hinglish,video_url, mindmap_data, flashcard_data, infographic_data";
-      let data: any = null;
 
-      // First try: direct lookup by processed_module_id (this is what we pass from training plan)
-      // console.log('[module] Attempting direct fetch by processed_module_id:', moduleId);
-      // console.log(empObj);
-
-
-      const { data: directData, error: directError } = await supabase
-        .from('processed_modules')
-        .select(selectCols)
-        .eq('processed_module_id', moduleId)
-        // .eq('user_id', empObj?.user_id || '')
-        .maybeSingle();
-
-      if (directError) {
-        console.error('[module] Error fetching by processed_module_id:', directError);
-      }
-
-      if (directData) {
-        data = directData;
-      } else {
-        const { data: origData, error: origError } = await supabase
-          .from('processed_modules')
-          .select(selectCols)
-          .eq('original_module_id', moduleId)
-          .eq('learning_style', style)
-          // .eq('user_id', empObj?.user_id || '')
-          .maybeSingle();
-
-        if (origError) {
-          console.error('[module] Error fetching by original_module_id:', origError);
-        }
-
-        if (origData) {
-          data = origData;
-        }
-      }
-      if (data) {
-        if (!data.content || data.content.trim() === '') {
-          setGeneratingContent(true);
-          try {
-            // const genResponse = await fetch('/api/generate-module-content', {
-            //   method: 'POST',
-            //   headers: { 'Content-Type': 'application/json' },
-            //   body: JSON.stringify({
-            //     moduleId: data.original_module_id
-            //   }),
-            // });
-            // if (genResponse.ok) {
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              const { data: refreshedData } = await supabase
-                .from('processed_modules')
-                .select(selectCols)
-                .eq('processed_module_id', moduleId)
-                .maybeSingle();
-              if (refreshedData && refreshedData.content) {
-                data = refreshedData;
-              // }
-            }
-
-            console.log(refreshedData);
-          } catch (genError) {
-            console.error('[module] Error triggering content generation:', genError);
-          } finally {
-            setGeneratingContent(false);
-          }
-        }
-        if(data.video_url){
-          setHasVideo(true);
-        }
-        setModule(data as any);
-        setPlainTranscript(extractPlainText(data.content || ''));
-        try {
-          if (empObj?.user_id) {
-            console.log("Inside the module progress log 2")
-            console.log(data)
-            await fetch('/api/module-progress', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_id: empObj.user_id,
-                processed_module_id: data.processed_module_id,
-                module_id: data.original_module_id,
-                started_at: new Date().toISOString(),
-                audio_url: data.audio_url,
-                completed_at: new Date().toISOString(),
-                viewOnly: true,
-              }),
-            });
-          }
-        } catch (e) {
-          console.error('[module] progress log error', e);
-        }
-      } else {
-        console.error('[module] No module data found for id:', moduleId);
-        setModule(null);
-      }
+      setModule(normalizedModule);
+      await markModuleStarted(normalizedModule.processed_module_id);
+    } catch (error) {
+      console.error("[module] Failed to load module:", error);
+      setModule(null);
+    } finally {
       setLoading(false);
-    };
-    if (!moduleId) return;
-    if (authLoading) return;     // wait for auth
-  if (!user) return;
+    }
+  };
 
-    
-  fetchModule();
-  }, [moduleId,user,authLoading]);
+  const markModuleStarted = async (processedModuleId: string) => {
+    if (!employeeData?.user_id) return;
+
+    try {
+      await fetchWithAuth(`${API_BASE}/api/module-progress`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": employeeData.user_id,
+        },
+        body: JSON.stringify({
+          user_id: employeeData.user_id,
+          processed_module_id: processedModuleId,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to mark module started:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (!authLoading && employeeData && moduleId) {
+      loadModule();
+    }
+  }, [employeeData, moduleId, authLoading]);
+
+  const moduleToUse = module;
 
   const handleSendChat = async (e: FormEvent<HTMLFormElement>, overrideInput?: string) => {
     e.preventDefault();
     const inputToSend = overrideInput !== undefined ? overrideInput : chatInput;
-    console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    // //console.log('[ModuleChat] handleSendChat called. inputToSend:', inputToSend, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     if (!inputToSend.trim() || chatLoading || !module?.processed_module_id) {
-      console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
+      // //console.log('[ModuleChat] handleSendChat aborted: missing input, loading, or module');
       return;
     }
 
@@ -194,26 +269,32 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   setChatInput('');
 
   // If overrideInput is present, it means voice input was used
-  setLastUserInputWasVoice(!!overrideInput);
-    if (!!overrideInput) {
-      setVoiceLoopActive(true);
-      }   
-    else {
-      setVoiceLoopActive(false);
-          }
+  const isVoiceInput = !!overrideInput;
+  setLastUserInputWasVoice(isVoiceInput);
+ 
+  if (isVoiceInput) {
+    setVoiceLoopActive(true);
+  } else {
+    setVoiceLoopActive(false);
+  }
 
-  const newUserMessage = { role: 'user' as const, content: userMessage };
+  const newUserMessage = { role: 'user' as const, content: userMessage, isVoice: isVoiceInput };
   setUserChatHistory((prev) => [...prev, newUserMessage]);
   setChatLoading(true);
 
     try {
-      const response = await fetch('/api/module-chat', {
+      const response = await fetchWithAuth(`${API_BASE}/api/module-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {}),
+        },
         body: JSON.stringify({
           processed_module_id: module.processed_module_id,
           user_message: userMessage,
           chat_history: userChatHistory,
+          user_id: employeeData?.user_id,
+          company_id: employeeData?.company_id,
         }),
       });
 
@@ -247,72 +328,35 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   const handleVoiceTranscription = (text: string) => {
   setChatInput(text);
   setLastUserInputWasVoice(true);
+ 
+  // Check if user said "bye" or similar exit phrases
+  const exitPhrases = ['bye', 'goodbye', 'stop', 'exit', 'quit'];
+  const lowerText = text.toLowerCase().trim();
+  const shouldExit = exitPhrases.some(phrase => lowerText === phrase || lowerText.endsWith(phrase));
+ 
+  if (shouldExit) {
+    setVoiceLoopActive(false);
+    //console.log('[ModuleChat] Voice loop stopped - exit phrase detected:', text);
+    return; // Don't auto-send, let user decide
+  }
+ 
   setVoiceLoopActive(true);
-    console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
+    //console.log('[ModuleChat] handleVoiceTranscription called. text:', text, 'chatLoading:', chatLoading, 'module:', module?.processed_module_id);
     // Auto-send after transcription
     setTimeout(() => {
       if (text && text.trim() && !chatLoading && module?.processed_module_id) {
-        console.log('[ModuleChat] Auto-sending after transcription:', text);
+        //console.log('[ModuleChat] Auto-sending after transcription:', text);
         // Create a synthetic event for form submission
         const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
         handleSendChat(fakeEvent, text);
       } else {
-        console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
+        //console.log('[ModuleChat] Auto-send conditions not met:', {text, chatLoading, module: module?.processed_module_id});
       }
     }, 100);
   };
 
-  // const handleSendChat = async (e: FormEvent<HTMLFormElement>) => {
-  //   e.preventDefault();
-  //   if (!chatInput.trim() || chatLoading || !module?.processed_module_id) return;
-
-  //   const userMessage = chatInput.trim();
-  //   setChatInput('');
-
-  //   const newUserMessage = { role: 'user' as const, content: userMessage };
-  //   setUserChatHistory((prev) => [...prev, newUserMessage]);
-  //   setChatLoading(true);
-
-  //   try {
-  //     const response = await fetch('/api/module-chat', {
-  //       method: 'POST',
-  //       headers: { 'Content-Type': 'application/json' },
-  //       body: JSON.stringify({
-  //         processed_module_id: module.processed_module_id,
-  //         user_message: userMessage,
-  //         chat_history: userChatHistory,
-  //       }),
-  //     });
-
-  //     const data = await response.json();
-
-  //     if (response.ok && data.message) {
-  //       setUserChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }]);
-  //     } else {
-  //       setUserChatHistory((prev) => [
-  //         ...prev,
-  //         {
-  //           role: 'assistant',
-  //           content: 'Sorry, I encountered an error. Please try again.',
-  //         },
-  //       ]);
-  //     }
-  //   } catch (error) {
-  //     console.error('Chat error:', error);
-  //     setUserChatHistory((prev) => [
-  //       ...prev,
-  //       {
-  //         role: 'assistant',
-  //         content: 'Sorry, I encountered an error. Please try again.',
-  //       },
-  //     ]);
-  //   } finally {
-  //     setChatLoading(false);
-  //   }
-  // };
-
   if (showLoadingProgress) {
-    const label = generatingContent ? "Generating personalized content" : "Loading module content";
+    const label = "Loading module content";
     return <LoadingProgress label={label} progress={loadingProgress} />;
   }
 
@@ -321,94 +365,187 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
   }
 
   return (
-    <div className="min-h-screen">
-      <EmployeeNavigation customBackPath="/employee/training-plan" showForward={false} />
-
-      <div className="transition-all duration-300 ease-in-out px-12 py-8" style={{ marginLeft: 'var(--sidebar-width, 0px)' }}>
-        <div className="w-full mx-auto">
-          <div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <div className="px-3 py-4 sm:px-4 sm:py-6 lg:py-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 lg:p-8 border border-slate-200 mb-4">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2 break-words">
+              {module.title}
+              {module.sprint_name && (
+                <span className="text-base sm:text-lg text-slate-600 font-normal"> [{module.sprint_name}]</span>
+              )}
+            </h1>
+            <div className="flex items-center gap-4">
+              <p className="text-slate-600">Professional learning content tailored for you</p>
+            </div>
+          </div>
+          <div className="w-full mx-auto">
             <main className="w-full">
-              <div className="bg-white rounded-lg shadow-sm border p-12 w-full min-h-screen">
+              <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-6 lg:p-10 w-full min-h-screen">
                 <div className="mb-8">
                   <Button
                     variant="outline"
                     size="sm"
                     className="flex items-center gap-2 hover:bg-gray-100"
-                    onClick={() => router.back()}
+                    onClick={() => {
+                      const targetModuleId = module?.original_module_id || moduleId;
+                      router.push('/employee/training-plan?module_id=' + encodeURIComponent(String(targetModuleId)));
+                    }}
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back
                   </Button>
                 </div>
 
-                <div className="mb-10">
-                  <h1 className="text-4xl font-bold text-gray-900 mb-2">{module.title}</h1>
-                  <p className="text-lg text-gray-600">Professional learning content tailored for you</p>
-                </div>
-
                 <ContentTransformer
                   module={module}
-                  employee={employee}
+                  employeeId={employeeData?.user_id || ""}
                   audioExpanded={audioExpanded}
                   setAudioExpanded={setAudioExpanded}
                   liveTranscript={liveTranscript}
-                  plainTranscript={plainTranscript}
                   setLiveTranscript={setLiveTranscript}
-                  onAudioGenerated={(url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => {
-                    setModule((m: any) => {
-                      const language = data?.language || 'en';
-                      if (language === 'hinglish') {
-                        return {
-                          ...m,
-                          audio_url_hinglish: url,
-                          podcast_transcript_hinglish: data?.transcript || m.podcast_transcript_hinglish,
-                          podcast_timeline_hinglish: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline_hinglish,
-                        };
-                      } else {
-                        return {
-                          ...m,
-                          audio_url: url,
-                          podcast_transcript: data?.transcript || m.podcast_transcript,
-                          podcast_timeline: data?.timeline ? JSON.stringify(data.timeline) : m.podcast_timeline,
-                        };
-                      }
+                  userChatHistory={userChatHistory}
+                  chatLoading={chatLoading}
+                  onModuleUpdate={(update: any) => {
+                    setModule((prev: any) => {
+                      const nextData = typeof update === "function" ? update(prev) : update;
+                      const normalized = normalizeModulePayload({ data: nextData }, moduleId);
+                      return normalized || nextData;
                     });
                   }}
-                  hasVideo={hasVideo}
-                  setHasVideo={setHasVideo}
-                  onVideoGenerated={(url: string) => {
-                    setModule((m: any) => ({ ...m, video_url: url }));
-                    setHasVideo(true);
+                  onAudioGenerated={(url: string, data?: any) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      const languageKey = data?.language || 'en';
+                      const suffixMap: Record<string, string> = {
+                        en: '',
+                        hinglish: '_hinglish',
+                        german: '_german',
+                        spanish: '_spanish',
+                        french: '_french',
+                        kannada: '_kannada',
+                      };
+                      const suffix = suffixMap[languageKey] ?? '';
+                      return {
+                        ...prev,
+                        [`audio_url${suffix}`]: url,
+                        [`podcast_transcript${suffix}`]: data?.transcript || prev[`podcast_transcript${suffix}`],
+                        [`podcast_timeline${suffix}`]: data?.timeline
+                          ? JSON.stringify(data.timeline)
+                          : prev[`podcast_timeline${suffix}`],
+                      };
+                    });
                   }}
-                  onModuleUpdate={setModule}
-                  userChatHistory={userChatHistory}
-                  setChatInput={setChatInput}
-                  setUserChatHistory={setUserChatHistory}
-                  chatLoading={chatLoading}
+                  onVideoGenerated={(urls: { videoUrl?: string; videoUrlHinglish?: string; videoUrlGerman?: string; videoUrlSpanish?: string; videoUrlFrench?: string }) => {
+                    setModule((prev: any) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        ...(urls.videoUrl ? { video_url: urls.videoUrl } : {}),
+                        ...(urls.videoUrlHinglish ? { video_url_hinglish: urls.videoUrlHinglish } : {}),
+                        ...(urls.videoUrlGerman ? { video_url_german: urls.videoUrlGerman } : {}),
+                        ...(urls.videoUrlSpanish ? { video_url_spanish: urls.videoUrlSpanish } : {}),
+                        ...(urls.videoUrlFrench ? { video_url_french: urls.videoUrlFrench } : {}),
+                      };
+                    });
+                  }}
                 />
 
-                <ContentCards content={module.content || ''} />
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">Module Content</h2>
+                    <p className="text-sm text-slate-500">Translate only the textual content sections. Images and videos remain unchanged.</p>
+                  </div>
+                  <div className="flex items-center gap-3" ref={langDropdownRef}>
+                    {contentLanguage !== 'en' && (
+                      <span className="text-xs text-slate-500 flex items-center gap-1.5 min-w-[80px]">
+                        {contentTranslating ? (
+                          <>
+                            <svg className="animate-spin h-3.5 w-3.5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Translating...</span>
+                          </>
+                        ) : (
+                          <span className="text-xs text-slate-400 font-medium">Translated</span>
+                        )}
+                      </span>
+                    )}
+                    <label className="text-sm font-medium text-slate-500">Language:</label>
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                        className="flex items-center gap-2 px-3 py-1.5 h-9 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm focus:outline-none"
+                      >
+                        <Globe className="h-4 w-4 text-slate-400" />
+                        <span>{SUPPORTED_LANGUAGES.find((l) => l.code === contentLanguage)?.name}</span>
+                        <ChevronDown className={clsx("h-4 w-4 text-slate-400 transition-transform duration-200", isLangDropdownOpen && "rotate-180")} />
+                      </button>
 
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
-                  <div className="p-6 h-96 overflow-y-auto bg-gray-50">
-                    {userChatHistory.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full text-center">
-                        <div className="text-6xl mb-4">💬</div>
-                        <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
-                        <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
+                      {isLangDropdownOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150 max-h-64 overflow-y-auto scrollbar-thin">
+                          {enabledLanguages.map((lang) => (
+                            <button
+                              key={lang.code}
+                              onClick={() => {
+                                setContentLanguage(lang.code);
+                                setIsLangDropdownOpen(false);
+                              }}
+                              className={clsx(
+                                "w-full flex items-center justify-between px-3 py-2 text-sm text-left transition-colors",
+                                contentLanguage === lang.code
+                                  ? "bg-blue-50 text-blue-700 font-semibold"
+                                  : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                              )}
+                            >
+                              <span>{lang.name}</span>
+                              {contentLanguage === lang.code && <Check className="h-4 w-4 text-blue-600" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <ContentCards
+                  content={module.content || ''}
+                  contentLanguage={contentLanguage}
+                  contentCache={sectionTranslationCache}
+                  onTranslatingChange={setContentTranslating}
+                  onTranslationCacheChange={persistSectionTranslationCache}
+                  moduleId={module.original_module_id || moduleId}
+                  employeeId={employeeData?.user_id}
+                />
+
+                {/* Chat Section - Only visible for Tier 2+ */}
+                <FeatureGate feature={FEATURES.CHAT_IN_STUDIO}>
+                  <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                    <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
+                      {userChatHistory.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-full text-center">
+                          <div className="text-6xl mb-4">💬</div>
+                          <h3 className="text-lg font-semibold text-gray-700 mb-2">Ask me anything about this module!</h3>
+                          <p className="text-sm text-gray-500">I can help clarify concepts, provide examples, or answer questions.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
                         {userChatHistory.map((msg, idx) => {
                           // Determine if TTS should be enabled for this bot reply
+                          // TTS is enabled if this is the most recent assistant message
+                          // AND it follows a voice user message
                           let ttsEnabled = false;
-                          if (msg.role === 'assistant') {
-                            // TTS only for the most recent bot reply after a voice input
-                            // Find the previous user message
-                            const prevUserIdx = userChatHistory.slice(0, idx).reverse().findIndex(m => m.role === 'user');
-                            const prevUserWasVoice = prevUserIdx === 0 ? lastUserInputWasVoice : false;
-                            ttsEnabled = idx === userChatHistory.length - 1 && lastUserInputWasVoice;
+                          if (msg.role === 'assistant' && idx === userChatHistory.length - 1) {
+                            // Find the most recent user message before this assistant message
+                            for (let i = idx - 1; i >= 0; i--) {
+                              if (userChatHistory[i].role === 'user') {
+                                ttsEnabled = userChatHistory[i].isVoice === true;
+                                break;
+                              }
+                            }
                           }
+                         
                           return (
                             <div
                               key={idx}
@@ -418,7 +555,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                             >
                               {msg.role === 'assistant' && (
-                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled} 
+                                <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled}
                                 onTTSComplete={() => {
                                 if (voiceLoopActive && idx === userChatHistory.length - 1) {
                                 setTimeout(() => setAutoStartMic(true), 300);
@@ -429,7 +566,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                               )}
                               <div
                                 className={clsx(
-                                  'rounded-lg px-4 py-3 max-w-3xl',
+                                  'rounded-lg px-4 py-3 max-w-[85%] sm:max-w-3xl',
                                   msg.role === 'user'
                                     ? 'bg-blue-600 text-white rounded-br-none'
                                     : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
@@ -462,30 +599,34 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     )}
                   </div>
 
-                  <div className="border-t border-slate-200 bg-white p-6">
-                    <form onSubmit={handleSendChat} className="flex gap-3">
+                  <div className="border-t border-slate-200 bg-white p-3 sm:p-4 lg:p-6">
+                    <form onSubmit={handleSendChat} className="flex flex-col sm:flex-row gap-3">
                       {/* <button
                         type="button"
                         className="p-3 rounded-full bg-slate-100 hover:bg-slate-200 transition-colors text-slate-600 disabled:opacity-50"
                       >
                         📎
                       </button> */}
-                      <VoiceInput 
+                      <VoiceInput
                         onTranscription={handleVoiceTranscription}
                         disabled={chatLoading}
                         autoStart={autoStartMic}
+                        onManualStop={() => {
+                          //console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                          setVoiceLoopActive(false);
+                        }}
                       />
                       <input
                         type="text"
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         placeholder="Ask for coaching, upload work, or chat..."
-                        className="flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
+                        className="w-full sm:flex-1 outline-none text-slate-700 placeholder-slate-400 bg-gray-50 rounded-lg px-4 py-3 border border-gray-200 focus:border-blue-500 focus:bg-white transition-all"
                         disabled={chatLoading}
                       />
                       <button
                         type="submit"
-                        className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full sm:w-auto px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={chatLoading || !chatInput.trim() || !module?.processed_module_id}
                       >
                         {chatLoading ? 'Sending...' : 'Send'}
@@ -493,6 +634,7 @@ export default function ModuleContentPage({ params }: { params: { module_id: str
                     </form>
                   </div>
                 </div>
+                </FeatureGate>
               </div>
             </main>
           </div>
@@ -551,9 +693,27 @@ function LoadingProgress({ label, progress }: { label: string; progress: number 
   );
 }
 
-function ContentCards({ content }: { content: string }) {
-  const sections = parseContentIntoSections(content);
-  const tabGroups = useMemo(() => groupSectionsForTabs(sections), [sections]);
+function ContentCards({
+  content,
+  contentLanguage,
+  contentCache,
+  onTranslatingChange,
+  onTranslationCacheChange,
+  moduleId,
+  employeeId,
+}: {
+  content: string;
+  contentLanguage: SupportedLanguage;
+  contentCache?: RefObject<Record<string, SectionBlock>>;
+  onTranslatingChange?: (value: boolean) => void;
+  onTranslationCacheChange?: (cache: Record<string, SectionBlock>) => void;
+  moduleId?: string;
+  employeeId?: string;
+}) {
+  const sections = useMemo(() => parseContentIntoSections(content), [content]);
+  const [translatedSections, setTranslatedSections] = useState<SectionBlock[] | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const tabGroups = useMemo(() => groupSectionsForTabs(translatedSections ?? sections), [sections, translatedSections]);
   const [activeTab, setActiveTab] = useState(tabGroups[0]?.key || '');
 
   useEffect(() => {
@@ -563,6 +723,188 @@ function ContentCards({ content }: { content: string }) {
       setActiveTab(tabGroups[0].key);
     }
   }, [tabGroups, activeTab]);
+
+  useEffect(() => {
+    if (typeof onTranslatingChange === 'function') {
+      onTranslatingChange(isTranslating);
+    }
+  }, [isTranslating, onTranslatingChange]);
+
+  useEffect(() => {
+    setTranslatedSections(null);
+    if (contentLanguage === 'en' || sections.length === 0) {
+      setIsTranslating(false);
+      return;
+    }
+
+    let active = true;
+    const translateText = async (text: string) => {
+      if (!text || !text.trim()) return text;
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, target: contentLanguage, source: 'en' }),
+        });
+        if (!res.ok) {
+          console.error('Translate failed for text chunk', res.status);
+          return text;
+        }
+        const j = await res.json();
+        return String(j.translated || text);
+      } catch (error) {
+        console.error('Translate error for text chunk', error);
+        return text;
+      }
+    };
+
+    const getCacheKey = (section: SectionBlock) => `${contentLanguage}::${section.title || ''}::${section.content || ''}`;
+
+    const translateSection = async (section: SectionBlock): Promise<SectionBlock> => {
+      const cacheKey = getCacheKey(section);
+      if (contentCache?.current?.[cacheKey]) {
+        return contentCache.current[cacheKey];
+      }
+
+      const titleText = section.title?.trim() || '';
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(section.content || '', 'text/html');
+      const textNodes: Text[] = [];
+
+      const walk = (node: Node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent?.trim();
+          if (text) textNodes.push(node as Text);
+          return;
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const tagName = (node as Element).tagName.toLowerCase();
+          if (tagName === 'script' || tagName === 'style' || tagName === 'noscript') return;
+          node.childNodes.forEach(walk);
+        }
+      };
+
+      walk(doc.body);
+      const rawTextValues = textNodes.map((node) => node.textContent || '');
+      const allParts = titleText ? [titleText, ...rawTextValues] : rawTextValues;
+      if (allParts.length === 0) {
+        return section;
+      }
+
+      const delimiter = '\uF8FF__TRANSLATE_DELIM__\uF8FF';
+      const combinedText = allParts.join(delimiter);
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: combinedText, target: contentLanguage, source: 'en' }),
+        });
+        // console.log("API Status", res.status);
+        
+        if (!res.ok) {
+          console.error('Translate failed for section', res.status);
+          const individual = await Promise.all(allParts.map((part) => translateText(part)));
+          let index = 0;
+          const translatedTitle = titleText ? individual[index++] : '';
+          textNodes.forEach((node) => {
+            node.textContent = individual[index++] ?? (node.textContent || '');
+          });
+          return {
+            ...section,
+            title: translatedTitle || section.title,
+            content: doc.body.innerHTML,
+          };
+        }
+        const j = await res.json();
+        const translated = String(j.translated || '');
+        const translatedParts = translated.split(delimiter);
+        
+        if (translatedParts.length !== allParts.length) {
+        const individual = await Promise.all(allParts.map((part) => translateText(part)));
+
+        let index = 0;
+        const translatedTitle = titleText ? individual[index++] : '';
+
+        textNodes.forEach((node) => {
+            node.textContent = individual[index++] ?? (node.textContent || '');
+        });
+
+        const translatedSection = {
+            ...section,
+            title: translatedTitle || section.title,
+            content: doc.body.innerHTML,
+        };
+
+        if (contentCache?.current) {
+            contentCache.current[cacheKey] = translatedSection;
+
+            if (typeof onTranslationCacheChange === 'function') {
+                onTranslationCacheChange(contentCache.current);
+            }
+        }
+
+        return translatedSection;
+    }
+
+        let index = 0;
+        const translatedTitle = titleText ? (translatedParts[index++] || titleText) : '';
+        textNodes.forEach((node) => {
+          node.textContent = translatedParts[index++] ?? (node.textContent || '');
+        });
+        const translatedSection = {
+          ...section,
+          title: translatedTitle || section.title,
+          content: doc.body.innerHTML,
+        };
+        if (contentCache?.current) {
+          contentCache.current[cacheKey] = translatedSection;
+          if (typeof onTranslationCacheChange === 'function') {
+            // console.log("Calling onTranslationCacheChange");
+            onTranslationCacheChange(contentCache.current);
+          }
+        }
+        return translatedSection;
+      } catch (error) {
+        console.error('Translate error for section', error);
+        const individual = await Promise.all(allParts.map((part) => translateText(part)));
+        let index = 0;
+        const translatedTitle = titleText ? individual[index++] : '';
+        textNodes.forEach((node) => {
+          node.textContent = individual[index++] ?? (node.textContent || '');
+        });
+        const translatedSection = {
+          ...section,
+          title: translatedTitle || section.title,
+          content: doc.body.innerHTML,
+        };
+        if (contentCache?.current) {
+          contentCache.current[cacheKey] = translatedSection;
+          if (typeof onTranslationCacheChange === 'function') {
+            onTranslationCacheChange(contentCache.current);
+          }
+        }
+        return translatedSection;
+      }
+    };
+
+    const runTranslation = async () => {
+      setIsTranslating(true);
+      try {
+        const translated = await Promise.all(sections.map(translateSection));
+        if (!active) return;
+        setTranslatedSections(translated);
+      } finally {
+        if (active) {
+          setIsTranslating(false);
+        }
+      }
+    };
+
+    runTranslation();
+    return () => {
+      active = false;
+    };
+  }, [contentLanguage, sections]);
 
   if (sections.length === 0) {
     return (
@@ -574,29 +916,94 @@ function ContentCards({ content }: { content: string }) {
 
   const activeGroup = tabGroups.find((group) => group.key === activeTab);
 
-  function formatContent(content: string): string {
-    // Sanitize and format the content to ensure safe rendering
-    const sanitizedContent = content
-      .replace(/<script[^>]*?>.*?<\/script>/gi, "") // Remove any script tags
-      .replace(/<style[^>]*?>.*?<\/style>/gi, "") // Remove any style tags
-      .replace(/on\w+="[^"]*"/gi, "") // Remove inline event handlers
-      .replace(/javascript:/gi, ""); // Remove javascript: URLs
+  function rewriteSupabaseSignedUrlsToPublic(html: string): string {
+    return html.replace(
+      /https?:\/\/([^.]+)\.supabase\.co\/storage\/v1\/object\/sign\/([^?"'<\s]+)(\?[^"'<>]*)?/gi,
+      (_match, project, assetPath) =>
+        `https://${project}.supabase.co/storage/v1/object/public/${assetPath}`
+    );
+  }
 
-    return sanitizedContent;
+  function formatContent(content: string): string {
+    const sanitizedContent = content
+      .replace(/<script[^>]*?>.*?<\/script>/gi, "")
+      .replace(/<style[^>]*?>.*?<\/style>/gi, "")
+      .replace(/on\w+="[^"]*"/gi, "")
+      .replace(/javascript:/gi, "");
+    return rewriteSupabaseSignedUrlsToPublic(sanitizedContent);
+  }
+
+  // Color palette for sections — cycling vibrant colors
+  const sectionStyles: Record<string, { bg: string; border: string; titleColor: string; icon: string }> = {
+    objectives: { bg: 'bg-gradient-to-br from-blue-50 via-blue-100 to-indigo-100', border: 'border-blue-400', titleColor: 'text-blue-800', icon: '🎯' },
+    activity: { bg: 'bg-gradient-to-br from-emerald-50 via-green-100 to-teal-100', border: 'border-emerald-400', titleColor: 'text-emerald-800', icon: '⚡' },
+    summary: { bg: 'bg-gradient-to-br from-violet-50 via-purple-100 to-fuchsia-100', border: 'border-purple-400', titleColor: 'text-purple-800', icon: '📝' },
+    discussion: { bg: 'bg-gradient-to-br from-amber-50 via-orange-100 to-yellow-100', border: 'border-amber-400', titleColor: 'text-amber-800', icon: '💬' },
+    example: { bg: 'bg-gradient-to-br from-cyan-50 via-sky-100 to-blue-100', border: 'border-cyan-400', titleColor: 'text-cyan-800', icon: '📖' },
+    definition: { bg: 'bg-gradient-to-br from-indigo-50 via-blue-100 to-violet-100', border: 'border-indigo-400', titleColor: 'text-indigo-800', icon: '📚' },
+    tip: { bg: 'bg-gradient-to-br from-lime-50 via-green-100 to-emerald-100', border: 'border-lime-500', titleColor: 'text-lime-800', icon: '💡' },
+    warning: { bg: 'bg-gradient-to-br from-red-50 via-rose-100 to-pink-100', border: 'border-red-400', titleColor: 'text-red-800', icon: '⚠️' },
+    intro: { bg: 'bg-gradient-to-br from-slate-50 via-gray-100 to-zinc-100', border: 'border-slate-300', titleColor: 'text-slate-800', icon: '📋' },
+  };
+
+  // Cycling colors for generic "section" types
+  const sectionCycleColors = [
+    { bg: 'bg-[#FFFFFF]/40', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔷' },
+    { bg: 'bg-[#FFFFFF]/30', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔶' },
+    { bg: 'bg-[#FFFFFF]/50', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟣' },
+    { bg: 'bg-[#FFFFFF]/35', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟢' },
+    { bg: 'bg-[#FFFFFF]/45', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🔴' },
+    { bg: 'bg-[#FFFFFF]/25', border: 'border-[#000000]', titleColor: 'text-[#000000]', icon: '🟡' },
+  ];
+
+  let sectionColorIdx = 0;
+
+  const getStyle = (type: string) => {
+    if (sectionStyles[type]) return sectionStyles[type];
+    const style = sectionCycleColors[sectionColorIdx % sectionCycleColors.length];
+    sectionColorIdx++;
+    return style;
+  };
+
+  if (isTranslating) {
+    return (
+      <div className="space-y-6 mb-8 animate-pulse">
+        {/* Skeleton Tabs */}
+        <div className="flex gap-2 sm:gap-4 mb-4 border-b border-gray-200 pb-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-8 w-20 bg-slate-200 rounded-md"></div>
+          ))}
+        </div>
+        
+        {/* Skeleton Cards */}
+        {[1, 2].map((i) => (
+          <div key={i} className="rounded-2xl border-2 border-slate-100 bg-slate-50/50 p-6 lg:p-8 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-6 w-48 bg-slate-200 rounded"></div>
+            </div>
+            <div className="space-y-2">
+              <div className="h-4 w-full bg-slate-200 rounded"></div>
+              <div className="h-4 w-5/6 bg-slate-200 rounded"></div>
+              <div className="h-4 w-4/6 bg-slate-200 rounded"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6 mb-8">
-      <div className="flex flex-wrap gap-6 mb-4 border-b border-gray-200 pb-2">
+      <div className="flex flex-nowrap sm:flex-wrap gap-2 sm:gap-4 mb-4 border-b border-gray-200 pb-2 overflow-x-auto">
         {tabGroups.map((group) => (
           <button
             key={group.key}
             onClick={() => setActiveTab(group.key)}
             className={clsx(
-              'px-1 pb-2 text-sm font-semibold transition-all border-b-2',
+              'shrink-0 px-3 pb-2 text-xs sm:text-sm font-semibold transition-all border-b-2 rounded-t-md whitespace-nowrap',
               activeTab === group.key
-                ? 'text-blue-700 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300'
+                ? 'text-blue-700 border-blue-600 bg-blue-50'
+                : 'text-gray-500 border-transparent hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50'
             )}
           >
             {group.label}
@@ -604,43 +1011,32 @@ function ContentCards({ content }: { content: string }) {
         ))}
       </div>
 
-      {activeGroup?.items.map((section, index) => (
-        <div
-          key={index}
-          className={clsx(
-            "rounded-xl border-2 shadow-md p-8 transition-all hover:shadow-lg",
-            section.type === 'objectives' ? 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-300' :
-              section.type === 'activity' ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' :
-                section.type === 'summary' ? 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-300' :
-                  section.type === 'discussion' ? 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-300' :
-                    'bg-white border-gray-300'
-          )}
-        >
-          {section.title && (
-            <div className="flex items-center gap-3 mb-6">
-              {/* {section.type === 'objectives' && <Lightbulb className="w-6 h-6 text-blue-600" />} */}
-              {/* {section.type === 'activity' && <Zap className="w-6 h-6 text-green-600" />}
-              {section.type === 'summary' && <BookOpen className="w-6 h-6 text-purple-600" />}
-              {section.type === 'discussion' && <Info className="w-6 h-6 text-orange-600" />} */}
-              <h2 className={clsx(
-                "font-bold",
-                section.type === 'objectives' ? 'text-2xl text-blue-900' :
-                  // section.type === 'section' ? 'text-2xl text-gray-900' :
-                    section.type === 'activity' ? 'text-xl text-green-900' :
-                      section.type === 'summary' ? 'text-xl text-purple-900' :
-                        section.type === 'discussion' ? 'text-xl text-orange-900' :
-                          ' text-gray-800'
-              )}>
-                {/* {section.title} */}
-              </h2>
-            </div>
-          )}
+      {activeGroup?.items.map((section, index) => {
+        const style = getStyle(section.type);
+        return (
           <div
-            className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: formatContent(section.content) }}
-          />
-        </div>
-      ))}
+            key={index}
+            className={clsx(
+              "rounded-2xl border-2 shadow-md p-4 sm:p-6 lg:p-8 transition-all hover:shadow-xl hover:scale-[1.005]",
+              style.bg,
+              style.border
+            )}
+          >
+            {section.title && (
+              <div className="flex items-center gap-3 mb-6">
+                {/* <span className="text-2xl">{style.icon}</span> */}
+                <h2 className={clsx("font-bold text-xl", style.titleColor)}>
+                  {section.title}
+                </h2>
+              </div>
+            )}
+            <MediaAwareHtml
+              html={formatContent(section.content)}
+              className="prose prose-sm max-w-none text-gray-800 leading-relaxed"
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -656,143 +1052,126 @@ function parseContentIntoSections(content: string) {
   const isHTML = /<[^>]+>/.test(content);
 
   if (isHTML) {
-    // Parse HTML content
-    return parseHTMLContent(content);
+    //console.log("This is returning html content");
+    // Split HTML content into sections based on <section> tags
+    return splitHTMLIntoSections(content);
   } else {
     // Parse markdown-style content (legacy fallback)
     return parseMarkdownContent(content);
   }
 }
 
-function parseHTMLContent(content: string) {
+function splitHTMLIntoSections(content: string): Array<{ type: string; title: string; content: string }> {
   const sections: Array<{ type: string; title: string; content: string }> = [];
 
-  // Create a temporary DOM parser
-  if (typeof window === 'undefined') {
-    // Server-side: return raw content as single section
-    return [{ type: 'intro', title: '', content }];
-  }
+  // Check if content uses <section> tags
+  const hasSectionTags = /<section[\s>]/i.test(content);
 
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(content, 'text/html');
+  if (hasSectionTags) {
+    // Parse based on <section> tags
+    const sectionRegex = /<section[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/section>/gi;
+    let match;
 
-    // Extract sections from HTML structure
-    const htmlSections = doc.querySelectorAll('section');
-    
-    if (htmlSections.length === 0) {
-      // No semantic sections, parse by h2 headings
-      return parseHTMLByHeadings(doc);
+    while ((match = sectionRegex.exec(content)) !== null) {
+      const className = match[1].trim();
+      const sectionHTML = match[2].trim();
+
+      // Extract title from the first <h2> or <h3> inside the section
+      const titleMatch = sectionHTML.match(/<h[2-3][^>]*>(.*?)<\/h[2-3]>/i);
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : '';
+
+      // Remove the first heading from content since we display it as the card title
+      const contentWithoutTitle = titleMatch
+        ? sectionHTML.replace(titleMatch[0], '').trim()
+        : sectionHTML;
+
+      // Determine section type from class name
+      let type = 'section';
+      if (className.includes('learning-objectives')) {
+        type = 'objectives';
+      } else if (className.includes('module-section')) {
+        // Extract section number if present (e.g., "Section 1: ...")
+        const sectionNumMatch = title.match(/Section\s+(\d+)/i);
+        type = sectionNumMatch ? `module-section-${sectionNumMatch[1]}` : 'module-section';
+      } else if (className.includes('activity')) {
+        type = 'activity';
+      } else if (className.includes('module-summary')) {
+        type = 'summary';
+      } else if (className.includes('discussion')) {
+        type = 'discussion';
+      }
+
+      const styledContent = styleHTMLContent(contentWithoutTitle);
+      sections.push({ type, title, content: styledContent });
     }
 
-    // Parse by semantic sections
-    htmlSections.forEach((section) => {
-      const classList = section.className;
-      let type = 'section';
-      
-      if (classList.includes('learning-objectives')) {
-        type = 'objectives';
-      } else if (classList.includes('activity')) {
-        type = 'activity';
-      } else if (classList.includes('module-section')) {
-        type = 'section';
-      } else if (classList.includes('module-summary')) {
-        type = 'summary';
-      } else if (classList.includes('next-steps')) {
-        type = 'conclusion';
-      }
-
-      // Extract title from h2 or h3
-      const h2 = section.querySelector('h2');
-      const h3 = section.querySelector('h3');
-      const title = (h2?.textContent || h3?.textContent || '').trim();
-
-      // Get inner HTML
-      const sectionHTML = section.innerHTML;
-
-      if (sectionHTML.trim()) {
-        sections.push({
-          type,
-          title,
-          content: sectionHTML
-        });
-      }
-    });
-
-    // If sections were extracted, return them
     if (sections.length > 0) {
       return sections;
     }
-
-    // Fallback: parse by h2 headings
-    return parseHTMLByHeadings(doc);
-  } catch (error) {
-    console.error('Error parsing HTML content:', error);
-    // Fallback to raw content
-    return [{ type: 'intro', title: '', content }];
-  }
-}
-
-function parseHTMLByHeadings(doc: Document) {
-  const sections: Array<{ type: string; title: string; content: string }> = [];
-  const wrapper = document.createElement('div');
-  wrapper.innerHTML = doc.body.innerHTML;
-
-  let currentSection: { type: string; title: string; html: HTMLElement } | null = null;
-
-  const children = Array.from(wrapper.children);
-
-  for (const child of children) {
-    if (child.tagName === 'H2') {
-      // Start new section
-      if (currentSection) {
-        sections.push({
-          type: getTypeFromHeading(currentSection.html),
-          title: currentSection.html.querySelector('h2')?.textContent || '',
-          content: currentSection.html.innerHTML
-        });
-      }
-
-      currentSection = {
-        type: 'section',
-        title: child.textContent || '',
-        html: document.createElement('div')
-      };
-
-      currentSection.html.appendChild(child.cloneNode(true));
-    } else if (currentSection) {
-      currentSection.html.appendChild(child.cloneNode(true));
-    } else {
-      // Content before first h2
-      const div = document.createElement('div');
-      div.appendChild(child.cloneNode(true));
-      sections.push({
-        type: 'intro',
-        title: '',
-        content: div.innerHTML
-      });
-    }
   }
 
-  // Add last section
-  if (currentSection) {
-    sections.push({
-      type: getTypeFromHeading(currentSection.html),
-      title: currentSection.html.querySelector('h2')?.textContent || '',
-      content: currentSection.html.innerHTML
+  // Fallback: split by <h2>/<h3> headings if no <section> tags found
+  const headingRegex = /<(h[1-3])[^>]*>(.*?)<\/\1>/gi;
+  const matches: Array<{ index: number; tag: string; title: string }> = [];
+
+  let headingMatch;
+  while ((headingMatch = headingRegex.exec(content)) !== null) {
+    matches.push({
+      index: headingMatch.index,
+      tag: headingMatch[1],
+      title: headingMatch[2].replace(/<[^>]*>/g, '').trim(),
     });
   }
 
-  return sections;
-}
+  if (matches.length === 0) {
+    const styledContent = styleHTMLContent(content);
+    return [{ type: 'intro', title: '', content: styledContent }];
+  }
 
-function getTypeFromHeading(element: HTMLElement): string {
-  const text = element.textContent?.toLowerCase() || '';
-  if (text.includes('objective')) return 'objectives';
-  if (text.includes('activity')) return 'activity';
-  if (text.includes('summary')) return 'summary';
-  if (text.includes('next steps')) return 'conclusion';
-  return 'section';
+  // Capture content before the first heading as intro
+  const beforeFirst = content.substring(0, matches[0].index).trim();
+  if (beforeFirst) {
+    const styledIntro = styleHTMLContent(beforeFirst);
+    const stripped = styledIntro.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    if (stripped.length > 0) {
+      sections.push({ type: 'intro', title: '', content: styledIntro });
+    }
+  }
+
+  const getSectionType = (title: string): string => {
+    const lower = title.toLowerCase();
+    if (lower.includes('learning objective')) return 'objectives';
+    if (lower.match(/section\s+\d+/)) {
+      const num = lower.match(/section\s+(\d+)/);
+      return num ? `module-section-${num[1]}` : 'module-section';
+    }
+    if (lower.includes('activity') || lower.includes('exercise')) return 'activity';
+    if (lower.includes('summary') || lower.includes('conclusion')) return 'summary';
+    if (lower.includes('discussion')) return 'discussion';
+    return 'section';
+  };
+
+  for (let i = 0; i < matches.length; i++) {
+    const heading = matches[i];
+    const endIdx = i + 1 < matches.length ? matches[i + 1].index : content.length;
+    const closingTag = `</${heading.tag}>`;
+    const closingIdx = content.indexOf(closingTag, heading.index);
+    const sectionStart = closingIdx >= 0 ? closingIdx + closingTag.length : content.indexOf('>', heading.index) + 1;
+    const sectionContent = content.substring(sectionStart, endIdx).trim();
+
+    if (sectionContent || heading.title) {
+      const styledContent = styleHTMLContent(sectionContent);
+      const sectionType = getSectionType(heading.title);
+      sections.push({ type: sectionType, title: heading.title, content: styledContent });
+    }
+  }
+
+  if (sections.length === 0) {
+    const styledContent = styleHTMLContent(content);
+    return [{ type: 'intro', title: '', content: styledContent }];
+  }
+
+  return sections;
 }
 
 function parseMarkdownContent(content: string) {
@@ -824,7 +1203,7 @@ function parseMarkdownContent(content: string) {
     if (currentSection) sections.push(currentSection);
     currentSection = section;
   };
-  
+ 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
@@ -840,20 +1219,20 @@ function parseMarkdownContent(content: string) {
 
     const sectionMatch = line.match(/^Section\s+(\d+)\s*:\s*(.+)$/i);
     if (sectionMatch) {
-      startSection({ 
-        type: 'section', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'section',
+        title: line,
+        content: ''
       });
       continue;
     }
 
     const activityMatch = line.match(/^Activity\s+(\d+)\s*:\s*(.+)$/i);
     if (activityMatch) {
-      startSection({ 
-        type: 'activity', 
-        title: line, 
-        content: '' 
+      startSection({
+        type: 'activity',
+        title: line,
+        content: ''
       });
       continue;
     }
@@ -867,7 +1246,7 @@ function parseMarkdownContent(content: string) {
       startSection({ type: 'discussion', title: 'Discussion Prompts', content: '' });
       continue;
     }
-    
+   
     const bulletMatch = line.match(/^[-\*•]\s+(.*)$/);
     const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
 
@@ -894,7 +1273,7 @@ function parseMarkdownContent(content: string) {
       currentSection = { type: 'intro', title: '', content: lines[i] + '\n' };
     }
   }
-  
+ 
   flushList();
   if (currentSection && currentSection.content.trim()) {
     sections.push(currentSection);
@@ -922,121 +1301,179 @@ function groupSectionsForTabs(sections: SectionBlock[]): TabGroup[] {
     return group;
   };
 
-  let sectionCounter = 0;
-  let hasPlacedOverview = false;
-  let currentKey = 'overview';
-  ensureGroup(currentKey, 'Overview');
-
-  const hasMeaningfulContent = (section: SectionBlock) => {
-    const stripped = (section.content || '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    return stripped.length > 0;
-  };
+  let lastSectionKey = 'overview';
 
   sections.forEach((section) => {
+    // Module sections get their own tab: "Section 1", "Section 2", etc.
+    const moduleSectionMatch = section.type.match(/^module-section-(\d+)$/);
+    if (moduleSectionMatch) {
+      const num = moduleSectionMatch[1];
+      const key = `section-${num}`;
+      const label = `Section ${num}`;
+      ensureGroup(key, label).items.push(section);
+      lastSectionKey = key;
+      return;
+    }
+
+    // Generic module-section without a number
+    if (section.type === 'module-section') {
+      const key = 'section-misc';
+      ensureGroup(key, 'Section').items.push(section);
+      lastSectionKey = key;
+      return;
+    }
+
+    // Summary / conclusion goes to its own tab
     if (section.type === 'summary') {
-      ensureGroup('conclusion', 'Conclusion').items.push(section);
+      ensureGroup('conclusion', 'Module Summary').items.push(section);
       return;
     }
 
-    if (!hasPlacedOverview && hasMeaningfulContent(section)) {
-      ensureGroup('overview', 'Overview').items.push(section);
-      currentKey = 'overview';
-      hasPlacedOverview = true;
+    // Activity gets appended to the last numbered section tab (or overview if none)
+    if (section.type === 'activity') {
+      ensureGroup(lastSectionKey, lastSectionKey === 'overview' ? 'Overview' : '').items.push(section);
       return;
     }
 
-    if (section.type === 'section') {
-      sectionCounter += 1;
-      currentKey = `section-${sectionCounter}`;
-      const label = `Section ${sectionCounter}`;
-      ensureGroup(currentKey, label).items.push(section);
-      return;
-    }
-
-    const key = sectionCounter > 0 ? `section-${sectionCounter}` : 'overview';
-    const label = sectionCounter > 0 ? `Section ${sectionCounter}` : 'Overview';
-    ensureGroup(key, label).items.push(section);
+    // Everything else (objectives, intro, discussion, etc.) goes to Overview
+    ensureGroup('overview', 'Overview').items.push(section);
   });
 
-  return groups;
+  // Remove any empty groups
+  return groups.filter((g) => g.items.length > 0);
 }
 
-function extractPlainText(content: string) {
-  return content
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/[#*>`_\-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
-  const messages: Array<{ speaker: string; text: string }> = [];
+// function parseChatFromTranscript(transcript: string): Array<{ speaker: string; text: string }> {
+//   const messages: Array<{ speaker: string; text: string }> = [];
 
 
-  // Split by sentence boundaries and alternate speakers
-  const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
-  let isSarah = true; // Start with Sarah to match TTS API
+//   // Split by sentence boundaries and alternate speakers
+//   const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [];
+//   let isSarah = true; // Start with Sarah to match TTS API
 
 
-  for (const sentence of sentences) {
-    const trimmed = sentence.trim();
-    if (trimmed) {
-      messages.push({
-        speaker: isSarah ? 'sarah' : 'mark',
-        text: trimmed
-      });
-      isSarah = !isSarah;
-    }
-  }
+//   for (const sentence of sentences) {
+//     const trimmed = sentence.trim();
+//     if (trimmed) {
+//       messages.push({
+//         speaker: isSarah ? 'sarah' : 'mark',
+//         text: trimmed
+//       });
+//       isSarah = !isSarah;
+//     }
+//   }
 
-  return messages;
-}
+//   return messages;
+// }
 
 function ContentTransformer({
   module,
-  employee,
+  employeeId,
   audioExpanded,
   setAudioExpanded,
   liveTranscript,
-  plainTranscript,
   setLiveTranscript,
-  onAudioGenerated,
-  hasVideo,
-  setHasVideo,
-  onVideoGenerated,
-  onModuleUpdate,
   userChatHistory,
-  setChatInput,
-  setUserChatHistory,
   chatLoading,
+  onModuleUpdate,
+  onAudioGenerated,
+  onVideoGenerated,
 }: any) {
   // Check if audio exists for each language
+  const { hasFeature, activeCompany } = useTenant();
+  
+
+  const canUsePodcast = hasFeature(FEATURES.LUCID_STUDIO_PODCAST);
+  const canUseVideo = hasFeature(FEATURES.LUCID_STUDIO_VIDEO);
+  const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
+  const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
+  const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
+ 
+  
+  // Get company-enabled language codes
+  const enabledCompanyLangCodes = useMemo(() => {
+    if (!activeCompany) return ['en']; // default to English only
+    return getCompanyEnabledLanguages(activeCompany).map(l => l.code);
+  }, [activeCompany]);
+  const enabledLanguages = getCompanyEnabledLanguages(activeCompany);
+
+  // Map audio/video language codes to company language codes
+  const filteredAudioVideoLanguages = enabledLanguages.map(lang => ({
+    code: lang.code,
+    name: lang.name,
+  }));
   const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
   const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
-  const hasAudio = hasEnglishAudio || hasHinglishAudio;
-  
+  const hasGermanAudio = !!(module.audio_url_german && module.podcast_transcript_german && module.podcast_timeline_german);
+  const hasSpanishAudio = !!(module.audio_url_spanish && module.podcast_transcript_spanish && module.podcast_timeline_spanish);
+  const hasFrenchAudio = !!(module.audio_url_french && module.podcast_transcript_french && module.podcast_timeline_french);
+  const hasKannadaAudio = !!(module.audio_url_kannada && module.podcast_transcript_kannada && module.podcast_timeline_kannada);
+  const hasAudio = hasEnglishAudio || hasHinglishAudio || hasGermanAudio || hasSpanishAudio || hasFrenchAudio || hasKannadaAudio;
+ 
   // Check if current language audio is available
-  const hasCurrentLanguageAudio = (language: 'en' | 'hinglish') => {
-    if (language === 'hinglish') {
-      return hasHinglishAudio;
-    }
-    return hasEnglishAudio;
+  const hasCurrentLanguageAudio = (languageCode: AudioVideoLanguage) => {
+    const audioField = getLocalizedFieldName(languageCode, 'audio');
+    const transcriptField = getLocalizedFieldName(languageCode, 'transcript');
+    const timelineField = getLocalizedFieldName(languageCode, 'timeline');
+    return !!(module?.[audioField] && module?.[transcriptField] && module?.[timelineField]);
   };
-  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]); 
-  const [language, setLanguage] = useState<'en' | 'hinglish'>('en');
-  const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic'>('audio');
+  const [chatMessages, setChatMessages] = useState<Array<{ speaker: string; text: string }>>([]);
+  const [language, setLanguage] = useState<AudioVideoLanguage>('en');
+  const [selectedOption, setSelectedOption] = useState<'audio' | 'video' | 'chat' | 'flashcard' | 'flashcards' | 'mindmap' | 'roleplay' | 'infographic' | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [audioOpen, setAudioOpen] = useState(false);
   const [flashcardSections, setFlashcardSections] = useState<any[] | null>(null);
   const [flashcardLoading, setFlashcardLoading] = useState(false);
+  const flashcardExportRef = useRef<(() => Promise<void>) | null>(null);
   const [mindmapData, setMindmapData] = useState<any | null>(null);
   const [mindmapLoading, setMindmapLoading] = useState(false);
+  const mindmapDownloadRef = useRef<(() => void) | null>(null);
   const [infographicData, setInfographicData] = useState<any | null>(null);
   const [infographicLoading, setInfographicLoading] = useState(false);
+  const [videoLanguage, setVideoLanguage] = useState<AudioVideoLanguage>('en');
+
+  const getLocalizedFieldName = (languageCode: AudioVideoLanguage | string, kind: 'audio' | 'transcript' | 'timeline' | 'video') => {
+    const normalized = String(languageCode || 'en').toLowerCase();
+
+    const fieldMap: Record<string, Record<'audio' | 'transcript' | 'timeline' | 'video', string>> = {
+      en: { audio: 'audio_url', transcript: 'podcast_transcript', timeline: 'podcast_timeline', video: 'video_url' },
+      hi: { audio: 'audio_url_hinglish', transcript: 'podcast_transcript_hinglish', timeline: 'podcast_timeline_hinglish', video: 'video_url_hinglish' },
+      de: { audio: 'audio_url_german', transcript: 'podcast_transcript_german', timeline: 'podcast_timeline_german', video: 'video_url_german' },
+      es: { audio: 'audio_url_spanish', transcript: 'podcast_transcript_spanish', timeline: 'podcast_timeline_spanish', video: 'video_url_spanish' },
+      fr: { audio: 'audio_url_french', transcript: 'podcast_transcript_french', timeline: 'podcast_timeline_french', video: 'video_url_french' },
+      kn: { audio: 'audio_url_kannada', transcript: 'podcast_transcript_kannada', timeline: 'podcast_timeline_kannada', video: 'video_url_kannada' },
+      hinglish: { audio: 'audio_url_hinglish', transcript: 'podcast_transcript_hinglish', timeline: 'podcast_timeline_hinglish', video: 'video_url_hinglish' },
+      german: { audio: 'audio_url_german', transcript: 'podcast_transcript_german', timeline: 'podcast_timeline_german', video: 'video_url_german' },
+      spanish: { audio: 'audio_url_spanish', transcript: 'podcast_transcript_spanish', timeline: 'podcast_timeline_spanish', video: 'video_url_spanish' },
+      french: { audio: 'audio_url_french', transcript: 'podcast_transcript_french', timeline: 'podcast_timeline_french', video: 'video_url_french' },
+      kannada: { audio: 'audio_url_kannada', transcript: 'podcast_transcript_kannada', timeline: 'podcast_timeline_kannada', video: 'video_url_kannada' },
+      english: { audio: 'audio_url', transcript: 'podcast_transcript', timeline: 'podcast_timeline', video: 'video_url' },
+    };
+
+    return fieldMap[normalized]?.[kind] ?? (kind === 'audio' ? 'audio_url' : kind === 'video' ? 'video_url' : `podcast_${kind}`);
+  };
+
+  useEffect(() => {
+    const parseMaybeJson = (value: any) => {
+      if (!value) return null;
+      if (typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      }
+      return value;
+    };
+
+    const flashcards = parseMaybeJson(module?.flashcard_data);
+    setFlashcardSections(Array.isArray(flashcards) ? flashcards : null);
+    setMindmapData(parseMaybeJson(module?.mindmap_data));
+    setInfographicData(parseMaybeJson(module?.infographic_data));
+    setFlashcardLoading(false);
+    setMindmapLoading(false);
+    setInfographicLoading(false);
+  }, [module?.flashcard_data, module?.mindmap_data, module?.infographic_data]);
 
   // Roleplay-specific state
   const [roleplayPersona, setRoleplayPersona] = useState<string>('Coach');
@@ -1047,7 +1484,7 @@ function ContentTransformer({
   const [roleplayPersist, setRoleplayPersist] = useState<boolean>(false);
 
   // Podcast timeline state
-  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: 'sarah' | 'mark' | 'pooja' | 'rahul'; text: string; startSec: number; endSec: number }>>([]);
+  const [podcastTimeline, setPodcastTimeline] = useState<Array<{ speaker: string; text: string; startSec: number; endSec: number }>>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
   const [transcriptStarted, setTranscriptStarted] = useState(false);
 
@@ -1057,60 +1494,80 @@ function ContentTransformer({
       'sarah': 'Sarah',
       'mark': 'Mark',
       'pooja': 'Pooja',
-      'rahul': 'Rahul'
+      'rahul': 'Rahul',
+      'anna': 'Anna',
+      'lukas': 'Lukas',
+      'lucia': 'Lucia',
+      'carlos': 'Carlos',
+      'claire': 'Claire',
+      'julien': 'Julien',
     };
     return names[speaker] || speaker;
   };
 
-  // Hydrate timeline from module.podcast_timeline on component mount
+  // Hydrate transcript and timeline from the currently selected language.
   useEffect(() => {
-    const timelineField = language === 'hinglish' ? 'podcast_timeline_hinglish' : 'podcast_timeline';
-    const timelineData = language === 'hinglish' ? module?.podcast_timeline_hinglish : module?.podcast_timeline;
-    
-    if (!timelineData) {
-      console.log(`[ContentTransformer] No ${timelineField} in module data`);
+    const timelineField = getLocalizedFieldName(language, 'timeline');
+    const transcriptField = getLocalizedFieldName(language, 'transcript');
+    const timelineData = (module as any)?.[timelineField];
+    const transcriptData = (module as any)?.[transcriptField];
+
+    setActiveSegmentIndex(-1);
+    setTranscriptStarted(false);
+
+    if (!timelineData && !transcriptData) {
+      setPodcastTimeline([]);
+      setLiveTranscript('');
       return;
     }
 
-    try {
-      let timeline = timelineData;
-      // If timeline is a string (JSON), parse it
-      if (typeof timeline === 'string') {
-        timeline = JSON.parse(timeline);
+    if (timelineData) {
+      try {
+        let timeline = timelineData;
+        if (typeof timeline === 'string') {
+          timeline = JSON.parse(timeline);
+        }
+
+        if (!Array.isArray(timeline)) {
+          console.warn(`[ContentTransformer] Invalid ${timelineField} format: not an array`, { timeline });
+          setPodcastTimeline([]);
+          return;
+        }
+
+        const isValid = timeline.every(
+          (seg: any) =>
+            typeof seg.speaker === 'string' &&
+            typeof seg.text === 'string' &&
+            typeof seg.startSec === 'number' &&
+            typeof seg.endSec === 'number'
+        );
+
+        if (!isValid) {
+          console.warn(`[ContentTransformer] ${timelineField} segments missing required fields`, { timeline });
+          setPodcastTimeline([]);
+          return;
+        }
+
+        setPodcastTimeline(timeline);
+      } catch (error) {
+        console.error(`[ContentTransformer] Failed to parse ${timelineField}:`, {
+          error,
+          raw: timelineData,
+        });
+        setPodcastTimeline([]);
       }
-
-      // Validate timeline data structure
-      if (!Array.isArray(timeline)) {
-        console.warn(`[ContentTransformer] Invalid ${timelineField} format: not an array`, { timeline });
-        return;
-      }
-
-      // Validate each segment has required fields
-      const isValid = timeline.every(
-        (seg: any) =>
-          typeof seg.speaker === 'string' &&
-          typeof seg.text === 'string' &&
-          typeof seg.startSec === 'number' &&
-          typeof seg.endSec === 'number'
-      );
-
-      if (!isValid) {
-        console.warn(`[ContentTransformer] ${timelineField} segments missing required fields`, { timeline });
-        return;
-      }
-
-      setPodcastTimeline(timeline);
-      // console.log(`[ContentTransformer] ${timelineField} loaded from module:`, {
-      //   segmentCount: timeline.length,
-      //   totalDuration: timeline.length > 0 ? timeline[timeline.length - 1].endSec : 0,
-      // });
-    } catch (error) {
-      console.error(`[ContentTransformer] Failed to parse ${timelineField}:`, {
-        error,
-        raw: timelineData,
-      });
+    } else {
+      setPodcastTimeline([]);
     }
-  }, [module?.podcast_timeline, module?.podcast_timeline_hinglish, language]);
+
+    if (typeof transcriptData === 'string') {
+      setLiveTranscript(transcriptData);
+    } else if (transcriptData) {
+      setLiveTranscript(String(transcriptData));
+    } else {
+      setLiveTranscript('');
+    }
+  }, [module, language]);
 
   const handleTimeUpdate = (current: number, duration: number, playbackRate: number = 1.0) => {
     if (!duration || podcastTimeline.length === 0) return;
@@ -1143,7 +1600,7 @@ function ContentTransformer({
     if (active !== activeSegmentIndex) {
       setActiveSegmentIndex(active);
       if (active >= 0 && active < podcastTimeline.length) {
-        // console.log('[ContentTransformer] Active segment:', {
+        // //console.log('[ContentTransformer] Active segment:', {
         //   index: active,
         //   speaker: podcastTimeline[active].speaker,
         //   currentTime: current,
@@ -1172,7 +1629,7 @@ function ContentTransformer({
     setRoleplayLoading(true);
 
     try {
-      const response = await fetch('/api/roleplay', {
+      const response = await fetchWithAuth('/api/roleplay', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1201,339 +1658,238 @@ function ContentTransformer({
 
   return (
     <div className="mb-10 w-full">
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg mb-6">
-        <div className="flex items-start gap-4 mb-8">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:p-8 shadow-lg mb-6">
+        <div className="flex flex-col sm:flex-row items-start gap-4 mb-8">
           <div className="h-14 w-14 rounded-xl bg-white border-2 border-slate-300 text-slate-800 flex items-center justify-center text-2xl shadow-lg">
             ✨
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Content Transformer</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Lucid Studio</h2>
             <p className="text-slate-600 text-sm mt-1">Convert this Sprint into your preferred format.</p>
           </div>
         </div>
 
-  <div className="grid grid-cols-5 gap-4 mb-6">
-          <div
-            onClick={() => {
-              if (selectedOption === 'audio') {
-                setAudioOpen((v) => !v);
-              } else {
-                setSelectedOption('audio');
-                setAudioOpen(true);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'audio'
-                ? 'bg-slate-50 border-blue-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🎧</div>
-            <div className="font-bold text-slate-900 text-sm">Podcast</div>
-            <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
-          </div>
+  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4 mb-6">
+          {canUsePodcast && (
+            <div
+              onClick={() => {
+                if (selectedOption === 'audio') {
+                  setAudioOpen((v) => !v);
+                } else {
+                  setSelectedOption('audio');
+                  setAudioOpen(true);
+                }
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'audio'
+                  ? 'bg-slate-50 border-blue-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🎧</div>
+              <div className="font-bold text-slate-900 text-sm">Podcast</div>
+              <div className="text-slate-500 text-xs mt-1">Listen on the go</div>
+            </div>
+          )}
 
-          <div
-            onClick={() => setSelectedOption('video')}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'video'
-                ? 'bg-slate-50 border-red-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🎬</div>
-            <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
-            <div className="text-slate-500 text-xs mt-1">Video lesson</div>
-          </div>
+          {canUseVideo && (
+            <div
+              onClick={() => setSelectedOption('video')}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'video'
+                  ? 'bg-slate-50 border-red-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🎬</div>
+              <div className="font-bold text-slate-900 text-sm">Explainer Video</div>
+              <div className="text-slate-500 text-xs mt-1">Video lesson</div>
+            </div>
+          )}
 
           {/* AI Chat (Voice assistant) button removed as requested */}
 
-          <div
-            onClick={async () => {
-              setSelectedOption('mindmap');
-              setMindmapLoading(true);
-              
-              try {
-                // Check if mindmap data already exists in the module
-                if (module.mindmap_data) {
-                  console.log('[mindmap] Using cached mindmap data');
-                  let cachedData = module.mindmap_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  setMindmapData(cachedData);
-                  setMindmapLoading(false);
-                  return;
-                }
+          {canUseMindmap && (
+            <div
+              onClick={async () => {
+                setSelectedOption('mindmap');
 
-                // Generate new mindmap if not cached
-                console.log('[mindmap] Generating new mindmap');
-                setMindmapData(null);
-                const studyText = plainTranscript || module.content || '';
-                const res = await fetch(`${API_BASE}/api/generate-mindmap`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: studyText, title: module.title }),
-                });
-                let data: any = null;
+                if (mindmapData || module.mindmap_data) return;
+
+                setMindmapLoading(true);
                 try {
-                  data = await res.json();
-                } catch (err) {
-                  const raw = await res.clone().text();
-                  console.error('[mindmap] parse error, raw:', raw.slice(0, 400));
-                  data = null;
-                }
+                  const studyText = module.content || '';
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-mindmap`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: studyText, title: module.title }),
+                  });
 
-                if (res.ok && data && data.nodes && data.edges) {
-                  setMindmapData(data);
-                  
-                  // Save mindmap data to Supabase
-                  try {
-                    const { error: updateError } = await supabase
-                      .from('processed_modules')
-                      .update({ mindmap_data: data })
-                      .eq('processed_module_id', module.processed_module_id);
-                    
-                    if (updateError) {
-                      console.error('[mindmap] Failed to save mindmap to database:', updateError);
-                    } else {
-                      console.log('[mindmap] Mindmap saved to database successfully');
-                      // Update local module state
+                  const data = await res.json();
+
+                  if (res.ok && data && data.nodes && data.edges) {
+                    setMindmapData(data);
+
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ mindmap_data: data }),
+                      });
+
                       if (onModuleUpdate) {
                         onModuleUpdate((prev: any) => ({ ...prev, mindmap_data: data }));
                       }
                     }
-                  } catch (saveError) {
-                    console.error('[mindmap] Error saving mindmap:', saveError);
                   }
-                } else {
-                  console.error('[mindmap] generation failed', data);
+                } catch (e) {
+                  console.error('Error generating mindmap', e);
                   setMindmapData(null);
+                } finally {
+                  setMindmapLoading(false);
                 }
-              } catch (e) {
-                console.error('Error generating mindmap', e);
-                setMindmapData(null);
-              } finally {
-                setMindmapLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'mindmap'
-                ? 'bg-slate-50 border-yellow-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🗺️</div>
-            <div className="font-bold text-slate-900 text-sm">Mindmap</div>
-            <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
-          </div>
-
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'mindmap'
+                  ? 'bg-slate-50 border-yellow-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🗺️</div>
+              <div className="font-bold text-slate-900 text-sm">Mindmap</div>
+              <div className="text-slate-500 text-xs mt-1">Structured concepts</div>
+            </div>
+          )}
           {/* Flash cards */}
-          <div
-            onClick={async () => {
-              // If already generated, just open the view
-              if (flashcardSections && flashcardSections.length > 0) {
+          {canUseFlashcards && (
+            <div
+              onClick={async () => {
                 setSelectedOption('flashcard');
-                return;
-              }
 
-              try {
-                setFlashcardLoading(true);
-                setSelectedOption('flashcard');
-                
-                // Check if flashcard data already exists in the module (cache)
-                if (module.flashcard_data) {
-                  console.log('[flashcards] Using cached flashcard data');
-                  let cachedData = module.flashcard_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  if (Array.isArray(cachedData) && cachedData.length > 0) {
-                    setFlashcardSections(cachedData);
-                    setFlashcardLoading(false);
-                    return;
-                  }
-                }
+                if (flashcardSections && flashcardSections.length > 0) return;
 
-                // Generate new flashcards if not cached
-                console.log('[flashcards] Generating new flashcards');
-                const studyText = plainTranscript || module.content || '';
-                console.log('[flashcards] starting fetch, studyText length:', (studyText || '').length);
-                const res = await fetch(`${API_BASE}/api/generate-flashcards-gemini`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: studyText }),
-                });
-
-                // Read raw text for debugging first, then attempt to parse JSON
-                const raw = await res.clone().text();
-                console.log('[flashcards] fetch status:', res.status, 'raw preview:', raw.slice(0, 400));
-
-                let data: any = null;
                 try {
-                  data = await res.json();
-                } catch (parseErr) {
-                  console.error('[flashcards] failed to parse JSON from response, parseErr:', parseErr);
-                  // fallback: try to parse raw substring
+                  setFlashcardLoading(true);
+
+                  const studyText = module.content || '';
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-flashcards-gemini`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: studyText }),
+                  });
+
+                  const raw = await res.clone().text();
+                  let data: any = null;
                   try {
+                    data = await res.json();
+                  } catch {
                     data = JSON.parse(raw);
-                  } catch (e2) {
-                    data = { raw };
                   }
-                }
 
-                console.log('[flashcards] parsed response:', data);
-
-                if (res.ok) {
-                  // Expecting an array of { heading, points }
-                  if (Array.isArray(data)) {
+                  if (res.ok && Array.isArray(data)) {
                     setFlashcardSections(data);
-                    
-                    // Save flashcard data to Supabase
-                    try {
-                      const { error: updateError } = await supabase
-                        .from('processed_modules')
-                        .update({ flashcard_data: data })
-                        .eq('processed_module_id', module.processed_module_id);
-                      
-                      if (updateError) {
-                        console.error('[flashcards] Failed to save flashcards to database:', updateError);
-                      } else {
-                        console.log('[flashcards] Flashcards saved to database successfully');
-                        // Update local module state
-                        if (onModuleUpdate) {
-                          onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
-                        }
+
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ flashcard_data: data }),
+                      });
+
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, flashcard_data: data }));
                       }
-                    } catch (saveError) {
-                      console.error('[flashcards] Error saving flashcards:', saveError);
                     }
-                  } else if (data && data.error) {
-                    setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data.error || data.detail || 'See console for details'] }]);
                   } else {
-                    setFlashcardSections([{ heading: 'Flashcard: unexpected response', points: [JSON.stringify(data).slice(0, 300)] }]);
+                    setFlashcardSections([{ heading: 'Generation failed', points: [data?.error || 'Check console'] }]);
                   }
-                } else {
-                  // Surface error to the UI so the user sees feedback instead of a silent failure
-                  setFlashcardSections([{ heading: 'Flashcard generation failed', points: [data?.error || data?.detail || 'See console for details'] }]);
-                  console.error('Flashcard generation failed', data);
+                } catch (e) {
+                  console.error('Error generating flashcards', e);
+                } finally {
+                  setFlashcardLoading(false);
                 }
-              } catch (e) {
-                console.error('Error generating flashcards', e);
-              } finally {
-                setFlashcardLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'flashcard'
-                ? 'bg-slate-50 border-green-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">🃏</div>
-            <div className="font-bold text-slate-900 text-sm">Flash cards</div>
-            <div className="text-slate-500 text-xs mt-1">Quick revision</div>
-          </div>
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'flashcard'
+                  ? 'bg-slate-50 border-green-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">🃏</div>
+              <div className="font-bold text-slate-900 text-sm">Flash cards</div>
+              <div className="text-slate-500 text-xs mt-1">Quick revision</div>
+            </div>
+          )}
 
           {/* Infographic button */}
-          <div
-            onClick={async () => {
-              // If already generated, just open the view
-              if (infographicData) {
+          {canUseInfographic && (
+            <div
+              onClick={async () => {
                 setSelectedOption('infographic');
-                return;
-              }
 
-              try {
-                setInfographicLoading(true);
-                setSelectedOption('infographic');
-                
-                console.log('[infographic] Starting generation...');
-                console.log('[infographic] Module title:', module.title);
-                console.log('[infographic] Content length:', (module.content || '').length);
-                console.log('[infographic] Processed module ID:', module.processed_module_id);
-                
-                // Check if infographic data already exists in the module (cache)
-                if (module.infographic_data) {
-                  console.log('[infographic] Using cached infographic data');
-                  let cachedData = module.infographic_data;
-                  if (typeof cachedData === 'string') {
-                    cachedData = JSON.parse(cachedData);
-                  }
-                  if (cachedData && (cachedData.title || cachedData.sections)) {
-                    setInfographicData(cachedData);
-                    setInfographicLoading(false);
-                    return;
-                  }
-                }
-                
-                const contentText = module.content || '';
-                
-                if (!contentText) {
-                  console.error('[infographic] No content available');
-                  alert('No content available to generate visual guide');
-                  setInfographicLoading(false);
-                  return;
-                }
-                
-                console.log('[infographic] Calling API...');
-                const res = await fetch(`${API_BASE}/api/generate-infographic`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    content: contentText, 
-                    title: module.title,
-                    processed_module_id: module.processed_module_id 
-                  }),
-                });
+                if (infographicData) return;
 
-                console.log('[infographic] API response status:', res.status);
-                
-                const raw = await res.clone().text();
-                console.log('[infographic] Raw response preview:', raw.slice(0, 500));
-
-                let data: any = null;
                 try {
-                  data = await res.json();
-                  console.log('[infographic] Parsed data:', data);
-                } catch (parseErr) {
-                  console.error('[infographic] Failed to parse JSON:', parseErr);
-                  console.error('[infographic] Raw response:', raw);
-                  alert('Failed to parse server response. Check console for details.');
-                  data = null;
-                }
+                  setInfographicLoading(true);
+                  const contentText = module.content || '';
 
-                if (res.ok && data && !data.error) {
-                  console.log('[infographic] Successfully generated!');
-                  setInfographicData(data);
-                } else {
-                  console.error('[infographic] Generation failed:', data);
-                  alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
-                  setInfographicData(null);
+                  const res = await fetchWithAuth(`${API_BASE}/api/generate-infographic`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      content: contentText,
+                      title: module.title,
+                      processed_module_id: module.processed_module_id,
+                    }),
+                  });
+
+                  let data: any = null;
+                  try {
+                    data = await res.json();
+                  } catch {
+                    console.error('Failed to parse JSON');
+                  }
+
+                  if (res.ok && data && !data.error) {
+                    setInfographicData(data);
+
+                    if (employeeId) {
+                      await fetchWithAuth(`${API_BASE}/api/processed-modules/${module.processed_module_id}/content-generation`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-User-ID': employeeId },
+                        body: JSON.stringify({ infographic_data: data }),
+                      });
+
+                      if (onModuleUpdate) {
+                        onModuleUpdate((prev: any) => ({ ...prev, infographic_data: data }));
+                      }
+                    }
+                  } else {
+                    alert(`Failed to generate visual guide: ${data?.error || 'Unknown error'}`);
+                  }
+                } catch (e: any) {
+                  console.error('[infographic] Error:', e);
+                  alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
+                } finally {
+                  setInfographicLoading(false);
                 }
-              } catch (e: any) {
-                console.error('[infographic] Error:', e);
-                alert(`Error generating visual guide: ${e.message || 'Unknown error'}`);
-                setInfographicData(null);
-              } finally {
-                setInfographicLoading(false);
-              }
-            }}
-            className={clsx(
-              'rounded-xl p-5 cursor-pointer transition-all border-2',
-              selectedOption === 'infographic'
-                ? 'bg-slate-50 border-purple-500 shadow-lg'
-                : 'bg-white border-slate-300 hover:border-slate-400'
-            )}
-          >
-            <div className="text-3xl mb-3">📊</div>
-            <div className="font-bold text-slate-900 text-sm">Visual Guide</div>
-            <div className="text-slate-500 text-xs mt-1">Structured overview</div>
-          </div>
+              }}
+              className={clsx(
+                'rounded-xl p-3 sm:p-4 lg:p-5 min-h-[118px] cursor-pointer transition-all border-2',
+                selectedOption === 'infographic'
+                  ? 'bg-slate-50 border-purple-500 shadow-lg'
+                  : 'bg-white border-slate-300 hover:border-slate-400'
+              )}
+            >
+              <div className="text-3xl mb-3">📊</div>
+              <div className="font-bold text-slate-900 text-sm">Visual Guide</div>
+              <div className="text-slate-500 text-xs mt-1">Structured overview</div>
+            </div>
+          )}
 
           {/* Flashcards button removed - keep only Flash cards button */}
           {/*<div
@@ -1555,43 +1911,87 @@ function ContentTransformer({
         {selectedOption === 'audio' && audioOpen && (
           <div className="space-y-3 flex flex-col">
              <div className="flex items-center gap-3">
-              <select
+              {/* <select
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as 'en' | 'hinglish')}
+                onChange={(e) => setLanguage(e.target.value as AudioVideoLanguage)}
                 className="px-3 py-1 rounded border text-sm bg-white"
               >
-                <option value="en">English</option>
-                <option value="hinglish">हिंदी</option>
-              </select>
+                {enabledLanguages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select> */}
+              <select
+                value={language}
+                onChange={(e) => {
+                  const selectedLang = e.target.value as AudioVideoLanguage;
+                  setLanguage(selectedLang);
 
-              {!hasCurrentLanguageAudio(language) && (
-                <GenerateAudioButton
-                  moduleId={module.processed_module_id}
-                  onAudioGenerated={(url, data) => {
-                    onAudioGenerated(url, data);
-                    if (data?.timeline && Array.isArray(data.timeline)) {
-                      // console.log('[ContentTransformer] Timeline received from audio generation:', {
-                      //   segmentCount: data.timeline.length,
-                      //   totalDuration: data.timeline.length > 0 ? data.timeline[data.timeline.length - 1].endSec : 0,
-                      // });
-                      setPodcastTimeline(data.timeline);
-                    } else if (!data?.timeline) {
-                      // console.warn('[ContentTransformer] No timeline returned from audio generation');
-                    }
-                  }}
-                  language={language}
-                />
-              )}
+                  const audio = document.getElementById("module-audio") as HTMLAudioElement | null;
+                  const currentTime = audio?.currentTime ?? 0;
+                  const wasPaused = audio?.paused ?? true;
+
+                  const audioField = getLocalizedFieldName(selectedLang, 'audio');
+                  const transcriptField = getLocalizedFieldName(selectedLang, 'transcript');
+                  const timelineField = getLocalizedFieldName(selectedLang, 'timeline');
+
+                  const newSrc = module?.[audioField];
+                  if (audio && newSrc) {
+                    audio.src = newSrc;
+                    audio.load();
+                    audio.onloadedmetadata = () => {
+                      audio.currentTime = currentTime;
+                      if (!wasPaused) {
+                        audio.play();
+                      }
+                      audio.onloadedmetadata = null;
+                    };
+                  }
+
+                  setActiveSegmentIndex(-1);
+                  setTranscriptStarted(false);
+                  setLiveTranscript(typeof module?.[transcriptField] === 'string' ? module[transcriptField] : '');
+
+                  try {
+                    const timeline = module?.[timelineField];
+                    setPodcastTimeline(
+                      typeof timeline === 'string' ? JSON.parse(timeline) : timeline || []
+                    );
+                  } catch {
+                    setPodcastTimeline([]);
+                  }
+                }}
+                className="px-3 py-1 rounded border text-sm bg-white"
+              >
+                {enabledLanguages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {lang.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {hasCurrentLanguageAudio(language) && (
               <>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <AudioPlayer
-                    employeeId={employee?.user_id}
+                    employeeId={employeeId}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
-                    audioUrl={language === 'hinglish' ? (module.audio_url_hinglish || module.audio_url) : module.audio_url}
+                    audioUrl={
+                      language === "hi"
+                        ? module.audio_url_hinglish
+                        : language === "de"
+                        ? module.audio_url_german
+                        : language === "es"
+                        ? module.audio_url_spanish
+                        : language === "fr"
+                        ? module.audio_url_french
+                        : language === "kn"
+                        ? module.audio_url_kannada
+                        : module.audio_url
+                    }
                     onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
@@ -1617,7 +2017,7 @@ function ContentTransformer({
                   </button>
 
                   {transcriptOpen && (
-                    <div className="mt-3 h-96 overflow-y-auto space-y-3 flex flex-col px-3">
+                    <div className="mt-3 h-72 sm:h-96 overflow-y-auto space-y-3 flex flex-col px-3">
                       {transcriptStarted && activeSegmentIndex >= 0 && podcastTimeline.length > 0 ? (
                         (() => {
                           const segments = [];
@@ -1686,24 +2086,159 @@ function ContentTransformer({
                 </div>
               </>
             )}
+
+            {!hasCurrentLanguageAudio(language) && (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Audio for this language is not available yet.</div>
+                <GenerateAudioButton
+                  moduleId={module.processed_module_id}
+                  language={language}
+                  onAudioGenerated={(url, data) => {
+                    if (onAudioGenerated) onAudioGenerated(url, data);
+                    if (data?.timeline && Array.isArray(data.timeline)) {
+                      setPodcastTimeline(data.timeline);
+                    }
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
-            {!hasVideo && (
-              <GenerateVideoButton
-                moduleId={module.processed_module_id}
-                onVideoGenerated={onVideoGenerated}
-              />
-            )}
-
-            {hasVideo && module.video_url && (
+            {(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french) && (
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <video controls className="w-full rounded-lg">
-                  <source src={module.video_url} type="video/mp4" />
+                <div className="flex justify-start gap-2 mb-2">
+                  <select
+                    value={videoLanguage}
+                    onChange={(e) => {
+                      const selectedLang = e.target.value as AudioVideoLanguage;
+                      setVideoLanguage(selectedLang);
+
+                      const video = document.getElementById("module-video") as HTMLVideoElement;
+                      if (!video) return;
+
+                      const currentTime = video.currentTime;
+                      const wasPaused = video.paused;
+
+                      const languageMap: Record<string, string> = {
+                        en: "",
+                        hi: "hinglish",
+                        de: "german",
+                        es: "spanish",
+                        fr: "french",
+                        kn: "kannada",
+                      };
+
+                      const suffix = languageMap[selectedLang] ?? selectedLang;
+                      const fieldName = suffix ? `video_url_${suffix}` : "video_url";
+
+                      const newSrc = module[fieldName];
+
+                      if (!newSrc) {
+                        console.warn(`Video not found for field: ${fieldName}`);
+                        return;
+                      }
+
+                      video.src = newSrc;
+                      video.load();
+
+                      video.onloadedmetadata = () => {
+                        video.currentTime = currentTime;
+                        if (!wasPaused) {
+                          video.play();
+                        }
+                        video.onloadedmetadata = null;
+                      };
+                    }}
+                  >
+                    {enabledLanguages.map((lang) => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.name}
+                      </option>
+                    ))}
+                  </select>
+                  {/* <select
+                    value={videoLanguage}
+                    onChange={(e) => {
+                      const selectedLang = e.target.value as AudioVideoLanguage;
+                      setVideoLanguage(selectedLang);
+                      const video = document.getElementById('module-video') as HTMLVideoElement;
+                      if (!video) return;
+                      const currentTime = video.currentTime;
+                      const isPaused = video.paused;
+                      const newSrc =
+                        selectedLang === 'hinglish'
+                          ? module.video_url_hinglish
+                          : selectedLang === 'german'
+                          ? module.video_url_german
+                          : selectedLang === 'spanish'
+                          ? module.video_url_spanish
+                          : selectedLang === 'french'
+                          ? module.video_url_french
+                          : module.video_url;
+                      if (newSrc) {
+                        video.src = newSrc;
+                        video.onloadedmetadata = () => {
+                          video.currentTime = currentTime;
+                          if (!isPaused) video.play();
+                          video.onloadedmetadata = null;
+                        };
+                      }
+                    }}
+                    className="px-3 py-1 rounded border text-sm bg-white"
+                  >
+                    {enabledLanguages.map((lang) => {
+                      const hasVideo =
+                        lang.code === 'en'
+                          ? !!module.video_url
+                          : lang.code === 'hinglish'
+                          ? !!module.video_url_hinglish
+                          : lang.code === 'german'
+                          ? !!module.video_url_german
+                          : lang.code === 'spanish'
+                          ? !!module.video_url_spanish
+                          : lang.code === 'french'
+                          ? !!module.video_url_french
+                          : false;
+                      return hasVideo ? (
+                        <option key={lang.code} value={lang.code}>{lang.name}</option>
+                      ) : null;
+                    })}
+                  </select> */}
+                </div>
+                <video id="module-video" controls className="w-full rounded-lg">
+                  <source
+                    src={
+                      videoLanguage === 'hinglish'
+                        ? module.video_url_hinglish
+                        : videoLanguage === 'german'
+                        ? module.video_url_german
+                        : videoLanguage === 'spanish'
+                        ? module.video_url_spanish
+                        : videoLanguage === 'french'
+                        ? module.video_url_french
+                        : videoLanguage === 'kannada'
+                        ? module.video_url_kannada
+                        : module.video_url
+                    }
+                    type="video/mp4"
+                  />
                   Your browser does not support video playback.
                 </video>
+              </div>
+            )}
+
+            {!(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french || module.video_url_kannada) && (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
+                <div>Video is not available yet.</div>
+                <GenerateVideoButton
+                  moduleId={module.processed_module_id}
+                  onVideoGenerated={(urls) => {
+                    if (onVideoGenerated) onVideoGenerated(urls);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -1711,20 +2246,37 @@ function ContentTransformer({
 
         {/* Placeholder / generated output for other options */}
         {selectedOption !== 'audio' && selectedOption !== 'video' && (
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
-            <div className="text-slate-600 text-sm text-left">
+          <div className="text-slate-600 text-sm text-left">
+
                   {selectedOption === 'flashcard' && (
                     <div>
                       {flashcardLoading && (
-                        <div className="flex flex-col items-center">
+                        <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left flex flex-col items-center">
                           <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                          <div>Generating flashcards...</div>
+                          <div>Loading flashcards...</div>
                         </div>
                       )}
 
                       {!flashcardLoading && (
                         <div>
-                              <FlashcardCards sections={flashcardSections} />
+                          {/* Download button outside the white box, aligned right */}
+                          {flashcardSections && flashcardSections.length > 0 && (
+                            <div className="mb-2 flex justify-end">
+                              <button
+                                onClick={() => flashcardExportRef.current?.()}
+                                                className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                                                title="Download flashcards PDF"
+                              >
+                                <Download size={16} />
+                              </button>
+                            </div>
+                          )}
+                          <div className="rounded-xl border border-slate-200 bg-white p-6 text-left">
+                            <FlashcardCards
+                              sections={flashcardSections}
+                              onExportReady={(fn) => { flashcardExportRef.current = fn; }}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1735,20 +2287,36 @@ function ContentTransformer({
               {selectedOption === 'mindmap' && (
                 <div>
                   {mindmapLoading && (
-                    <div className="flex flex-col items-center">
+                    <div className="rounded-xl border border-slate-200 bg-white p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating mindmap...</div>
+                      <div>Loading mindmap...</div>
                     </div>
                   )}
 
                   {!mindmapLoading && mindmapData && (
-                    <div className="w-full h-[60vh] rounded-lg border p-2 bg-white overflow-auto">
-                      <MindmapViewer data={mindmapData} source={module.content || ''} />
+                    <div>
+                      {/* Download button outside the white box, aligned right */}
+                      <div className="mb-2 flex justify-end">
+                        <button
+                          onClick={() => mindmapDownloadRef.current?.()}
+                          className="bg-white px-2 py-1 rounded shadow border flex items-center justify-center"
+                          title="Download mindmap image"
+                        >
+                          <Download size={16} />
+                        </button>
+                      </div>
+                      <div className="w-full h-[45vh] rounded-xl border border-slate-200 overflow-hidden">
+                        <MindmapViewer
+                          data={mindmapData}
+                          source={module.content || ''}
+                          onDownloadReady={(fn) => { mindmapDownloadRef.current = fn; }}
+                        />
+                      </div>
                     </div>
                   )}
 
                   {!mindmapLoading && !mindmapData && (
-                    <div className="text-sm text-gray-500">Click the Mindmap tile to generate and view the mindmap.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left text-sm text-gray-500">Mindmap is not available for this module yet.</div>
                   )}
 
                   {/* Debug preview removed */}
@@ -1758,17 +2326,16 @@ function ContentTransformer({
               {selectedOption === 'infographic' && (
                 <div>
                   {infographicLoading && (
-                    <div className="flex flex-col items-center">
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left flex flex-col items-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
-                      <div>Generating visual guide...</div>
+                      <div>Loading visual guide...</div>
                     </div>
                   )}
 
                   {!infographicLoading && infographicData && (
-                    <div className="w-full rounded-lg border p-4 bg-white">
-                      {/* Header with title and download button */}
-                      <div className="mb-4 flex items-center justify-between">
-                        <h3 className="text-2xl font-bold flex-1 text-center">{infographicData.title}</h3>
+                    <div>
+                      {/* Download button outside the white box, aligned right */}
+                      <div className="mb-2 flex justify-end">
                         <button
                           onClick={() => {
                             try {
@@ -1799,7 +2366,7 @@ function ContentTransformer({
                               if (infographicData.sections) {
                                 infographicData.sections.forEach((section: any) => {
                                   checkPageBreak(40);
-                                  
+                                 
                                   // Section title
                                   pdf.setFontSize(14);
                                   pdf.setFont('helvetica', 'bold');
@@ -1815,7 +2382,7 @@ function ContentTransformer({
                                       const pointTitle = pdf.splitTextToSize(`• ${point.title}`, pageWidth - 2 * margin - 10);
                                       pdf.text(pointTitle, margin + 5, yPosition);
                                       yPosition += pointTitle.length * 5 + 2;
-                                      
+                                     
                                       pdf.setFont('helvetica', 'normal');
                                       const pointText = pdf.splitTextToSize(point.text, pageWidth - 2 * margin - 10);
                                       pdf.text(pointText, margin + 5, yPosition);
@@ -1827,7 +2394,7 @@ function ContentTransformer({
                                   if (section.subSections) {
                                     section.subSections.forEach((sub: any) => {
                                       checkPageBreak(30);
-                                      
+                                     
                                       pdf.setFontSize(12);
                                       pdf.setFont('helvetica', 'bold');
                                       pdf.text(sub.title, margin + 10, yPosition);
@@ -1841,7 +2408,7 @@ function ContentTransformer({
                                           const subTitle = pdf.splitTextToSize(`  - ${subPoint.title}`, pageWidth - 2 * margin - 15);
                                           pdf.text(subTitle, margin + 15, yPosition);
                                           yPosition += subTitle.length * 4 + 2;
-                                          
+                                         
                                           pdf.setFont('helvetica', 'normal');
                                           const subText = pdf.splitTextToSize(subPoint.text, pageWidth - 2 * margin - 15);
                                           pdf.text(subText, margin + 15, yPosition);
@@ -1858,7 +2425,7 @@ function ContentTransformer({
                               // Critical flags
                               if (infographicData.criticalFlags && infographicData.criticalFlags.flags) {
                                 checkPageBreak(40);
-                                
+                               
                                 pdf.setFontSize(14);
                                 pdf.setFont('helvetica', 'bold');
                                 pdf.setTextColor(220, 38, 38); // Red color
@@ -1869,7 +2436,7 @@ function ContentTransformer({
                                 pdf.setFontSize(10);
                                 infographicData.criticalFlags.flags.forEach((flag: any) => {
                                   checkPageBreak(25);
-                                  
+                                 
                                   pdf.setFont('helvetica', 'bold');
                                   const flagTitle = pdf.splitTextToSize(`⚠ ${flag.title}`, pageWidth - 2 * margin - 5);
                                   pdf.text(flagTitle, margin + 5, yPosition);
@@ -1902,7 +2469,13 @@ function ContentTransformer({
                           <Download size={16} />
                         </button>
                       </div>
-                      
+
+                      <div className="w-full rounded-xl border border-slate-200 bg-white p-4">
+                        {/* Header with title */}
+                        <div className="mb-4 text-center">
+                          <h3 className="text-2xl font-bold">{infographicData.title}</h3>
+                        </div>
+                     
                       {/* Main sections */}
                       {infographicData.sections && infographicData.sections.map((section: any, sIdx: number) => (
                         <div key={sIdx} className="mb-8 pb-8">
@@ -1910,20 +2483,19 @@ function ContentTransformer({
                             <div className="text-3xl">{section.icon === 'umbrella' ? '☂️' : '📋'}</div>
                             <h4 className="text-xl font-bold text-gray-900">{section.title}</h4>
                           </div>
-                          
+                         
                           {section.points && section.points.map((point: any, pIdx: number) => (
                             <div key={pIdx} className="ml-12 mb-3">
                               <div className="font-semibold text-gray-800">{point.title}</div>
                               <div className="text-gray-600 text-sm">{point.text}</div>
                             </div>
                           ))}
-                          
                           {/* Sub-sections */}
                           {section.subSections && (
-                            <div className="grid grid-cols-3 gap-4 mt-6 ml-12">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-6 ml-0 md:ml-12">
                               {section.subSections.map((sub: any, subIdx: number) => (
-                                <div 
-                                  key={subIdx} 
+                                <div
+                                  key={subIdx}
                                   className={clsx(
                                     'rounded-xl p-5',
                                     sub.color === 'blue' ? 'bg-blue-50' :
@@ -1947,12 +2519,12 @@ function ContentTransformer({
                           )}
                         </div>
                       ))}
-                      
+                     
                       {/* Critical Flags */}
                       {infographicData.criticalFlags && (
                         <div className="mt-8 pt-8">
                           <h4 className="text-xl font-bold text-red-600 mb-6">{infographicData.criticalFlags.title}</h4>
-                          <div className="grid grid-cols-3 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                             {infographicData.criticalFlags.flags && infographicData.criticalFlags.flags.map((flag: any, fIdx: number) => (
                               <div key={fIdx} className="bg-red-50 border-2 border-red-300 rounded-xl p-5">
                                 <div className="text-3xl mb-2">
@@ -1968,17 +2540,18 @@ function ContentTransformer({
                           </div>
                         </div>
                       )}
+                      </div>
                     </div>
                   )}
 
                   {!infographicLoading && !infographicData && (
-                    <div className="text-sm text-gray-500">Click the Visual Guide tile to generate the structured overview.</div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-8 sm:p-12 text-left text-sm text-gray-500">Visual guide is not available for this module yet.</div>
                   )}
                 </div>
               )}
 
               {selectedOption === 'chat' && (
-                <div>
+                <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
                   <div className="rounded-xl border p-4 mb-4 max-h-96 overflow-auto bg-white">
                     {userChatHistory.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -2001,7 +2574,7 @@ function ContentTransformer({
                             )}
                             <div
                               className={clsx(
-                                'rounded-lg px-4 py-3 max-w-3xl',
+                                'rounded-lg px-4 py-3 max-w-[85%] sm:max-w-3xl',
                                 msg.role === 'user'
                                   ? 'bg-blue-600 text-white rounded-br-none'
                                   : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none'
@@ -2037,7 +2610,7 @@ function ContentTransformer({
 
               {selectedOption === 'roleplay' && (
                 <div>
-                  <div className="mb-4 grid grid-cols-2 gap-4">
+                  <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Persona</label>
                       <input
@@ -2079,7 +2652,7 @@ function ContentTransformer({
                     )}
                   </div>
 
-                  <form onSubmit={handleSendRoleplay} className="flex gap-3">
+                  <form onSubmit={handleSendRoleplay} className="flex flex-col sm:flex-row gap-3">
                     <input
                       value={roleplayInput}
                       onChange={(e) => setRoleplayInput(e.target.value)}
@@ -2089,7 +2662,7 @@ function ContentTransformer({
                     />
                     <button
                       type="submit"
-                      className="px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full sm:w-auto px-6 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={roleplayLoading || !roleplayInput.trim()}
                     >
                       {roleplayLoading ? 'Sending...' : 'Send'}
@@ -2098,7 +2671,6 @@ function ContentTransformer({
                 </div>
               )}
             </div>
-          </div>
         )}
       </div>
     </div>
@@ -2127,13 +2699,18 @@ function formatContent(content: string) {
     return styleHTMLContent(content);
   }
 
+  //console.log("This is not a html content")
+
   // Legacy markdown-to-HTML conversion for backward compatibility
   return styleMarkdownContent(content);
 }
 
 function styleHTMLContent(content: string): string {
+
+  //console.log("Style the html content is called")
   // Create a temporary container to work with HTML
   if (typeof window === 'undefined') {
+    //console.log("Inside this if")
     // Server-side fallback
     return sanitizeHTML(content);
   }
@@ -2145,12 +2722,20 @@ function styleHTMLContent(content: string): string {
     // Style tables with Tailwind classes
     const tables = container.querySelectorAll('table');
     tables.forEach((table) => {
-      table.className = 'w-full border-collapse border border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
-      
+      table.className = 'w-full border-2 border-gray-300 rounded-lg overflow-hidden shadow-sm mb-6';
+      table.setAttribute('style', 'border-collapse: collapse; border: 2px solid rgb(0, 0, 0); table-layout: fixed; word-wrap: break-word;');
+     
       // Style table headers
       const headers = table.querySelectorAll('thead th, thead td');
       headers.forEach((header) => {
         header.className = 'bg-blue-50 border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900 text-sm';
+        (header as HTMLElement).style.cssText = 'border: 1px solid rgb(0, 0, 0); padding: 12px 16px; background-color: #eff6ff; font-weight: 600;';
+      });
+
+      // Style table rows
+      const rows = table.querySelectorAll('tr');
+      rows.forEach((row) => {
+        (row as HTMLElement).style.cssText = 'border-bottom: 2px solid rgb(21, 22, 22);';
       });
 
       // Style table body
@@ -2158,7 +2743,13 @@ function styleHTMLContent(content: string): string {
       cells.forEach((cell, idx) => {
         const isEvenRow = Math.floor(idx / (table.querySelectorAll('tbody tr')[0]?.children.length || 1)) % 2;
         cell.className = `border border-gray-300 px-4 py-3 text-gray-800 text-sm ${isEvenRow ? 'bg-white' : 'bg-gray-50'}`;
+        (cell as HTMLElement).style.cssText = `border: 1px solid rgb(11, 12, 12); padding: 12px 16px; ${isEvenRow ? 'background-color: #ffffff;' : 'background-color: #f9fafb;'}`;
       });
+
+
+
+      //console.log("THis is the edited table")
+      //console.log(table.querySelectorAll)
     });
 
     // Style headings
@@ -2226,7 +2817,7 @@ function styleHTMLContent(content: string): string {
         }
 
         div.className = `${bgColor} border-l-4 ${borderColor} p-4 rounded-r-lg mb-4`;
-        
+       
         // Style strong tags inside callouts as titles
         const strong = div.querySelector('strong');
         if (strong) {
@@ -2309,7 +2900,107 @@ function styleMarkdownContent(content: string): string {
   formatted = formatted.replace(/\s*\([CS|CR|AS|AR|cs|cr|as|ar|,\s]+\)/gi, '');
   formatted = formatted.replace(/\b(CS|CR|AS|AR)\b(?=\W|$)/g, '');
 
+
+  //console.log("This is getting called",formatted)
   return formatted;
+}
+
+function GenerateAudioButton({
+  moduleId,
+  onAudioGenerated,
+  language = 'en',
+}: {
+  moduleId: string;
+  onAudioGenerated: (url: string, data?: any) => void;
+  language?: AudioVideoLanguage;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=${language}`);
+      const data = await res.json();
+      if (res.ok && data.audioUrl) {
+        onAudioGenerated(data.audioUrl, {
+          transcript: data.podcastTranscript,
+          timeline: data.podcastTimeline,
+          language,
+        });
+      } else {
+        setError(data.error || 'Failed to generate audio');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating audio');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Audio...' : 'Generate Audio'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
+}
+
+function GenerateVideoButton({
+  moduleId,
+  onVideoGenerated,
+}: {
+  moduleId: string;
+  onVideoGenerated: (urls: { videoUrl?: string; videoUrlHinglish?: string; videoUrlGerman?: string; videoUrlSpanish?: string; videoUrlFrench?: string }) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/gpt-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ processed_module_id: moduleId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.videoUrl) {
+        onVideoGenerated({
+          videoUrl: data.videoUrl,
+          videoUrlHinglish: data.videoUrlHinglish,
+          videoUrlGerman: data.videoUrlGerman,
+          videoUrlSpanish: data.videoUrlSpanish,
+          videoUrlFrench: data.videoUrlFrench,
+        });
+      } else {
+        setError(data.error || 'Failed to generate video');
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Error generating video');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start">
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
+        onClick={handleGenerate}
+        disabled={loading}
+      >
+        {loading ? 'Generating Video...' : 'Generate Video'}
+      </button>
+      {error && <div className="text-red-600 mt-2 text-sm">{error}</div>}
+    </div>
+  );
 }
 
 function sanitizeHTML(html: string): string {
@@ -2340,104 +3031,6 @@ function sanitizeHTML(html: string): string {
     console.error('Error sanitizing HTML:', error);
     return html;
   }
-}
-
-// Add GenerateAudioButton component
-
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-function GenerateAudioButton({ moduleId, onAudioGenerated, language = 'en' }: { moduleId: string, onAudioGenerated: (url: string, data?: { transcript?: string; timeline?: any; language?: 'en' | 'hinglish' }) => void, language?: 'en' | 'hinglish' }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (language === 'hinglish') {
-        // Hinglish generation implementation
-        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=hinglish`);
-        const data = await res.json();
-        if (res.ok && data.audioUrl) {
-          onAudioGenerated(data.audioUrl, {
-            transcript: data.podcastTranscript,
-            timeline: data.podcastTimeline,
-            language: 'hinglish'
-          });
-        } else {
-          setError(data.error || 'Failed to generate Hinglish audio');
-        }
-      } else {
-        const res = await fetch(`${API_BASE}/api/tts?processed_module_id=${moduleId}&language=en`);
-        const data = await res.json();
-        if (res.ok && data.audioUrl) {
-          onAudioGenerated(data.audioUrl, {
-            transcript: data.podcastTranscript,
-            timeline: data.podcastTimeline,
-            language: 'en'
-          });
-        } else {
-          setError(data.error || 'Failed to generate audio');
-        }
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Error generating audio');
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex flex-col items-center">
-      <button
-        className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 disabled:opacity-50"
-        onClick={handleGenerate}
-        disabled={loading}
-      >
-        {loading ? 'Generating Audio...' : 'Generate Audio'}
-      </button>
-      {error && <div className="text-red-600 mt-2">{error}</div>}
-    </div>
-  );
-}
-
-function GenerateVideoButton({ moduleId, onVideoGenerated }: { moduleId: string, onVideoGenerated: (url: string) => void }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/gpt-video`, {
-      // const res = await fetch(`/api/gpt-video-generation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ processed_module_id: moduleId }),
-      });
-      const data = await res.json();
-      if (res.ok && data.videoUrl) {
-        onVideoGenerated(data.videoUrl);
-      } else {
-        setError(data.error || 'Failed to generate video');
-      }
-    } catch (e: any) {
-      setError(e?.message || 'Error generating video');
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="flex flex-col items-center">
-      <button
-        className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 disabled:opacity-50"
-        onClick={handleGenerate}
-        disabled={loading}
-      >
-        {loading ? 'Generating Video...' : 'Generate Video'}
-      </button>
-      {error && <div className="text-red-600 mt-2">{error}</div>}
-    </div>
-  );
 }
 
 // Helper: escape XML-sensitive characters for safe insertion into SVG

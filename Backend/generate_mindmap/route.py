@@ -21,6 +21,28 @@ MindGraph = Dict[str, List[Dict[str, Any]]]
 
 
 # ------------------------------------------------------------------
+# STRIP HTML HELPER
+# ------------------------------------------------------------------
+
+def strip_html(text: str) -> str:
+    if not text:
+        return ""
+    # Replace block-level tags with newlines to preserve structure/line breaks
+    text = re.sub(r"</?(p|div|br|h[1-6]|li|tr|section|article|blockquote)[^>]*>", "\n", text, flags=re.I)
+    # Strip all other HTML tags
+    text = re.sub(r"<[^>]+>", " ", text)
+    # Decode basic HTML entities
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+    # Clean up excess spaces but keep newlines
+    lines = []
+    for line in text.split("\n"):
+        cleaned_line = re.sub(r"\s+", " ", line).strip()
+        if cleaned_line:
+            lines.append(cleaned_line)
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------
 # SPLIT INTO SECTIONS
 # ------------------------------------------------------------------
 
@@ -198,6 +220,9 @@ async def POST(req: Request):
         body = await req.json()
         content = str(body.get("content") or "")
         title = str(body.get("title") or "")
+
+        # Clean HTML tags preserving block structures
+        content = strip_html(content)
 
         gemKey = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GENAI_API_KEY")
 

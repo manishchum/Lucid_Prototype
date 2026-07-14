@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { supabase } from "@/lib/supabase";
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 interface Employee {
   user_id: string;
@@ -37,16 +37,24 @@ interface UpdateEmployeeModalProps {
   isOpen: boolean;
   onClose: () => void;
   employee: Employee;
+  subDepartments?: SubDepartment[];
+  roles?: Role[];
   currentRole?: string[];
   onSuccess: () => void;
+  adminId?: string; // <-- added: id of the admin performing changes (optional)
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   isOpen,
   onClose,
   employee,
+  subDepartments = [],
+  roles = [],
   currentRole,
-  onSuccess
+  onSuccess,
+  adminId
 }) => {
   const [formData, setFormData] = useState({
     name: employee.name || '',
@@ -61,14 +69,12 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{[key: string]: string}>({});
-  const [subDepartments, setSubDepartments] = useState<SubDepartment[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
   const [currentRoleAssignments, setCurrentRoleAssignments] = useState<string[]>([]);
+  const [currentAssignments, setCurrentAssignments] = useState<any[]>([]); // holds assignment objects from backend
 
   // Load dropdown data when modal opens
   useEffect(() => {
     if (isOpen) {
-      loadDropdownData();
       // Reset form data when employee changes
       setFormData({
         name: employee.name || '',
@@ -85,48 +91,28 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
     }
   }, [isOpen, employee]);
 
-  const loadDropdownData = async () => {
-    try {
-      // Load subdepartments
-      const { data: subDeptData, error: subDeptError } = await supabase
-        .from('sub_department')
-        .select('*')
-        .order('department_name')
-        .order('sub_department_name');
-
-      if (subDeptError) throw subDeptError;
-      setSubDepartments(subDeptData || []);
-
-      // Load roles
-      const { data: rolesData, error: rolesError } = await supabase
-        .from('roles')
-        .select('role_id, name, description')
-        .order('name');
-
-      if (rolesError) throw rolesError;
-      setRoles(rolesData || []);
-    } catch (error) {
-      // console.error('Failed to load dropdown data:', error);
-      setError('Failed to load form data');
-    }
-  };
-
   const loadCurrentRoles = async () => {
     try {
-      const { data: roleAssignments, error } = await supabase
-        .from('user_role_assignments')
-        .select('role_id')
-        .eq('user_id', employee.user_id)
-        .eq('is_active', true);
+      // Use backend API to fetch role assignments (migrated off frontend DB access)
+      const requesterId = (typeof (adminId as any) !== 'undefined') ? (adminId as string) : employee.user_id;
+      const res = await fetchWithAuth(`${API_BASE}/api/roles/users/${encodeURIComponent(employee.user_id)}`, {
+        headers: { 'X-User-ID': requesterId }
+      });
 
-      if (error && error.code !== 'PGRST116') throw error;
-      
-      const roleIds = roleAssignments?.map((ra: any) => ra.role_id) || [];
+      if (!res.ok) {
+        // treat as no roles rather than hard failure
+        setCurrentAssignments([]);
+        setCurrentRoleAssignments([]);
+        setFormData(prev => ({ ...prev, selected_roles: [] }));
+        return;
+      }
+
+      const payload = await res.json().catch(() => ({}));
+      const assignments = payload?.assignments ?? payload?.data ?? payload ?? [];
+      const roleIds = (assignments || []).map((a: any) => a.role_id).filter(Boolean);
+      setCurrentAssignments(assignments || []);
       setCurrentRoleAssignments(roleIds);
-      setFormData(prev => ({
-        ...prev,
-        selected_roles: [...roleIds]
-      }));
+      setFormData(prev => ({ ...prev, selected_roles: [...roleIds] }));
     } catch (error) {
       // console.error('Failed to load current roles:', error);
     }
@@ -149,21 +135,19 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
   // Check if email already exists (excluding current employee)
   const checkEmailExists = async (email: string): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('user_id')
-        .eq('email', email.toLowerCase())
-        .neq('user_id', employee.user_id) // Exclude current employee
-        .single();
-      
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error checking email:', error);
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (res.status === 404) return false;
+      if (!res.ok) {
+        console.error('Failed to check email existence:', await res.text().catch(() => res.statusText));
         return false;
       }
-      
-      return !!data; // Returns true if email exists
+      const payload = await res.json();
+      let found = payload?.user ?? payload;
+      if (Array.isArray(found)) found = found[0];
+      if (!found) return false;
+      return String(found.user_id) !== String(employee.user_id);
     } catch (error) {
-      console.error('Error checking email:', error);
+      console.error('Failed to check email existence:', error);
       return false;
     }
   };
@@ -280,54 +264,76 @@ const UpdateEmployeeModal: React.FC<UpdateEmployeeModalProps> = ({
     }
 
     try {
-      // Update user in users table
-      const { error: userError } = await supabase
-        .from('users')
-        .update({
+      const updateRes = await fetchWithAuth(`${API_BASE}/api/users/${encodeURIComponent(employee.user_id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           name: formData.name,
-          email: formData.email.toLowerCase(),
+          email: formData.email.toLocaleLowerCase(),
           department_id: formData.department_id || null,
-          position: formData.position || null,
-          phone: formData.phone || null,
+          position: formData.phone || null,
+          phone: formData.position || null,
           employment_status: formData.employment_status
         })
-        .eq('user_id', employee.user_id);
+      });
 
-      if (userError) throw userError;
+      if (!updateRes.ok) {
+        const txt = await updateRes.text().catch(() => '');
+        const status = updateRes.status;
+        const msg = txt || updateRes.statusText || 'Failed to update user';
+        if (status === 409 || (msg && msg.toLowerCase().includes('email'))) {
+          setFieldErrors(prev => ({ ...prev, email: 'An employee with this email already exists' }));
+          throw new Error('Email already exists');
+        }
+        throw new Error(msg);
+      }
 
-      // Handle role assignment changes
+      // Handle role assignment changes via backend routes
+      const requesterId = (typeof (adminId as any) !== 'undefined') ? (adminId as string) : employee.user_id;
       const currentRoleSet = new Set(currentRoleAssignments);
       const newRoleSet = new Set(formData.selected_roles);
 
-      // Deactivate roles that are no longer selected
+      // Revoke (deactivate) assignments that are no longer selected
       const rolesToDeactivate = currentRoleAssignments.filter(roleId => !newRoleSet.has(roleId));
       if (rolesToDeactivate.length > 0) {
-        await supabase
-          .from('user_role_assignments')
-          .update({ is_active: false })
-          .eq('user_id', employee.user_id)
-          .in('role_id', rolesToDeactivate);
+        // find matching assignment ids from currentAssignments
+        const assignmentsToRevoke = (currentAssignments || []).filter((a: any) => rolesToDeactivate.includes(a.role_id));
+        for (const a of assignmentsToRevoke) {
+          try {
+            await fetchWithAuth(`${API_BASE}/api/roles/assignments/${encodeURIComponent(a.user_role_assignment_id)}`, {
+              method: 'DELETE',
+              headers: { 'X-User-ID': requesterId }
+            });
+          } catch (err) {
+            console.error('Failed to revoke role assignment', a, err);
+          }
+        }
       }
 
       // Add new roles that weren't previously assigned
       const rolesToAdd = formData.selected_roles.filter(roleId => !currentRoleSet.has(roleId));
       if (rolesToAdd.length > 0) {
-        const roleAssignments = rolesToAdd.map(roleId => ({
-          user_id: employee.user_id,
-          role_id: roleId,
-          scope_type: 'COMPANY',
-          scope_id: employee.department_id || null,
-          assigned_by: employee.user_id, // In production, this should be the current admin's ID
-          is_active: true
-        }));
-
-        const { error: roleError } = await supabase
-          .from('user_role_assignments')
-          .insert(roleAssignments);
-
-        if (roleError) {
-          console.error('Role assignment failed:', roleError);
-          // Don't fail the entire operation if role assignment fails
+        for (const roleId of rolesToAdd) {
+          try {
+            await fetchWithAuth(`${API_BASE}/api/roles/assignments`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': requesterId
+              },
+              body: JSON.stringify({
+                user_id: employee.user_id,
+                role_id: roleId,
+                scope_type: 'COMPANY',
+                scope_id: employee.department_id || null,
+                notes: 'Assigned via admin UI'
+              })
+            });
+          } catch (err) {
+            console.error('Failed to create role assignment for role', roleId, err);
+          }
         }
       }
 

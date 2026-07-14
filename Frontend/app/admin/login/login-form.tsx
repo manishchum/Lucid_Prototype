@@ -18,6 +18,8 @@ import { auth, googleProvider } from "@/lib/firebase"
 import { supabase } from "@/lib/supabase"
 import { Building2 } from "lucide-react"
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
 export default function AdminLoginForm() {
   const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState("")
@@ -32,6 +34,13 @@ export default function AdminLoginForm() {
 
   useEffect(() => {
     const urlError = searchParams.get("error")
+    const secureBlocked = searchParams.get("securetoken_blocked");
+    if (secureBlocked) {
+      setError(
+        "Authentication token refresh blocked by Google Cloud API key restrictions. Check API key restrictions and enable Identity Toolkit (Secure Token) API."
+      )
+      return
+    }
     if (urlError) {
       switch (urlError) {
         case "access_denied":
@@ -79,18 +88,20 @@ export default function AdminLoginForm() {
     setError("")
 
     try {
-      // First create the company in Supabase
-      const { data: companyData, error: companyError } = await supabase
-        .from("companies")
-        .insert({
-          name: companyName,
-          domain: companyDomain,
-        })
-        .select()
-        .single()
+      const compRes = await fetch(`${API_BASE}/api/companies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: companyName, domain: companyDomain }),
+      })
+      if (!compRes.ok) {
+        const txt = await compRes.text().catch(() => "")
+        throw new Error(`Error creating company: ${compRes.status} ${txt}`)
+      }
 
-      if (companyError) throw companyError
-
+      const payload = await compRes.json().catch(() => null)
+      const companyData = payload?.company ?? payload
+      if (!companyData || !companyData.company_id) throw new Error("Invalid company data returned from server")
+        
       // Create Firebase user
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
 

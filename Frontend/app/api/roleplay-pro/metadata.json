@@ -1,7 +1,7 @@
-{
-  "name": "RolePlay Pro",
-  "description": "A voice-enabled role-play tool to practice business situations with an AI avatar, providing real-time feedback and post-scenario assessment reports.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
+// {
+//   "name": "RolePlay Pro",
+//   "description": "A voice-enabled role-play tool to practice business situations with an AI avatar, providing real-time feedback and post-scenario assessment reports.",
+//   "requestFramePermissions": [
+//     "microphone"
+//   ]
+// }

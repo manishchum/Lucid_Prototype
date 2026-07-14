@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
-import { supabase } from "@/lib/supabase"
-import EmployeeNavigation from "@/components/employee-navigation"
+import { supabaseAdmin as supabase } from "@/lib/supabase"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Upload, Download, Filter, FileSpreadsheet, CheckCircle2, XCircle, Settings, TrendingUp, Target } from "lucide-react"
 import * as XLSX from 'xlsx'
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -40,6 +41,7 @@ interface ParsedKPI {
   definition: string
   formula: string
   target: string
+  datatype: string
   weight: string
   function: string
   sub_function: string
@@ -76,10 +78,29 @@ interface TitleData {
   sub_function_id: string
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const fetchUserByEmail = async (email: string | null) => {
+  if (!email) return null;
+  try{
+    const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+    if(!res.ok) return null;
+    const payload = await res.json();
+    let u = payload?.user ?? payload;
+    if (Array.isArray(u)) u = u[0];
+    return u || null;
+  } catch (e){
+    console.error("Error fetching user by email:", e);
+    return null;
+  }
+};
+
 function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Admin | null }) {
+  const scoreUploadInputId = "kpi-scores-file-upload";
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [preview, setPreview] = useState<string[][]>([]);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<{ created?: number; updated?: number; skipped?: { row: number; reason: string }[]; affectedEmployees?: string[] } | null>(null);
   const [error, setError] = useState("");
@@ -108,6 +129,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
         setError("Unsupported file type. Only CSV or XLSX allowed.");
         setPreview([]);
       }
+      setShowPreviewModal(true);
     } catch (err) {
       setError("Failed to parse file for preview.");
       setPreview([]);
@@ -123,7 +145,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
       const formData = new FormData();
       formData.append("file", file);
       // For prototype, send companyId in header (never in prod)
-      const res = await fetch("/api/admin/kpi/upload-scores", {
+      const res = await fetchWithAuth("/api/admin/kpi/upload-scores", {
         method: "POST",
         body: formData,
         headers: {
@@ -131,9 +153,9 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
           ...(admin?.user_id ? { "x-admin-id": admin.user_id } : {})
         },
       });
-      console.log(res)
+      // console.log(res)
       const json = await res.json();
-      console.log(json)
+      // console.log(json)
       if (!res.ok) {
         setError(json.error || "Upload failed");
       } else {
@@ -141,6 +163,7 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
         // Reset file input after successful upload
         setFile(null);
         setPreview([]);
+        setShowPreviewModal(false);
         setFileInputKey(prev => prev + 1);
       }
     } catch (err) {
@@ -156,79 +179,140 @@ function KPIScoresUpload({ companyId, admin }: { companyId?: string; admin?: Adm
 
   return (
     <div>
-        {/* <Input key={fileInputKey} type="file" accept=".csv,.xlsx" onChange={handleFileChange} />
-        <Button onClick={handleUpload} disabled={!file || uploading}>
-          {uploading ? "Uploading..." : "Upload"}
-        </Button> */}
   <Card>
-
                   <div className="space-y-4">
                     <label
-                      htmlFor="file-upload"
-                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
+                      htmlFor={scoreUploadInputId}
+                      className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all duration-300"
                     >
-                      <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
-                        <Upload className="w-8 h-8 text-purple-600" />
+                      <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-3">
+                        <Upload className="w-8 h-8 text-blue-600" />
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
-                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .csv, .xlsx, .xls</span>
                       <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
-                      id="file-upload"
+                      id={scoreUploadInputId}
                       type="file"
-                      accept=".xlsx,.xls"
+                      accept=".csv,.xlsx,.xls"
                       onChange={handleFileChange}
                       className="hidden"
+                      key={fileInputKey}
                       />
                   </div>
                       </Card>
+      
+      {/* Error Alert */}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-      {preview.length > 0 && (
-        <div className="mb-2">
-          <div className="font-semibold mb-1">Preview (first 10 rows):</div>
-          <table className="text-sm border">
-            <tbody>
-              {preview.map((row, i) => (
-                <tr key={i}>{row.map((cell, j) => <td key={j} className="border px-2 py-1">{cell}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      
+      {/* Upload Result */}
       {result && (
-        <div className="mt-2">
-          <div className="font-semibold">Upload Result:</div>
-          <div>Created: {result.created || 0}, Updated: {result.updated || 0}</div>
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="font-semibold text-green-900 mb-2">Upload Successful!</div>
+          <div className="text-sm text-green-800">Created: {result.created || 0}, Updated: {result.updated || 0}</div>
           {result.skipped && result.skipped.length > 0 && (
-            <div className="mt-1 text-xs text-gray-500">
+            <div className="mt-2 text-xs text-green-700">
+              <strong>Skipped: {result.skipped.length} rows</strong>
             </div>
           )}
-          {result.affectedEmployees && (
-            <div className="mt-1 text-xs text-gray-500">
-              Affected Employees:
-              <ul>
-                {result.affectedEmployees.map((id, i) => <li key={i}>{id}</li>)}
+          {result.affectedEmployees && result.affectedEmployees.length > 0 && (
+            <div className="mt-2 text-xs text-green-700">
+              <strong>Affected Employees:</strong>
+              <ul className="list-disc list-inside mt-1">
+                {result.affectedEmployees.slice(0, 5).map((id, i) => <li key={i}>{id}</li>)}
+                {result.affectedEmployees.length > 5 && <li>... and {result.affectedEmployees.length - 5} more</li>}
               </ul>
             </div>
           )}
         </div>
       )}
+
+      {/* Preview Modal */}
+      <Dialog open={showPreviewModal} onOpenChange={setShowPreviewModal}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-xl">
+              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+                <FileSpreadsheet className="w-6 h-6 text-white" />
+              </div>
+              Preview KPI Scores
+            </DialogTitle>
+            <p className="text-sm text-gray-600 mt-2">
+              Showing first 10 rows from your file
+            </p>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto my-6 pr-4">
+            <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+              {preview.length > 0 ? (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      {preview[0]?.map((header, idx) => (
+                        <th key={idx} className="px-4 py-3 text-left font-semibold text-gray-700">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.slice(1).map((row, i) => (
+                      <tr key={i} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                        {row.map((cell, j) => (
+                          <td key={j} className="px-4 py-3 text-gray-700">{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-8 text-center text-gray-500">No data to preview</div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-3 flex justify-end">
+            <Button
+              onClick={() => {
+                setShowPreviewModal(false);
+                setFile(null);
+                setPreview([]);
+                setFileInputKey(prev => prev + 1);
+              }}
+              variant="outline"
+              className="border-gray-300 text-gray-700 hover:bg-red-50 hover:border-red-500 transition-all"
+            >
+              <XCircle className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpload}
+              disabled={uploading || !file}
+              className="bg-blue-600 hover:bg-blue-700 text-white transition-all"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {uploading ? 'Uploading...' : 'Upload Scores to Database'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 export default function KPIConfigurationPage() {
-  const router = useRouter()
-  const { user } = useAuth()
-  const [kpis, setKpis] = useState<KPI[]>([])
-  const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
-  const [showPreview, setShowPreview] = useState(false)
-  const [companyId, setCompanyId] = useState<string>("")
-  
+const definitionsUploadInputId = "kpi-definitions-file-upload"
+const router = useRouter()
+const { user,loading:authLoading } = useAuth()
+const [kpis, setKpis] = useState<KPI[]>([])
+const [filteredKpis, setFilteredKpis] = useState<KPI[]>([])
+const [loading, setLoading] = useState(true)
+const [uploading, setUploading] = useState(false)
+const [parsedData, setParsedData] = useState<ParsedKPI[]>([])
+const [definitionsFile, setDefinitionsFile] = useState<File | null>(null)
+const [definitionsFileInputKey, setDefinitionsFileInputKey] = useState(0)
+const [showPreview, setShowPreview] = useState(false)
+const [companyId, setCompanyId] = useState<string>("")
+
   // Filter data from database
   const [functions, setFunctions] = useState<FunctionData[]>([])
   const [subFunctions, setSubFunctions] = useState<SubFunctionData[]>([])
@@ -240,27 +324,28 @@ export default function KPIConfigurationPage() {
   const [titleFilter, setTitleFilter] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
   const [admin, setAdmin] = useState<Admin | null>(null);
+  const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   useEffect(() => {
-    setTimeout(() => {
-    if (!user) {
-      router.push("/login")
-      return
-    }
-}, 200);
-    fetchCompanyAndKPIs()
-    fetchFilterData()
-    fetchAdminId();
-  }, [user, router])
+        if (!authLoading) {
+          if (!user) router.push("/login");
+          else fetchAdminId();
+          
+        }
+      }, [user, authLoading, router]);
 
   const fetchAdminId = async () => {
     try {
-      const { data: adminData, error: adminError } = await supabase
-        .from("users")
-        .select("user_id, email, name, company_id")
-        .eq("email", user?.email)
-        .single()
-      if (adminError) throw adminError
-      setAdmin(adminData)
+      if (!user?.email) return;
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData){
+        throw new Error("Admin user not found.")
+      }
+
+      setAdmin(employeeData)
+
+    fetchCompanyAndKPIs()
+    fetchFilterData()
+
     } catch (error) {
       console.error("Error fetching admin data:", error)
     }
@@ -307,34 +392,35 @@ export default function KPIConfigurationPage() {
       setLoading(true)
       
       // Fetch user's company
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("company_id")
-        .eq("email", user?.email)
-        .single()
-
-      if (userError) throw userError
-      
-      if (userData?.company_id) {
-        setCompanyId(userData.company_id)
-        
-        // Fetch KPIs for the company with related data
-        const { data: kpiData, error: kpiError } = await supabase
-          .from("kpis")
-          .select(`
-            *,
-            function:function_id (function_name),
-            sub_function:sub_function_id (sub_function_name),
-            titles:title_id (title_name)
-          `)
-          .eq("company_id", userData.company_id)
-          .order("created_at", { ascending: false })
-
-        if (kpiError) throw kpiError
-        
-        setKpis(kpiData || [])
-        setFilteredKpis(kpiData || [])
+      if(!user?.email) {
+        setLoading(false);
+        return;
       }
+        
+      const employeeData = await fetchUserByEmail(user.email);
+      if (!employeeData?.company_id) {
+        setLoading(false);
+        return;
+      }
+
+      setCompanyId(employeeData.company_id)
+      
+      // Fetch KPIs for the company with related data
+      const { data: kpiData, error: kpiError } = await supabase
+        .from("kpis")
+        .select(`
+          *,
+          function:function_id (function_name),
+          sub_function:sub_function_id (sub_function_name),
+          titles:title_id (title_name)
+        `)
+        .eq("company_id", employeeData.company_id)
+        .order("created_at", { ascending: false })
+
+      if (kpiError) throw kpiError
+      
+      setKpis(kpiData || [])
+      setFilteredKpis(kpiData || [])
     } catch (error) {
       console.error("Error fetching data:", error)
     } finally {
@@ -345,6 +431,7 @@ export default function KPIConfigurationPage() {
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
+    setDefinitionsFile(file)
 
     const reader = new FileReader()
     reader.onload = (e) => {
@@ -360,6 +447,7 @@ export default function KPIConfigurationPage() {
           definition: row['Definition'] || row['definition'] || '',
           formula: row['Formula'] || row['formula'] || '',
           target: row['Target'] || row['target'] || '',
+          datatype: row['Data Type'] || row['data type'] || row['datatype'] || row['data_type'] || '',
           weight: row['Weight %'] || row['weight'] || row['Weight'] || '',
           function: row['Function'] || row['function'] || '',
           sub_function: row['Sub Function'] || row['sub_function'] || row['Sub-Function'] || '',
@@ -477,47 +565,49 @@ export default function KPIConfigurationPage() {
   }
 
   const handleUploadToDatabase = async () => {
-    if (!companyId || parsedData.length === 0) return
+    if (!companyId || !definitionsFile) return
 
     try {
       setUploading(true)
-      
-      const kpisToInsert = []
 
-      for (const kpi of parsedData) {
-        // Find or create function, sub_function, and title
-        const functionId = await findOrCreateFunction(kpi.function)
-        const subFunctionId = functionId ? await findOrCreateSubFunction(kpi.sub_function, functionId) : null
-        const titleId = subFunctionId ? await findOrCreateTitle(kpi.title, subFunctionId) : null
+      const formData = new FormData()
+      formData.append("file", definitionsFile)
+      formData.append(
+        "parsedRows",
+        JSON.stringify(
+          parsedData.map((row) => ({
+            name: row.name,
+            definition: row.definition,
+            target: row.target,
+            datatype: row.datatype,
+          }))
+        )
+      )
 
-        kpisToInsert.push({
-          company_id: companyId,
-          name: kpi.name,
-          description: `${kpi.definition}\n\nFormula: ${kpi.formula}`,
-          target: parseFloat(kpi.target) || 0,
-          weight: parseFloat(kpi.weight) || 0,
-          function_id: functionId,
-          sub_function_id: subFunctionId,
-          title_id: titleId,
-          datatype: 'percentage',
-          created_at: new Date().toISOString()
-        })
+      const res = await fetchWithAuth("/api/admin/kpi/upload-definitions", {
+        method: "POST",
+        body: formData,
+        headers: {
+          "x-company-id": companyId,
+          ...(admin?.user_id ? { "x-admin-id": admin.user_id } : {}),
+        },
+      })
+
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json?.error || "Upload failed")
       }
 
-      const { error } = await supabase
-        .from("kpis")
-        .insert(kpisToInsert)
-
-      if (error) throw error
-
-      alert(`Successfully uploaded ${parsedData.length} KPIs!`)
+      alert(`Successfully uploaded KPI definitions. Created: ${json.created || 0}, Updated: ${json.updated || 0}, Skipped: ${json.skipped?.length || 0}`)
       setShowPreview(false)
       setParsedData([])
+      setDefinitionsFile(null)
+      setDefinitionsFileInputKey(prev => prev + 1)
       await fetchCompanyAndKPIs()
       await fetchFilterData() // Refresh filter data
     } catch (error) {
       console.error("Error uploading KPIs:", error)
-      alert("Error uploading KPIs to database.")
+      alert(error instanceof Error ? error.message : "Error uploading KPI definitions.")
     } finally {
       setUploading(false)
     }
@@ -632,26 +722,28 @@ export default function KPIConfigurationPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen bg-gray-50">
-        <EmployeeNavigation />
-        <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      showLoadingProgress
+        ? <LoadingProgress label="Loading KPI configuration..." progress={loadingProgress} />
+        : (
+          <div className="flex min-h-screen bg-gray-50">
+            <main className="flex-1 transition-all duration-300 p-8">
+              <div className="flex items-center justify-center h-full">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
+        )
     )
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <EmployeeNavigation />
-      <main className="flex-1 lg:ml-72 transition-all duration-300 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <main className="p-8">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">KPI Configuration</h1>
-            <p className="text-gray-600 mt-1">Upload KPI scores and definitions to configure success metrics</p>
+          {/* Header Card */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">KPI Configuration</h1>
+            <p className="text-slate-600">Upload KPI scores and definitions to configure success metrics for your organization</p>
           </div>
 
           {/* Upload Sections - Consistent Design */}
@@ -708,22 +800,23 @@ export default function KPIConfigurationPage() {
                 <CardContent className="pt-6">
                   <div className="space-y-4">
                     <label
-                      htmlFor="file-upload"
+                      htmlFor={definitionsUploadInputId}
                       className="flex flex-col items-center justify-center px-6 py-8 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-purple-400 hover:bg-purple-50 transition-all duration-300"
                     >
                       <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mb-3">
                         <Upload className="w-8 h-8 text-purple-600" />
                       </div>
                       <span className="text-sm font-medium text-gray-700">Click to upload Excel file</span>
-                      <span className="text-xs text-gray-500 mt-1">Supported: .xlsx, .xls</span>
+                      <span className="text-xs text-gray-500 mt-1">Supported: .csv, .xlsx</span>
                       <span className="text-xs text-gray-500 mt-1 text-center">Refer to the predefined data fields in the<br/> template before uploading the data</span>
                     </label>
                     <Input
-                      id="file-upload"
+                      id={definitionsUploadInputId}
                       type="file"
-                      accept=".xlsx,.xls"
+                      accept=".csv,.xlsx"
                       onChange={handleFileUpload}
                       className="hidden"
+                      key={definitionsFileInputKey}
                     />
                   </div>
                   <div className="mt-4 pt-4 border-t border-gray-100">
@@ -765,6 +858,7 @@ export default function KPIConfigurationPage() {
                     { name: 'Definition', icon: 'D', color: 'purple' },
                     { name: 'Formula', icon: 'F', color: 'pink' },
                     { name: 'Target', icon: 'T', color: 'green' },
+                      { name: 'Data Type', icon: 'D', color: 'teal' },
                     { name: 'Weight %', icon: 'W', color: 'orange' },
                     { name: 'Function', icon: 'F', color: 'indigo' },
                     { name: 'Sub Function', icon: 'S', color: 'cyan' },
@@ -782,46 +876,22 @@ export default function KPIConfigurationPage() {
             </Card>
           )} */}
 
-          {/* Preview Section */}
-          {showPreview && (
-            <Card className="border border-gray-200 shadow-sm">
-              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-100">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-green-600 flex items-center justify-center">
-                      <CheckCircle2 className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl text-gray-900">Preview Uploaded Data</CardTitle>
-                      <CardDescription className="text-sm mt-1">
-                        <span className="text-green-600 font-semibold">{parsedData.length}</span> KPIs ready to upload to database
-                      </CardDescription>
-                    </div>
+          {/* Preview Section - Modal Dialog */}
+          <Dialog open={showPreview} onOpenChange={setShowPreview}>
+            <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 text-xl">
+                  <div className="w-10 h-10 rounded-lg bg-green-600 flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6 text-white" />
                   </div>
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => {
-                        setShowPreview(false)
-                        setParsedData([])
-                      }}
-                      variant="outline"
-                      className="border-gray-300 text-gray-700 hover:bg-red-50 hover:border-red-500 transition-all"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleUploadToDatabase}
-                      disabled={uploading}
-                      className="bg-green-600 hover:bg-green-700 text-white transition-all"
-                    >
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      {uploading ? 'Uploading...' : 'Upload to Database'}
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-6">
+                  Preview Uploaded Data
+                </DialogTitle>
+                <p className="text-sm text-gray-600 mt-2">
+                  <span className="text-green-600 font-semibold">{parsedData.length}</span> KPIs ready to upload to database
+                </p>
+              </DialogHeader>
+              
+              <div className="flex-1 overflow-y-auto my-6 pr-4">
                 <div className="overflow-x-auto rounded-xl border border-gray-200">
                   <table className="w-full">
                     <thead>
@@ -830,6 +900,7 @@ export default function KPIConfigurationPage() {
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Definition</th>
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Formula</th>
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Target</th>
+                        <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Data Type</th>
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Weight %</th>
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Function</th>
                         <th className="text-left py-4 px-6 text-sm font-bold text-gray-700">Sub Function</th>
@@ -843,6 +914,7 @@ export default function KPIConfigurationPage() {
                           <td className="py-4 px-6 text-sm text-gray-700 max-w-md">{kpi.definition}</td>
                           <td className="py-4 px-6 text-xs text-blue-600 font-mono bg-blue-50 rounded">{kpi.formula}</td>
                           <td className="py-4 px-6 text-sm text-green-600 font-semibold">{kpi.target}</td>
+                          <td className="py-4 px-6 text-sm text-teal-600 font-semibold">{kpi.datatype || '-'}</td>
                           <td className="py-4 px-6 text-sm text-purple-600 font-semibold">{kpi.weight}%</td>
                           <td className="py-4 px-6 text-sm text-gray-700">{kpi.function || '-'}</td>
                           <td className="py-4 px-6 text-sm text-gray-700">{kpi.sub_function || '-'}</td>
@@ -852,9 +924,33 @@ export default function KPIConfigurationPage() {
                     </tbody>
                   </table>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+
+              <DialogFooter className="gap-3 flex justify-end">
+                <Button
+                  onClick={() => {
+                    setShowPreview(false)
+                    setParsedData([])
+                    setDefinitionsFile(null)
+                    setDefinitionsFileInputKey(prev => prev + 1)
+                  }}
+                  variant="outline"
+                  className="border-gray-300 text-gray-700 hover:bg-red-50 hover:border-red-500 transition-all"
+                >
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUploadToDatabase}
+                  disabled={uploading}
+                  className="bg-green-600 hover:bg-green-700 text-white transition-all"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  {uploading ? 'Uploading...' : 'Upload to Database'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Filters and Library View */}
           {!showPreview && (
@@ -1062,7 +1158,7 @@ export default function KPIConfigurationPage() {
                           <h3 className="text-2xl font-bold text-gray-900 mb-3">No KPIs Found</h3>
                           <p className="text-gray-600 mb-6">Upload an Excel file to get started or adjust your filters.</p>
                           <Button
-                            onClick={() => document.getElementById('file-upload')?.click()}
+                            onClick={() => document.getElementById(definitionsUploadInputId)?.click()}
                             className="bg-purple-600 hover:bg-purple-700 text-white"
                           >
                             <Upload className="w-4 h-4 mr-2" />
@@ -1080,4 +1176,53 @@ export default function KPIConfigurationPage() {
       </main>
     </div>
   )
+}
+
+function useIllusionProgress(active: boolean) {
+  const [progress, setProgress] = useState(12);
+  const [show, setShow] = useState(active);
+
+  useEffect(() => {
+    if (!active) {
+      setProgress(100);
+      const timeout = setTimeout(() => setShow(false), 180);
+      return () => clearTimeout(timeout);
+    }
+
+    setShow(true);
+    setProgress(Math.min(25, 10 + Math.round(Math.random() * 12)));
+
+    const id = setInterval(() => {
+      setProgress((prev) => {
+        const shouldHold = prev > 70 ? Math.random() < 0.45 : Math.random() < 0.25;
+        if (shouldHold) return prev;
+        const increment = Math.max(1, Math.round(Math.random() * 7));
+        return Math.min(prev + increment, 93);
+      });
+    }, 420 + Math.round(Math.random() * 240));
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  return { progress: Math.min(progress, 100), show };
+}
+
+function LoadingProgress({ label, progress }: { label: string; progress: number }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 space-y-4">
+        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+          <span>{label}</span>
+          <span className="text-slate-900 text-base font-black">{progress}%</span>
+        </div>
+        <div className="relative h-3 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="text-xs text-slate-500 font-medium">Preparing KPI configuration. This may take a moment.</p>
+      </div>
+    </div>
+  );
 }

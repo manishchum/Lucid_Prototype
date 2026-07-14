@@ -9,83 +9,277 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/auth-context";
-import { supabase } from "@/lib/supabase";
-import EmployeeNavigation from "@/components/employee-navigation";
-import { Users, ChevronLeft } from "lucide-react";
+import { createCacheKey, sharedDataClient } from "@/lib/data-client";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { Users, ChevronLeft, CheckCircle2, BookOpen, ArrowUpRight } from "lucide-react";
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function TrainingPlanContent() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, employeeData } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const moduleId = searchParams.get("module_id");
   
   const [plan, setPlan] = useState<any>(null);
   const [reasoning, setReasoning] = useState<any>(null);
   const [baselineRequired, setBaselineRequired] = useState(false);
   const [baselineMessage, setBaselineMessage] = useState<string | null>(null);
-  const [baselineExists, setBaselineExists] = useState(false);
-  const [baselineCompleted, setBaselineCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [baselineNavLoading, setBaselineNavLoading] = useState(false);
   const [contentLoadingModuleId, setContentLoadingModuleId] = useState<string | null>(null);
   const [quizLoadingModuleId, setQuizLoadingModuleId] = useState<string | null>(null);
-  const [moduleBaselineStatus, setModuleBaselineStatus] = useState<Map<string, boolean>>(new Map());
   const [completedModules, setCompletedModules] = useState<string[]>([]);
-  const [actualUserId, setActualUserId] = useState<string | null>(null);
+  const [attemptedQuizModules, setAttemptedQuizModules] = useState<string[]>([]);
+  const [additionalReadings, setAdditionalReadings] = useState<any[] | null>(null);
+  const [moduleTitle, setModuleTitle] = useState<string>("");
+  const [fallbackEmployeeData, setFallbackEmployeeData] = useState<any | null>(null);
+
+  const activeEmployee = employeeData?.user_id ? employeeData : fallbackEmployeeData;
 
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
+  const fetchTrainingPlan = async (employee: any, selectedModuleId: string) => {
+    return sharedDataClient.query(
+      createCacheKey({
+        namespace: "training-plan",
+        tenantId: employee.company_id,
+        userId: employee.user_id,
+        path: `/training-plan/${selectedModuleId}`,
+      }),
+      async () => {
+        const res = await fetchWithAuth(`${API_BASE}/api/training-plan`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": employee.user_id,
+          },
+          body: JSON.stringify({
+            user_id: employee.user_id,
+            module_id: selectedModuleId,
+          }),
+        });
 
-  const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
-  const [processedModuleIds, setProcessedModuleIds] = useState<string[]>([]);
-  let userId:any = null;
-  // Fetch completed modules from Supabase (same logic as employee/welcome)
-  useEffect(() => {
-    // console.log("[training-plan] Fetching completed modules for user:", user?.email);
-    async function fetchCompletedModules() {
-      if (!user?.email) return;
-      console.log('Inside but escaped')
-      // Get employee id
-      const { data: employeeData } = await supabase
-        .from("users")
-        .select("user_id")
-        .eq("email", user.email)
-        .single();
+        const result = await res.json();
+        return result;
+      },
+      {
+        ttlMs: 5 * 60 * 1000, // Short fallback TTL to pick up external progress completions
+        swr: true,
+        swrMs: 10 * 60 * 1000,
+      },
+    );
+  };
 
-        console.log(employeeData)
-      userId = employeeData.user_id;
-      setActualUserId(employeeData.user_id);
-      if (!employeeData?.user_id) return;
+  const fetchEmployeeByEmail = async (email?: string | null) => {
+    if (!email) return null;
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
+      if (!res.ok) return null;
+      const payload = await res.json();
+      let employee = payload?.user ?? payload;
+      if (Array.isArray(employee)) employee = employee[0];
+      return employee || null;
+    } catch {
+      return null;
+    }
+  };
 
-      // Get completed modules for employee (match employee/welcome logic)
-      const { data: progressData } = await supabase
-        .from("module_progress")
-        .select("processed_module_id, completed_at")
-        .eq("user_id", employeeData.user_id)
-        .not("completed_at", "is", null);
-
-      if (progressData) {
-        // console.log("This is the progress data")
-        // console.log(progressData)
-        // Store completed processed_module_ids
-        setCompletedModules(
-          progressData.map((row: any) => String(row.processed_module_id))
-        );
-        // console.log(completedModules)
+  const fetchModuleTitle = async (selectedModuleId: string, employeeId: string) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/training-modules/${selectedModuleId}`, {
+        headers: { "X-User-ID": employeeId },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const title = data?.module?.title || data?.title || "";
+        setModuleTitle(title);
       }
+    } catch (err) {
+      console.error("Failed to fetch module title:", err);
+    }
+  };
+
+  const loadPlan = async (employeeOverride?: any, selectedModuleIdOverride?: string) => {
+    const employee = employeeOverride || activeEmployee;
+    const selectedModuleId = selectedModuleIdOverride || moduleId;
+
+    if (!employee?.user_id || !selectedModuleId) {
+      setLoading(false);
+      return;
     }
 
+    setLoading(true);
+    try {
+      const result = await fetchTrainingPlan(employee, selectedModuleId);
+      const data = result.data;
+      ////console.log("Fetched training plan data:", data);
+      if (data?.error === "BASELINE_REQUIRED") {
+        setBaselineRequired(true);
+        setBaselineMessage(data.message || "Please complete the baseline assessment first.");
+        setPlan(null);
+        setReasoning(null);
+        setLoading(false);
+        return;
+      }
 
-   fetchCompletedModules();
-    console.log(user)
-    console.log(userId)
+      setBaselineRequired(false);
+      setBaselineMessage(null);
+      setPlan(data?.plan ?? null);
+      setReasoning(data?.reasoning ?? null);
 
-    if(!user||!actualUserId)return;
-    console.log(actualUserId)
-    // setActualUserId(employeeData.id);
-  }, [user]);
+      const title =
+        data?.module?.title ||
+        data?.training_module?.title ||
+        data?.title ||
+        "";
+      if(title){
+        setModuleTitle(title);
+      }
+
+      const readingsRaw = data?.additional_readings;
+      if (readingsRaw) {
+        const readings = typeof readingsRaw === "string" ? JSON.parse(readingsRaw) : readingsRaw;
+        setAdditionalReadings(Array.isArray(readings) ? readings : [readings]);
+      } else {
+        setAdditionalReadings(null);
+      }
+    } catch (err) {
+      setPlan("Error fetching training plan.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchModuleProgress = async (employee: any) => {
+    if (!employee?.user_id) return;
+
+    try {
+      const progressResult = await sharedDataClient.query(
+        createCacheKey({
+          namespace: "module-progress",
+          tenantId: employee.company_id,
+          userId: employee.user_id,
+          path: `/api/module-progress/user/${employee.user_id}`,
+        }),
+        async () => {
+          const res = await fetchWithAuth(`${API_BASE}/api/module-progress/user/${employee.user_id}`, {
+            headers: { "X-User-ID": employee.user_id },
+          });
+
+          if (!res.ok) {
+            return { progress: [] };
+          }
+
+          return res.json();
+        },
+        {
+          ttlMs: 60 * 1000,
+          swr: true,
+          swrMs: 30 * 1000,
+        },
+      );
+
+      const progressEntries =
+        progressResult?.data?.progress ||
+        progressResult?.data?.data ||
+        [];
+
+      const attemptedIds = new Set<string>();
+      const completedIds = new Set<string>();
+
+      (Array.isArray(progressEntries) ? progressEntries : []).forEach((entry: any) => {
+        const processedId = String(entry?.processed_module_id || entry?.module_id || "").trim();
+        if (!processedId) return;
+
+        const hasAttempt =
+          entry?.quiz_score !== null &&
+          entry?.quiz_score !== undefined;
+
+        if (hasAttempt) {
+          attemptedIds.add(processedId);
+        }
+
+        const isCompleted = Boolean(
+          entry?.completed_at ||
+          String(entry?.status || "").toUpperCase() === "COMPLETED" ||
+          entry?.pass_status,
+        );
+
+        if (isCompleted) {
+          completedIds.add(processedId);
+        }
+      });
+
+      setAttemptedQuizModules(Array.from(attemptedIds));
+      setCompletedModules(Array.from(completedIds));
+    } catch {
+      setAttemptedQuizModules([]);
+      setCompletedModules([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      setLoading(false);
+      router.push("/login");
+      return;
+    }
+
+    // if (!authLoading && employeeData && moduleId) {
+    //   loadPlan();
+    //   fetchModuleProgress(employeeData);
+      
+    //   // Fetch module title
+    //   const fetchModuleTitle = async () => {
+    //     try {
+    //       const res = await fetch(`${API_BASE}/api/training-modules/${moduleId}`, {
+    //         headers: { "X-User-ID": employeeData.user_id },
+    //       });
+    //       if (res.ok) {
+    //         const data = await res.json();
+    //         const title = data?.module?.title || data?.title || "";
+    //         setModuleTitle(title);
+    //       }
+    //     } catch (err) {
+    //       console.error("Failed to fetch module title:", err);
+    //     }
+    //   };
+      
+    //   fetchModuleTitle();
+    // }
+
+    const bootstrap = async () => {
+      if (!moduleId) {
+        setLoading(false);
+        return;
+      }
+
+      let resolvedEmployee = activeEmployee;
+      if (!resolvedEmployee?.user_id && user?.email) {
+        resolvedEmployee = await fetchEmployeeByEmail(user.email);
+        if (resolvedEmployee?.user_id) {
+          setFallbackEmployeeData(resolvedEmployee);
+        }
+      }
+
+      if (!resolvedEmployee?.user_id) {
+        setLoading(false);
+        setPlan({ error: "Unable to resolve your profile. Please refresh." });
+        return;
+      }
+
+      await Promise.allSettled([
+        loadPlan(resolvedEmployee, moduleId),
+        fetchModuleProgress(resolvedEmployee),
+        fetchModuleTitle(moduleId, resolvedEmployee.user_id),
+      ]);
+    };
+
+    bootstrap();
+  }, [authLoading, moduleId, employeeData?.user_id, user?.email]);
 
   // Helper to render reasoning in a readable format
   function renderReasoning(reasoning: any) {
@@ -189,368 +383,203 @@ function TrainingPlanContent() {
     );
   }
 
-  useEffect(() => {
-    if (!authLoading && user?.email) {
-      fetchPlan();
+  const normalizedAdditionalReadings = (additionalReadings || [])
+    .map((reading: any, idx: number) => {
+      if (typeof reading === "string") {
+        return {
+          id: `${idx}-${reading}`,
+          title: reading,
+          url: reading,
+          description: null,
+        };
+      }
+
+      if (!reading || typeof reading !== "object") {
+        return null;
+      }
+
+      const url =
+        reading.url ||
+        reading.link ||
+        reading.href ||
+        reading.source ||
+        null;
+      const title =
+        reading.title ||
+        reading.name ||
+        reading.label ||
+        url ||
+        `Reading ${idx + 1}`;
+
+      return {
+        id: String(reading.id || `${idx}-${title}`),
+        title,
+        url,
+        description: reading.description || reading.summary || reading.notes || null,
+      };
+    })
+    .filter(
+      (reading): reading is { id: string; title: string; url: string | null; description: string | null } =>
+        Boolean(reading)
+    );
+
+  const moduleRequiresBaseline = (_mod: any): boolean => false;
+
+  const getNormalizedProcessedModuleId = (mod: any): string | null => {
+    const candidate =
+      mod?.resolved_processed_module_id ??
+      mod?.processed_module_id ??
+      (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
+
+    if (!candidate) return null;
+    const normalized = String(candidate).trim();
+    if (!normalized || normalized === "undefined" || normalized === "null") {
+      return null;
     }
-  }, [user, authLoading]);
-  const moduleId = searchParams.get('module_id');
-  const fetchPlan = async () => {
-    // console.log("[training-plan] Fetching training plan...");
-    setLoading(true);
+    return normalized;
+  };
+
+  const resolveProcessedModuleId = async (mod: any, fallbackIndex: number): Promise<string | null> => {
+    const directId = getNormalizedProcessedModuleId(mod);
+    if (directId) {
+      return directId;
+    }
+
+    if (!activeEmployee?.user_id || !moduleId) {
+      return null;
+    }
+
     try {
-      // Get employee id from Supabase
-      if (!user || !user.email) {
-        setPlan("Could not find employee record.");
-        setLoading(false);
-        return;
-      }
-      const { data: employeeData, error: employeeError } = await supabase
-        .from("users")
-        .select("user_id, company_id")
-        .eq("email", user.email)
-        .single();
-      if (employeeError || !employeeData?.user_id) {
-        setPlan("Could not find employee record.");
-        setLoading(false);
-        return;
-      }
-      // Store the actual user_id for use in resolveModuleId
-      setActualUserId(employeeData.user_id);
-      console.log(actualUserId)
-      userId = employeeData.user_id;
-      console.log(userId)
-      console.log(employeeData)
-      console.log("Inside the useEffect")
-      // Fetch module-specific baseline requirements AND user's completion status
-      try {
-        const { data: modules } = await supabase
-          .from("training_modules")
-          .select("module_id, baseline_assessment_id")
-          .eq("company_id", employeeData.company_id);
-        
-        // Get all baseline assessments this user has completed
-        const { data: userCompletedBaselines } = await supabase
-          .from("employee_assessments")
-          .select("assessment_id")
-          .eq("user_id", employeeData.user_id);
-        
-        const completedBaselineIds = new Set(
-          (userCompletedBaselines || []).map((ub: any) => ub.assessment_id)
-        );
-        
-        const statusMap = new Map<string, boolean>();
-        if (modules) {
-          modules.forEach((mod: any) => {
-            // Check if module requires baseline AND user hasn't completed it
-            const requiresBaseline = !!mod.baseline_assessment_id;
-            const userCompletedIt = mod.baseline_assessment_id && 
-                                   completedBaselineIds.has(mod.baseline_assessment_id);
-            // Store true only if baseline is required AND user hasn't completed it
-            statusMap.set(mod.module_id, requiresBaseline && !userCompletedIt);
-          });
-        }
-        setModuleBaselineStatus(statusMap);
-        // console.log("[training-plan] Module baseline status map:", statusMap);
-      } catch (e) {
-        console.error("[training-plan] Error fetching module baseline requirements:", e);
-      }
-      
-      // Pre-check: detect if company has baseline definitions and whether user completed one
-      try {
-        setBaselineExists(false);
-        setBaselineCompleted(false);
-        if (employeeData?.company_id && employeeData?.user_id) {
-          const { data: baselineDefs } = await supabase
-            .from("assessments")
-            .select("assessment_id, processed_modules!inner(user_id)")
-            .eq("type", "baseline")
-            .eq("company_id", employeeData.company_id)
-            .eq("processed_modules.user_id", employeeData.user_id)
-            ;
-
-
-          const {data: userBaselines, error: userBaselinesError } = await supabase
-            .from("learning_plan")
-            .select("user_id,module_id,baseline_assessment")
-            .eq("module_id",moduleId)
-            .eq("user_id", employeeData.user_id);
-            // console.log(userBaselines)
-            if(userBaselines && userBaselines.length>0 && userBaselines[0].baseline_assessment==0){
-            // console.log("Inside the baseline pre-check")
-            setBaselineExists(true);
-            setBaselineCompleted(true);
-          }
-          if (baselineDefs && baselineDefs.length > 0) {
-            setBaselineExists(true);
-            const baselineIds = baselineDefs
-              .map((b: any) => b.assessment_id)
-              .filter(Boolean);
-            if (baselineIds.length > 0) {
-              const { data: userBaselines } = await supabase
-                .from("employee_assessments")
-                .select("assessment_id")
-                .in("assessment_id", baselineIds)
-                .eq("user_id", employeeData.user_id);
-              if (userBaselines && userBaselines.length > 0) {
-                setBaselineCompleted(true);
-              } else {
-                // console.log("Inside the else statement of baseline pre-check")
-                setBaselineCompleted(false);
-              }
+      const result = await sharedDataClient.query(
+        createCacheKey({
+          namespace: "processed-modules",
+          tenantId: activeEmployee.company_id,
+          userId: activeEmployee.user_id,
+          path: `/api/processed-modules/original-module/${moduleId}`,
+        }),
+        async () => {
+          const res = await fetchWithAuth(
+            `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+            {
+              headers: { "X-User-ID": activeEmployee.user_id },
             }
+          );
+
+          if (!res.ok) {
+            return { data: [] };
           }
 
-        }
-        // console.log(baselineCompleted)
-        // console.log(baselineExists)
-      } catch (e) {
-        console.error("[training-plan] baseline pre-check failed", e);
-      }
-
-      // Extract module_id from URL parameters
-      
-      
-      // Call training-plan API with module_id if present
-      const requestBody: any = { user_id: employeeData.user_id };
-      if (moduleId) {
-        requestBody.module_id = moduleId;
-        requestBody.processedModuleIds = processedModuleIds;
-      }
-      // console.log("[training-plan] Fetching plan with body:", requestBody);
-      const res = await fetch(`${API_BASE}/api/training-plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-      const result = await res.json();
-
-      // console.log("[training-plan] Fetched plan result:", result);
-      // If API indicates baseline is required, show a clear prompt
-      if (result?.error === "BASELINE_REQUIRED") {
-        setBaselineRequired(true);
-        setBaselineMessage(
-          result?.message || "Please complete the baseline assessment first."
-        );
-        setPlan(null);
-        setReasoning(null);
-        setLoading(false);
-        return;
-      } else {
-        setBaselineRequired(false);
-        setBaselineMessage(null);
-      }
-      // If error, show raw JSON for debugging
-      if (result.error) {
-        setPlan({ error: result.error, raw: result.raw });
-        setReasoning(null);
-        setLoading(false);
-        return;
-      }
-      // Parse plan
-      if (result.plan) {
-        if (typeof result.plan === "string") {
-          try {
-            setPlan(JSON.parse(result.plan));
-          } catch {
-            setPlan(result.plan);
-          }
-        } else {
-          setPlan(result.plan);
-        }
-      } else {
-        setPlan(null);
-      }
-      // Parse reasoning
-      if (result.reasoning) {
-        if (typeof result.reasoning === "string") {
-          try {
-            setReasoning(JSON.parse(result.reasoning));
-          } catch {
-            setReasoning(result.reasoning);
-          }
-        } else {
-          setReasoning(result.reasoning);
-        }
-      } else {
-        setReasoning(null);
-      }
-
-      // Collect and save processed module IDs
-      if (result.plan?.modules) {
-        console.log("Inside the fetch plan")
-        await collectAndSaveProcessedModuleIds(result.plan.modules);
-      }
-    } catch (err) {
-      setPlan("Error fetching training plan.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Helper: check if a module requires baseline AND user hasn't completed it
-  const moduleRequiresBaseline = (mod: any): boolean => {
-    const moduleId = mod?.original_module_id || mod?.module_id;
-    if (!moduleId) return false;
-    // Map stores true only if baseline is required AND user hasn't completed it
-    const needsBaseline = moduleBaselineStatus.get(moduleId) === true;
-    // console.log(`[moduleRequiresBaseline] Module ${moduleId} needs baseline:`, needsBaseline);
-    return needsBaseline;
-  };
-
-  // Helper: resolve a usable processed_modules.processed_module_id for navigation
-  const resolveModuleId = async (mod: any): Promise<string | null> => {
-    try {
-      // console.log("[resolveModuleId] Input module:", mod);
-
-      // 1) If the module already carries a processed_module_id, use it
-      if (mod?.processed_module_id) {
-        // console.log("[resolveModuleId] Using processed_module_id:", mod.processed_module_id);
-        return String(mod.processed_module_id);
-      }
-
-      // 2) Otherwise, search processed_modules by title (for plan-only modules)
-      const moduleName = mod?.title || mod?.name;
-      console.log(moduleName);
-      console.log(userId)
-      if (moduleName) {
-        // console.log("[resolveModuleId] Searching by title:", moduleName);
-        const { data: pmByTitle } = await supabase
-          .from("processed_modules")
-          .select("processed_module_id")
-          .eq('title', moduleName)
-          // .eq("user_id", actualUserId)
-          .limit(1)
-          .maybeSingle();
-
-        if (pmByTitle?.processed_module_id) {
-          // console.log("[resolveModuleId] Found by title:", pmByTitle.processed_module_id);
-          return pmByTitle.processed_module_id;
-        }
-      }
-
-      console.error("[resolveModuleId] Could not resolve module id for:", mod);
-    } catch (e) {
-      console.error("[resolveModuleId] Error:", e);
-    }
-    return null;
-  };
-
-  // Helper: collect all processed_module_ids and save to learning_plan table
-  const collectAndSaveProcessedModuleIds = async (modules: any[]) => {
-    try {
-      const ids: string[] = [];
-      for (const mod of modules) {
-        const resolvedId = await resolveModuleId(mod);
-        if (resolvedId) {
-          ids.push(resolvedId);
-        }
-      }
-      setProcessedModuleIds(ids);
-
-      // Save to learning_plan table
-      if (ids.length > 0 && userId && moduleId) {
-        const { error } = await supabase
-          .from("learning_plan")
-          .update({
-            user_id: userId,
-            module_id: moduleId,
-            processed_module_ids: ids,
-            status: 'IN_PROGRESS'
-          })
-          .eq('user_id', userId)
-          .eq('module_id', moduleId);
-
-        if (error) {
-          console.error("[collectAndSaveProcessedModuleIds] Error saving to learning_plan:", error);
-        } else {
-          // console.log("[collectAndSaveProcessedModuleIds] Successfully saved processed_module_ids:", ids);
-        }
-
-        console.log(ids)
-        for(const m of ids){
-          console.log("Inside the try catch second")
-          console.log(userId)
-          console.log(m)
-        const{data:insertedData}=await supabase
-        .from("module_progress")
-        .upsert({
-          user_id:userId,
-          processed_module_id:m,
+          return res.json();
         },
         {
-          onConflict:'user_id, processed_module_id'
+          ttlMs: 10 * 60 * 1000,
+          swr: true,
+          swrMs: 20 * 60 * 1000,
+        },
+      );
+
+      const rawModules = result?.data?.data ?? result?.data ?? [];
+      const availableModules = Array.isArray(rawModules) ? rawModules : [];
+      if (availableModules.length === 0) {
+        return null;
+      }
+
+      const candidateTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+      const candidateOrder = Number(mod?.order || mod?.recommended_order || fallbackIndex + 1);
+
+      if (candidateTitle) {
+        const matched = availableModules.find((item: any) => {
+          const itemTitle = String(item?.title || item?.name || "").trim().toLowerCase();
+          return itemTitle && itemTitle === candidateTitle;
+        });
+
+        if (matched?.processed_module_id) {
+          return String(matched.processed_module_id);
         }
-      
-      )
-        // console.log(insertedData);
       }
+
+      if (candidateOrder > 0 && candidateOrder <= availableModules.length) {
+        const orderedMatch = availableModules[candidateOrder - 1];
+        if (orderedMatch?.processed_module_id) {
+          return String(orderedMatch.processed_module_id);
+        }
       }
-    } catch (e) {
-      console.error("[collectAndSaveProcessedModuleIds] Error:", e);
+
+      const fallbackMatch = availableModules[fallbackIndex];
+      if (fallbackMatch?.processed_module_id) {
+        return String(fallbackMatch.processed_module_id);
+      }
+
+      return null;
+    } catch {
+      return null;
     }
   };
 
-  if (showLoadingProgress) {
-    return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
-  }
+  // const resolveModuleId = async (mod: any): Promise<string | null> => {
+  //   const directResolved =
+  //     mod?.processed_module_id ??
+  //     (mod?.id && String(mod.id).startsWith("pm_") ? mod.id : null);
 
-  // If baseline is required, show a clear CTA to take the baseline assessment
-  if (baselineRequired) {
-    return (
-      <div className="min-h-screen">
-        <EmployeeNavigation showForward={false} />
-        <div
-          className="transition-all duration-300 ease-in-out px-4 py-8"
-          style={{ marginLeft: "var(--sidebar-width, 0px)" }}
-        >
-          <div className="max-w-3xl mx-auto">
-            <div className="bg-white rounded-xl shadow-lg p-8 border">
-              <h2 className="text-2xl font-semibold mb-2">
-                Baseline Assessment Required
-              </h2>
-              <p className="text-gray-700 mb-6">
-                {baselineMessage ||
-                  "Please complete the baseline assessment before accessing your personalized Performance Sprint."}
-              </p>
-              <div className="flex gap-4">
-                <Button
-                  onClick={() => {
-                    if (baselineNavLoading) return;
-                    setBaselineNavLoading(true);
-                    window.location.href = "/employee/assessment";
-                  }}
-                  disabled={baselineNavLoading}
-                  className="bg-blue-600 text-white"
-                >
-                  {baselineNavLoading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Redirecting...
-                    </span>
-                  ) : (
-                    'Take Baseline Assessment'
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setBaselineRequired(false);
-                    fetchPlan();
-                  }}
-                >
-                  Retry
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  //   if (directResolved) {
+  //     return String(directResolved);
+  //   }
+
+  //   if (!activeEmployee?.user_id) {
+  //     return null;
+  //   }
+
+  //   const originalModuleId = mod?.original_module_id || moduleId;
+  //   if (!originalModuleId) {
+  //     return null;
+  //   }
+
+  //   try {
+  //     const result = await sharedDataClient.query(
+  //       createCacheKey({
+  //         namespace: "processed-modules",
+  //         tenantId: activeEmployee.company_id,
+  //         userId: activeEmployee.user_id,
+  //         path: `/api/processed-modules/original-module/${originalModuleId}`,
+  //       }),
+  //       async () => {
+  //         const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${originalModuleId}`, {
+  //           headers: { "X-User-ID": activeEmployee.user_id },
+  //         });
+  //         if (!res.ok) {
+  //           return { data: [] };
+  //         }
+  //         return res.json();
+  //       },
+  //       {
+  //         ttlMs: 10 * 60 * 1000,
+  //         swr: true,
+  //         swrMs: 20 * 60 * 1000,
+  //       },
+  //     );
+
+  //     const allModules = (Array.isArray(result?.data) ? result.data : (result?.data?.data || result?.data?.modules || []));
+  //     const targetTitle = String(mod?.title || mod?.name || "").trim().toLowerCase();
+
+  //     const matched = (Array.isArray(allModules) ? allModules : []).find((pm: any) => {
+  //       const pmTitle = String(pm?.title || "").trim().toLowerCase();
+  //       return targetTitle && pmTitle === targetTitle;
+  //     });
+
+  //     if (matched?.processed_module_id) {
+  //       return String(matched.processed_module_id);
+  //     }
+
+  //     const fallback = Array.isArray(allModules) ? allModules[0] : null;
+  //     return fallback?.processed_module_id ? String(fallback.processed_module_id) : null;
+  //   } catch {
+  //     return null;
+  //   }
+  // };
 
   // Defensive: Support both plan.modules and plan.learning_plan.modules
   let parsedPlan = plan;
+  //console.log("Raw plan data:", parsedPlan);
   // Unwrap common shapes: { modules }, { learning_plan: { modules } }, { plan: { modules } }
   let modules =
     parsedPlan?.modules ||
@@ -582,6 +611,146 @@ function TrainingPlanContent() {
     } catch {}
   }
 
+  // const moduleCandidates = Array.isArray(modules) ? (modules as any[]) : [];
+
+  // useEffect(() => {
+  //   let cancelled = false;
+
+  //   const resolveMissingProcessedModuleIds = async () => {
+  //     if (!moduleCandidates.length || !employeeData?.user_id) return;
+
+  //     const missing = moduleCandidates
+  //       .map((mod: any, idx: number) => {
+  //         const normalizedTitle = mod?.title || mod?.name || `Module ${idx + 1}`;
+  //         const fallback = `${idx}-${normalizedTitle || "module"}`;
+  //         const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+
+  //         return {
+  //           mod,
+  //           tabValue,
+  //           resolvedProcessedModuleId: getNormalizedProcessedModuleId(mod),
+  //         };
+  //       })
+  //       .filter((item) => !item.resolvedProcessedModuleId);
+
+  //     if (!missing.length) return;
+
+  //     const resolutions = await Promise.all(
+  //       missing.map(async (item) => {
+  //         const resolved = await resolveModuleId(item.mod);
+  //         return {
+  //           tabValue: item.tabValue,
+  //           resolved: resolved ? String(resolved) : null,
+  //         };
+  //       })
+  //     );
+
+  //     if (cancelled) return;
+
+  //     const resolvedMap = new Map<string, string>();
+  //     resolutions.forEach((item) => {
+  //       if (item?.tabValue && item?.resolved) {
+  //         resolvedMap.set(item.tabValue, item.resolved);
+  //       }
+  //     });
+
+  //     if (!resolvedMap.size) return;
+
+  //     setPlan((prev: any) => {
+  //       if (!prev) return prev;
+
+  //       const patchModules = (list: any[] | undefined) => {
+  //         if (!Array.isArray(list)) return list;
+  //         return list.map((mod: any, idx: number) => {
+  //           const fallback = `${idx}-${(mod?.title || mod?.name || "module")}`;
+  //           const tabValue = String(mod?.id ?? mod?.original_module_id ?? fallback);
+  //           const resolved = resolvedMap.get(tabValue);
+  //           if (!resolved) return mod;
+  //           return {
+  //             ...mod,
+  //             resolved_processed_module_id: resolved,
+  //           };
+  //         });
+  //       };
+
+  //       return {
+  //         ...prev,
+  //         modules: patchModules(prev.modules),
+  //         learning_plan: prev.learning_plan
+  //           ? {
+  //               ...prev.learning_plan,
+  //               modules: patchModules(prev.learning_plan.modules),
+  //             }
+  //           : prev.learning_plan,
+  //         plan: prev.plan
+  //           ? {
+  //               ...prev.plan,
+  //               modules: patchModules(prev.plan.modules),
+  //             }
+  //           : prev.plan,
+  //       };
+  //     });
+  //   };
+
+  //   resolveMissingProcessedModuleIds();
+
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, [moduleCandidates, moduleId, employeeData?.user_id]);
+
+  if (showLoadingProgress) {
+    return <LoadingProgress label="Fetching your Sprint" progress={loadingProgress} />;
+  }
+
+  // If baseline is required, show a clear CTA to take the baseline assessment
+  if (baselineRequired) {
+    return (
+      <div className="min-h-screen px-4 py-8">
+        <div className="max-w-3xl mx-auto">
+            <div className="bg-white rounded-xl shadow-lg p-8 border">
+              <h2 className="text-2xl font-semibold mb-2">
+                Baseline Assessment Required
+              </h2>
+              <p className="text-gray-700 mb-6">
+                {baselineMessage ||
+                  "Please Complete The Baseline Assessment Before Accessing Your Personalized Sprint."}
+              </p>
+              <div className="flex gap-4">
+                <Button
+                  onClick={() => {
+                    if (baselineNavLoading) return;
+                    setBaselineNavLoading(true);
+                    window.location.href = "/employee/assessment";
+                  }}
+                  disabled={baselineNavLoading}
+                  className="bg-blue-600 text-white"
+                >
+                  {baselineNavLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Redirecting...
+                    </span>
+                  ) : (
+                    'Take Baseline Assessment'
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBaselineRequired(false);
+                    loadPlan();
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </div>
+      </div>
+    );
+  }
+
   if (!plan || !modules || !Array.isArray(modules)) {
     // Only show raw JSON if plan is missing or modules cannot be parsed as an array
     return (
@@ -589,9 +758,9 @@ function TrainingPlanContent() {
         <div className="max-w-3xl mx-auto">
           <Card className="mb-8">
             <CardHeader>
-              <CardTitle>Personalized Training Plan</CardTitle>
+              <CardTitle>Personalized Plan</CardTitle>
               <CardDescription>
-                Your AI-generated learning roadmap
+                Your AI-generated Roadmap
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -600,7 +769,7 @@ function TrainingPlanContent() {
                   Error: {parsedPlan.error}
                 </div>
               ) : (
-                <div className="text-gray-500">No plan generated yet.</div>
+                <div className="text-gray-500">No Plan Generated Yet.</div>
               )}
               {parsedPlan && parsedPlan.raw && (
                 <>
@@ -623,8 +792,9 @@ function TrainingPlanContent() {
 
   // Normalize module items to ensure stable unique keys/values for tabs
   const normalizedModules = (modules as any[]).map((mod: any, idx: number) => {
-    // console.log('This is the normalizedModules',mod)
+    // //console.log('This is the normalizedModules',mod)
     // Normalize: use 'name' as 'title' if title is missing
+    //console.log(mod)
     const normalizedMod = {
       ...mod,
       title: mod.title || mod.name || `Module ${idx + 1}`,
@@ -636,384 +806,342 @@ function TrainingPlanContent() {
       normalizedMod?.id ?? normalizedMod?.original_module_id ?? fallback
     );
 
+    const resolvedProcessedModuleId = getNormalizedProcessedModuleId(normalizedMod);
+
     // Check completion using processed_module_id to match employee/welcome logic
     let isCompleted = false;
-    const processedModuleId = String(
-      normalizedMod?.processed_module_id ??
-        normalizedMod?.id ??
-        normalizedMod?.original_module_id
-    );
-    if (
-      processedModuleId &&
-      processedModuleId !== "undefined" &&
-      processedModuleId !== "null"
-    ) {
-      isCompleted = completedModules.includes(processedModuleId);
+    //console.log(normalizedMod, resolvedProcessedModuleId, completedModules);
+    if (resolvedProcessedModuleId) {
+      isCompleted = completedModules.includes(resolvedProcessedModuleId);
     }
-    // console.log("Is Completed")
-    // console.log(isCompleted);
-    return { ...normalizedMod, _tabValue: tabValue, _isCompleted: isCompleted };
+    // //console.log("Is Completed")
+    // //console.log(isCompleted);
+    return {
+      ...normalizedMod,
+      resolved_processed_module_id: resolvedProcessedModuleId,
+      _tabValue: tabValue,
+      _isCompleted: isCompleted,
+    };
   });
 
   // Calculate accurate completion count - only count modules that are actually in the plan
-  const planModuleIds = normalizedModules.map(mod => String(
-    mod?.processed_module_id ?? mod?.id ?? mod?.original_module_id
-  )).filter(id => id && id !== "undefined" && id !== "null");
+  const planModuleIds = normalizedModules
+    .map((mod) => getNormalizedProcessedModuleId(mod))
+    .filter((id): id is string => Boolean(id));
   
   const actualCompletedCount = planModuleIds.filter(moduleId => 
     completedModules.includes(moduleId)
   ).length;
 
   const totalModulesCount = normalizedModules.length;
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <EmployeeNavigation showBack={false} showForward={false} />
-      {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
-        {/* Header */}
-        <div
-          className="bg-white shadow-sm border-b"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="max-w-10xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-4">
-              <div className="flex items-center">
-                <Users className="w-8 h-8 text-green-600 mr-3" />
+        <div className="px-4 py-8">
+          <div className="max-w-7xl mx-auto">
+          {/* Header Card with Back Button */}
+          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8 relative">
+            <button
+              onClick={() => router.push('/employee/welcome')}
+              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-4 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Back
+            </button>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">
+              Sprint{moduleTitle ? `- ${moduleTitle}` : ''}
+            </h1>
+            <p className="text-slate-600">Your personalized roadmap to master new skills</p>
+          </div>
+
+          {/* Main content area */}
+          <Card className="mb-6 border-0 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                  <Users className="w-6 h-6 text-blue-600" />
+                </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">
-                    Learner's Performance Sprint
-                  </h1>
+                  <CardTitle className="text-xl font-bold text-gray-900">
+                    Your Roadmap to Mastery
+                  </CardTitle>
+                  <CardDescription className="text-sm text-gray-600">
+                  Sprint which works for you.
+                  </CardDescription>
                 </div>
               </div>
-              <div className="relative" />
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Main content area that adapts to sidebar */}
-      <div
-        className="transition-all duration-300 ease-in-out px-4 py-8"
-        style={{
-          marginLeft: "var(--sidebar-width, 0px)",
-        }}
-      >
-        <div className="max-w-7xl mx-auto">
-          {/* Back Button */}
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium mb-6 transition-colors"
-          >
-            <ChevronLeft className="w-5 h-5" />
-            Back
-          </button>
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Your Roadmap to Mastery</CardTitle>
-              <CardDescription>
-                Performance Sprint which works for you
-              </CardDescription>
-              {/* Progress Summary */}
-              <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 via-white to-purple-50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">
+              {/* Progress Overview */}
+              <div className="mt-4 pt-4 border-t">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-base font-bold text-gray-900">
                     Progress Overview
-                  </span>
-                  <span className="text-sm font-bold text-green-600">
+                  </h3>
+                  {/* <a href="#" className="text-sm text-blue-600 hover:underline">
+                    View Details
+                  </a> */}
+                </div>
+                <div className="mb-3">
+                  <span className="text-2xl font-bold text-blue-600">
                     {actualCompletedCount} / {totalModulesCount} Modules Completed
                   </span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-gradient-to-r from-green-400 to-green-600 h-2 rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(
-                        (actualCompletedCount / Math.max(totalModulesCount, 1)) * 100,
-                        100
-                      )}%`,
-                    }}
-                  ></div>
+                {/* Individual Module Progress Bars */}
+                <div className="flex gap-2">
+                  {normalizedModules.map((mod: any, idx: number) => (
+                    <div 
+                      key={idx} 
+                      className={`flex-1 h-2 rounded-full ${
+                        mod._isCompleted ? 'bg-blue-600' : 'bg-blue-200'
+                      }`}
+                      title={`${mod.title} - ${mod._isCompleted ? 'Completed' : 'Not Started'}`}
+                    />
+                  ))}
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              {/* Reworked layout: Tabs root spans full width, sidebar fixed, content stretches */}
-              <Tabs
-                defaultValue={normalizedModules[0]?._tabValue || ""}
-                className="flex flex-col lg:flex-row gap-8 w-full"
-              >
-                {/* Sidebar */}
-                <div className="w-full lg:w-80 shrink-0">
-                  <TabsList className="w-full flex flex-col bg-white rounded-xl shadow-lg p-3 sticky top-4 h-fit border">
-                    {normalizedModules.map((mod: any) => (
-                      <TabsTrigger
-                        key={mod._tabValue}
-                        value={mod._tabValue}
-                        className={`text-left py-0 px-5 rounded-xl mb-3 border whitespace-normal relative transition-all duration-200 flex w-full h-28 ${
-                          mod._isCompleted
-                            ? "bg-green-100 text-green-800 border-green-300 shadow-md"
-                            : "bg-white text-gray-900 hover:bg-blue-50 hover:shadow-md border-gray-200"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between w-full h-full">
-                          <div className="flex-1 flex flex-col justify-between h-full py-4">
-                            <div className="font-semibold text-base lg:text-base flex items-center gap-2 leading-tight break-words">
-                              {mod._isCompleted && (
-                                <span className="text-green-600 text-lg">
-                                  ✓
-                                </span>
-                              )}
-                              {mod.title}
-                            </div>
-                            {/* <div className="text-sm text-gray-500">
-                              {mod.recommended_time || 0} hours
-                            </div> */}
-                          </div>
-                          {mod._isCompleted && (
-                            <div className="absolute top-3 right-3">
-                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                            </div>
-                          )}
-                        </div>
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
+          </Card>
+
+          {/* Tips for Success Card */}
+          {(parsedPlan?.tips || overallRecommendations) && (
+            <Card className="mb-6 bg-yellow-50 border-blue-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg font-bold text-gray-900">
+                  Tips for Success
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm text-gray-700">
+                  {parsedPlan?.tips ? (
+                    typeof parsedPlan.tips === 'string' ? (
+                      renderTipsContent(parsedPlan.tips)
+                    ) : (
+                      <div>{JSON.stringify(parsedPlan.tips)}</div>
+                    )
+                  ) : overallRecommendations ? (
+                    Array.isArray(overallRecommendations) ? (
+                      <ol className="space-y-2 list-decimal list-inside">
+                        {overallRecommendations.slice(0, 4).map((rec: any, i: number) => (
+                          <li key={i} className="leading-relaxed">
+                            {typeof rec === 'string' ? rec : JSON.stringify(rec)}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div>{typeof overallRecommendations === 'string' ? overallRecommendations : JSON.stringify(overallRecommendations)}</div>
+                    )
+                  ) : null}
                 </div>
-                {/* Content Area */}
-                <div className="flex-1 min-w-0">
-                  {normalizedModules.map((mod: any) => (
-                    <TabsContent
-                      key={mod._tabValue}
-                      value={mod._tabValue}
-                      className="bg-white rounded-xl shadow-lg p-8 border w-full"
-                    >
-                      {/* Header */}
-                      <div className="flex items-center justify-between mb-5">
-                        <h2 className="text-2xl font-semibold text-gray-900 leading-snug pr-4 break-words">
-                          {mod.title}
-                        </h2>
-                        {mod._isCompleted && (
-                          <div className="px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-full border border-green-200 shadow-sm">
-                            ✓ Completed
-                          </div>
-                        )}
-                      </div>
-                      {/* Summary Metrics */}
-                      {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                          <div className="text-sm font-semibold text-blue-800 mb-1">
-                            Recommended Time
-                          </div>
-                          <div className="text-2xl font-bold text-blue-900">
-                            {mod.recommended_time} hours
-                          </div>
-                        </div>
+              </CardContent>
+            </Card>
+          )}
 
-                      </div> */}
+          {normalizedAdditionalReadings.length > 0 && (
+            <Card className="mb-6 bg-blue-50 border-blue-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5 text-blue-700" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-bold text-gray-900">
+                      Additional Readings
+                    </CardTitle>
+                    <CardDescription className="text-sm text-gray-600">
+                      Extra Resources Curated for this Sprint.
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {normalizedAdditionalReadings.map((reading) => {
+                    const isExternalLink = !!reading.url && /^https?:\/\//i.test(reading.url);
 
-                      {/* Tips for Success (per-module banner shown between metrics and actions) */}
-                      {(() => {
-                        // Prefer module-level tips, then plan-level tips. Fall back to static text.
-                        // Try several possible locations where tips might be stored.
-                        const moduleIndex = normalizedModules.findIndex((nm) => nm._tabValue === mod._tabValue);
-                        const planObj: any = parsedPlan || {};
-                        let tips: any = null;
-
-                        // 1) module-level property on the mod object returned by the plan
-                        if (mod?.tips) tips = mod.tips;
-                        if (!tips && mod?.tips_for_success) tips = mod.tips_for_success;
-
-                        // 2) corresponding module entry in parsed plan (if available)
-                        if (!tips && Array.isArray(planObj?.modules) && moduleIndex >= 0) {
-                          const planModule = planObj.modules[moduleIndex] || planObj.learning_plan?.modules?.[moduleIndex] || planObj.plan?.modules?.[moduleIndex];
-                          if (planModule) {
-                            tips = planModule.tips || planModule.tips_for_success || planModule.quick_tips || null;
-                          }
-                        }
-
-                        // 3) top-level plan tips
-                        if (!tips) {
-                          tips = planObj?.tips || planObj?.plan?.tips || planObj?.learning_plan?.tips || planObj?.raw?.plan?.tips || null;
-                        }
-
-                        // Normalize arrays/objects into a display string
-                        let tipsText = "";
-                        if (Array.isArray(tips)) {
-                          tipsText = tips.join("\n\n");
-                        } else if (typeof tips === 'object' && tips !== null) {
-                          try { tipsText = JSON.stringify(tips, null, 2); } catch { tipsText = String(tips); }
-                        } else if (typeof tips === 'string') {
-                          tipsText = tips;
-                        }
-
-                        // Trim leading/trailing whitespace and newlines
-                        tipsText = tipsText.trim();
-
-                        const showFallback = !tipsText || tipsText.trim().length === 0;
-
-                        return (
-                          <div className="mt-4 mb-3 px-4 py-3 bg-yellow-50 rounded-xl border border-yellow-200 shadow-sm">
-                            <div className="font-bold text-xl text-yellow-900">Tips for Success</div>
-                            {showFallback ? (
-                              <div className="text-yellow-800 text-sm">Use these quick tips to get the most from your Performance Sprint.</div>
-                            ) : (
-                              <div className="text-yellow-800 text-sm">
-                                {renderTipsContent(tipsText)}
-                              </div>
+                    return (
+                      <div
+                        key={reading.id}
+                        className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="text-sm font-semibold text-gray-900 break-words">
+                              {reading.title}
+                            </h3>
+                            {reading.description && (
+                              <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                                {reading.description}
+                              </p>
+                            )}
+                            {reading.url && (
+                              <p className="mt-2 text-xs text-gray-500 break-all">
+                                {reading.url}
+                              </p>
                             )}
                           </div>
-                        );
-                      })()}
-
-                      {/* Actions */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          onClick={async () => {
-                            // console.log(
-                            //   "[training-plan] View Content clicked for module:",
-                            //   mod
-                            // );
-                            setContentLoadingModuleId(mod.processed_module_id);
-                            const  navId = await resolveModuleId(mod);
-                            // console.log(
-                            //   "[training-plan] Resolved module id:",
-                            //   navId
-                            // );
-                            if (navId) {
-                              router.push(`/employee/module/${navId}`);
-                            } else {
-                              alert(
-                                "Could not find module content. Please contact support."
-                              );
-                              setContentLoadingModuleId(null);
-                            }
-                          }}
-                          disabled={
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                          }
-                          className={`w-full py-3 text-base font-semibold border-2 transition-all duration-200 ${
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                              ? "bg-gray-100 text-gray-500 cursor-not-allowed"
-                              : "hover:bg-blue-50"
-                          }`}
-                        >
-                          {contentLoadingModuleId === mod.processed_module_id ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
-                              Loading...
-                            </span>
-                          ) : (
-                            "View Content"
+                          {reading.url && (
+                            <a
+                              href={reading.url}
+                              target={isExternalLink ? "_blank" : undefined}
+                              rel={isExternalLink ? "noreferrer" : undefined}
+                              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                            >
+                              Open
+                              <ArrowUpRight className="h-4 w-4" />
+                            </a>
                           )}
-                        </Button>
-                        <Button
-                          variant={mod._isCompleted ? "outline" : "default"}
-                          size="lg"
-                          onClick={async () => {
-                            // console.log(
-                            //   "[training-plan] Quiz clicked for module:",
-                            //   mod
-                            // );
-                            setQuizLoadingModuleId(mod.processed_module_id);
-                            const navId = await resolveModuleId(mod);
-                            // console.log(
-                            //   "[training-plan] Resolved module id:",
-                            //   navId
-                            // );
-                            if (navId) {
-                              router.push(`/employee/quiz/${navId}`);
-                            } else {
-                              alert(
-                                "Could not find module quiz. Please contact support."
-                              );
-                              setQuizLoadingModuleId(null);
-                            }
-                          }}
-                          disabled={
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                          }
-                          className={`w-full py-3 text-base font-semibold transition-all duration-200 ${
-                            mod._isCompleted ||
-                            moduleRequiresBaseline(mod) ||
-                            contentLoadingModuleId === mod.processed_module_id ||
-                            quizLoadingModuleId === mod.processed_module_id
-                              ? "bg-gray-100 text-gray-500 cursor-not-allowed border-2"
-                              : "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
-                          }`}
-                        >
-                          {mod._isCompleted ? (
-                            "Quiz Completed"
-                          ) : quizLoadingModuleId === mod.processed_module_id ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                              Loading...
-                            </span>
-                          ) : (
-                            "Module Quiz"
-                          )}
-                        </Button>
+                        </div>
                       </div>
-                    </TabsContent>
-                  ))}
+                    );
+                  })}
                 </div>
-              </Tabs>
-              {overallRecommendations && (
-                <div className="mt-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 shadow-lg">
-                  <div className="font-bold text-xl mb-4 text-blue-900 flex items-center gap-2">
-                    {/* <span className="text-2xl">🌟</span> */}
-                    Overall Recommendations
-                  </div>
-                  {Array.isArray(overallRecommendations) ? (
-                    <ul className="space-y-3">
-                      {overallRecommendations.map((r: any, i: number) => (
-                        <li key={`rec-${i}`} className="flex items-start gap-3">
-                          <div className="w-6 h-6 bg-blue-100 text-blue-800 rounded-full flex items-center justify-center text-sm font-semibold mt-0.5">
-                            {i + 1}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Module Cards Section */}
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Your Modules</h2>
+            <div className="space-y-4">
+              {normalizedModules.map((mod: any, idx: number) => (
+                <Card key={mod._tabValue} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-600 mb-1">
+                          MODULE {idx + 1} OF {totalModulesCount}
+                        </div>
+                        <CardTitle className="text-base font-bold text-gray-900">
+                          {mod.title}
+                        </CardTitle>
+                      </div>
+                      <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2 sm:items-center">
+                        {mod._isCompleted && (
+                          <div className="flex items-center justify-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200 sm:col-span-2">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Completed
                           </div>
-                          <div className="text-blue-800 flex-1">{r}</div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="text-blue-800 text-lg">
-                      {overallRecommendations}
+                        )}
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto shrink-0"
+                      onClick={async () => {
+                        const navId = await resolveProcessedModuleId(mod, idx);
+                        
+                        if (navId) {
+                          router.push(`/employee/module/${navId}`);
+                        } else {
+                          alert("Could not find module content. Please contact support.");
+                          setContentLoadingModuleId(null);
+                        }
+                      }}
+                      disabled={
+                        mod._isCompleted ||
+                        moduleRequiresBaseline(mod) ||
+                        attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ||
+                        contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
+                        quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
+                      }
+                    >
+                      {contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-500 border-t-transparent"></div>
+                          Loading...
+                        </span>
+                      ) : (
+                        "View Content"
+                      )}
+                    </Button>
+                    <Button
+                      className={`w-full sm:w-auto shrink-0 ${
+                        mod._isCompleted || moduleRequiresBaseline(mod)
+                          ? "bg-gray-200 text-gray-500 hover:bg-gray-200"
+                          : "bg-blue-600 hover:bg-blue-700"
+                      }`}
+                      onClick={async () => {
+                        const navId = await resolveProcessedModuleId(mod, idx);
+                        
+                        if (navId) {
+                          router.push(`/employee/quiz/${navId}`);
+                        } else {
+                          alert("Could not find module quiz. Please contact support.");
+                          setQuizLoadingModuleId(null);
+                        }
+                      }}
+                      disabled={
+                        mod._isCompleted ||
+                        moduleRequiresBaseline(mod) ||
+                        contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
+                        quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
+                      }
+                    >
+                      {quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          Loading...
+                        </span>
+                      ) : attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ? (
+                        "Quiz Attempted"
+                      ) : (
+                        "Module Quiz"
+                      )}
+                    </Button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
-              {/* Reasoning Section */}
-              {reasoning && (
-                <div className="mt-8 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 shadow-lg">
-                  <div className="font-bold text-xl mb-4 text-yellow-900 flex items-center gap-2">
-                    {/* <span className="text-2xl">🧠</span> */}
-                    Understand How Your Mastery Roadmap Is Crafted
+                  </CardHeader>
+                </Card>
+            ))}
+            </div>
+          </div>
+
+          {/* Understand How Your Module Is Crafted Section */}
+          {reasoning && (
+            <Card className="mt-6 bg-gradient-to-r from-ornage-50 to-yellow-50 border-purple-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg font-bold text-gray-900">
+                  Understand How Your Module Is Crafted
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-2">Module Selection</h3>
+                    <div className="space-y-3">
+                      {normalizedModules.map((mod: any, idx: number) => (
+                        <div key={idx} className="flex items-start gap-3 p-3 bg-white rounded-lg">
+                          <div className="flex items-center justify-center w-8 h-8 rounded bg-blue-100 text-blue-700 font-bold text-sm shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-semibold text-gray-900 mb-1">
+                              Module Name: {mod.title}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Overview: {
+                                reasoning?.module_selection?.[idx]?.justification ||
+                                `Selected for comprehensive understanding of ${mod.title.toLowerCase()}.`
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="text-yellow-800">
-                    {renderReasoning(reasoning)}
+
+                  <div className="p-4 bg-white rounded-lg">
+                    <h3 className="font-semibold text-gray-900 mb-2"> Blueprint</h3>
+                    <p className="text-sm text-gray-700 leading-relaxed">
+                      {reasoning?.overall_strategy || 
+                       "The learning plan is designed using a 'Macro-to-Micro' and 'Theory-to-Practice' architecture, structured around the Kolb Learning Cycle. We begin with 'Professional Identity' (Profile modules) to establish the learner's baseline. We then move to 'Contextual Application' (Internship modules) to build real-world understanding."}
+                    </p>
                   </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="mb-8"></div>
+          </div>
         </div>
-      </div>
     </div>
   );
 }

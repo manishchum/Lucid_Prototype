@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Optional, Literal
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from supabase import create_client, Client
+# from supabase import create_client, Client
+from utils.supabase_client import supabase_admin, supabase
 
 import google.generativeai as genai
 
@@ -21,11 +22,17 @@ router = APIRouter()
 # ENV + INIT (same behavior)
 # -------------------------------
 
-supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or ""
-serviceKey = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# supabaseUrl = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or ""
+# serviceKey = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-print("[TTS API] supabaseUrl:", supabaseUrl)
-print("[TTS API] serviceKey", (serviceKey or ""))
+# print("[TTS API] supabaseUrl:", supabaseUrl)
+# print("[TTS API] serviceKey", (serviceKey or ""))
+
+SUPABASE_URL = (
+    os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    or os.getenv("SUPABASE_URL")
+    or ""
+).rstrip("/")
 
 base64Key = os.getenv("GOOGLE_TTS_JSON")
 credentialsPath: Optional[str] = None
@@ -47,15 +54,15 @@ if base64Key:
 else:
     print("[TTS API] GOOGLE_TTS_JSON not set.")
 
-if not supabaseUrl:
-    print("[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set")
-if not serviceKey:
-    print("[TTS API] SUPABASE_SERVICE_ROLE_KEY is not set. Storage/DB writes may fail due to RLS.")
+# if not supabaseUrl:
+#     print("[TTS API] NEXT_PUBLIC_SUPABASE_URL is not set")
+# if not serviceKey:
+#     print("[TTS API] SUPABASE_SERVICE_ROLE_KEY is not set. Storage/DB writes may fail due to RLS.")
 
-admin: Client = create_client(
-    supabaseUrl,
-    serviceKey or (os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
-)
+# admin: Client = create_client(
+#     supabaseUrl,
+#     serviceKey or (os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or "")
+# )
 
 BUCKET = "module_audio"
 
@@ -133,7 +140,7 @@ async def ensureBucketExists():
     """
     try:
         # If bucket does not exist / no permission -> it errors
-        res = admin.storage.from_(BUCKET).list("")
+        res = supabase_admin.storage.from_(BUCKET).list("")
 
         # supabase-py versions vary:
         if isinstance(res, dict):
@@ -182,10 +189,13 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
 - Example WRONG format (DO NOT USE): "Today we are going to talk about financial ratios which help in checking company health"
 - Pooja aur Rahul dono ko Hindi mein hi baat karni hai"""
         if language == "hinglish"
-        else "Generate the entire podcast script in English."
+        else (
+            "Generate the entire podcast script in English only. "
+            "Do NOT use Hindi words, Hinglish phrases, or Devanagari script."
+        )
     )
 
-    dialogueCount = "30-45" if language == "hinglish" else "20-30"
+    dialogueCount = "48" if language == "hinglish" else "30"
 
     speakers = (
         "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"
@@ -202,7 +212,7 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
     
     format_instruction = hinglish_format if language == "hinglish" else english_format
 
-    hinglish_filler = '"arey", "toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
+    hinglish_filler = '"toh", "matlab", "dekho", "acha", "sahi hai", "bilkul"'
     english_filler = '"you know", "I mean", "actually", "right", "so"'
     filler_words = hinglish_filler if language == "hinglish" else english_filler
 
@@ -214,7 +224,27 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: Lit
     english_transitions = '"That reminds me...", "Speaking of...", "And another thing..."'
     transitions = hinglish_transitions if language == "hinglish" else english_transitions
 
-    language_reminder = "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye." if language == "hinglish" else ""
+    language_reminder = (
+        "REMINDER: WRITE IN HINDI! Use romanized Hindi or Devanagari. English sirf technical terms ke liye."
+        if language == "hinglish"
+        else "REMINDER: WRITE ONLY IN ENGLISH. No Hindi or Hinglish words."
+    )
+
+    greeting_instruction = (
+        "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+        "NO 'Namaste aur swagat'. Start like: 'Aaj hum discuss karenge [topic]' or similar."
+        if language == "hinglish"
+        else (
+            "Line 1 ONLY - One speaker says a single brief greeting line (max 1 sentence). "
+            "NO Hindi/Hinglish greeting. Start like: 'Today we're discussing [topic]' or similar."
+        )
+    )
+
+    structure_line_1 = (
+        "Single brief greeting (e.g., 'Aaj hum discuss karenge [topic]')"
+        if language == "hinglish"
+        else "Single brief greeting (e.g., 'Today we're discussing [topic]')"
+    )
 
     return f"""Create a natural, engaging podcast conversation between two people:
 {speakers}
@@ -224,11 +254,18 @@ Module Title: {moduleTitle}
 Content to cover:
 {moduleContent}
 
+CRITICAL REQUIREMENTS - FOLLOW EXACTLY:
+1. DIALOGUE COUNT: Generate EXACTLY {dialogueCount} dialogue exchanges total (count each speaker turn)
+2. MINIMAL GREETING: {greeting_instruction}
+3. DIVE INTO CONTENT: From Line 2 onwards, immediately start discussing the actual topic
+4. PROPER ENDING: Last 3 lines MUST wrap up with summary and sign-off. DO NOT end mid-sentence.
+5. COMPLETE ALL {dialogueCount} LINES - Do not stop early
+
 IMPORTANT - Make it sound like a real conversation:
 1. {languageInstruction}
 2. Use natural speech patterns - include filler words like {filler_words}
 3. The host should react naturally - {reactions}
-4. Keep responses conversational and flowing - 2 to 4 or more sentences per turn
+4. Keep responses conversational and flowing - 2 to 4 sentences per turn
 5. The expert should explain concepts like teaching a friend, not lecturing
 6. Include smooth transitions - {transitions}
 7. Show genuine enthusiasm and interest in the topic
@@ -238,10 +275,15 @@ IMPORTANT - Make it sound like a real conversation:
 
 {language_reminder}
 
+STRUCTURE:
+- Line 1: {structure_line_1}
+- Lines 2 to {dialogueCount}-3: Deep dive into main content
+- Last 3 lines: Wrap-up with key takeaways and sign-off
+
 Format each line as:
 {format_instruction}
 
-Generate about {dialogueCount} natural dialogue exchanges."""
+Generate EXACTLY {dialogueCount} dialogue exchanges total."""
 
 
 # -------------------------------
@@ -273,7 +315,8 @@ def parseGeminiDialogue(text: str, language: Literal["en", "hinglish"] = "en") -
             elif markMatch:
                 dialogue.append({"speaker": "mark", "text": cleanTextForTTS(markMatch.group(1))})
 
-    return dialogue[:30]  # max 30 segments
+    # Return all dialogue segments (no arbitrary limit)
+    return dialogue
 
 
 # -------------------------------
@@ -309,7 +352,7 @@ def createWavBuffer(pcmBytes: bytes, sampleRate: int = 24000, numChannels: int =
 async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hinglish"] = "en"):
     # Fetch module content from processed_modules
     moduleRes = (
-        admin
+        supabase
         .table("processed_modules")
         .select("processed_module_id, title, content")
         .eq("processed_module_id", processedModuleId)
@@ -336,7 +379,8 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     geminiResponse = ""
     try:
-        maxTokens = 800 if language == "hinglish" else 1200
+        # Increased token limits to ensure full dialogue generation with proper endings
+        maxTokens = 2000 if language == "hinglish" else 2500
         temp = 0.3 if language == "hinglish" else 0.35
 
         geminiResult = await callGemini(prompt, {"temperature": temp, "maxOutputTokens": maxTokens})
@@ -353,11 +397,20 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
         print("[TTS] Gemini API error:", err)
         return {"error": f"Gemini API failed: {str(err)}", "status": 500}
 
+    print(f"[TTS] Gemini response length: {len(geminiResponse)} chars")
+    print(f"[TTS] Gemini response preview (first 500 chars): {geminiResponse[:500]}")
+    print(f"[TTS] Gemini response preview (last 500 chars): {geminiResponse[-500:]}")
+    
     dialogue = parseGeminiDialogue(geminiResponse, language)
     if len(dialogue) == 0:
         return {"error": "No dialogue generated from Gemini response", "status": 500}
 
-    print(f"[TTS] Generated {len(dialogue)} dialogue segments from Gemini")
+    # Expected dialogue count based on language
+    expectedDialogueCount = 48 if language == "hinglish" else 30
+    
+    print(f"[TTS] Generated {len(dialogue)} dialogue segments from Gemini (target was {expectedDialogueCount})")
+    if len(dialogue) < 30:
+        print(f"[TTS] ⚠️ WARNING: Only {len(dialogue)} dialogues generated, expected around {expectedDialogueCount}")
 
     pcmBuffers: List[bytes] = []
     SAMPLE_RATE = 24000
@@ -415,9 +468,9 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
             )
         else:
             voice = (
-                {"languageCode": "en-US", "name": "en-US-Neural2-F", "ssmlGender": "FEMALE"}
+                {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Callirrhoe", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "sarah"
-                else {"languageCode": "en-US", "name": "en-US-Neural2-J", "ssmlGender": "MALE"}
+                else {"languageCode": "en-IN", "name": "en-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
             )
 
         requestBody = {
@@ -505,7 +558,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # Upload
     print("[TTS][DEBUG] uploading to storage... bucket=", BUCKET, "file=", fileName)
-    uploadRes = admin.storage.from_(BUCKET).upload(
+    uploadRes = supabase_admin.storage.from_(BUCKET).upload(
         fileName,
         wavBuffer,
         file_options={"content-type": "audio/wav", "upsert": "true"}
@@ -525,7 +578,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # ✅ Public URL (fixed)
     print("[TTS][DEBUG] get public url... bucket=", BUCKET, "file=", fileName)
-    publicUrlData = admin.storage.from_(BUCKET).get_public_url(fileName)
+    publicUrlData = supabase_admin.storage.from_(BUCKET).get_public_url(fileName)
 
     audioUrl = None
 
@@ -552,7 +605,8 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
     # fallback (always correct for public bucket)
     if not audioUrl:
-        audioUrl = f"{supabaseUrl}/storage/v1/object/public/{BUCKET}/{fileName}"
+        if SUPABASE_URL:
+            audioUrl = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{fileName}"
 
     if not audioUrl:
         return {"error": "Failed to get public URL from Supabase storage", "status": 500}
@@ -576,7 +630,7 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
         }
 
     updRes = (
-        admin
+        supabase
         .table("processed_modules")
         .update(updateData)
         .eq("processed_module_id", processedModuleId)
@@ -613,7 +667,7 @@ async def GET(request: Request):
 
         if not targetId:
             res = (
-                admin
+                supabase
                 .table("processed_modules")
                 .select("processed_module_id")
                 .is_("audio_url", "null")
@@ -635,7 +689,7 @@ async def GET(request: Request):
 
             if not targetId:
                 anyOneRes = (
-                    admin
+                    supabase
                     .table("processed_modules")
                     .select("processed_module_id")
                     .limit(1)

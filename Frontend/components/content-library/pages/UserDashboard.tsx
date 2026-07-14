@@ -21,6 +21,9 @@ interface Course {
   category?: string;
 }
 
+const CATEGORY_COLUMNS = 'category_id, name, created_at';
+const COURSE_CARD_COLUMNS = 'course_id, title, description, category_id, created_at, module, parent_course_id';
+
 // Restore original static modules
 const staticCourses: Course[] = [
 ];
@@ -158,7 +161,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
   useEffect(() => {
     const seedAndFetchCategories = async () => {
       // 1. Fetch current DB categories
-      const { data: dbCategories, error } = await supabase.from('categories').select('*');
+      const { data: dbCategories, error } = await supabase.from('categories').select(CATEGORY_COLUMNS);
       if (error) return;
       // 2. Find static categories not in DB (case-insensitive)
       const dbCatNames = new Set((dbCategories || []).map((c: Category) => c.name.toLowerCase()));
@@ -168,12 +171,11 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
         await supabase.from('categories').insert(missing.map(c => ({ name: c.name })));
       }
       // 4. Fetch again to get the full up-to-date list
-      const { data: allCategories } = await supabase.from('categories').select('*').order('created_at', { ascending: false });
+      const { data: allCategories } = await supabase.from('categories').select(CATEGORY_COLUMNS).order('created_at', { ascending: false });
       if (allCategories) setCategories(allCategories as Category[]);
       // 5. Seed static courses into DB only if courses table is empty
       try {
-        const { data: dbCourses } = await supabase.from('courses').select('*');
-        const existingCount = (dbCourses || []).length;
+        const { count: existingCount } = await supabase.from('courses').select('*', { count: 'exact', head: true });
         // console.log('Seeding static courses, existingCount=', existingCount);
        
           // console.log(staticCourses)
@@ -201,7 +203,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
     };
     const fetchCourses = async (categoryFilter?: string) => {
       try {
-        let query: any = supabase.from('courses').select('*').order('created_at', { ascending: false });
+        let query: any = supabase.from('courses').select(COURSE_CARD_COLUMNS).order('created_at', { ascending: false });
         if (categoryFilter && categoryFilter !== '') {
           const num = Number(categoryFilter);
           if (!Number.isNaN(num)) {
@@ -235,7 +237,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       try {
         if (filterCategory && filterCategory !== '') {
           
-            const { data, error } = await supabase.from('courses').select('*').eq('category_id', filterCategory).order('created_at', { ascending: false });
+            const { data, error } = await supabase.from('courses').select(COURSE_CARD_COLUMNS).eq('category_id', filterCategory).order('created_at', { ascending: false });
             if (!error && data) setCourses(data as Course[]);
             return;
           
@@ -244,7 +246,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
           // console.log('No filter category set');
         }
         // fallback: fetch all
-        const { data, error } = await supabase.from('courses').select('*').order('created_at', { ascending: false });
+        const { data, error } = await supabase.from('courses').select(COURSE_CARD_COLUMNS).order('created_at', { ascending: false });
         if (!error && data) setCourses(data as Course[]);
       } catch (err) {
         console.error('fetchForFilter failed', err);
@@ -255,7 +257,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
   // Restore refreshCategories for the refresh button
   const refreshCategories = async () => {
-    const { data, error } = await supabase.from('categories').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('categories').select(CATEGORY_COLUMNS).order('created_at', { ascending: false });
     if (!error && data) setCategories(data as Category[]);
   };
   const handleFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -561,9 +563,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
       <main style={{ padding: 32 }}>
         <div style={{ marginBottom: 40 }}>
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, maxWidth: 1400}}>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 600, color: '#1f2937' }}>
-              Browse Courses
-            </h1>
+            
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               {isAdmin && (
                 <>
@@ -750,7 +750,7 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, maxWidth: 1400 }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" style={{ maxWidth: 1400 }}>
             {filteredCourses.map(course => (
               <div
                 key={course.category_id}
@@ -844,8 +844,8 @@ const UserDashboard: React.FC<{ activeSection?: string; isAdmin?: boolean }> = (
 
   return (
     <main style={{ padding: 32 }}>
-      <h1>Welcome to Content Library</h1>
-      <p style={{ color: '#666', fontSize: 16 }}>Select "Content Library" to browse available courses.</p>
+      <h1>Welcome to Browse Sprints</h1>
+      <p style={{ color: '#666', fontSize: 16 }}>Select "Browse Sprints" to browse available Sprints.</p>
     </main>
   );
 };

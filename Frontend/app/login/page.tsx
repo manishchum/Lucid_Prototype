@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup } from "firebase/auth"
+import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,15 +12,18 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Brain, ArrowLeft, Eye, EyeOff } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
-import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/contexts/auth-context"
-import bcrypt from "bcryptjs"
+import { fetchWithAuth } from "@/lib/fetch-with-auth"
+
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 function LoginContent() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [resetMessage, setResetMessage] = useState("")
+  const [resetLoading, setResetLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -46,36 +49,43 @@ function LoginContent() {
   }, [searchParams])
 
   const checkUserAccess = async (userEmail: string) => {
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("user_id")
-      .eq("email", userEmail)
-      .maybeSingle()
+    try{
+      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
+      if (!res.ok) {
+        throw new Error("Access denied. Your email is not in the allowed users list.")
+      }
+    
+      const payload = await res.json();
+      let employeeData = payload?.user ?? payload;
+      if (Array.isArray(employeeData)) employeeData = employeeData[0];
+      if (!employeeData) {
+        throw new Error("Access denied. Your email is not in the allowed users list.")
+      }
+      return employeeData;
+    } catch (error: any) {
+      throw new Error(error.message || "Failed to verify user access.")
+    }
+  }
 
-    if (userError || !userData) {
-      throw new Error("Access denied. Your email is not in the allowed users list.")
+  const mapLoginErrorMessage = (err: any): string => {
+    const code = err?.code || ""
+    const message = err?.message || ""
+
+    if (message.includes("Access denied")) {
+      return "Access denied. Your email is not in the allowed users list."
     }
 
-    const { data: roleData, error: roleError } = await supabase
-      .from("user_role_assignments")
-      .select(`
-        user_role_assignment_id,
-        roles (
-          name
-        )
-      `)
-      .eq("user_id", userData.user_id)
-
-    if (roleError || !roleData || roleData.length === 0) {
-      throw new Error("Access denied. No roles assigned to this user.")
-    }
-
-    //@ts-ignore
-    const userRoles = roleData.map(assignment => assignment.roles?.name).filter(Boolean)
-
-    return {
-      userId: userData.user_id,
-      roles: userRoles
+    switch (code) {
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+        return "Invalid email or password."
+      case "auth/invalid-email":
+        return "Please enter a valid email address."
+      case "auth/too-many-requests":
+        return "Too many failed attempts. Please wait and try again."
+      default:
+        return message || "Unable to sign in right now. Please try again."
     }
   }
 
@@ -83,44 +93,21 @@ function LoginContent() {
     e.preventDefault()
     setLoading(true)
     setError("")
+    setResetMessage("")
 
     try {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("user_id, email, password, name")
-        .eq("email", email)
-        .maybeSingle()
+      const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
 
-      if (userError || !userData) {
-        throw new Error("Invalid email or password")
-      }
+      await checkUserAccess(email)
 
-      if (!userData.password) {
-        throw new Error("This account uses Google sign-in. Please use 'Continue with Google' button.")
-      }
-
-      const isPasswordValid = await bcrypt.compare(password, userData.password)
-      if (!isPasswordValid) {
-        throw new Error("Invalid email or password")
-      }
-
-      const userAccessData = await checkUserAccess(email)
-
-      const userForContext = {
-        uid: userData.user_id,
-        email: userData.email,
-        displayName: userData.name,
-        name: userData.name
-      }
-
-      await login(userForContext)
+      await login(emailAuthResult.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
     } catch (error: any) {
-      setError(error.message)
+      setError(mapLoginErrorMessage(error))
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -139,6 +126,34 @@ function LoginContent() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    setError("")
+    setResetMessage("")
+
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail) {
+      setError("Enter your email first, then click Forgot password.")
+      return
+    }
+
+    setResetLoading(true)
+    try {
+      await sendPasswordResetEmail(auth, normalizedEmail)
+      setResetMessage("Password reset email sent. Check your inbox and spam folder.")
+    } catch (err: any) {
+      const code = err?.code || ""
+      if (code === "auth/invalid-email") {
+        setError("Please enter a valid email address.")
+      } else if (code === "auth/too-many-requests") {
+        setError("Too many attempts. Please wait and try again.")
+      } else {
+        setError("Unable to send reset email right now. Please try again.")
+      }
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -162,7 +177,7 @@ function LoginContent() {
         setError(error.message)
       }
       try {
-        await fetch('/api/logs', {
+        await fetchWithAuth('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -187,26 +202,26 @@ function LoginContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-6 transition-colors">
+        <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-800 mb-4 md:mb-6 transition-colors text-xs md:text-sm">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Home
         </Link>
 
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
-          <CardHeader className="text-center pb-8">
-            <div className="flex items-center justify-center space-x-2 mb-6">
+          <CardHeader className="text-center pb-6 md:pb-8">
+            <div className="flex items-center justify-center space-x-2 mb-4 md:mb-6">
               <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
                 <Brain className="w-6 h-6 text-white" />
               </div>
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                 Lucid
               </span>
             </div>
             
-            <CardTitle className="text-2xl font-bold text-gray-800 mb-2">
+            <CardTitle className="text-xl md:text-2xl font-bold text-gray-800 mb-2">
               Welcome Back
             </CardTitle>
-            <p className="text-gray-600">
+            <p className="text-xs md:text-sm text-gray-600">
               Sign in to continue to your Lucid dashboard
             </p>
           </CardHeader>
@@ -214,7 +229,7 @@ function LoginContent() {
           <CardContent className="space-y-6">
             <form onSubmit={handleEmailPasswordLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                <Label htmlFor="email" className="text-xs md:text-sm font-medium text-gray-700">
                   Email Address
                 </Label>
                 <Input
@@ -223,13 +238,13 @@ function LoginContent() {
                   placeholder="your.email@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 text-sm"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+                <Label htmlFor="password" className="text-xs md:text-sm font-medium text-gray-700">
                   Password
                 </Label>
                 <div className="relative">
@@ -239,7 +254,7 @@ function LoginContent() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10"
+                    className="h-10 md:h-11 border-gray-200 focus:border-blue-500 focus:ring-blue-500 pr-10 text-sm"
                     required
                   />
                   <button
@@ -250,17 +265,33 @@ function LoginContent() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={loading || resetLoading}
+                    className="text-xs md:text-sm text-blue-600 hover:text-blue-700 disabled:opacity-60"
+                  >
+                    {resetLoading ? "Sending reset email..." : "Forgot password?"}
+                  </button>
+                </div>
               </div>
 
               {error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription className="text-xs md:text-sm">{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {resetMessage && (
+                <Alert>
+                  <AlertDescription className="text-xs md:text-sm">{resetMessage}</AlertDescription>
                 </Alert>
               )}
 
               <Button
                 type="submit"
-                className="w-full h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200"
+                className="w-full h-10 md:h-11 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium transition-all duration-200 text-sm"
                 disabled={loading}
               >
                 {loading ? "Signing in..." : "Sign In"}
@@ -281,7 +312,7 @@ function LoginContent() {
               variant="outline"
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="w-full h-11 bg-transparent hover:bg-gray-50 border-gray-200"
+              className="w-full h-10 md:h-11 bg-transparent hover:bg-gray-50 border-gray-200 text-xs md:text-sm"
             >
               <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                 <path
@@ -304,13 +335,7 @@ function LoginContent() {
               Continue with Google
             </Button>
 
-            <div className="text-center text-sm text-gray-600">
-              <p>
-                Don't have an account?{" "}
-                <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-medium">
-                  Sign up
-                </Link>
-              </p>
+            <div className="text-center text-xs md:text-sm text-gray-600">
               <p className="mt-2">Contact us via mail at manish.chum@workfloww.ai</p>
             </div>
           </CardContent>

@@ -1,0 +1,93 @@
+from typing import Any, Dict, List
+
+from ..auth_bridge import get_service_supabase_client
+from .permissions import check_company_access, check_user_permission
+from utils.redis_client import get_cache, set_cache
+from utils.db.learning_plan_db import get_company_learning_plans
+
+async def get_employees_bootstrap(
+    requesting_user_id: str,
+    company_id: str,
+) -> Dict[str, Any]:
+    """
+    Load the dashboard bootstrap payload for a company.
+    Returns users, roles, departments, training modules, and learning plans.
+    """
+    cache_key = f"employees_bootstrap:{company_id}"
+
+    cached = get_cache(cache_key)
+    if cached:
+        return {"data": cached, "error": None}
+
+    try:
+        has_permission = await check_user_permission(requesting_user_id, 'manager')
+        has_access = await check_company_access(requesting_user_id, company_id)
+
+        if not has_permission or not has_access:
+            return {
+                "data": None,
+                "error": "Permission denied: Insufficient privileges or company mismatch",
+            }
+
+        service_client = get_service_supabase_client()
+
+        users_resp = (
+            service_client
+            .table('users')
+            .select(
+                'user_id, company_id, name, email, phone, position, hire_date, '
+                'employment_status, department_id, manager_id, avatar_url, last_login, '
+                'login_count, is_active, created_at, updated_at'
+            )
+            .eq('company_id', company_id)
+            .eq('is_active', True)
+            .order('name')
+            .execute()
+        )
+
+        roles_resp = (
+            service_client
+            .table('roles')
+            .select('*')
+            .order('level')
+            .execute()
+        )
+
+        departments_resp = (
+            service_client
+            .table('sub_department')
+            .select('*')
+            .order('department_name')
+            .order('sub_department_name')
+            .execute()
+        )
+
+        modules_resp = (
+            service_client
+            .table('training_modules')
+            .select('*')
+            .eq('company_id', company_id)
+            .order('created_at', desc=True)
+            .execute()
+        )
+
+        plans_result = await get_company_learning_plans(
+            requesting_user_id,
+            company_id,
+            250
+        )
+        
+        plans = plans_result.get("data",[])
+
+        response_payload = {
+            'users': users_resp.data or [],
+            'roles': roles_resp.data or [],
+            'departments': departments_resp.data or [],
+            'training_modules': modules_resp.data or [],
+            'learning_plans': plans,
+        }
+
+        set_cache(cache_key, response_payload, ttl=300)
+        return {"data": response_payload, "error": None}
+    except Exception as exc:
+        return {"data": None, "error": str(exc)}
