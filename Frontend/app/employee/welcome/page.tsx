@@ -25,7 +25,7 @@ import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
-import type { AssignedTask, AssignmentLevel, SubmissionFormat } from "@/types/task";
+import type { AssignedTask, AssignmentLevel, SubmissionFormat, QuizQuestion } from "@/types/task";
 import { FeatureGate } from "@/components/feature-gate";
 import { FEATURES } from "@/contexts/tenant-context";
 
@@ -171,7 +171,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 }
 
 export default function EmployeeWelcome() {
-  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers } = useAuth();
+  const { user, loading: authLoading, logout, employeeData, isAdmin, isSuperAdmin, isDeveloper, isManager } = useAuth();
   const { activeCompanyId, isDeveloperMode, hasFeature } = useTenant();
   const router = useRouter();
   const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
@@ -1148,16 +1148,23 @@ const handleGenerateCertificate = (sprintId: string) => {
                 </p>
               </div>
             </div>
-            <div className="flex w-full flex-col gap-3 md:w-[360px] md:items-end">
+            {/* <div className="w-full md:w-[320px]">
               <CompanySelector showLabel />
-              <Button
-                onClick={() => router.push("/employee/voice-notes")}
-                className="w-full md:w-auto rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <Mic className="mr-2 h-4 w-4" />
-                Open Voice Agent
-              </Button>
-            </div>
+            </div> */}
+            
+              <div className="flex items-end gap-3">
+                <div className="w-[220px]">
+                  <CompanySelector showLabel />
+                </div>
+
+                <Button
+                  onClick={() => router.push("/employee/voice-notes")}
+                  className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
+                >
+                  <Mic className="mr-2 h-4 w-4" />
+                  Open Voice Agent
+                </Button>
+              </div>
           </div>
 
           <div className="grid gap-4 md:gap-8">
@@ -1397,11 +1404,9 @@ const handleGenerateCertificate = (sprintId: string) => {
                  </div>
                </CardContent>
              </Card> */}
-           </div>
-          )}
-         </div>
-        </div>
-       </main>
+            </div>
+          </div>
+        </main>
 
       {/* Certificate Modal */}
             {selectedCertificateSprint && (
