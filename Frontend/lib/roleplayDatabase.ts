@@ -2,6 +2,7 @@
 import { Scenario } from './roleplay/types';
 import { SCENARIOS } from './roleplay/constants';
 import { supabase } from './supabase';
+import { fetchWithAuth } from './fetch-with-auth';
 
 interface CompanyRoleplayLimits {
   roleplayLimit: number;
@@ -799,38 +800,33 @@ export async function createRolePlaySession(
 ): Promise<{ data: any; error: any }> {
 
 
-  const attemptCheck = await checkUserCanAttemptScenario(employeeId, scenarioId);
-  if (!attemptCheck.allowed) {
-    return {
-      data: null,
-      error: {
-        code: 'ROLEPLAY_RETRY_LIMIT_REACHED',
-        message: attemptCheck.message || 'Roleplay retry limit reached for this scenario.',
-        details: attemptCheck.error || null,
+  try {
+    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    };
+      body: JSON.stringify({
+        employee_id: employeeId,
+        scenario_id: scenarioId,
+        scenario_title: scenarioTitle,
+        scenario_role: scenarioRole,
+        scenario_difficulty: scenarioDifficulty,
+        module_id: moduleId
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return { data: null, error: { message: errorData.detail || "Unable to start session." } };
+    }
+
+    const result = await response.json();
+    return { data: result.data, error: null };
+  } catch (error) {
+    console.error("Error creating roleplay session:", error);
+    return { data: null, error: { message: "Network error. Unable to start session." } };
   }
-
-
-  console.log("This is creating roleplay session")
-  console.log("Scenario Id",scenarioId);
-  const { data, error } = await supabase
-    .from('roleplay_sessions')
-    .insert({
-      employee_id: employeeId,
-      module_id: moduleId,
-      scenario_id: scenarioId,
-      scenario_title: scenarioTitle,
-      scenario_role: scenarioRole,
-      scenario_difficulty: scenarioDifficulty,
-      conversation_transcript: [],
-      message_count: 0,
-      started_at: new Date().toISOString(),
-    })
-    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, started_at, message_count')
-    .single();
-
-  return { data, error };
 }
 
 /**
@@ -848,40 +844,36 @@ export async function updateRolePlaySession(
     messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
   });
 
-  const updateData: any = {
-    conversation_transcript: messages,
-    message_count: messages.length,
-  };
+  try {
+    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: messages,
+        is_completed: isCompleted
+      })
+    });
 
-  if (isCompleted) {
-    updateData.completed_at = new Date().toISOString();
-    
-    // Calculate duration if we have timestamps
-    if (messages.length >= 2) {
-      const startTime = new Date(messages[0].timestamp).getTime();
-      const endTime = new Date(messages[messages.length - 1].timestamp).getTime();
-      updateData.duration_seconds = Math.floor((endTime - startTime) / 1000);
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[updateRolePlaySession] ❌ Error:', errorData.detail);
+      return { data: null, error: errorData };
     }
-  }
 
-  const { data, error } = await supabase
-    .from('roleplay_sessions')
-    .update(updateData)
-    .eq('id', sessionId)
-    .select('id, completed_at, duration_seconds, message_count, conversation_transcript')
-    .single();
-
-  if (error) {
-    console.error('[updateRolePlaySession] ❌ Error:', error);
-  } else {
+    const result = await response.json();
+    const data = result.data;
     console.log('[updateRolePlaySession] ✅ Success:', { 
       id: data?.id,
       savedMessageCount: data?.message_count,
       hasTranscript: !!data?.conversation_transcript
     });
+    return { data, error: null };
+  } catch (error) {
+    console.error('[updateRolePlaySession] ❌ Network Error:', error);
+    return { data: null, error };
   }
-
-  return { data, error };
 }
 
 /**
@@ -904,26 +896,36 @@ export async function createRolePlayAssessment(
     parametersCount: assessmentData.parameters.length
   });
 
-  const { data, error } = await supabase
-    .from('roleplay_assessments')
-    .insert({
-      session_id: sessionId,
-      employee_id: employeeId,
-      overall_score: assessmentData.overallScore,
-      summary: assessmentData.summary,
-      parameters: assessmentData.parameters,
-      recommendations: assessmentData.recommendations,
-    })
-    .select('id, session_id, employee_id, overall_score, created_at')
-    .single();
+  try {
+    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/assessments/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        employee_id: employeeId,
+        overallScore: assessmentData.overallScore,
+        summary: assessmentData.summary,
+        parameters: assessmentData.parameters,
+        recommendations: assessmentData.recommendations
+      })
+    });
 
-  if (error) {
-    console.error('[createRolePlayAssessment] Error:', error);
-  } else {
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[createRolePlayAssessment] Error:', errorData.detail);
+      return { data: null, error: errorData };
+    }
+
+    const result = await response.json();
+    const data = result.data;
     console.log('[createRolePlayAssessment] Success:', { id: data?.id, score: data?.overall_score });
+    return { data, error: null };
+  } catch (error) {
+    console.error('[createRolePlayAssessment] Network Error:', error);
+    return { data: null, error };
   }
-
-  return { data, error };
 }
 
 /**

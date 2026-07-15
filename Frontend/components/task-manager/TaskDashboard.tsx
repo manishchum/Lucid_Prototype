@@ -565,23 +565,23 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     setSubmitError(prev => ({ ...prev, [taskId]: '' }));
 
     for (const sub of taskObj.tasks) {
-      if (sub.submissionFormat === 'text' && !textResponses[taskId]?.trim()) {
+      if (sub.submissionFormat === 'text' && !textResponses[sub.id]?.trim()) {
         setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please write a text response for: ${sub.title}` }));
         return;
       }
-      if (sub.submissionFormat === 'image' && !imageFiles[taskId]) {
+      if (sub.submissionFormat === 'image' && !imageFiles[sub.id]) {
         setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please provide a photo verification for: ${sub.title}` }));
         return;
       }
-      	  if (sub.submissionFormat === 'image' && imageAnalysis[taskId]?.passed === false) {
+      	  if (sub.submissionFormat === 'image' && imageAnalysis[sub.id]?.passed === false) {
         setSubmitError(prev => ({ ...prev, [taskId]: `AI verification failed. Please upload correct image.` }));
         return;
       }
-      if (sub.submissionFormat === 'audio' && !audioFiles[taskId]) {
+      if (sub.submissionFormat === 'audio' && !audioFiles[sub.id]) {
         setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please record or verify audio for: ${sub.title}` }));
         return;
       }
-      if (sub.submissionFormat === 'video' && !videoFiles[taskId]) {
+      if (sub.submissionFormat === 'video' && !videoFiles[sub.id]) {
         setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please record or verify video for: ${sub.title}` }));
         return;
       }
@@ -624,16 +624,16 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         let expectedText = 'Standard Response Delivered';
         
         if (sub.submissionFormat === 'image') {
-          submittedText = imageFiles[taskId] ? 'Verified Image Uploaded' : 'None';
+          submittedText = imageFiles[sub.id] ? 'Verified Image Uploaded' : 'None';
           expectedText = 'Verified Image Uploaded';
         } else if (sub.submissionFormat === 'audio') {
-          submittedText = audioFiles[taskId] ? 'Verified Audio Recorded' : 'None';
+          submittedText = audioFiles[sub.id] ? 'Verified Audio Recorded' : 'None';
           expectedText = 'Verified Audio Recorded';
         } else if (sub.submissionFormat === 'video') {
-          submittedText = videoFiles[taskId] ? 'Verified Video Recorded' : 'None';
+          submittedText = videoFiles[sub.id] ? 'Verified Video Recorded' : 'None';
           expectedText = 'Verified Video Recorded';
         } else {
-          submittedText = textResponses[taskId] || 'None';
+          submittedText = textResponses[sub.id] || 'None';
         }
 
         questionsList.push({
@@ -673,9 +673,9 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               correct_answer: q.options[0] || 'A',
             })) as any;
           } else if (sub.submissionFormat === 'image') {
-            payload.image_url = imageFiles[taskId];
+            payload.image_url = imageFiles[sub.id];
 
-            const ai = imageAnalysis[taskId];
+            const ai = imageAnalysis[sub.id];
 
             if (ai) {
               payload.ai_validation_pass = ai.passed;
@@ -717,11 +717,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               // );
             }
           } else if (sub.submissionFormat === 'audio') {
-            payload.audio_url = audioFiles[taskId];
+            payload.audio_url = audioFiles[sub.id];
           } else if (sub.submissionFormat === 'video') {
-            payload.text_response = videoFiles[taskId];
+            payload.video_url = videoFiles[sub.id];
           } else {
-            payload.text_response = textResponses[taskId]?.trim();
+            payload.text_response = textResponses[sub.id]?.trim();
           }
 
           const response = await onSubmitTaskResponse(payload);
@@ -978,7 +978,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                     {/* Task Title Payload info */}
                     <div className="space-y-1">
-                      <span className="text-[10px] font-bold text-gray-400 font-sans block">ASSIGNED WORKFLOW</span>
+                      
                       <h3 className="font-display font-medium text-[#0F172A] leading-snug text-sm tracking-tight text-[#0F172A] font-bold">
                         {task.tasks.map(t => t.title).join(' • ')}
                       </h3>
@@ -989,7 +989,6 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                   {/* Task sub-items information displaying list of child tasks */}
                   <div className="my-4 bg-slate-50 rounded-xl p-3 border border-[#F1F5F9]">
-                    <span className="text-[9px] font-bold text-gray-400 font-sans block uppercase mb-1.5">Requirements Checklist</span>
                     <div className="space-y-2">
                       {task.tasks.map((sub, sIdx) => {
                         return (
@@ -1066,7 +1065,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 }}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
                               >
-                                <span>Generate AI Report 📊</span>
+                                <span>Generate AI Report</span>
                               </button>
 
                               <button
@@ -1074,7 +1073,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 onClick={() => startReassigning(task)}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
                               >
-                                <span>Reassign 🔄</span>
+                                <span>Reassign</span>
                               </button>
                               <button
                                 type="button"
@@ -1493,8 +1492,8 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 {subTask.submissionFormat === 'text' && (
                                   <textarea
                                     rows={2}
-                                    value={textResponses[task.id] || ''}
-                                    onChange={(e) => handleTextAnswerChange(task.id, e.target.value)}
+                                    value={textResponses[subTask.id] || ''}
+                                    onChange={(e) => handleTextAnswerChange(subTask.id, e.target.value)}
                                     placeholder="Write your answer here..."
                                     className="w-full text-xs text-[#0F172A] bg-white border border-[#E2E8F0] rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
                                   />
@@ -1502,18 +1501,18 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                                 {subTask.submissionFormat === 'image' && (
                                   <div className="space-y-2">
-                                    {imageFiles[task.id] ? (
+                                    {imageFiles[subTask.id] ? (
                                       <>
                                         <div className="p-1 border border-[#E2E8F0] bg-white rounded-xl relative overflow-hidden animate-fade-in">
                                           <img 
-                                            src={imageFiles[task.id]} 
+                                            src={imageFiles[subTask.id]} 
                                             alt="Captured/Simulated Content" 
                                             referrerPolicy="no-referrer"
                                             className="w-full h-40 object-cover rounded-lg" 
                                           />
                                           <button
                                             type="button"
-                                            onClick={() => setImageFiles(prev => ({ ...prev, [task.id]: '' }))}
+                                            onClick={() => setImageFiles(prev => ({ ...prev, [subTask.id]: '' }))}
                                             className="absolute top-2.5 right-2.5 bg-black/70 hover:bg-black/90 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold cursor-pointer shadow-md transition-colors"
                                           >
                                             &times;
@@ -1521,11 +1520,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         </div>
 
                                         {/* Analysis status and result */}
-                                        {analyzingImage[task.id] && (
+                                        {analyzingImage[subTask.id] && (
                                           <p className="text-[11px] text-gray-500 mt-2">Analyzing image with Gemini AI...</p>
                                         )}
 
-                                        {imageAnalysis[task.id] && (userRole as string) === 'admin' && (
+                                        {imageAnalysis[subTask.id] && (userRole as string) === 'admin' && (
   <div className="mt-3 p-3 border rounded-xl bg-white space-y-3">
 
     {/* HEADER */}
@@ -1536,12 +1535,12 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
       <span
         className={`text-[11px] px-2 py-1 rounded-full font-bold ${
-          imageAnalysis[task.id].passed
+          imageAnalysis[subTask.id].passed
             ? "bg-green-100 text-green-700"
             : "bg-red-100 text-red-700"
         }`}
       >
-        {imageAnalysis[task.id].passed ? "PASSED" : "FAILED"}
+        {imageAnalysis[subTask.id].passed ? "PASSED" : "FAILED"}
       </span>
     </div>
 
@@ -1556,13 +1555,13 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         <div
           className="bg-[#2F63FF] h-2 rounded-full"
           style={{
-            width: `${imageAnalysis[task.id].score}%`
+            width: `${imageAnalysis[subTask.id].score}%`
           }}
         />
       </div>
 
       <p className="text-[11px] mt-1">
-        {imageAnalysis[task.id].score}/100
+        {imageAnalysis[subTask.id].score}/100
       </p>
     </div>
 
@@ -1570,21 +1569,21 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     {/* FEEDBACK */}
     <div className="bg-slate-50 p-2 rounded-lg">
       <p className="text-[12px]">
-        {imageAnalysis[task.id].feedback}
+        {imageAnalysis[subTask.id].feedback}
       </p>
     </div>
 
 
 
     {/* OBJECT DETECTION */}
-    {imageAnalysis[task.id]?.evidence?.objects?.objects?.length > 0 && (
+    {imageAnalysis[subTask.id]?.evidence?.objects?.objects?.length > 0 && (
       <div>
         <p className="text-[11px] font-bold mb-1">
           🔍 Objects detected
         </p>
 
         <div className="flex flex-wrap gap-1">
-          {imageAnalysis[task.id]
+          {imageAnalysis[subTask.id]
             .evidence.objects.objects.map(
             (obj:any,index:number)=>(
               <span
@@ -1603,7 +1602,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
 
     {/* OCR */}
-    {imageAnalysis[task.id]
+    {imageAnalysis[subTask.id]
       ?.evidence
       ?.ocr
       ?.detected_text
@@ -1614,7 +1613,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
           📝 Text Found
         </p>
 
-        {imageAnalysis[task.id]
+        {imageAnalysis[subTask.id]
           .evidence
           .ocr
           .detected_text
@@ -1636,7 +1635,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   </div>
 )}
                                       </>
-                                    ) : activeCameraTaskId === task.id ? (
+                                    ) : activeCameraTaskId === subTask.id ? (
                                       <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in">
                                         <video
                                           ref={videoRef}
@@ -1647,7 +1646,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         <div className="absolute bottom-3 left-0 right-0 flex justify-center space-x-3 px-3">
                                           <button
                                             type="button"
-                                            onClick={() => captureLivePicture(task.id)}
+                                            onClick={() => captureLivePicture(subTask.id)}
                                             className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 shadow-md font-sans"
                                           >
                                             <Camera size={13} />
@@ -1667,7 +1666,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                       <div>
                                         <button
                                           type="button"
-                                          onClick={() => startCamera(task.id)}
+                                          onClick={() => startCamera(subTask.id)}
                                           className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
                                         >
                                           <Camera className="text-indigo-600 mb-1.5 animate-pulse" size={20} />
@@ -1681,7 +1680,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                                 {subTask.submissionFormat === 'audio' && (
                                   <div className="space-y-3">
-                                    {audioFiles[task.id] ? (
+                                    {audioFiles[subTask.id] ? (
                                       <div className="p-3 bg-white border border-[#E2E8F0] rounded-xl space-y-2 animate-fade-in shadow-sm">
                                         <div className="flex items-center justify-between">
                                           <span className="text-[10px] font-sans font-bold text-gray-500 uppercase tracking-wider flex items-center space-x-1">
@@ -1690,19 +1689,19 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                           </span>
                                           <button
                                             type="button"
-                                            onClick={() => setAudioFiles(prev => ({ ...prev, [task.id]: '' }))}
+                                            onClick={() => setAudioFiles(prev => ({ ...prev, [subTask.id]: '' }))}
                                             className="text-[10px] font-bold text-red-500 hover:text-red-700 cursor-pointer text-right bg-transparent border-0"
                                           >
                                             × Re-record
                                           </button>
                                         </div>
                                         <audio 
-                                          src={audioFiles[task.id]} 
+                                          src={audioFiles[subTask.id]} 
                                           controls 
                                           className="w-full h-11" 
                                         />
                                       </div>
-                                    ) : activeRecordingAudioTaskId === task.id ? (
+                                    ) : activeRecordingAudioTaskId === subTask.id ? (
                                       <div className="bg-white border border-red-200 p-4 rounded-xl text-center space-y-3 animate-pulse shadow-sm">
                                         <div className="flex items-center justify-center space-x-2">
                                           <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
@@ -1736,7 +1735,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                                         <button
   type="button"
-  onClick={() => startAudioRecording(task.id)}
+  onClick={() => startAudioRecording(subTask.id)}
   className="flex flex-col items-center justify-center text-center 
   border border-dashed border-sky-200 bg-sky-50/20 
   hover:bg-sky-50 hover:border-sky-400 
@@ -1760,7 +1759,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
                                 {subTask.submissionFormat === 'video' && (
                                   <div className="space-y-3">
-                                    {videoFiles[task.id] ? (
+                                    {videoFiles[subTask.id] ? (
                                       <div className="p-2 bg-white border border-[#E2E8F0] rounded-xl space-y-2 animate-fade-in shadow-sm">
                                         <div className="flex items-center justify-between">
                                           <span className="text-[10px] font-sans font-bold text-gray-500 uppercase tracking-wider flex items-center space-x-1">
@@ -1769,19 +1768,19 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                           </span>
                                           <button
                                             type="button"
-                                            onClick={() => setVideoFiles(prev => ({ ...prev, [task.id]: '' }))}
+                                            onClick={() => setVideoFiles(prev => ({ ...prev, [subTask.id]: '' }))}
                                             className="text-[10px] font-bold text-red-500 hover:text-red-700 cursor-pointer text-right bg-transparent border-0"
                                           >
                                             × Re-record
                                           </button>
                                         </div>
                                         <video 
-                                          src={videoFiles[task.id]} 
+                                          src={videoFiles[subTask.id]} 
                                           controls 
                                           className="w-full h-40 object-cover rounded-lg" 
                                         />
                                       </div>
-                                    ) : activeRecordingVideoTaskId === task.id ? (
+                                    ) : activeRecordingVideoTaskId === subTask.id ? (
                                       <div className="bg-black rounded-xl overflow-hidden relative aspect-video flex flex-col justify-end p-3 animate-fade-in shadow-inner">
                                         <video
                                           ref={liveVideoPlaybackRef}
@@ -1804,10 +1803,10 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         </button>
                                       </div>
                                     ) : (
-                                  <div>
+                                      <div>
                                         <button
                                           type="button"
-                                          onClick={() => startVideoRecording(task.id)}
+                                          onClick={() => startVideoRecording(subTask.id)}
                                           className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
                                         >
                                           <VideoIcon className="text-indigo-600 mb-1.5 animate-pulse" size={20} />

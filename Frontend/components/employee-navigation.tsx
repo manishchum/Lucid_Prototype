@@ -351,7 +351,7 @@ const EmployeeNavigation = ({
           )}
 
           {/* Role Play - gated by role_play addon */}
-          {hasFeature(FEATURES.ROLE_PLAY) && (
+          {/*{hasFeature(FEATURES.ROLE_PLAY) && (
             <div className="relative group">
               <button 
                 onClick={() => handleNavigate('/employee/roleplay')}
@@ -362,7 +362,7 @@ const EmployeeNavigation = ({
               </button>
               {isCollapsed && <NavTooltip label="Role-Play" />}
             </div>
-          )}
+          )}*/}
 
 
 

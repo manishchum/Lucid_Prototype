@@ -134,6 +134,17 @@ const glass: CSSProperties = {
   boxShadow: '0 8px 32px 0 rgba(0,0,0,0.3)',
 };
 
+const titleCase = (value: string) => {
+  return value
+    .replace(/[_-]/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 export default function CareerJourneysPage() {
   const { isAdmin, userId } = useAuth();
   const router = useRouter();
@@ -279,6 +290,18 @@ export default function CareerJourneysPage() {
     updateLevel(levelId, { sprints: level.sprints.filter(s => s.id !== sprintId) });
   };
 
+  const updateSprint = (levelId: string, sprintId: string, updates: Partial<Sprint>) => {
+    setLevels((prevLevels) => prevLevels.map((level) => {
+      if (level.id !== levelId) return level;
+      return {
+        ...level,
+        sprints: level.sprints.map((sprint) => sprint.id === sprintId ? { ...sprint, ...updates } : sprint),
+      };
+    }));
+  };
+
+  const isEditingLive = editingDraftId && publishedJourneys.some(j => (j.dbId || j.id) === editingDraftId);
+
   const handleSubmit = async () => {
     if (!roleName) { notify('error', 'Please enter a role name'); return; }
     if (levels.some(l => l.sprints.length === 0)) { notify('error', 'Each level must have at least one sprint'); return; }
@@ -307,7 +330,7 @@ export default function CareerJourneysPage() {
       if (!response.ok) {
         try {
           const errorData = await response.json();
-          errorMsg = errorData.error || errorData.message || `HTTP ${response.status}`;
+          errorMsg = errorData.error || errorData.message || errorData.details || `HTTP ${response.status}`;
         } catch(e) {
           errorMsg = `HTTP ${response.status}`;
         }
@@ -320,10 +343,17 @@ export default function CareerJourneysPage() {
       const resultData = result.data || null;
       if (!resultData) { notify('error', 'Failed to save journey'); setIsSaving(false); return; }
 
-      const uiJourney = transformDBToUI(resultData, 'draft');
+      const actualStatus = resultData.status || (isEditingLive ? 'published' : 'draft');
+      const uiJourney = transformDBToUI(resultData, actualStatus);
       setSubmittedJourney(uiJourney);
-      setDraftJourneys(prev => [uiJourney, ...prev.filter(j => j.dbId !== resultData.id)]);
-      notify('success', editingDraftId ? 'Draft updated!' : 'Journey saved to drafts!');
+      
+      if (actualStatus === 'published') {
+        setPublishedJourneys(prev => [uiJourney, ...prev.filter(j => j.dbId !== resultData.id)]);
+        notify('success', 'Live journey updated!');
+      } else {
+        setDraftJourneys(prev => [uiJourney, ...prev.filter(j => j.dbId !== resultData.id)]);
+        notify('success', editingDraftId ? 'Draft updated!' : 'Journey saved to drafts!');
+      }
     } catch { notify('error', 'Failed to save journey'); }
     finally { setIsSaving(false); }
   };
@@ -333,7 +363,16 @@ export default function CareerJourneysPage() {
     setMode('studio');
     setRoleName(submittedJourney.roleName);
     setLevels(submittedJourney.levels);
-    setEditingDraftId(submittedJourney.id);
+    setEditingDraftId(submittedJourney.dbId || submittedJourney.id);
+    setSubmittedJourney(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleStartEditJourney = (journey: CareerJourney) => {
+    setMode('studio');
+    setRoleName(journey.roleName);
+    setLevels(journey.levels);
+    setEditingDraftId(journey.dbId || journey.id);
     setSubmittedJourney(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -614,15 +653,37 @@ export default function CareerJourneysPage() {
                                   className="flex items-center justify-between group/item px-4 py-2.5 rounded-xl transition-all"
                                   style={{ background: 'rgba(15,23,42,0.5)', border: '1px solid rgba(255,255,255,0.05)' }}
                                 >
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" style={{ boxShadow: '0 0 8px rgba(59,130,246,0.8)' }} />
-                                    <span className="text-sm font-medium text-slate-300">{sprint.name}</span>
-                                    {sprint.completionTime && (
-                                      <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.2)' }}>
+                                  <div className="flex flex-1 flex-col gap-2">
+                                    <input
+                                      type="text"
+                                      value={sprint.name}
+                                      onChange={(e) => updateSprint(level.id, sprint.id, { name: e.target.value })}
+                                      placeholder="Goal description"
+                                      className="w-full bg-transparent border-none text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+                                    />
+                                    <div className="flex flex-wrap items-center gap-2 text-slate-300">
+                                      <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: 'rgba(37,99,235,0.08)', border: '1px solid rgba(37,99,235,0.12)' }}>
                                         <Clock className="w-3 h-3 text-blue-400" />
-                                        <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{sprint.completionTime} {sprint.timeUnit === 'hours' ? 'hours' : sprint.timeUnit === 'weeks' ? 'weeks' : sprint.timeUnit === 'months' ? 'months' : 'days'}</span>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={sprint.completionTime || ''}
+                                          onChange={(e) => updateSprint(level.id, sprint.id, { completionTime: e.target.value })}
+                                          placeholder="0"
+                                          className="w-14 bg-transparent border-none p-0 text-[10px] font-black text-blue-400 focus:ring-0 focus:outline-none"
+                                        />
+                                        <select
+                                          value={sprint.timeUnit || 'days'}
+                                          onChange={(e) => updateSprint(level.id, sprint.id, { timeUnit: e.target.value as 'days' | 'hours' | 'weeks' | 'months' })}
+                                          className="bg-transparent border-none text-[10px] font-black text-blue-400 focus:ring-0 cursor-pointer uppercase tracking-widest"
+                                        >
+                                          <option className="bg-slate-900" value="days">Days</option>
+                                          <option className="bg-slate-900" value="hours">Hours</option>
+                                          <option className="bg-slate-900" value="weeks">Weeks</option>
+                                          <option className="bg-slate-900" value="months">Months</option>
+                                        </select>
                                       </div>
-                                    )}
+                                    </div>
                                   </div>
                                   <button
                                     onClick={() => removeSprint(level.id, sprint.id)}
@@ -650,7 +711,7 @@ export default function CareerJourneysPage() {
                   style={{ background: '#2563eb', boxShadow: '0 6px 24px rgba(37,99,235,0.35)' }}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  {isSaving ? 'Saving…' : 'Submit for Preview'}
+                  {isSaving ? 'Saving…' : (isEditingLive ? 'Save Changes' : 'Submit for Preview')}
                 </button>
               </div>
             </div>
@@ -708,7 +769,7 @@ export default function CareerJourneysPage() {
                           <Briefcase className="w-6 h-6 text-blue-400" />
                         </div>
                         <div>
-                          <h3 className="text-2xl font-black text-white tracking-tighter leading-none mb-1">{submittedJourney.roleName}</h3>
+                          <h3 className="text-2xl font-black text-white tracking-tighter leading-none mb-1">{titleCase(submittedJourney.roleName)}</h3>
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-black text-white px-2.5 py-0.5 rounded-full uppercase tracking-widest" style={{ background: '#2563eb' }}>
                               {submittedJourney.levels.length} Levels
@@ -740,10 +801,10 @@ export default function CareerJourneysPage() {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                               {level.sprints.map((s) => (
                                 <div key={s.id} className="flex flex-col gap-0.5 p-3 rounded-xl" style={{ background: 'rgba(2,4,15,0.6)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                  <span className="text-slate-200 font-black uppercase text-xs tracking-wide">{s.name}</span>
+                                  <span className="text-slate-200 font-black text-xs tracking-wide">{titleCase(s.name)}</span>
                                   {s.completionTime && (
-                                    <span className="text-[10px] font-black text-blue-400 flex items-center gap-1 uppercase tracking-widest opacity-70">
-                                      <Clock size={9} /> {s.completionTime} {s.timeUnit === 'hours' ? 'hours' : s.timeUnit === 'weeks' ? 'weeks' : s.timeUnit === 'months' ? 'months' : 'days'}
+                                    <span className="text-[10px] font-black text-blue-400 flex items-center gap-1 tracking-widest opacity-70">
+                                      <Clock size={9} /> {s.completionTime} {titleCase(s.timeUnit || 'hours')}
                                     </span>
                                   )}
                                 </div>
@@ -802,26 +863,9 @@ export default function CareerJourneysPage() {
                           <Layers className="w-5 h-5 text-blue-500 group-hover:text-white transition-colors" />
                         </div>
                         <div>
-                          <h3 className="text-base font-bold text-white uppercase tracking-tight leading-none mb-1.5">{journey.roleName}</h3>
-                          <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                              <span className="text-white">{journey.levels.length}</span> Levels
-                            </div>
-                            <div className="w-1 h-1 rounded-full" style={{ background: '#1e293b' }} />
-                            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                              <span className="text-white">{journey.levels.reduce((acc, l) => acc + l.sprints.length, 0)}</span> Sprints
-                            </div>
+                            <h3 className="text-base font-bold text-white tracking-tight leading-none mb-1.5">{titleCase(journey.roleName)}</h3>
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        {submittedJourney?.id === journey.id && (
-                          <div className="px-3 py-1 text-white font-black text-[10px] rounded-full uppercase tracking-widest animate-pulse" style={{ background: '#2563eb' }}>
-                            Previewing
-                          </div>
-                        )}
-                        <span className="px-3 py-1 font-black text-[9px] rounded-full uppercase tracking-widest" style={{ background: 'rgba(234,179,8,0.05)', color: '#eab308', border: '1px solid rgba(234,179,8,0.15)' }}>
+                        <span className="px-3 py-1 font-black text-[9px] rounded-full tracking-widest" style={{ background: 'rgba(234,179,8,0.05)', color: '#eab308', border: '1px solid rgba(234,179,8,0.15)' }}>
                           Draft
                         </span>
                         <button
@@ -864,8 +908,8 @@ export default function CareerJourneysPage() {
                                   <h4 className="font-bold text-white text-sm uppercase tracking-tight mb-3">Level {level.levelNumber}</h4>
                                   <div className="flex flex-wrap gap-1.5">
                                     {level.sprints.map((s) => (
-                                      <span key={s.id} className="px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wide text-slate-400" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                        {s.name}
+                                      <span key={s.id} className="px-2.5 py-1 rounded-lg text-xs font-bold tracking-wide text-slate-400" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        {titleCase(s.name)}
                                       </span>
                                     ))}
                                   </div>
@@ -930,7 +974,7 @@ export default function CareerJourneysPage() {
                           <Briefcase className="w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors" />
                         </div>
                         <div>
-                          <h3 className="text-base font-bold text-white uppercase tracking-tight leading-none mb-1.5">{journey.roleName}</h3>
+                          <h3 className="text-base font-bold text-white tracking-tight leading-none mb-1.5">{titleCase(journey.roleName)}</h3>
                           <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
                             <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.05)' }}>
                               <span className="text-white">{journey.levels.length}</span> Levels
@@ -944,7 +988,14 @@ export default function CareerJourneysPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <span className="px-3 py-1 font-black text-[9px] rounded-full uppercase tracking-widest italic" style={{ background: 'rgba(16,185,129,0.05)', color: '#10b981', border: '1px solid rgba(16,185,129,0.15)' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleStartEditJourney(journey); }}
+                          className="px-3 py-1 text-xs font-black rounded-full transition-all hover:bg-blue-600/20"
+                          style={{ background: 'rgba(37,99,235,0.08)', color: '#c7d2fe', border: '1px solid rgba(37,99,235,0.15)' }}
+                        >
+                          Edit Live
+                        </button>
+                        <span className="px-3 py-1 font-black text-[9px] rounded-full tracking-widest italic" style={{ background: 'rgba(16,185,129,0.05)', color: '#10b981', border: '1px solid rgba(16,185,129,0.15)' }}>
                           Live on Dashboard
                         </span>
                         <ChevronRight size={16} className={`text-slate-600 transition-transform duration-300 ${expandedId === journey.id ? 'rotate-90 text-blue-400' : ''}`} />
@@ -981,8 +1032,8 @@ export default function CareerJourneysPage() {
                                   <h4 className="font-bold text-white text-sm uppercase tracking-tight mb-3">Level {level.levelNumber}</h4>
                                   <div className="flex flex-wrap gap-1.5">
                                     {level.sprints.map((s) => (
-                                      <span key={s.id} className="px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wide text-slate-400" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                        {s.name}
+                                      <span key={s.id} className="px-2.5 py-1 rounded-lg text-xs font-bold tracking-wide text-slate-400" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        {titleCase(s.name)}
                                       </span>
                                     ))}
                                   </div>
