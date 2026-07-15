@@ -1034,13 +1034,13 @@ function TrainingPlanContent() {
                           setContentLoadingModuleId(null);
                         }
                       }}
-                      disabled={
-                        mod._isCompleted ||
-                        moduleRequiresBaseline(mod) ||
-                        attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ||
-                        contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
-                        quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
-                      }
+                      // disabled={
+                      //   mod._isCompleted ||
+                      //   moduleRequiresBaseline(mod) ||
+                      //   attemptedQuizModules.includes(String(getNormalizedProcessedModuleId(mod) || mod._tabValue)) ||
+                      //   contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ||
+                      //   quizLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue)
+                      // }
                     >
                       {contentLoadingModuleId === (getNormalizedProcessedModuleId(mod) || mod._tabValue) ? (
                         <span className="flex items-center justify-center gap-2">
