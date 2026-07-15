@@ -3,7 +3,7 @@
  * Interfaces with backend routes instead of direct Supabase calls
  */
 
-import { fetchWithAuth } from "./fetch-with-auth";
+import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
