@@ -105,7 +105,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       };
 
       subtasks = task.bundle_tasks.map((sub, index) => ({
-        id: index === 0 ? task.task_id : `${task.task_id}-${index}`,
+        id: `${task.task_id}-${index}`,
         title: sub.title || "",
         description: sub.description || "",
         submissionFormat: normalizeFormat(sub.submission_format),

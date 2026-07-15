@@ -437,17 +437,36 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             # Count users who have completed ALL child tasks in the bundle
             comp_count = 0
             for uid, user_subs in assign_users_subs.items():
-                if len(user_subs) >= num_required:
-                    comp_count += 1
+                if user_subs:
+                    if is_bundle:
+                        completed_children = set()
+                        for sub in user_subs:
+                            for a in (sub.get("answers") or []):
+                                if isinstance(a, dict) and a.get("child_task_id"):
+                                    completed_children.add(a.get("child_task_id"))
+                        if len(completed_children) >= num_required:
+                            comp_count += 1
+                    else:
+                        comp_count += 1
 
             # Check if active user has completed the entire bundle
             user_completed = False
             user_sub_row = None
             if user_id:
                 user_subs = assign_users_subs.get(str(user_id), [])
-                if len(user_subs) >= num_required:
-                    user_completed = True
-                    user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if user_subs else None
+                if user_subs:
+                    if is_bundle:
+                        completed_children = set()
+                        for sub in user_subs:
+                            for a in (sub.get("answers") or []):
+                                if isinstance(a, dict) and a.get("child_task_id"):
+                                    completed_children.add(a.get("child_task_id"))
+                        if len(completed_children) >= num_required:
+                            user_completed = True
+                            user_sub_row = _format_submission_row(user_subs[0], caller_is_admin)
+                    else:
+                        user_completed = True
+                        user_sub_row = _format_submission_row(user_subs[0], caller_is_admin)
 
             result.append({
                 "task_id": task.get("task_id"),
@@ -609,7 +628,17 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             num_required = 1
 
         user_subs = user_submissions_by_assignment.get(assignment_id, [])
-        user_completed = len(user_subs) >= num_required
+        user_completed = False
+        if user_subs:
+            if is_bundle:
+                completed_children = set()
+                for sub in user_subs:
+                    for a in (sub.get("answers") or []):
+                        if isinstance(a, dict) and a.get("child_task_id"):
+                            completed_children.add(a.get("child_task_id"))
+                user_completed = len(completed_children) >= num_required
+            else:
+                user_completed = True
         user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if (user_completed and user_subs) else None
 
         row = {
@@ -783,28 +812,41 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             db
             .table("task_submissions")
             .select("*")
-            .eq("task_id", payload.task_id)
+            .eq("task_id", resolved_task_id)
             .eq("user_id", payload.user_id)
             .execute()
         )
         rows = existing_res.data or []
-        if rows:
-            existing_row = rows[0]
+        if is_bundle_submission:
+            for row in rows:
+                answers = row.get("answers") or []
+                if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                    existing_row = row
+                    break
+            if not existing_row and rows:
+                existing_row = rows[0]
+        else:
+            existing_row = rows[0] if rows else None
 
     if existing_row:
         # Check if the specific format is already submitted in the existing row
         is_completed = False
-        stype = (payload.submission_type or "").lower()
-        if stype == "video" and existing_row.get("video_url"):
-            is_completed = True
-        elif stype == "image" and existing_row.get("image_url"):
-            is_completed = True
-        elif stype == "audio" and existing_row.get("audio_url"):
-            is_completed = True
-        elif stype == "text" and existing_row.get("text_response"):
-            is_completed = True
-        elif stype == "multiple_choice" and existing_row.get("answers"):
-            is_completed = True
+        if is_bundle_submission:
+            answers = existing_row.get("answers") or []
+            if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                is_completed = True
+        else:
+            stype = (payload.submission_type or "").lower()
+            if stype == "video" and existing_row.get("video_url"):
+                is_completed = True
+            elif stype == "image" and existing_row.get("image_url"):
+                is_completed = True
+            elif stype == "audio" and existing_row.get("audio_url"):
+                is_completed = True
+            elif stype == "text" and existing_row.get("text_response"):
+                is_completed = True
+            elif stype == "multiple_choice" and existing_row.get("answers"):
+                is_completed = True
             
         if is_completed:
             raise Exception("Task already completed")
@@ -882,12 +924,14 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         input_data = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
 
     db_answers = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
+    if is_bundle_submission:
+        db_answers.append({"child_task_id": payload.task_id})
 
     # Save submission record with pending status
     insert_data = {
         "submission_id": submission_id,
         "company_id": company_id,
-        "task_id": payload.task_id,
+        "task_id": resolved_task_id,
         "user_id": payload.user_id,
         "assignment_id": payload.assignment_id,
         "submission_type": payload.submission_type,
@@ -933,13 +977,21 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                     db
                     .table("task_submissions")
                     .select("*")
-                    .eq("task_id", payload.task_id)
+                    .eq("task_id", resolved_task_id)
                     .eq("user_id", payload.user_id)
                     .execute()
                 )
                 rows = existing_res.data or []
-                if rows:
-                    existing_row = rows[0]
+                if is_bundle_submission:
+                    for row in rows:
+                        answers = row.get("answers") or []
+                        if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                            existing_row = row
+                            break
+                    if not existing_row and rows:
+                        existing_row = rows[0]
+                else:
+                    existing_row = rows[0] if rows else None
                 if not existing_row:
                     raise e
             else:
@@ -953,7 +1005,13 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                       "ai_status", "analysis_status", "status", "submission_type", "submitted_at"]:
             val = insert_data.get(field)
             if val is not None:
-                update_data[field] = val
+                if field == "answers" and is_bundle_submission and existing_row.get("answers"):
+                    existing_answers = existing_row.get("answers") or []
+                    merged_answers = [a for a in existing_answers if not (isinstance(a, dict) and a.get("child_task_id") == payload.task_id)]
+                    merged_answers.extend(val)
+                    update_data[field] = merged_answers
+                else:
+                    update_data[field] = val
         
         result = (
             db
