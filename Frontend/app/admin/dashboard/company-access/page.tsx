@@ -32,6 +32,8 @@ type AddonKey =
   | "task_management"
   | "kpi"
   | "role_play"
+  | "reports"
+  | "sprintverse"
 
 type CompanyRecord = {
   company_id: string
@@ -122,6 +124,18 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     label: "Role Play",
     description: "Enable AI role-play practice sessions.",
     category: "addon",
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    description: "fnekjfnewl.",
+    category: "core",
+  },
+  {
+    id: "sprintverse",
+    label: "Sprintverse",
+    description: "fnerkjngfek",
+    category: "core",
   },
 ]
 
