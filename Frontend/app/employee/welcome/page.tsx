@@ -1321,7 +1321,6 @@ const handleGenerateCertificate = (sprintId: string) => {
                   </span>
                 </button>
               </FeatureGate>
-              
             </div>
 
             {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (

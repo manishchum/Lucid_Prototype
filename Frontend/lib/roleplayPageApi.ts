@@ -6,6 +6,7 @@
 
 import { callGemini } from './gemini-helper';
 import { Scenario } from './roleplay/types';
+import { fetchWithAuth } from './fetch-with-auth';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
@@ -47,7 +48,7 @@ export async function fetchScenariosForUserAPI(
   isAdmin: boolean
 ): Promise<{ data: Scenario[] | null; error: any }> {
   try {
-    const response = await fetch(`${API_URL}/api/roleplay/page/scenarios?is_admin=${isAdmin}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios?is_admin=${isAdmin}`, {
       method: 'GET',
       headers: {
         'X-User-ID': userId,
@@ -112,7 +113,7 @@ export async function deleteCustomScenarioAPI(
   companyId: string
 ): Promise<{ error: any }> {
   try {
-    const response = await fetch(`${API_URL}/api/roleplay/page/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios/${scenarioId}`, {
       method: 'DELETE',
       headers: {
         'X-User-ID': userId,
@@ -184,7 +185,7 @@ export async function assignScenarioAPI(
       };
     }
 
-    const response = await fetch(`${API_URL}/api/roleplay/page/scenarios/assign`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios/assign`, {
       method: 'POST',
       headers: {
         'X-User-ID': userId,
@@ -251,7 +252,7 @@ export async function getScenarioAssignmentsAPI(
   userId: string
 ): Promise<{ data: any; error: any }> {
   try {
-    const response = await fetch(
+    const response = await fetchWithAuth(
       `${API_URL}/api/roleplay/page/scenarios/assignments/${scenarioId}`,
       {
         method: 'GET',
