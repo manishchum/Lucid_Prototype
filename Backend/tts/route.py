@@ -345,6 +345,142 @@ def createWavBuffer(pcmBytes: bytes, sampleRate: int = 24000, numChannels: int =
 
     return bytes(header) + pcmBytes
 
+async def synthesizeText(
+    text: str,
+    voiceGender: str = "female"
+):
+    """
+    Simple Text → Speech.
+    Used by Module Chat.
+    Returns:
+    {
+        "audio": "<base64>",
+        "contentType": "audio/mp3"
+    }
+    """
+
+    try:
+        text = cleanTextForTTS(text)
+
+        if not text:
+            return {
+                "error": "Text is required",
+                "status": 400
+            }
+
+        # -----------------------------
+        # Google OAuth Access Token
+        # -----------------------------
+        credPath = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        if not credPath:
+            return {
+                "error": "GOOGLE_APPLICATION_CREDENTIALS not set",
+                "status": 500
+            }
+
+        with open(credPath, "r", encoding="utf-8") as f:
+            credentials = json.load(f)
+
+        tokenReq = {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": generateJWT(credentials)
+        }
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            tokenResp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                headers={
+                    "Content-Type": "application/json"
+                },
+                json=tokenReq
+            )
+
+        if tokenResp.status_code != 200:
+            return {
+                "error": f"Failed to get Google access token: {tokenResp.text}",
+                "status": 500
+            }
+
+        accessToken = tokenResp.json().get("access_token")
+
+        if not accessToken:
+            return {
+                "error": "No access token returned",
+                "status": 500
+            }
+
+        # -----------------------------
+        # Voice Selection
+        # -----------------------------
+        gender = (voiceGender or "female").lower()
+
+        if gender == "male":
+            voice = {
+                "languageCode": "en-IN",
+                "name": "en-IN-Chirp3-HD-Enceladus",
+                "ssmlGender": "MALE"
+            }
+        else:
+            voice = {
+                "languageCode": "en-IN",
+                "name": "en-IN-Chirp3-HD-Callirrhoe",
+                "ssmlGender": "FEMALE"
+            }
+
+        # -----------------------------
+        # Google TTS
+        # -----------------------------
+        requestBody = {
+            "input": {
+                "text": text
+            },
+            "voice": voice,
+            "audioConfig": {
+                "audioEncoding": "MP3",
+                "speakingRate": 1.0,
+                "pitch": 0.0
+            }
+        }
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                "https://texttospeech.googleapis.com/v1/text:synthesize",
+                headers={
+                    "Authorization": f"Bearer {accessToken}",
+                    "Content-Type": "application/json"
+                },
+                json=requestBody
+            )
+
+        if response.status_code != 200:
+            return {
+                "error": response.text,
+                "status": response.status_code
+            }
+
+        data = response.json()
+
+        audioContent = data.get("audioContent")
+
+        if not audioContent:
+            return {
+                "error": "Google TTS returned no audio",
+                "status": 500
+            }
+
+        return {
+            "audio": audioContent,
+            "contentType": "audio/mp3"
+        }
+
+    except Exception as e:
+        print("[TTS][CHAT]", e)
+
+        return {
+            "error": str(e),
+            "status": 500
+        }
 
 # -------------------------------
 # Main synthesis pipeline (same)
@@ -728,6 +864,14 @@ async def GET(request: Request):
 async def POST(request: Request):
     try:
         body = await request.json()
+        text = body.get("text")
+        voiceGender = body.get("voiceGender","female")
+        if text:
+            result = await synthesizeText(text, voiceGender)
+            if "error" in result:
+                return JSONResponse(content={"error": result["error"]}, status_code=result.get("status",500))
+            return JSONResponse(content=result)
+
         module_id = body.get("processed_module_id") or body.get("module_id")
         language = body.get("language") or "en"
         language = "hinglish" if language == "hinglish" else "en"
