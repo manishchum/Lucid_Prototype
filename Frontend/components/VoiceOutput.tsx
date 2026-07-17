@@ -2,12 +2,15 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { Volume2, VolumeX } from "lucide-react";
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 interface VoiceOutputProps {
   text: string;
   disabled?: boolean;
   onTTSComplete?: () => void;
 }
+
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function VoiceOutput({ text, disabled = false, onTTSComplete }: VoiceOutputProps) {
   const [playing, setPlaying] = useState(false);
@@ -32,7 +35,7 @@ export default function VoiceOutput({ text, disabled = false, onTTSComplete }: V
 
       setLoading(true);
       // Call text-to-speech API
-      const response = await fetch("/api/text-to-speech", {
+      const response = await fetchWithAuth(`${API_URL}/api/tts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -41,8 +44,13 @@ export default function VoiceOutput({ text, disabled = false, onTTSComplete }: V
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to generate speech");
+        const text = await response.text();
+        try{
+          const error = await response.json();
+          throw new Error(error.error || "Failed to generate speech");
+        } catch {
+          throw new Error(text);
+        }
       }
 
       const data = await response.json();
