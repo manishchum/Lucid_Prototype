@@ -2,6 +2,7 @@ import os
 import json
 import re
 from google import genai
+from google.genai import types
 from utils.supabase_client import supabase
 from analysis.text_analyzer import analyze_text, analyze_mcq
 from analysis.image_analyzer import analyze_image
@@ -114,6 +115,14 @@ Rules:
             model="gemini-2.5-flash",
             contents=prompt,
         )
+        # if hasattr(response, "usage_metadata") and response.usage_metadata:
+        #     meta = response.usage_metadata
+        #     print("\n========== GEMINI TOKEN USAGE (Transcript Cleaner) ==========")
+        #     print(f"Input tokens:    {getattr(meta, 'prompt_token_count', 'N/A')}")
+        #     print(f"Output tokens:   {getattr(meta, 'candidates_token_count', 'N/A')}")
+        #     print(f"Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
+        #     print(f"Total tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
+        #     print("=============================================================\n")
 
         # ---- TOKEN USAGE LOGGING ----
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
@@ -161,17 +170,24 @@ Rules:
             "extraction_confidence": "low"
         }
 
-def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submission_type: str, input_data: str | list):
+def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submission_type: str, input_data: str | list, is_bundle_submission: bool = False):
     """
     Background worker executed via FastAPI BackgroundTasks.
     Runs the specific AI pipeline, updates task_submissions with the result,
     and cleans up saved file inputs.
     """
     print(f"[AI Background] Starting evaluation for submission_id: {submission_id}")
+    print("\n========== NEW AI JOB ==========")
+    print("Submission ID :", submission_id)
+    print("Submission Type :", submission_type)
+    print("Input Data :", input_data)
+    print("================================\n")
     
+    table_name = "child_task_submissions" if is_bundle_submission else "task_submissions"
+
     # 1. Update analysis_status to 'processing'
     try:
-        supabase.table("task_submissions").update({"analysis_status": "processing"}).eq("submission_id", submission_id).execute()
+        supabase.table(table_name).update({"analysis_status": "processing"}).eq("submission_id", submission_id).execute()
     except Exception as e:
         print(f"[AI Background] Error updating status to processing for {submission_id}:", e)
 
@@ -205,16 +221,10 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             )
             extracted_content["raw_employee_response"] = input_data
             text_inputs_for_insights = input_data
-            quality_analysis = {
-                "relevance_score": result.get("metrics", {}).get("relevance_score", 0),
-                "completeness": result.get("metrics", {}).get("completeness_score", 0),
-                "keyword_coverage": {
-                    "matched_count": len(result.get("metrics", {}).get("matched_topics", [])),
-                    "missing_count": len(result.get("metrics", {}).get("missing_topics", [])),
-                    "matched_topics": result.get("metrics", {}).get("matched_topics", []),
-                    "missing_topics": result.get("metrics", {}).get("missing_topics", [])
-                }
-            }
+            quality_analysis = result.get("metrics", {}).copy()
+            quality_analysis["bge_similarity"] = result.get("model_output", {}).get("bge_relevance")
+            quality_analysis["acoustic_features"] = result.get("model_output", {}).get("acoustic_features")
+            quality_analysis["speech_quality"] = result.get("model_output", {}).get("speech_quality")
 
         elif stype == "multiple_choice":
             result = analyze_mcq(
@@ -331,12 +341,20 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             )
             transcript = result.get("metrics", {}).get("transcript", "")
             extracted_content["transcript"] = transcript
-            text_inputs_for_insights = transcript
+            if transcript.strip():
+                text_inputs_for_insights = transcript
+            else:
+                text_inputs_for_insights = "No transcript could be extracted from the audio."
             quality_analysis = {
-                "transcription_quality": result.get("metrics", {}).get("relevance_score", 0),
+                "transcript": transcript,
+                "relevance_score": result.get("metrics", {}).get("relevance_score", 0),
                 "confidence": result.get("metrics", {}).get("confidence", 0),
                 "clarity": result.get("metrics", {}).get("clarity", 0),
-                "speaking_quality": result.get("metrics", {}).get("fluency", 0)
+                "fluency": result.get("metrics", {}).get("fluency", 0),
+                "bge_similarity": result.get("model_output", {}).get("bge_relevance"),
+                "acoustic_features": result.get("model_output", {}).get("acoustic_features"),
+                "speech_quality": result.get("model_output", {}).get("speech_quality"),
+                "model_output": result.get("model_output", {})
             }
 
         elif stype == "video":
@@ -376,8 +394,22 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
         else:
             raise ValueError(f"Unknown submission type: {submission_type}")
 
-        # 4. Generate task insights using Gemini Flash (taking text/structured inputs, no raw files)
-        task_insights = generate_task_insights(
+        # 4. Generate task insights
+        if stype == "audio" and not result.get("metrics", {}).get("transcript", "").strip():
+              task_insights = {
+            "summary": "No transcript could be extracted from the audio.",
+            "measurable_outcomes": [],
+            "actions_taken": [],
+            "unique_methods": [],
+            "challenges": [],
+            "learnings": [],
+            "missing_information": [
+            "Speech could not be transcribed."
+            ],
+            "extraction_confidence": "low"
+        }
+        else:
+            task_insights = generate_task_insights(
             task_title=task.get("title", ""),
             task_description=task.get("description", ""),
             expected_answer=task.get("expected_answer"),
@@ -428,13 +460,13 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
         if stype in ("text", "multiple_choice"):
             update_data["audio_analysis"] = ai_analysis_restructured
 
-        supabase.table("task_submissions").update(update_data).eq("submission_id", submission_id).execute()
+        supabase.table(table_name).update(update_data).eq("submission_id", submission_id).execute()
         print(f"[AI Background] Evaluation completed successfully for submission_id: {submission_id}. Score: {overall_score}")
         
     except Exception as exc:
         print(f"[AI Background] Critical error running pipeline for {submission_id}:", exc)
         try:
-            supabase.table("task_submissions").update({
+            supabase.table(table_name).update({
                 "analysis_status": "failed",
                 "ai_status": "failed",
                 "ai_validation_reason": f"Evaluation failed: {str(exc)}"

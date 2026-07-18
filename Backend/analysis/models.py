@@ -24,8 +24,11 @@ def load_all_models():
 
     # 3. Whisper
     try:
-        print("[AI Models] Loading Whisper (openai/whisper-tiny)...")
-        whisper_pipeline = pipeline("automatic-speech-recognition", model="openai/whisper-tiny")
+        print("[AI Models] Loading Whisper (openai/whisper-small)...")
+        whisper_pipeline = pipeline(
+        "automatic-speech-recognition",
+        model="openai/whisper-small",)
+
         print("[AI Models] Whisper loaded successfully.")
     except Exception as e:
         print("[AI Models] ERROR loading Whisper:", e)

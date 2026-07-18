@@ -54,6 +54,7 @@ interface TaskCreatorWizardProps {
   teamMembers?: TeamMember[];
   corporateLevels?: CorporateLevels;
   onBackendCreate?: (payload: object) => Promise<any>;
+  initialTask?: AssignedTask | null;
 }
 
 export default function TaskCreatorWizard({
@@ -62,53 +63,81 @@ export default function TaskCreatorWizard({
   sprints = [],
   teamMembers = [],
   corporateLevels = CORPORATE_LEVELS_DEFAULT,
-  onBackendCreate
+  onBackendCreate,
+  initialTask
 }: TaskCreatorWizardProps) {
   // Wizard flow step
   const [activeStep, setActiveStep] = useState<WizardStep>('level');
 
   // Draft Data State
-  // const [level, setLevel] = useState<AssignmentLevel>('individual');
-  const [associateWithSprint, setAssociateWithSprint] = useState<boolean>(true);
-  const [taskMode, setTaskMode] = useState<'single' | 'multiple'>('single');
+  const [associateWithSprint, setAssociateWithSprint] = useState<boolean>(
+    initialTask ? initialTask.level === 'sprint' : true
+  );
+  const [taskMode, setTaskMode] = useState<'single' | 'multiple'>(
+    initialTask ? (initialTask.tasks.length > 1 ? 'multiple' : 'single') : 'single'
+  );
   const [dueDate, setDueDate] = useState<string>(() => {
+    if (initialTask && initialTask.dueDate) {
+      return initialTask.dueDate;
+    }
     // Default 7 days from now
     const date = new Date();
     date.setDate(date.getDate() + 7);
     return date.toISOString().split('T')[0];
   });
-  const [recurrence, setRecurrence] = useState<'none' | 'every_2_days' | 'weekly' | 'monthly'>('none');
+  const [recurrence, setRecurrence] = useState<'none' | 'every_2_days' | 'weekly' | 'monthly'>(
+    initialTask ? (initialTask.recurrence as any) || 'none' : 'none'
+  );
 
   // Array of tasks to assign (supports multiple tasks together)
- const [tasks, setTasks] = useState<TaskDraft[]>([
-
-  {
-
-    id: 'task-1',
-
-    title: '',
-
-    description: '',
-
-    submissionFormat: 'text',
-
-    questions: []
-
-  }
-
-]);
+  const [tasks, setTasks] = useState<TaskDraft[]>(() => {
+    if (initialTask && initialTask.tasks && initialTask.tasks.length > 0) {
+      return initialTask.tasks.map(t => ({
+        id: t.id || `task-${Date.now()}-${Math.random()}`,
+        title: t.title,
+        description: t.description || '',
+        expectedAnswer: t.expectedAnswer || '',
+        submissionFormat: t.submissionFormat,
+        questions: t.questions || []
+      }));
+    }
+    return [
+      {
+        id: 'task-1',
+        title: '',
+        description: '',
+        expectedAnswer: '',
+        submissionFormat: 'text',
+        questions: []
+      }
+    ];
+  });
 
   // Target Sprints list (when level === 'sprint')
-  const [selectedSprintIds, setSelectedSprintIds] = useState<string[]>([]);
+  const [selectedSprintIds, setSelectedSprintIds] = useState<string[]>(
+    initialTask ? initialTask.targetSprints || [] : []
+  );
 
   // Target Non-Sprint Levels (when level !== 'sprint')
-  const [selectedOrgs, setSelectedOrgs] = useState<string[]>([]);
-  const [selectedFunctions, setSelectedFunctions] = useState<string[]>([]);
-  const [selectedSubFunctions, setSelectedSubFunctions] = useState<string[]>([]);
-  const [selectedIndividualIds, setSelectedIndividualIds] = useState<string[]>([]);
+  const [selectedOrgs, setSelectedOrgs] = useState<string[]>(
+    initialTask ? initialTask.targetOrgs || [] : []
+  );
+  const [selectedFunctions, setSelectedFunctions] = useState<string[]>(
+    initialTask ? initialTask.targetFunctions || [] : []
+  );
+  const [selectedSubFunctions, setSelectedSubFunctions] = useState<string[]>(
+    initialTask ? initialTask.targetSubFunctions || [] : []
+  );
+  const [selectedIndividualIds, setSelectedIndividualIds] = useState<string[]>(
+    initialTask ? initialTask.targetIndividuals || [] : []
+  );
 
   // Filter query in Audience selector
   const [individualSearchQuery, setIndividualSearchQuery] = useState('');
+
+  // Bundle metadata (for multi-task)
+  const [bundleTitle, setBundleTitle] = useState(initialTask ? initialTask.title || '' : '');
+  const [bundleDescription, setBundleDescription] = useState(initialTask ? initialTask.description || '' : '');
 
   // -------------------------
   // Helper State management
@@ -123,6 +152,7 @@ export default function TaskCreatorWizard({
         id: newId,
         title: '',
         description: '',
+        expectedAnswer: '',
         submissionFormat: 'text',
         questions: []
       }
@@ -432,44 +462,61 @@ const toggleCorrectAnswer = (
   // };
 
   // Validation function
-  const isStepValid = (step: WizardStep): boolean => {
+  const validateStep = (step: WizardStep): string[] => {
+    const errors: string[] = [];
     if (step === 'level') {
-      if (associateWithSprint) {
-        return selectedSprintIds.length > 0;
+      if (associateWithSprint && selectedSprintIds.length === 0) {
+        errors.push("You selected to associate with Sprints, but did not select any sprint cycles.");
       }
-      return true;
     }
     
     if (step === 'details') {
-      // Every task must have a title & description
-      return tasks.every(item => item.title.trim().length >= 5 && item.description.trim() !== '');
+      if (taskMode === 'multiple') {
+        if (!bundleTitle.trim()) errors.push("Task Name is required.");
+        if (!bundleDescription.trim()) errors.push("Task Description is required.");
+        tasks.forEach((t, i) => {
+          if (t.title.trim().length < 5) errors.push(`Task Block #${i + 1}: Sub Task Name must be at least 5 characters.`);
+          if (!t.expectedAnswer?.trim()) errors.push(`Task Block #${i + 1}: AI Analyzing Parameters are required.`);
+        });
+      } else {
+        const t = tasks[0];
+        if (t.title.trim().length < 5) errors.push("Task Name must be at least 5 characters.");
+        if (!t.description.trim()) errors.push("Task Description is required.");
+        if (!t.expectedAnswer?.trim()) errors.push("AI Analyzing Parameters are required.");
+      }
     }
 
     if (step === 'audience') {
-      // Individual level: check if at least one parameter is set
-      return (
+      const hasAudience = (
         selectedOrgs.length > 0 ||
         selectedFunctions.length > 0 ||
         selectedSubFunctions.length > 0 ||
         selectedIndividualIds.length > 0
       );
+      if (!hasAudience) {
+        errors.push("Please select at least one target audience (users, orgs, functions, or sub-functions).");
+      }
     }
 
     if (step === 'schedule') {
-      return dueDate.trim() !== '';
+      if (!dueDate.trim()) errors.push("Due Date is required.");
     }
 
-    return true;
+    return errors;
   };
+  
+  const isStepValid = (step: WizardStep): boolean => validateStep(step).length === 0;
 
   // Submit flow
   const handleLaunchFlow = async () => {
-    if (!isStepValid('level') || !isStepValid('details') || !isStepValid('audience') || !isStepValid('schedule')) {
-      if (!isStepValid('details')) {
-        alert('Please add a task title of at least 5 characters and a description before launching.');
-        return;
-      }
-      alert('Please complete all configurations in the horizontal pipeline steps first.');
+    const allErrors: string[] = [];
+    const stepsToCheck: WizardStep[] = ['level', 'details', 'audience', 'schedule'];
+    for (const step of stepsToCheck) {
+      allErrors.push(...validateStep(step));
+    }
+
+    if (allErrors.length > 0) {
+      alert("Please fix the following issues before launching:\n\n- " + allErrors.join("\n- "));
       return;
     }
 
@@ -510,12 +557,13 @@ const toggleCorrectAnswer = (
 
         if (taskMode === 'multiple') {
           const payloadBase = {
-            title: `Task Bundle (${tasks.length} tasks)`,
-            description: 'Multiple task bundle',
+            title: bundleTitle.trim() || `Task Bundle (${tasks.length} tasks)`,
+            description: bundleDescription.trim() || 'Multiple task bundle',
             submission_format: 'bundle',
             bundle_tasks: tasks.map(t => ({
               title: t.title.trim(),
               description: t.description.trim(),
+              expected_answer: t.expectedAnswer?.trim() || null,
               submission_format: normalizeFormat(t.submissionFormat),
               questions: (t.submissionFormat === 'multiple_choice' || (Array.isArray(t.submissionFormat) && t.submissionFormat.includes('multiple_choice')))
                 ? t.questions.map(q => ({
@@ -547,6 +595,7 @@ const toggleCorrectAnswer = (
           const payloadBase = {
             title: primaryTask.title.trim(),
             description: primaryTask.description.trim(),
+            expected_answer: primaryTask.expectedAnswer?.trim() || null,
             submission_format: normalizeFormat(primaryTask.submissionFormat),
             questions: (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
               ? primaryTask.questions.map(q => ({
@@ -616,7 +665,21 @@ const toggleCorrectAnswer = (
                 <div key={step.id} className="flex items-center flex-1 last:flex-initial">
                   <button
                     onClick={() => {
-                      // Allow traveling to previous step or valid next steps
+                      const currentIndex = stepsList.findIndex(s => s.id === activeStep);
+                      if (index > currentIndex) {
+                        for (let i = currentIndex; i < index; i++) {
+                          const errors = validateStep(stepsList[i].id);
+                          if (errors.length > 0) {
+                            if (i === currentIndex) {
+                              alert("Please fix the following issues before proceeding:\n\n- " + errors.join("\n- "));
+                            } else {
+                              alert(`Please complete the "${stepsList[i].label}" step before proceeding.`);
+                              setActiveStep(stepsList[i].id);
+                            }
+                            return;
+                          }
+                        }
+                      }
                       setActiveStep(step.id);
                     }}
                     className="flex items-center space-x-3 text-left focus:outline-none cursor-pointer group py-1.5"
@@ -800,7 +863,7 @@ const toggleCorrectAnswer = (
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-[#0F172A] font-display font-bold">Configure Task Specifications 📝</h3>
-                      <p className="text-xs text-gray-500 mt-0.5 font-sans">Name the task, define professional operational instructions, and specify fulfillment validation requirements.</p>
+                      <p className="text-xs text-gray-500 mt-0.5 font-sans">Provide the name, instructions, and format for the task.</p>
                     </div>
                     {taskMode === 'multiple' && (
                       <button
@@ -815,6 +878,35 @@ const toggleCorrectAnswer = (
                   </div>
 
                   <div className="space-y-6">
+                    {taskMode === 'multiple' && (
+                      <div className="p-5 border border-[#E2E8F0] rounded-2xl bg-[#F8FAFC] space-y-4">
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-[#334155] block">
+                            Task Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={bundleTitle}
+                            onChange={(e) => setBundleTitle(e.target.value)}
+                            placeholder="e.g., Weekly Onboarding Checks"
+                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-[#334155] block">
+                            Task Description <span className="text-red-500">*</span>
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={bundleDescription}
+                            onChange={(e) => setBundleDescription(e.target.value)}
+                            placeholder="Describe the overall instructions for this task."
+                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     {tasks.map((taskItem, idx) => (
                       <div 
                         key={taskItem.id} 
@@ -823,7 +915,7 @@ const toggleCorrectAnswer = (
                         {taskMode === 'multiple' && (
                           <div className="absolute top-4 right-4 flex items-center space-x-2">
                             <span className="text-[10px] font-sans text-[#2F63FF] bg-[#EEF2FF] px-2 py-0.5 rounded-full font-semibold">
-                              Task Block #{idx + 1}
+                              Sub Task #{idx + 1}
                             </span>
                             {tasks.length > 1 && (
                               <button
@@ -842,7 +934,7 @@ const toggleCorrectAnswer = (
                           {/* Title input */}
                           <div className="space-y-1">
                             <label className="text-xs font-bold text-[#334155] block">
-                              Task / Module Name <span className="text-red-500">*</span>
+                              {taskMode === 'multiple' ? 'Sub Task Name' : 'Task Name'} <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="text"
@@ -855,25 +947,43 @@ const toggleCorrectAnswer = (
                           </div>
 
                           {/* Description field */}
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-[#334155] block">
-                              Fulfillment Instructions <span className="text-red-500">*</span>
+                          {taskMode === 'single' && (
+                            <div className="space-y-1">
+                              <label className="text-xs font-bold text-[#334155] block">
+                                Task Description <span className="text-red-500">*</span>
+                              </label>
+                              <textarea
+                                rows={3}
+                                value={taskItem.description}
+                                onChange={(e) => updateTaskField(taskItem.id, 'description', e.target.value)}
+                                placeholder="Describe the instructions for this task."
+                                className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                              />
+                            </div>
+                          )}
+
+                          {/* AI Evaluation Parameters */}
+                          <div className="space-y-1 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                            <label className="text-[11px] font-bold text-indigo-900 block flex items-center justify-between">
+                              <span>Analyzing Parameters <span className="text-red-500">*</span></span>
+                              
                             </label>
+                            
                             <textarea
-                              rows={3}
-                              value={taskItem.description}
-                              onChange={(e) => updateTaskField(taskItem.id, 'description', e.target.value)}
-                              placeholder="Define standard instructions, constraints, and clear objective metrics to guide users toward successful completion."
-                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                              rows={2}
+                              value={taskItem.expectedAnswer || ''}
+                              onChange={(e) => updateTaskField(taskItem.id, 'expectedAnswer', e.target.value)}
+                              placeholder="e.g., The photo must clearly show the equipment serial number and no blurry edges."
+                              className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
                             />
                           </div>
 
                           {/* Submission Format Selection */}
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-[#334155] block">
-                              Submission Format Verification Requirement
+                              Submission Format
                             </label>
-                            <p className="text-[11px] text-gray-500">Pick the validation format that recipients must register to submit their task flow completion:</p>
+                            
                             
                             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                               {/* Submit Image */}
@@ -932,19 +1042,7 @@ const toggleCorrectAnswer = (
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Audio</span>
                               </button>
 
-                              {/* Submit Video */}
-                              <button
-                                type="button"
-                                onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
-                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
-                                    : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
-                                }`}
-                              >
-                                <VideoIcon size={14} className="shrink-0" />
-                                <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Video</span>
-                              </button>
+
                             </div>
                           </div>
 
@@ -1562,15 +1660,15 @@ className="border rounded-lg text-xs p-2"
               <button
                 type="button"
                 onClick={() => {
+                  const errors = validateStep(activeStep);
+                  if (errors.length > 0) {
+                    alert("Please fix the following issues before proceeding:\n\n- " + errors.join("\n- "));
+                    return;
+                  }
                   const idx = stepsList.findIndex(s => s.id === activeStep);
                   if (idx < stepsList.length - 1) setActiveStep(stepsList[idx + 1].id);
                 }}
-                disabled={!isStepValid(activeStep)}
-                className={`px-5 py-2 text-xs font-semibold rounded-xl transition-all flex items-center space-x-1 cursor-pointer ${
-                  isStepValid(activeStep)
-                    ? 'bg-[#2F63FF] text-white hover:bg-blue-700 shadow-sm'
-                    : 'bg-gray-200 text-gray-400 pointer-events-none'
-                }`}
+                className="px-5 py-2 text-xs font-semibold rounded-xl transition-all flex items-center space-x-1 cursor-pointer bg-[#2F63FF] text-white hover:bg-blue-700 shadow-sm"
               >
                 <span>Next Step</span>
                 <ChevronRight size={14} />
@@ -1691,15 +1789,7 @@ className="border rounded-lg text-xs p-2"
                       </div>
                     )}
 
-                    {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video') && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
-                        <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
-                          <VideoIcon size={12} />
-                        </span>
-                        <span className="text-[9px] font-medium text-gray-500 block">Record video validation</span>
-                        <span className="text-[8px] text-gray-400 block mt-0.5">Supports live video snap & recording</span>
-                      </div>
-                    )}
+
                   </div>
 
                 </div>
