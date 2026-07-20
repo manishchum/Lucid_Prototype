@@ -8,9 +8,9 @@ import shutil
 import datetime
 import asyncio
 from typing import Any, Dict, List, Optional
-
+import torch
 import httpx
-from huggingface_hub import InferenceClient
+# from huggingface_hub import InferenceClient
 from PIL import Image
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -24,7 +24,8 @@ from google.cloud import texttospeech
 import ffmpeg  # ffmpeg-python
 import subprocess
 import shutil
-
+# from diffusers import FluxPipeline
+from diffusers import AutoPipelineForText2Image as FluxPipeline
 from playwright.sync_api import sync_playwright
 
 # ------------------------------------------------------------------
@@ -88,10 +89,10 @@ if base64Key:
 else:
     print("[VIDEO API] GOOGLE_TTS_JSON not set.")
     
-HF_CLIENT = InferenceClient(
-    provider="hf-inference",
-    api_key=os.environ.get("HF_TOKEN")
-)
+# HF_CLIENT = InferenceClient(
+#     provider="hf-inference",
+#     api_key=os.environ.get("HF_TOKEN")
+# )
 if not os.environ.get("HF_TOKEN"):
     print("[FLUX] Warning: hf token not configured")
 
@@ -107,6 +108,26 @@ if not os.environ.get("HF_TOKEN"):
 # ------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------
+IMAGE_PIPE = None
+
+def get_image_pipeline():
+    global IMAGE_PIPE
+
+    if IMAGE_PIPE is None:
+
+        print("Loading SDXL Turbo...")
+
+        IMAGE_PIPE = AutoPipelineForText2Image.from_pretrained(
+            "stabilityai/sdxl-turbo",
+            torch_dtype=torch.float32
+        )
+
+        IMAGE_PIPE.enable_attention_slicing()
+
+        print("SDXL Loaded.")
+
+    return IMAGE_PIPE
+
 async def ensureBucketExists():
     try:
         # listBuckets equivalent
@@ -279,36 +300,30 @@ CONTENT:
 #         return
 
 
-async def generateImagenImage(prompt: str, outFile: str):
-    try:
+async def generateImagenImage(prompt, outFile):
 
-        image = await run_in_threadpool(
-            lambda: HF_CLIENT.text_to_image(
+    pipe = get_image_pipeline()
+
+    image = await run_in_threadpool(
+        lambda: pipe(
                 prompt=(
                     prompt
-                    + ", ultra realistic, cinematic lighting,"
-                    + " corporate training,"
-                    + " no text,"
-                    + " 16:9,"
-                    + " highly detailed"
+                    + ", ultra realistic"
+                    + ", corporate training"
+                    + ", highly detailed"
+                    + ", cinematic lighting"
+                    + ", no text"
+                    + ", 16:9"
                 ),
-                model="black-forest-labs/FLUX.2-schnell"
-            )
-        )
+                guidance_scale=0.0,
+                num_inference_steps=2,
+            ).images[0]
+    )
 
-        image = image.resize((1280,720))
+    image = image.resize((1280,720))
 
-        image.save(outFile)
-
-        print(f"[FLUX] Saved {outFile}")
-
-    except Exception as e:
-        print(f"[FLUX] generation error:")
-        print(type(e))
-        print(e)
-        return
-
-
+    image.save(outFile)
+    
 # ------------------------------------------------------------------
 # FALLBACK ASSETS
 # ------------------------------------------------------------------
