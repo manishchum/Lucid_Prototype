@@ -59,21 +59,7 @@ export async function POST(request: NextRequest) {
             score: 0,
             feedback: "Insufficient conversation to evaluate communication skills."
           },
-          {
-            name: "Eye Contact & Engagement",
-            score: 0,
-            feedback: "Session ended too early to assess engagement levels."
-          },
-          {
-            name: "Hand Gestures & Body Language",
-            score: 0,
-            feedback: "Not enough interaction to evaluate body language."
-          },
-          {
-            name: "Facial Expressions",
-            score: 0,
-            feedback: "Session too brief to assess facial expressions."
-          },
+          
           {
             name: "Objection Handling",
             score: 0,
@@ -135,21 +121,7 @@ Analyze the LEARNER's (${learnerRole}'s) performance in this role-play conversat
       "score": <number 0-100>,
       "feedback": "<specific feedback on verbal communication clarity and articulation>"
     },
-    {
-      "name": "Eye Contact & Engagement",
-      "score": <number 0-100>,
-      "feedback": "<feedback on maintaining appropriate eye contact and visual engagement with the other person. Assess if the person appears to be looking at the camera/person naturally, showing interest and confidence through their gaze>"
-    },
-    {
-      "name": "Hand Gestures & Body Language",
-      "score": <number 0-100>,
-      "feedback": "<feedback on use of hand gestures and overall body language. Evaluate if gestures are natural, purposeful, and help emphasize key points. Note posture, openness, and physical confidence>"
-    },
-    {
-      "name": "Facial Expressions",
-      "score": <number 0-100>,
-      "feedback": "<feedback on facial expressions and emotional expressiveness. Assess if expressions match the conversation tone, show empathy, enthusiasm, and genuine interest. Note smiling, nodding, and other facial cues>"
-    },
+    
     {
       "name": "Objection Handling",
       "score": <number 0-100>,

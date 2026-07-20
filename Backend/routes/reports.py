@@ -218,7 +218,7 @@ def build_pdf_report(task_title: str, report_text: str, pending_failed: List[dic
     )
 
     # Document Header
-    story.append(Paragraph(f"Lucid Team Performance Report", title_style))
+    story.append(Paragraph(f"Lucid Coaching Report", title_style))
     story.append(Paragraph(f"Task: {task_title} | Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC", subtitle_style))
     story.append(Spacer(1, 10))
 
