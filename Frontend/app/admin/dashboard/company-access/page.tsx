@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useTenant } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { ALL_LANGUAGES, getCompanyEnabledLanguages, groupLanguages, type Language } from '@/lib/languages'
+import { useToast } from "@/hooks/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -128,13 +129,13 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   {
     id: "reports",
     label: "Reports",
-    description: "fnekjfnewl.",
+    description: "Enable report generation and analytics.",
     category: "core",
   },
   {
     id: "sprintverse",
     label: "Sprintverse",
-    description: "fnerkjngfek",
+    description: "Enable Sprintverse for collaborative sprint planning.",
     category: "core",
   },
 ]
@@ -207,6 +208,12 @@ function extractLanguageCodes(values?: string[] | string | null): string[] {
     )
   )
 }
+function getDefaultLanguageCodes(values?: string[] | string | null): string[] {
+  const codes = new Set(extractLanguageCodes(values))
+  codes.add("en")
+  codes.add("hi")
+  return Array.from(codes)
+}
 
 function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   if (!company) return ["lucid_studio", "lucid_studio_textual"]
@@ -250,6 +257,7 @@ export default function CompanyAccessPage() {
   const router = useRouter()
   const { user, loading: authLoading, isDeveloper, userId } = useAuth()
   const { availableCompanies, loadingCompanies, isDeveloperMode, activeCompanyId, setActiveCompanyId } = useTenant()
+  const { toast } = useToast()
 
   const [companies, setCompanies] = useState<CompanyRecord[]>([])
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("")
@@ -300,7 +308,7 @@ export default function CompanyAccessPage() {
     if (!selectedCompany) return
     setDraftAddons(getEffectiveAddons(selectedCompany))
     // Extract language codes directly from subscription_addons
-    const langs = extractLanguageCodes(selectedCompany.subscription_addons)
+    const langs = getDefaultLanguageCodes(selectedCompany.subscription_addons)
     setDraftLanguages(langs)
   }, [selectedCompany])
 
@@ -406,6 +414,10 @@ export default function CompanyAccessPage() {
       }
 
       setSuccess("Company access saved successfully.")
+      toast({
+        title: "Company access updated",
+        description: `${selectedCompany?.name || selectedCompanyId} status updated successfully.`,
+      })
     } catch (err: any) {
       setError(err?.message || "Failed to save company access")
     } finally {
@@ -455,7 +467,7 @@ export default function CompanyAccessPage() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(15,23,42,0.12),_transparent_25%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)]">
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 lg:px-8">
-        <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white/85 shadow-xl backdrop-blur">
+        <div className="mb-6 rounded-3xl border border-slate-200 bg-white/85 shadow-xl backdrop-blur">
           <div className="flex flex-col gap-4 p-6 md:p-8 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl space-y-3">
               <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
@@ -472,7 +484,7 @@ export default function CompanyAccessPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {/* <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {FEATURE_DEFINITIONS.map((feature) => (
                 <div
                   key={feature.id}
@@ -481,7 +493,7 @@ export default function CompanyAccessPage() {
                   {feature.label}
                 </div>
               ))}
-            </div>
+            </div> */}
           </div>
         </div>
 
@@ -497,8 +509,8 @@ export default function CompanyAccessPage() {
           </Alert>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-          <Card className="border-slate-200 shadow-lg">
+        <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] min-h-[720px] overflow-hidden">
+          <Card className="border-slate-200 shadow-lg h-[1300px] flex flex-col">
             <CardHeader className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -522,56 +534,61 @@ export default function CompanyAccessPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-3">
-              {filteredCompanies.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-                  No companies match your search.
-                </div>
-              ) : (
-                filteredCompanies.map((company) => {
-                  const addons = getEffectiveAddons(company)
-                  const selected = company.company_id === selectedCompanyId
+            <CardContent className="flex-1 overflow-hidden p-0">
+              
+               <div className="h-full overflow-y-auto px-6 pb-6">
+                {filteredCompanies.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    No companies match your search.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {filteredCompanies.map((company) => {
+                      const addons = getEffectiveAddons(company)
+                      const selected = company.company_id === selectedCompanyId
 
-                  return (
-                    <button
-                      key={company.company_id}
-                      type="button"
-                      onClick={() => {
-                        setActiveCompanyId(company.company_id)
-                        setSelectedCompanyId(company.company_id)
-                      }}
-                      className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${
-                        selected
-                          ? "border-slate-950 bg-slate-950 text-white shadow-lg"
-                          : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <Building2 className={`h-4 w-4 ${selected ? "text-white" : "text-slate-500"}`} />
-                            <p className="truncate font-semibold">{company.name || company.company_id}</p>
+                      return (
+                        <button
+                          key={company.company_id}
+                          type="button"
+                          onClick={() => {
+                            setActiveCompanyId(company.company_id)
+                            setSelectedCompanyId(company.company_id)
+                          }}
+                          className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${
+                            selected
+                              ? "border-slate-950 bg-slate-950 text-white shadow-lg"
+                              : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Building2 className={`h-4 w-4 ${selected ? "text-white" : "text-slate-500"}`} />
+                                <p className="truncate font-semibold">{company.name || company.company_id}</p>
+                              </div>
+                              <p className={`mt-1 truncate text-xs ${selected ? "text-slate-300" : "text-slate-500"}`}>
+                                {company.domain || company.company_id}
+                              </p>
+                            </div>
+                            <ChevronRight className={`h-4 w-4 ${selected ? "text-white" : "text-slate-400"}`} />
                           </div>
-                          <p className={`mt-1 truncate text-xs ${selected ? "text-slate-300" : "text-slate-500"}`}>
-                            {company.domain || company.company_id}
-                          </p>
-                        </div>
-                        <ChevronRight className={`h-4 w-4 ${selected ? "text-white" : "text-slate-400"}`} />
-                      </div>
 
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant={selected ? "secondary" : "outline"} className={selected ? "text-slate-900" : ""}>
-                          {addons.length}/{FEATURE_DEFINITIONS.length} features
-                        </Badge>
-                      </div>
-                    </button>
-                  )
-                })
-              )}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge variant={selected ? "secondary" : "outline"} className={selected ? "text-slate-900" : ""}>
+                              {addons.length}/{FEATURE_DEFINITIONS.length} features
+                            </Badge>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>            
 
-          <Card className="border-slate-200 shadow-lg">
+          <Card className="border-slate-200 shadow-lg h-full overflow-hidden">
             <CardHeader className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -589,178 +606,174 @@ export default function CompanyAccessPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                {FEATURE_DEFINITIONS.map((feature) => {
-                  const checked = draftAddons.includes(feature.id)
-                  const isLucidChild = feature.parentId === "lucid_studio"
-                  const parentEnabled = draftAddons.includes("lucid_studio")
+            <CardContent className="flex flex-1 flex-col overflow-hidden">
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-400/60 scrollbar-track-slate-100">
+                <div className="grid gap-4 md:grid-cols-2">
+                  {FEATURE_DEFINITIONS.map((feature) => {
+                    const checked = draftAddons.includes(feature.id)
+                    const isLucidChild = feature.parentId === "lucid_studio"
+                    const parentEnabled = draftAddons.includes("lucid_studio")
 
-                  if (isLucidChild && !parentEnabled) {
-                    return null
-                  }
+                    if (isLucidChild && !parentEnabled) {
+                      return null
+                    }
 
-                  const isMandatory =
-                    feature.id === "lucid_studio" ||
-                    feature.id === "lucid_studio_textual";
+                    const isMandatory =
+                      feature.id === "lucid_studio" ||
+                      feature.id === "lucid_studio_textual";
 
-                  return (
-                    <div
-                      key={feature.id}
-                      className={`rounded-3xl border p-5 transition-all ${
-                        checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
-                      } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
-                    >
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Wand2 className={`h-4 w-4 ${checked ? "text-cyan-300" : "text-slate-500"}`} />
-                            <p className="font-semibold">{feature.label}</p>
-                            <Badge
-                              variant="outline"
-                              className={`ml-1 border-transparent text-[10px] uppercase tracking-wide ${
-                                checked ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-500"
-                              }`}
-                            >
-                              {feature.category}
-                            </Badge>
-                          </div>
-                          <p className={`mt-1 text-sm ${checked ? "text-slate-300" : "text-slate-500"}`}>
-                            {feature.description}
-                          </p>
-                        </div>
-                        <Switch
-                          checked={checked}
-                          onCheckedChange={(value) => {
-                            if (!isMandatory) {
-                              handleToggleAddon(feature.id, Boolean(value))
-                            }
-                          }}
-                          disabled={isMandatory || (isLucidChild && !parentEnabled)}
-                        />
-                      </div>
-                      {isLucidChild && !parentEnabled && (
-                        <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="font-semibold text-slate-900">Allowed Languages for Lucid Studio</p>
-                <p className="text-sm text-slate-500">Select which languages this company can generate audio/video/translations in.</p>
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {(() => {
-                    const grouped = groupLanguages(ALL_LANGUAGES);
                     return (
-                      <>
-                        <div>
-                          <div className="text-xs font-semibold text-slate-500 mb-2">International</div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {grouped.international.map((lang) => (
-                              <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={draftLanguages.includes(lang.code)}
-                                  onChange={(e) => {
-                                    setDraftLanguages((cur) => {
-                                      const next = new Set(cur);
-                                      if (e.target.checked) next.add(lang.code);
-                                      else next.delete(lang.code);
-                                      return Array.from(next);
-                                    });
-                                  }}
-                                />
-                                <span className="text-slate-700">{lang.name}</span>
-                              </label>
-                            ))}
+                      <div
+                        key={feature.id}
+                        className={`rounded-3xl border p-5 transition-all ${
+                          checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
+                        } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Wand2 className={`h-4 w-4 ${checked ? "text-cyan-300" : "text-slate-500"}`} />
+                              <p className="font-semibold">{feature.label}</p>
+                              <Badge
+                                variant="outline"
+                                className={`ml-1 border-transparent text-[10px] uppercase tracking-wide ${
+                                  checked ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-500"
+                                }`}
+                              >
+                                {feature.category}
+                              </Badge>
+                            </div>
+                            <p className={`mt-1 text-sm ${checked ? "text-slate-300" : "text-slate-500"}`}>
+                              {feature.description}
+                            </p>
                           </div>
+                          <Switch
+                            checked={checked}
+                            onCheckedChange={(value) => {
+                              if (!isMandatory) {
+                                handleToggleAddon(feature.id, Boolean(value))
+                              }
+                            }}
+                            disabled={isMandatory || (isLucidChild && !parentEnabled)}
+                          />
                         </div>
-                        <div>
-                          <div className="text-xs font-semibold text-slate-500 mb-2">Indian Languages</div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {grouped.indian.map((lang) => (
-                              <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  checked={draftLanguages.includes(lang.code)}
-                                  onChange={(e) => {
-                                    setDraftLanguages((cur) => {
-                                      const next = new Set(cur);
-                                      if (e.target.checked) next.add(lang.code);
-                                      else next.delete(lang.code);
-                                      return Array.from(next);
-                                    });
-                                  }}
-                                />
-                                <span className="text-slate-700">{lang.name}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      </>
+                        {isLucidChild && !parentEnabled && (
+                          <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
+                        )}
+                      </div>
                     )
-                  })()}
+                  })}
                 </div>
-              </div>
-
-              <Separator />
-
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">Frontend tier preview</p>
-                    <p className="text-sm text-slate-500">This is only for display. Save actions write add-ons only.</p>
+                <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="font-semibold text-slate-900">Allowed Languages for Lucid Studio</p>
+                  <p className="text-sm text-slate-500">Select which languages this company can generate audio/video/translations in.</p>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(() => {
+                      const grouped = groupLanguages(ALL_LANGUAGES);
+                      return (
+                        <>
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 mb-2">International</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {grouped.international.map((lang) => (
+                                <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={draftLanguages.includes(lang.code)}
+                                    onChange={(e) => {
+                                      setDraftLanguages((cur) => {
+                                        const next = new Set(cur);
+                                        if (e.target.checked) next.add(lang.code);
+                                        else next.delete(lang.code);
+                                        return Array.from(next);
+                                      });
+                                    }}
+                                  />
+                                  <span className="text-slate-700">{lang.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 mb-2">Indian Languages</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {grouped.indian.map((lang) => (
+                                <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={draftLanguages.includes(lang.code)}
+                                    onChange={(e) => {
+                                      setDraftLanguages((cur) => {
+                                        const next = new Set(cur);
+                                        if (e.target.checked) next.add(lang.code);
+                                        else next.delete(lang.code);
+                                        return Array.from(next);
+                                      });
+                                    }}
+                                  />
+                                  <span className="text-slate-700">{lang.name}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
-                  {/* <Badge variant="outline">
-                    {frontendTierLabel ? frontendTierLabel.toUpperCase() : "CUSTOM"}
-                  </Badge> */}
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {selectedFeatures.length === 0 ? (
-                    <Badge variant="outline">No features selected</Badge>
-                  ) : (
-                    selectedFeatures.map((feature) => (
-                      <Badge key={feature.id} variant="secondary" className="bg-white text-slate-800">
-                        <Check className="mr-1 h-3.5 w-3.5" />
-                        {FEATURE_LABELS[feature.id]}
-                      </Badge>
-                    ))
-                  )}
-                </div>
-              </div>
 
-              <div className="sticky bottom-0 flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-500">
-                  Changes are saved to the selected company record.
-                </div>
-                <div className="flex gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      if (!selectedCompany) return
-                      setDraftAddons(getEffectiveAddons(selectedCompany))
-                      setDraftLanguages(extractLanguageCodes(selectedCompany.subscription_addons))
-                    }}
-                    disabled={!selectedCompany || saving}
-                    className="shrink-0"
-                  >
-                    Reset
-                  </Button>
-                   
-                  <Button
-                    type="button"
-                    
-                    onClick={handleSave}
-                    disabled={!selectedCompanyId || saving}
-                    className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? "Saving..." : "Save Access"}
-                  </Button>
-                </div>
+                <Separator />
+
+                {/* <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">Frontend tier preview</p>
+                      <p className="text-sm text-slate-500">This is only for display. Save actions write add-ons only.</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selectedFeatures.length === 0 ? (
+                      <Badge variant="outline">No features selected</Badge>
+                    ) : (
+                      selectedFeatures.map((feature) => (
+                        <Badge key={feature.id} variant="secondary" className="bg-white text-slate-800">
+                          <Check className="mr-1 h-3.5 w-3.5" />
+                          {FEATURE_LABELS[feature.id]}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                </div> */}
               </div>
             </CardContent>
+            <div className="flex flex-col gap-3 rounded-b-3xl border-t border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-500">
+                Changes are saved to the selected company record.
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (!selectedCompany) return
+                    setDraftAddons(getEffectiveAddons(selectedCompany))
+                    setDraftLanguages(extractLanguageCodes(selectedCompany.subscription_addons))
+                  }}
+                  disabled={!selectedCompany || saving}
+                  className="shrink-0"
+                >
+                  Reset
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!selectedCompanyId || saving}
+                  className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? "Saving..." : "Save Access"}
+                </Button>
+              </div>
+            </div>
           </Card>
         </div>
       </div>
