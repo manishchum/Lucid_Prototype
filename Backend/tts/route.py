@@ -598,9 +598,9 @@ async def synthesizeAndStore(processedModuleId: str, language: Literal["en", "hi
 
         if language == "hinglish":
             voice = (
-                {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Autonoe", "ssmlGender": "FEMALE"}
+                {"languageCode": "hi-IN", "name": "hi-IN-Standard-E", "ssmlGender": "FEMALE"}
                 if segment["speaker"] == "pooja"
-                else {"languageCode": "hi-IN", "name": "hi-IN-Chirp3-HD-Enceladus", "ssmlGender": "MALE"}
+                else {"languageCode": "hi-IN", "name": "hi-IN-Standard-C", "ssmlGender": "MALE"}
             )
         else:
             voice = (
