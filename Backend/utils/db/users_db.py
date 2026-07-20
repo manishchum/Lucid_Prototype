@@ -105,12 +105,6 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
 
                 user["subscription_tier"] = company.get("subscription_tier")
                 user["subscription_addons"] = company.get("subscription_addons", [])
-        # Record login metadata (last_login & login_count)
-        login_res = await record_login_in_db(user["user_id"])
-        if login_res.get("data"):
-            user["last_login"] = login_res["data"]["last_login"]
-            user["login_count"] = login_res["data"]["login_count"]
-
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}
@@ -188,12 +182,6 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
                 user["company_logo"] = company.get("company_logo")
                 user["subscription_tier"] = company.get("subscription_tier")
                 user["subscription_addons"] = company.get("subscription_addons", [])
-        # Record login metadata (last_login & login_count)
-        login_res = await record_login_in_db(user["user_id"])
-        if login_res.get("data"):
-            user["last_login"] = login_res["data"]["last_login"]
-            user["login_count"] = login_res["data"]["login_count"]
-
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}
