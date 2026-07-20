@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import bcrypt
 from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
@@ -31,6 +32,31 @@ def normalize_phone(phone: str) -> str:
 
     # fallback
     return f"+{digits}"
+
+async def record_login_in_db(user_id: str) -> Dict[str, Any]:
+    """
+    Update last_login timestamp and increment login_count for a user.
+    """
+    try:
+        service_client = get_service_supabase_client()
+        user_resp = service_client.table("users").select("login_count").eq("user_id", user_id).limit(1).execute()
+        rows = user_resp.data if hasattr(user_resp, 'data') else []
+        current_count = int(rows[0].get("login_count") or 0) if rows else 0
+        
+        now_iso = datetime.now(timezone.utc).isoformat()
+        new_count = current_count + 1
+        
+        service_client.table("users").update({
+            "last_login": now_iso,
+            "login_count": new_count,
+            "updated_at": now_iso
+        }).eq("user_id", user_id).execute()
+        
+        return {"data": {"last_login": now_iso, "login_count": new_count}, "error": None}
+    except Exception as e:
+        print(f"[record_login_in_db] Exception for {user_id}: {e}")
+        return {"data": None, "error": str(e)}
+
 
 async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -79,6 +105,12 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
 
                 user["subscription_tier"] = company.get("subscription_tier")
                 user["subscription_addons"] = company.get("subscription_addons", [])
+        # Record login metadata (last_login & login_count)
+        login_res = await record_login_in_db(user["user_id"])
+        if login_res.get("data"):
+            user["last_login"] = login_res["data"]["last_login"]
+            user["login_count"] = login_res["data"]["login_count"]
+
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}
@@ -156,6 +188,12 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
                 user["company_logo"] = company.get("company_logo")
                 user["subscription_tier"] = company.get("subscription_tier")
                 user["subscription_addons"] = company.get("subscription_addons", [])
+        # Record login metadata (last_login & login_count)
+        login_res = await record_login_in_db(user["user_id"])
+        if login_res.get("data"):
+            user["last_login"] = login_res["data"]["last_login"]
+            user["login_count"] = login_res["data"]["login_count"]
+
         # Strip sensitive fields before returning.
         user.pop('password', None)
         return {"data": user, "error": None}
