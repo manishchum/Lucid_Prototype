@@ -420,13 +420,13 @@ def getGoogleTtsVoiceConfig(language: str, speaker: str) -> Dict[str, Any]:
         voice_config["name"] = (
             "en-IN-Chirp3-HD-Callirrhoe"
             if speaker in {"sarah", "pooja"}
-            else "en-IN-Chirp3-HD-Enceladus"
+            else "en-US-Standard-J"
         )
     elif normalized == "hinglish":
         voice_config["name"] = (
-            "hi-IN-Chirp3-HD-Autonoe"
+            "hi-IN-Standard-E"
             if speaker == "pooja"
-            else "hi-IN-Chirp3-HD-Enceladus"
+            else "hi-IN-Standard-C"
         )
 
     return voice_config
@@ -697,7 +697,7 @@ async def synthesizeText(
         if gender == "male":
             voice = {
                 "languageCode": "en-IN",
-                "name": "en-IN-Chirp3-HD-Enceladus",
+                "name": "en-US-Standard-J",
                 "ssmlGender": "MALE"
             }
         else:
