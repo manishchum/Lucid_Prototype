@@ -19,7 +19,7 @@ import {
   Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
-  Download, Linkedin, X
+  Download, Linkedin, X, Mic
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
@@ -1148,9 +1148,23 @@ const handleGenerateCertificate = (sprintId: string) => {
                 </p>
               </div>
             </div>
-            <div className="w-full md:w-[320px]">
+            {/* <div className="w-full md:w-[320px]">
               <CompanySelector showLabel />
-            </div>
+            </div> */}
+            
+              <div className="flex items-end gap-3">
+                <div className="w-[220px]">
+                  <CompanySelector showLabel />
+                </div>
+
+                <Button
+                  onClick={() => router.push("/employee/voice-notes")}
+                  className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
+                >
+                  <Mic className="mr-2 h-4 w-4" />
+                  Open Voice Agent
+                </Button>
+              </div>
           </div>
 
           <div className="grid gap-4 md:gap-8">

@@ -351,3 +351,36 @@ async def provision_company_functions(
         }
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+
+async def check_company_roleplay_addon(company_id: str) -> tuple[bool, Optional[str]]:
+    """
+    Check if a company has the 'role_play' addon enabled.
+    Returns: (has_addon: bool, error: Optional[str])
+    """
+    try:
+        supabase_client = get_service_supabase_client()
+        resp = (
+            supabase_client
+            .table('companies')
+            .select('subscription_addons')
+            .eq('company_id', company_id)
+            .single()
+            .execute()
+        )
+        
+        if not resp.data:
+            return False, f"Company '{company_id}' not found"
+        
+        company_data = resp.data
+        subscription_addons = company_data.get('subscription_addons', [])
+        
+        # Check if role_play addon is in the list
+        has_roleplay = 'role_play' in subscription_addons if subscription_addons else False
+        
+        if not has_roleplay:
+            return False, "Role-Play feature is not enabled for this company. Please contact your administrator to enable it in subscription settings."
+        
+        return True, None
+    except Exception as e:
+        return False, f"Error checking company subscription: {str(e)}"

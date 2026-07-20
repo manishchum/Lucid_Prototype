@@ -127,8 +127,329 @@ async def ensureBucketExists():
         return {"ok": False, "error": str(e) or "Unknown error creating bucket"}
 
 
-# ------------------------------------------------------------------
-# TYPES
+SUPPORTED_VIDEO_LANGUAGE_CODES = {
+    "en",
+    "hinglish",
+    "de",
+    "ru",
+    "fr",
+    "it",
+    "es",
+    "pl",
+    "uk",
+    "ro",
+    "nl",
+    "bn",
+    "ta",
+    "te",
+    "mr",
+    "kn",
+    "pa",
+    "gu",
+    "ur",
+    "or",
+}
+
+LANGUAGE_ALIAS_TO_CODE = {
+    "english": "en",
+    "en": "en",
+    "hindi": "hinglish",
+    "hi": "hinglish",
+    "hinglish": "hinglish",
+    "german": "de",
+    "de": "de",
+    "russian": "ru",
+    "ru": "ru",
+    "french": "fr",
+    "fr": "fr",
+    "italian": "it",
+    "it": "it",
+    "spanish": "es",
+    "es": "es",
+    "polish": "pl",
+    "pl": "pl",
+    "ukrainian": "uk",
+    "uk": "uk",
+    "romanian": "ro",
+    "ro": "ro",
+    "dutch": "nl",
+    "nl": "nl",
+    "bengali": "bn",
+    "bn": "bn",
+    "tamil": "ta",
+    "ta": "ta",
+    "telugu": "te",
+    "te": "te",
+    "marathi": "mr",
+    "mr": "mr",
+    "kannada": "kn",
+    "kn": "kn",
+    "punjabi": "pa",
+    "pa": "pa",
+    "gujarati": "gu",
+    "gu": "gu",
+    "urdu": "ur",
+    "ur": "ur",
+    "odia": "or",
+    "or": "or",
+}
+
+LANGUAGE_CODE_TO_SUFFIX = {
+    "en": "",
+    "hinglish": "hinglish",
+    "de": "german",
+    "ru": "russian",
+    "fr": "french",
+    "it": "italian",
+    "es": "spanish",
+    "pl": "polish",
+    "uk": "ukrainian",
+    "ro": "romanian",
+    "nl": "dutch",
+    "bn": "bengali",
+    "ta": "tamil",
+    "te": "telugu",
+    "mr": "marathi",
+    "kn": "kannada",
+    "pa": "punjabi",
+    "gu": "gujarati",
+    "ur": "urdu",
+    "or": "odia",
+}
+
+LANGUAGE_CODE_TO_GOOGLE_TTS_LOCALE = {
+    "en": "en-IN",
+    "hinglish": "hi-IN",
+    "de": "de-DE",
+    "ru": "ru-RU",
+    "fr": "fr-FR",
+    "it": "it-IT",
+    "es": "es-ES",
+    "pl": "pl-PL",
+    "uk": "uk-UA",
+    "ro": "ro-RO",
+    "nl": "nl-NL",
+    "bn": "bn-IN",
+    "ta": "ta-IN",
+    "te": "te-IN",
+    "mr": "mr-IN",
+    "kn": "kn-IN",
+    "pa": "pa-IN",
+    "gu": "gu-IN",
+    "ur": "ur-IN",
+    "or": "or-IN",
+}
+
+LANGUAGE_CODE_TO_DISPLAY_NAME = {
+    "en": "English",
+    "hinglish": "Hinglish",
+    "de": "German",
+    "ru": "Russian",
+    "fr": "French",
+    "it": "Italian",
+    "es": "Spanish",
+    "pl": "Polish",
+    "uk": "Ukrainian",
+    "ro": "Romanian",
+    "nl": "Dutch",
+    "bn": "Bengali",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "mr": "Marathi",
+    "kn": "Kannada",
+    "pa": "Punjabi",
+    "gu": "Gujarati",
+    "ur": "Urdu",
+    "or": "Odia",
+}
+
+
+def normalizeLanguageCode(language: str) -> str:
+    if not language:
+        return "en"
+    normalized = str(language).strip().lower().replace("-", "_")
+    return LANGUAGE_ALIAS_TO_CODE.get(normalized, "en")
+
+
+def getLocalizedFieldSuffix(language: str) -> str:
+    normalized = normalizeLanguageCode(language)
+    return LANGUAGE_CODE_TO_SUFFIX.get(normalized, "")
+
+
+def getLocalizedFieldName(language: str, kind: str) -> str:
+    suffix = getLocalizedFieldSuffix(language)
+    if kind == "video":
+        return "video_url" if not suffix else f"video_url_{suffix}"
+    return "video_url" if not suffix else f"video_url_{suffix}"
+
+
+def getGoogleTtsVoiceName(language: str) -> Optional[str]:
+    normalized = normalizeLanguageCode(language)
+    if normalized == "en":
+        return "en-IN-Chirp3-HD-Callirrhoe"
+    if normalized == "hinglish":
+        return "hi-IN-Neural2-B"
+    return None
+
+
+def getLanguageDisplayName(language: str) -> str:
+    normalized = normalizeLanguageCode(language)
+    return LANGUAGE_CODE_TO_DISPLAY_NAME.get(normalized, normalized.capitalize())
+
+
+def isTranslationSuspicious(original: str, translated: str, target_language: str) -> bool:
+    if not translated:
+        return True
+
+    normalized_target = normalizeLanguageCode(target_language)
+    if normalized_target in {"kn", "bn", "ta", "te", "mr", "pa", "gu", "ur", "or", "uk", "ru", "fr", "de", "es", "it", "pl", "ro", "nl"}:
+        # For non-English languages, ensure the translation is not purely ASCII when the script should use native characters.
+        if not re.search(r"[^\u0000-\u007F]", translated):
+            return True
+
+    return False
+
+
+async def translateScriptToLanguage(script: str, target_language: str) -> str:
+    if not script:
+        return ""
+    language_name = getLanguageDisplayName(target_language)
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise Exception("GEMINI_API_KEY is not configured for script translation")
+
+    async def request_translation(prompt_text: str) -> str:
+        async with httpx.AsyncClient(timeout=300) as client:
+            res = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={api_key}",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": prompt_text}]
+                        }
+                    ],
+                    "generationConfig": {
+                        "temperature": 0.0,
+                        "maxOutputTokens": 4096
+                    }
+                }
+            )
+
+        if res.status_code < 200 or res.status_code >= 300:
+            raise Exception(f"Script translation failed: {res.status_code} {res.text}")
+
+        payload = res.json()
+        translated = (
+            (payload.get("candidates") or [{}])[0]
+            .get("content", {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        if not translated:
+            raise Exception("Script translation returned no text")
+
+        return translated.strip()
+
+    prompt = (
+        f"Translate the following English text into {language_name}. "
+        "Do not omit any sentences or shorten the text. "
+        "Use the target language script where applicable. "
+        "Return only a JSON object with a single field named \"translation\". "
+        "Do not include any extra explanation.\n\n"
+        f"Text:\n{script}"
+    )
+
+    translated = await request_translation(prompt)
+    if translated.startswith("{"):
+        try:
+            parsed = json.loads(translated)
+            translated = str(parsed.get("translation", "")).strip()
+        except Exception:
+            pass
+
+    if isTranslationSuspicious(script, translated, target_language):
+        fallback_prompt = (
+            f"Translate the entire English text below into {language_name}. "
+            "Do not omit any part of the source text. "
+            "Translate sentence by sentence and preserve the original meaning. "
+            "Return only a JSON object with key \"translation\" and no extra commentary.\n\n"
+            f"Text:\n{script}"
+        )
+        translated = await request_translation(fallback_prompt)
+        if translated.startswith("{"):
+            try:
+                parsed = json.loads(translated)
+                translated = str(parsed.get("translation", "")).strip()
+            except Exception:
+                pass
+
+        if isTranslationSuspicious(script, translated, target_language):
+            raise Exception(
+                f"Translation into {language_name} appears incomplete or invalid. "
+                "Please check the GEMINI_API_KEY and the translation prompt."
+            )
+
+    return translated
+
+
+async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str) -> list:
+    try:
+        pm_res = (
+            supabase
+            .table("processed_modules")
+            .select("original_module_id")
+            .eq("processed_module_id", processedModuleId)
+            .maybe_single()
+            .execute()
+        )
+        pm_data = getattr(pm_res, "data", None)
+        if not pm_data or not pm_data.get("original_module_id"):
+            return []
+
+        original_module_id = pm_data.get("original_module_id")
+        tm_res = (
+            supabase
+            .table("training_modules")
+            .select("company_id")
+            .eq("module_id", original_module_id)
+            .maybe_single()
+            .execute()
+        )
+        tm_data = getattr(tm_res, "data", None)
+        if not tm_data or not tm_data.get("company_id"):
+            return []
+
+        company_res = (
+            supabase
+            .table("companies")
+            .select("subscription_addons")
+            .eq("company_id", tm_data.get("company_id"))
+            .maybe_single()
+            .execute()
+        )
+        company_data = getattr(company_res, "data", None)
+        return company_data.get("subscription_addons", []) if isinstance(company_data, dict) else []
+    except Exception as e:
+        print("[VIDEO] Failed to fetch company subscription addons:", e)
+        return []
+
+
+def getCompanyAllowedLanguageCodes(addons: list) -> set:
+    if not isinstance(addons, list) or len(addons) == 0:
+        return {"en", "hinglish"}
+
+    normalized_codes = set()
+    for addon in addons:
+        if not addon:
+            continue
+        code = normalizeLanguageCode(str(addon))
+        if code in SUPPORTED_VIDEO_LANGUAGE_CODES:
+            normalized_codes.add(code)
+
+    return normalized_codes if normalized_codes else {"en", "hinglish"}
+
 # ------------------------------------------------------------------
 # Scene:
 # {
@@ -318,15 +639,16 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: str = "en-IN-Chirp3-HD-Callirrhoe") -> float:
+async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: Optional[str] = None) -> float:
     ttsClient = texttospeech.TextToSpeechClient()
+
+    voice_params: Dict[str, Any] = {"language_code": language_code}
+    if voice_name:
+        voice_params["name"] = voice_name
 
     response = ttsClient.synthesize_speech(
         input=texttospeech.SynthesisInput(text=script),
-        voice=texttospeech.VoiceSelectionParams(
-            language_code=language_code,
-            name=voice_name
-        ),
+        voice=texttospeech.VoiceSelectionParams(**voice_params),
         audio_config=texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=1.0
@@ -566,140 +888,124 @@ async def generateVideo(processedModuleId: str) -> dict:
     print("[VIDEO] Generating AI instructor avatar...")
     avatar = await generateAvatarImage(tmpDir)
 
-    sceneVideos_en: List[str] = []
-    sceneVideos_hi: List[str] = []
+    subscription_addons = await getCompanySubscriptionAddonsForProcessedModule(actualId)
+    allowed_languages = sorted(getCompanyAllowedLanguageCodes(subscription_addons))
+    print("[VIDEO] Allowed languages:", allowed_languages)
+
+    sceneVideos_by_language: Dict[str, List[str]] = {lang: [] for lang in allowed_languages}
     timeline = 0
 
     for i in range(len(scenes)):
         scene = scenes[i]
         bg = os.path.join(tmpDir, f"bg-{i}.png")
-        audio_en = os.path.join(tmpDir, f"audio-en-{i}.mp3")
-        audio_hi = os.path.join(tmpDir, f"audio-hi-{i}.mp3")
         slide = await renderSlide(scene, i, tmpDir)
 
         print(f"[VIDEO] Generating visual and audio for scene {i + 1}/{len(scenes)}")
         await generateImagenImage(scene["visual_prompt"], bg)
-        
-        # English audio
-        print(f"[VIDEO] Scene {i + 1} - English Script: {scene.get('spoken_script', '')}")
-        duration_en = await generateTTSAudio(scene["spoken_script"], audio_en, "en-IN", "en-IN-Chirp3-HD-Callirrhoe")
 
-        # Hinglish audio
-        hinglish_script = scene.get("hinglish_script", scene["spoken_script"])
-        print(f"[VIDEO] Scene {i + 1} - Hinglish Script: {hinglish_script}")
-        duration_hi = await generateTTSAudio(hinglish_script, audio_hi, "hi-IN", "hi-IN-Neural2-B")
+        scene_max_duration = 0
+        for language in allowed_languages:
+            audio_path = os.path.join(tmpDir, f"audio-{language}-{i}.mp3")
+            if language == "hinglish":
+                script = scene.get("hinglish_script", "")
+            elif language == "en":
+                script = scene.get("spoken_script", "")
+            else:
+                script = await translateScriptToLanguage(scene.get("spoken_script", ""), language)
 
-        max_duration = max(duration_en, duration_hi)
-        
-        out_en = os.path.join(tmpDir, f"scene-en-{i}.mp4")
-        out_hi = os.path.join(tmpDir, f"scene-hi-{i}.mp4")
-        
-        await composeScene(bg, slide, avatar, audio_en, out_en, fallbacks, max_duration)
-        await composeScene(bg, slide, avatar, audio_hi, out_hi, fallbacks, max_duration)
-        
-        sceneVideos_en.append(out_en)
-        sceneVideos_hi.append(out_hi)
-        timeline += max_duration
+            language_code = LANGUAGE_CODE_TO_GOOGLE_TTS_LOCALE.get(language, "en-IN")
+            voice_name = getGoogleTtsVoiceName(language)
 
-    listFile_en = os.path.join(tmpDir, "scenes_en.txt")
-    with open(listFile_en, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_en]))
+            print(f"[VIDEO] Scene {i + 1} - {language} Script: {script[:120]}")
+            duration = await generateTTSAudio(script, audio_path, language_code, voice_name)
+            scene_max_duration = max(scene_max_duration, duration)
 
-    listFile_hi = os.path.join(tmpDir, "scenes_hi.txt")
-    with open(listFile_hi, "w", encoding="utf-8") as f:
-        f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in sceneVideos_hi]))
+            out_path = os.path.join(tmpDir, f"scene-{language}-{i}.mp4")
+            await composeScene(bg, slide, avatar, audio_path, out_path, fallbacks, duration)
+            sceneVideos_by_language[language].append(out_path)
 
-    finalVideo_en = os.path.join(tmpDir, "final_en.mp4")
-    finalVideo_hi = os.path.join(tmpDir, "final_hi.mp4")
+        timeline += scene_max_duration
 
+    list_files_by_language: Dict[str, str] = {}
+    for language, videos in sceneVideos_by_language.items():
+        list_file = os.path.join(tmpDir, f"scenes_{language}.txt")
+        with open(list_file, "w", encoding="utf-8") as f:
+            f.write("\n".join([f"file '{v.replace(chr(92), '/')}'" for v in videos]))
+        list_files_by_language[language] = list_file
+
+    final_videos_by_language: Dict[str, str] = {}
     if not FFMPEG_PATH:
         raise Exception("ffmpeg not found in PATH. Please install ffmpeg.")
-    
-    # ffmpeg concat EN
-    cmd_concat_en = [
-        FFMPEG_PATH, "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", listFile_en,
-        "-c", "copy",
-        finalVideo_en
-    ]
-    # ffmpeg concat HI
-    cmd_concat_hi = [
-        FFMPEG_PATH, "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", listFile_hi,
-        "-c", "copy",
-        finalVideo_hi
-    ]
-    
-    def run_concat(cmd):
+
+    def concat_command(list_file: str, out_file: str):
+        return [
+            FFMPEG_PATH, "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_file,
+            "-c", "copy",
+            out_file
+        ]
+
+    def run_concat(cmd_list: List[str]):
         return subprocess.run(
-            cmd,
+            cmd_list,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-    
-    result_en = await run_in_threadpool(run_concat, cmd_concat_en)
-    if result_en.returncode != 0:
-        raise Exception(result_en.stderr.decode("utf-8", errors="ignore")[:2000])
 
-    result_hi = await run_in_threadpool(run_concat, cmd_concat_hi)
-    if result_hi.returncode != 0:
-        raise Exception(result_hi.stderr.decode("utf-8", errors="ignore")[:2000])
+    for language, list_file in list_files_by_language.items():
+        suffix = getLocalizedFieldSuffix(language) or language
+        final_path = os.path.join(tmpDir, f"final_{suffix}.mp4")
+        cmd = concat_command(list_file, final_path)
 
-    # Upload English Video
-    with open(finalVideo_en, "rb") as f:
-        buffer_en = f.read()
+        result = await run_in_threadpool(run_concat, cmd)
+        if result.returncode != 0:
+            raise Exception(result.stderr.decode("utf-8", errors="ignore")[:2000])
 
-    # Upload to Supabase
+        final_videos_by_language[language] = final_path
+
     print("[VIDEO] Step 1: Ensuring bucket exists...")
     bucket_result = await ensureBucketExists()
     print(f"[VIDEO] Bucket check result: {bucket_result}")
-    
-    uploadPath_en = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_en.mp4"
-    uploadPath_hi = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_hi.mp4"
 
-    try:
-        supabase_admin.storage.from_(BUCKET).upload(
-            path=uploadPath_en,
-            file=buffer_en,
-            file_options={"content-type": "video/mp4", "upsert": "true"}
-        )
-        
-        with open(finalVideo_hi, "rb") as f:
-            buffer_hi = f.read()
+    uploaded_urls: Dict[str, str] = {}
+    for language, final_path in final_videos_by_language.items():
+        with open(final_path, "rb") as f:
+            buffer = f.read()
 
-        supabase_admin.storage.from_(BUCKET).upload(
-            path=uploadPath_hi,
-            file=buffer_hi,
-            file_options={"content-type": "video/mp4", "upsert": "true"}
-        )
-    except Exception as e:
-        print(f"[VIDEO] Upload exception caught: {type(e).__name__}: {e}")
-    
-    videoUrl_en = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_en)
-    videoUrl_hi = supabase_admin.storage.from_(BUCKET).get_public_url(uploadPath_hi)
-    
-    if isinstance(videoUrl_en, dict):
-        videoUrl_en = videoUrl_en.get("publicURL") or videoUrl_en.get("publicUrl") or videoUrl_en.get("signedURL")
-    if isinstance(videoUrl_hi, dict):
-        videoUrl_hi = videoUrl_hi.get("publicURL") or videoUrl_hi.get("publicUrl") or videoUrl_hi.get("signedURL")
-    
-    if not videoUrl_en or not isinstance(videoUrl_en, str):
-        raise Exception(f"Failed to get EN video URL.")
+        suffix = getLocalizedFieldSuffix(language) or language
+        upload_path = f"{actualId}/{str(uuid_lib.uuid4())}_notebooklm_video_{suffix}.mp4"
 
-    # Save URL in DB
-    print("[VIDEO] Saving video URLs to database:")
-    print("EN:", videoUrl_en)
-    print("HI:", videoUrl_hi)
+        try:
+            supabase_admin.storage.from_(BUCKET).upload(
+                path=upload_path,
+                file=buffer,
+                file_options={"content-type": "video/mp4", "upsert": "true"}
+            )
+        except Exception as e:
+            raise Exception(f"Upload failed for {language}: {type(e).__name__}: {e}")
 
-    supabase.table("processed_modules").update({
-        "video_url": videoUrl_en,
-        "video_url_hinglish": videoUrl_hi,
-        "video_generated_at": datetime.datetime.utcnow().isoformat()
-    }).eq("processed_module_id", actualId).execute()
+        public_url = supabase_admin.storage.from_(BUCKET).get_public_url(upload_path)
+        if isinstance(public_url, dict):
+            public_url = public_url.get("publicURL") or public_url.get("publicUrl") or public_url.get("signedURL")
+
+        if not public_url or not isinstance(public_url, str):
+            raise Exception(f"Failed to get public URL for {language}")
+
+        uploaded_urls[language] = public_url
+
+    if not uploaded_urls:
+        raise Exception("No video files were uploaded")
+
+    update_data: Dict[str, Any] = {}
+    for language, public_url in uploaded_urls.items():
+        field_name = getLocalizedFieldName(language, "video")
+        update_data[field_name] = public_url
+
+    update_data["video_generated_at"] = datetime.datetime.utcnow().isoformat()
+
+    supabase.table("processed_modules").update(update_data).eq("processed_module_id", actualId).execute()
 
     # cleanup
     try:
@@ -707,9 +1013,10 @@ async def generateVideo(processedModuleId: str) -> dict:
     except Exception:
         pass
 
+    main_video_url = uploaded_urls.get("en") or next(iter(uploaded_urls.values()))
     return {
-        "videoUrl": videoUrl_en,
-        "videoUrlHinglish": videoUrl_hi
+        "videoUrl": main_video_url,
+        "videoUrls": uploaded_urls
     }
 
 
@@ -734,8 +1041,9 @@ async def POST(req: Request):
         urls = await generateVideo(moduleId)
 
         return JSONResponse({
-            "videoUrl": urls["videoUrl"],
-            "videoUrlHinglish": urls["videoUrlHinglish"]
+            "videoUrl": urls.get("videoUrl"),
+            "videoUrls": urls.get("videoUrls", {}),
+            "videoUrlHinglish": urls.get("videoUrls", {}).get("hinglish")
         })
     except Exception as e:
         print("[GPT-VIDEO] Video generation failed:", e)

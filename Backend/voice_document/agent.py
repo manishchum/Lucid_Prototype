@@ -521,4 +521,43 @@ Transcript:
             output_format=output_format.lower().strip(),
             model_used=self.model_name,
         )
+
+    async def generate_daily_report(
+        self,
+        transcript: str,
+        report_title: Optional[str] = None,
+        output_format: str = "docx",
+    ) -> Dict[str, Any]:
+        if not transcript or not transcript.strip():
+            raise RuntimeError("Transcript content is required for daily report generation")
+
+        classification = await self.classify_document(transcript, output_format)
+        document_type = classification.get("document_type") or self._heuristic_classification(transcript, output_format)
+        suggested_title = report_title or classification.get("suggested_title") or self._heuristic_title(transcript, document_type)
+
+        structured_json = await self.structure_document(
+            transcript=transcript,
+            output_format=output_format,
+            document_type=document_type,
+            suggested_title=suggested_title,
+        )
+
+        structured_json["document_type"] = document_type
+        structured_json["suggested_title"] = structured_json.get("suggested_title") or suggested_title
+        structured_json["classification"] = classification
+        structured_json["transcript"] = transcript
+
+        renderable_content = self.build_renderable_content(structured_json, output_format)
+        structured_json["renderable_content"] = renderable_content
+
+        summary_text = structured_json.get("summary") or "Daily report generated from the combined transcripts."
+
+        return {
+            "summary_text": summary_text,
+            "structured_json": structured_json,
+            "renderable_content": renderable_content,
+            "model_used": self.model_name,
+            "document_type": document_type,
+            "suggested_title": suggested_title,
+        }
           
