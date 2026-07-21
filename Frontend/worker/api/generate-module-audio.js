@@ -66,6 +66,132 @@ function normalizeAddonKey(addon) {
   return String(addon || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
 }
 
+const LANGUAGE_ALIAS_TO_CODE = {
+  english: 'en',
+  en: 'en',
+  hindi: 'hinglish',
+  hi: 'hinglish',
+  hinglish: 'hinglish',
+  german: 'de',
+  de: 'de',
+  russian: 'ru',
+  ru: 'ru',
+  french: 'fr',
+  fr: 'fr',
+  italian: 'it',
+  it: 'it',
+  spanish: 'es',
+  es: 'es',
+  polish: 'pl',
+  pl: 'pl',
+  ukrainian: 'uk',
+  uk: 'uk',
+  romanian: 'ro',
+  ro: 'ro',
+  dutch: 'nl',
+  nl: 'nl',
+  bengali: 'bn',
+  bn: 'bn',
+  tamil: 'ta',
+  ta: 'ta',
+  telugu: 'te',
+  te: 'te',
+  marathi: 'mr',
+  mr: 'mr',
+  kannada: 'kn',
+  kn: 'kn',
+  punjabi: 'pa',
+  pa: 'pa',
+  gujarati: 'gu',
+  gu: 'gu',
+  urdu: 'ur',
+  ur: 'ur',
+  odia: 'or',
+  or: 'or',
+};
+
+const LANGUAGE_CODE_TO_SUFFIX = {
+  en: '',
+  hinglish: 'hinglish',
+  de: 'german',
+  ru: 'russian',
+  fr: 'french',
+  it: 'italian',
+  es: 'spanish',
+  pl: 'polish',
+  uk: 'ukrainian',
+  ro: 'romanian',
+  nl: 'dutch',
+  bn: 'bengali',
+  ta: 'tamil',
+  te: 'telugu',
+  mr: 'marathi',
+  kn: 'kannada',
+  pa: 'punjabi',
+  gu: 'gujarati',
+  ur: 'urdu',
+  or: 'odia',
+};
+
+const SUPPORTED_PODCAST_LANGUAGE_CODES = new Set(Object.keys(LANGUAGE_CODE_TO_SUFFIX));
+
+function normalizeLanguage(language) {
+  if (!language) return 'en';
+  const normalized = String(language).trim().toLowerCase().replace(/[-\s]+/g, '_');
+  return LANGUAGE_ALIAS_TO_CODE[normalized] || 'en';
+}
+
+function getLocalizedFieldName(language, kind) {
+  const normalized = normalizeLanguage(language);
+  const suffix = LANGUAGE_CODE_TO_SUFFIX[normalized] || '';
+  if (kind === 'audio') {
+    return suffix ? `audio_url_${suffix}` : 'audio_url';
+  }
+  if (kind === 'transcript') {
+    return suffix ? `podcast_transcript_${suffix}` : 'podcast_transcript';
+  }
+  return suffix ? `podcast_timeline_${suffix}` : 'podcast_timeline';
+}
+
+function getCompanyAllowedLanguageCodes(addons) {
+  if (!Array.isArray(addons) || addons.length === 0) {
+    return new Set(['en', 'hinglish']);
+  }
+  const normalized = new Set();
+  for (const raw of addons) {
+    if (!raw) continue;
+    const addonKey = String(raw).trim().toLowerCase().replace(/[-\s]+/g, '_');
+    if (!LANGUAGE_ALIAS_TO_CODE[addonKey]) continue;
+    const code = LANGUAGE_ALIAS_TO_CODE[addonKey];
+    if (SUPPORTED_PODCAST_LANGUAGE_CODES.has(code)) {
+      normalized.add(code);
+    }
+  }
+  return normalized.size > 0 ? normalized : new Set(['en', 'hinglish']);
+}
+
+function needsAudioForLanguage(row, language) {
+  if (!row || !language) return false;
+  const field = getLocalizedFieldName(language, 'audio');
+  return !hasNonEmptyString(row[field]);
+}
+
+function hasAnyMissingAudio(row, allowedLanguages) {
+  if (!row || !Array.isArray(allowedLanguages)) return false;
+  return allowedLanguages.some((lang) => needsAudioForLanguage(row, lang));
+}
+
+function getAudioColumnsForLanguages(languages) {
+  const columns = new Set(['processed_module_id', 'original_module_id', 'content', 'audio_url', 'audio_url_hinglish']);
+  for (const language of languages) {
+    const normalized = normalizeLanguage(language);
+    if (normalized === 'en' || normalized === 'hinglish') continue;
+    const column = getLocalizedFieldName(normalized, 'audio');
+    columns.add(column);
+  }
+  return Array.from(columns);
+}
+
 async function getCompanySubscriptionAddonsForModule(moduleId) {
   if (!moduleId) return new Set();
   if (moduleAddonCache.has(moduleId)) {
@@ -112,22 +238,11 @@ function hasNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function normalizeLanguage(language) {
-  return language === 'hinglish' ? 'hinglish' : 'en';
-}
 
-function needsEnglish(row) {
-  return !hasNonEmptyString(row.audio_url);
-}
-
-function needsHinglish(row) {
-  return !hasNonEmptyString(row.audio_url_hinglish);
-}
-
-function isEligible(row) {
+function isEligible(row, allowedLanguages) {
   const content = typeof row.content === 'string' ? row.content.trim() : '';
-  const missingAnyAudio = needsEnglish(row) || needsHinglish(row);
-  return content.length >= MIN_CONTENT_LENGTH && missingAnyAudio;
+  if (content.length < MIN_CONTENT_LENGTH) return false;
+  return hasAnyMissingAudio(row, Array.from(allowedLanguages));
 }
 
 async function callTtsForLanguage(processedModuleId, language) {
@@ -159,7 +274,7 @@ async function callTtsForLanguage(processedModuleId, language) {
           console.log(`[AUDIO WORKER] HTTP ${response.status} from ${baseUrl}. Nginx disconnected but Backend is likely still generating ${normalizedLanguage} audio! Entering wait-and-poll loop...`);
           const maxWaitMs = 15 * 60 * 1000; // wait up to 15 minutes
           const startMs = Date.now();
-          const col = normalizedLanguage === 'hinglish' ? 'audio_url_hinglish' : 'audio_url';
+          const col = getLocalizedFieldName(normalizedLanguage, 'audio');
 
           while (Date.now() - startMs < maxWaitMs) {
             await sleep(15000);
@@ -197,6 +312,8 @@ async function callTtsForLanguage(processedModuleId, language) {
 async function processProcessedModuleRow(row, forceLanguage = null) {
   const processedModuleId = row.processed_module_id;
   const normalizedForceLanguage = forceLanguage ? normalizeLanguage(forceLanguage) : null;
+  const companyAddons = await getCompanySubscriptionAddonsForModule(row.original_module_id || row.original_module_id);
+  const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(companyAddons));
 
   if (normalizedForceLanguage) {
     await callTtsForLanguage(processedModuleId, normalizedForceLanguage);
@@ -204,28 +321,38 @@ async function processProcessedModuleRow(row, forceLanguage = null) {
   }
 
   const generated = [];
-
-  if (needsEnglish(row)) {
-    await callTtsForLanguage(processedModuleId, 'en');
-    generated.push('en');
-  }
-
-  if (needsHinglish(row)) {
-    await callTtsForLanguage(processedModuleId, 'hinglish');
-    generated.push('hinglish');
+  for (const language of allowedLanguages) {
+    if (needsAudioForLanguage(row, language)) {
+      await callTtsForLanguage(processedModuleId, language);
+      generated.push(language);
+    }
   }
 
   if (generated.length === 0) {
-    console.log(`[AUDIO WORKER] Skipping ${processedModuleId}; both audio URLs are already present.`);
+    console.log(`[AUDIO WORKER] Skipping ${processedModuleId}; all enabled language audio already present.`);
   }
 
   return { ok: true, processedModuleId, generated };
 }
 
 async function fetchRowByProcessedId(processedModuleId) {
+  const { data: pmData, error: pmError } = await supabase
+    .from('processed_modules')
+    .select('processed_module_id, original_module_id')
+    .eq('processed_module_id', processedModuleId)
+    .maybeSingle();
+
+  if (pmError) {
+    throw new Error(`Processed module lookup failed: ${pmError.message}`);
+  }
+
+  if (!pmData) {
+    throw new Error(`processed_module_id not found: ${processedModuleId}`);
+  }
+
   const { data, error } = await supabase
     .from('processed_modules')
-    .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
+    .select('*')
     .eq('processed_module_id', processedModuleId)
     .maybeSingle();
 
@@ -268,7 +395,6 @@ async function fetchNextPendingRow() {
     .in('original_module_id', activeModuleIds)
     .not('content', 'is', null)
     .neq('content', '')
-    .or('audio_url.is.null,audio_url.eq."",audio_url_hinglish.is.null,audio_url_hinglish.eq.""')
     .order('created_at', { ascending: true })
     .limit(50);
 
@@ -279,9 +405,14 @@ async function fetchNextPendingRow() {
   const rows = Array.isArray(data) ? data : [];
 
   for (const row of rows) {
-    if (!isEligible(row) || !row.original_module_id) continue;
+    if (!row.original_module_id) continue;
     if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_podcast'))) continue;
-    return row;
+
+    const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
+    const candidateRow = await fetchRowByProcessedId(row.processed_module_id);
+    if (!isEligible(candidateRow, Array.from(allowedLanguages))) continue;
+
+    return candidateRow;
   }
 
   if (rows.length > 0) {
@@ -294,7 +425,8 @@ async function fetchNextPendingRow() {
 async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
-    if (!isEligible(row) && !language) {
+    const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
+    if (!isEligible(row, Array.from(allowedLanguages)) && !language) {
       return { ok: true, skipped: true, reason: 'No missing audio or content too short for this processed_module_id' };
     }
 
@@ -312,7 +444,7 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
 
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, content, audio_url, audio_url_hinglish')
+      .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
@@ -320,7 +452,14 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
       throw new Error(`Module lookup failed: ${error.message}`);
     }
 
-    const rows = (data || []).filter((row) => isEligible(row) || language);
+    const rows = [];
+    for (const row of (data || [])) {
+      const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
+      if (isEligible(row, Array.from(allowedLanguages)) || language) {
+        rows.push(row);
+      }
+    }
+
     if (rows.length === 0) {
       return { ok: true, skipped: true, reason: 'No processed modules require audio generation for this module_id' };
     }

@@ -42,7 +42,10 @@ import {
   List,
   ChevronDown,
   Type,
-  ListChecks
+  ListChecks,
+  ListFilter,
+  BarChart2,
+  Square
 } from 'lucide-react';
 import { AssignedTask, SubmissionFormat, TeamMember } from '@/types/task';
 import type { SubmitTaskPayload } from '@/lib/taskApi';
@@ -57,9 +60,10 @@ interface TaskDashboardProps {
   onTaskDeleted?: (assignmentId: string) => void;
   teamMembers?: TeamMember[];
   isWelcomePage?: boolean;
+  onEditTaskRequest?: (task: AssignedTask) => void;
 }
 
-export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSubmitTaskResponse, onTaskSubmitted, onTaskReassigned, onTaskDeleted, teamMembers = [], isWelcomePage = false }: TaskDashboardProps) {
+export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSubmitTaskResponse, onTaskSubmitted, onTaskReassigned, onTaskDeleted, teamMembers = [], isWelcomePage = false, onEditTaskRequest }: TaskDashboardProps) {
   const { toast } = useToast();
   const { employeeData } = useAuth();
   // Debug: print a compact summary (id, status, submitted, submission) for easier inspection
@@ -91,7 +95,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   const [analyzingImage, setAnalyzingImage] = useState<Record<string, boolean>>({});
   const [audioFiles, setAudioFiles] = useState<Record<string, string>>({});
   const [videoFiles, setVideoFiles] = useState<Record<string, string>>({});
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, Record<string, string | string[]>>>({});
 
   // AI Feedback Modal State
   const [selectedFeedbackSubmission, setSelectedFeedbackSubmission] = useState<any>(null);
@@ -109,7 +113,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     setGeneratingReport(true);
     setReportFeedback('');
     try {
-      const activeTaskId = selectedSubtaskId || selectedReportTask.tasks[0]?.id || selectedReportTask.id;
+      const activeTaskId = selectedReportTask.taskId || selectedReportTask.id;
       const url = `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/reports/generate`;
       const response = await fetchWithAuth(url, {
         method: 'POST',
@@ -133,8 +137,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      const activeSubtask = selectedReportTask.tasks.find(t => t.id === activeTaskId);
-      const taskTitleClean = (activeSubtask?.title || 'report').slice(0, 15).replace(/\s+/g, '_');
+      const taskTitleClean = (selectedReportTask.title || 'report').slice(0, 15).replace(/\s+/g, '_');
       link.setAttribute('download', `AI_Report_${taskTitleClean}_${Date.now()}.pdf`);
       document.body.appendChild(link);
       link.click();
@@ -153,60 +156,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
     }
   };
 
-  // Reassignment Form State
-  const [reassigningTaskId, setReassigningTaskId] = useState<string | null>(null);
-  const [reassignLevel, setReassignLevel] = useState<'sprint' | 'individual'>('sprint');
-  const [reassignSprints, setReassignSprints] = useState<string[]>([]);
-  const [reassignOrgs, setReassignOrgs] = useState<string[]>([]);
-  const [reassignFunctions, setReassignFunctions] = useState<string[]>([]);
-  const [reassignSubFunctions, setReassignSubFunctions] = useState<string[]>([]);
-  const [reassignIndividuals, setReassignIndividuals] = useState<string[]>([]);
-  const [reassignDueDate, setReassignDueDate] = useState<string>('');
-  const [reassignRecurrence, setReassignRecurrence] = useState<'none' | 'every_2_days' | 'weekly' | 'monthly'>('none');
-  const [reassignMode, setReassignMode] = useState<'modify' | 'copy'>('copy');
 
-  const startReassigning = (taskObj: AssignedTask) => {
-    setReassigningTaskId(taskObj.id);
-    setReassignLevel(taskObj.level === 'sprint' ? 'sprint' : 'individual');
-    setReassignSprints(taskObj.targetSprints || []);
-    setReassignOrgs(taskObj.targetOrgs || []);
-    setReassignFunctions(taskObj.targetFunctions || []);
-    setReassignSubFunctions(taskObj.targetSubFunctions || []);
-    setReassignIndividuals(taskObj.targetIndividuals || []);
-    setReassignDueDate(taskObj.dueDate || '');
-    setReassignRecurrence(taskObj.recurrence || 'none');
-    setReassignMode('copy');
-  };
-
-  const handleConfirmReassign = (originalTask: AssignedTask) => {
-    const calculatedLevel = reassignLevel === 'sprint' ? 'sprint' : 'individual';
-    const usersCount = calculatedLevel === 'sprint'
-      ? Math.max(reassignSprints.length, 1) * 5
-      : reassignIndividuals.length > 0
-        ? reassignIndividuals.length
-        : Math.max(reassignFunctions.length, 1) * 4;
-
-    const updatedTask: AssignedTask = {
-      ...originalTask,
-      id: reassignMode === 'copy' ? `task-assigned-${Date.now()}` : originalTask.id,
-      level: calculatedLevel,
-      targetSprints: calculatedLevel === 'sprint' ? reassignSprints : [],
-      targetOrgs: calculatedLevel !== 'sprint' ? reassignOrgs : [],
-      targetFunctions: calculatedLevel !== 'sprint' ? reassignFunctions : [],
-      targetSubFunctions: calculatedLevel !== 'sprint' ? reassignSubFunctions : [],
-      targetIndividuals: calculatedLevel !== 'sprint' ? reassignIndividuals : [],
-      dueDate: reassignDueDate || new Date().toISOString().split('T')[0],
-      recurrence: reassignRecurrence,
-      createdAt: reassignMode === 'copy' ? new Date().toISOString().split('T')[0] : originalTask.createdAt,
-      totalTargetUsersCount: usersCount,
-      completionCount: reassignMode === 'copy' ? 0 : originalTask.completionCount,
-    };
-
-    if (onTaskReassigned) {
-      onTaskReassigned(originalTask.id, updatedTask, reassignMode);
-    }
-    setReassigningTaskId(null);
-  };
 
   // Camera capture states
   const [activeCameraTaskId, setActiveCameraTaskId] = useState<string | null>(null);
@@ -282,14 +232,33 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   //   : 0;
 
   // Handle employee interactions
-  const handleAnswerQuiz = (taskId: string, questionId: string, option: string) => {
-    setQuizAnswers(prev => ({
-      ...prev,
-      [taskId]: {
-        ...(prev[taskId] || {}),
-        [questionId]: option
+  const handleAnswerQuiz = (taskId: string, questionId: string, option: string, type?: 'single' | 'multiple' | 'written') => {
+    setQuizAnswers(prev => {
+      const currentTaskAnswers = prev[taskId] || {};
+      const currentAnswer = currentTaskAnswers[questionId];
+
+      let newAnswer: string | string[];
+
+      if (type === 'multiple') {
+        let arr: string[] = Array.isArray(currentAnswer) ? [...currentAnswer] : (currentAnswer ? [currentAnswer as string] : []);
+        if (arr.includes(option)) {
+          arr = arr.filter(v => v !== option);
+        } else {
+          arr.push(option);
+        }
+        newAnswer = arr;
+      } else {
+        newAnswer = option;
       }
-    }));
+
+      return {
+        ...prev,
+        [taskId]: {
+          ...currentTaskAnswers,
+          [questionId]: newAnswer
+        }
+      };
+    });
   };
 
   // const handleImageUploadSimulated = (taskId: string) => {
@@ -587,10 +556,16 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       }
       if (sub.submissionFormat === 'multiple_choice') {
         const questionsCount = sub.questions.length;
-        const answersCount = Object.keys(quizAnswers[taskId] || {}).length;
-        if (questionsCount > 0 && answersCount < questionsCount) {
-          setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please answer all multiple choice questions for: ${sub.title}` }));
-          return;
+        if (questionsCount > 0) {
+          const hasUnanswered = sub.questions.some(q => {
+            const ans = quizAnswers[taskId]?.[q.id];
+            if (Array.isArray(ans)) return ans.length === 0;
+            return !ans;
+          });
+          if (hasUnanswered) {
+            setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please answer all multiple choice questions for: ${sub.title}` }));
+            return;
+          }
         }
       }
     }
@@ -604,15 +579,26 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       if (sub.submissionFormat === 'multiple_choice') {
         sub.questions.forEach(q => {
           totalQuestionsCount += 1;
-          const chosen = quizAnswers[taskId]?.[q.id] || 'None';
-          // Assume option [0] is correct, or make it dynamic
-          const correctAns = q.options[0] || 'A';
-          const isCorrectAnswer = chosen === correctAns;
+          const chosen = quizAnswers[taskId]?.[q.id];
+          
+          let isCorrectAnswer = false;
+          let correctAnsStr = 'A';
+          if (q.type === 'multiple' && q.correctAnswers) {
+            const chosenArr = Array.isArray(chosen) ? chosen : [chosen].filter(Boolean);
+            isCorrectAnswer = chosenArr.length === q.correctAnswers.length && 
+                              chosenArr.every((ans) => q.correctAnswers?.includes(ans as string));
+            correctAnsStr = q.correctAnswers.join(', ');
+          } else {
+            const correctAns = q.correctAnswer || q.options[0] || 'A';
+            isCorrectAnswer = chosen === correctAns;
+            correctAnsStr = correctAns;
+          }
+
           if (isCorrectAnswer) earnedScore += 1;
           questionsList.push({
             question: q.question,
-            submittedAnswer: chosen,
-            correctAnswer: correctAns,
+            submittedAnswer: Array.isArray(chosen) ? chosen.join(', ') : chosen || 'None',
+            correctAnswer: correctAnsStr,
             isCorrect: isCorrectAnswer,
             points: isCorrectAnswer ? 1 : 0
           });
@@ -658,20 +644,30 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
           };
 
           const payload: Omit<SubmitTaskPayload, 'user_id'> = {
-            task_id: sub.id,
+            task_id: taskObj.taskId, // Main task ID
+            child_task_id: taskObj.tasks.length > 1 ? sub.id : undefined, // Child task ID if bundle
             assignment_id: taskObj.id,
             submission_type: normalizeSubmissionType(sub.submissionFormat),
             score: earnedScore,
             max_score: totalQuestionsCount,
-          };
+          } as any;
 
           if (sub.submissionFormat === 'multiple_choice') {
-            payload.answers = sub.questions.map((q) => ({
-              question_id: q.id,
-              question: q.question || 'Standard Question',
-              selected_option: quizAnswers[taskId]?.[q.id] || '',
-              correct_answer: q.options[0] || 'A',
-            })) as any;
+            payload.answers = sub.questions.map((q) => {
+              const chosen = quizAnswers[taskId]?.[q.id];
+              let correctAnsStr = 'A';
+              if (q.type === 'multiple' && q.correctAnswers) {
+                correctAnsStr = q.correctAnswers.join(', ');
+              } else {
+                correctAnsStr = q.correctAnswer || q.options[0] || 'A';
+              }
+              return {
+                question_id: q.id,
+                question: q.question || 'Standard Question',
+                selected_option: Array.isArray(chosen) ? chosen.join(', ') : chosen || '',
+                correct_answer: correctAnsStr,
+              };
+            }) as any;
           } else if (sub.submissionFormat === 'image') {
             payload.image_url = imageFiles[sub.id];
 
@@ -770,22 +766,26 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                 <span>Create Task</span>
               </button>
             )}
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
-              }`}
-            >
-              <LayoutGrid size={18} />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
-              }`}
-            >
-              <List size={18} />
-            </button>
+            {userRole !== 'admin' && (
+              <>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                    viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                  }`}
+                >
+                  <LayoutGrid size={18} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                    viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                  }`}
+                >
+                  <List size={18} />
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -858,11 +858,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         <div className={viewMode === 'list' ? "bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6 overflow-x-auto" : ""}>
           <div className={viewMode === 'list' ? "min-w-[900px]" : ""}>
             {viewMode === 'list' && (
-              <div className="grid grid-cols-[3fr_1fr_1fr_2fr_2fr] gap-4 px-6 py-4 border-b border-gray-100 text-[11px] font-bold text-[#64748B] uppercase tracking-wider bg-white">
+              <div className={`grid ${userRole === 'admin' ? 'grid-cols-[3fr_2fr_3fr]' : 'grid-cols-[3fr_1fr_1fr_2fr_2fr]'} gap-4 px-6 py-4 border-b border-gray-100 text-[11px] font-bold text-[#64748B] uppercase tracking-wider bg-white`}>
                 <div>Task Name</div>
-                <div>Due Date</div>
-                <div>Status</div>
-                <div>Completion</div>
+                {userRole !== 'admin' && <div>Due Date</div>}
+                <div className="text-center">Status</div>
+                {userRole !== 'admin' && <div>Completion</div>}
                 <div className="text-right pr-2">Actions</div>
               </div>
             )}
@@ -881,30 +881,41 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                 return (
                   <React.Fragment key={task.id}>
                     {viewMode === 'list' && (
-                      <div className="grid grid-cols-[3fr_1fr_1fr_2fr_2fr] gap-4 px-6 py-4 items-center hover:bg-gray-50/50 transition-colors">
+                      <div className={`grid ${userRole === 'admin' ? 'grid-cols-[3fr_2fr_3fr]' : 'grid-cols-[3fr_1fr_1fr_2fr_2fr]'} gap-4 px-6 py-4 items-center hover:bg-gray-50/50 transition-colors`}>
                         <div className="font-bold text-[#0F172A] text-[14px]">
-                          {task.tasks.map(t => t.title).join(' • ')}
+                          {task.title || task.tasks.map(t => t.title).join(' • ')}
                         </div>
-                        <div className="text-[#94A3B8] text-[13px] font-bold">
-                          {task.dueDate || 'N/A'}
-                        </div>
-                        <div>
-                          <span className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
-                            isCompletedByMe ? 'bg-green-100 text-green-600' :
-                            task.id === activeSubmittingTaskId ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-100 text-[#64748B]'
-                          }`}>
-                            {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
-                          </span>
-                        </div>
-                        <div className="pr-4 pt-1">
-                          <div className="h-[6px] w-full bg-gray-100 rounded-full overflow-hidden mb-1.5">
-                            <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                        {userRole !== 'admin' && (
+                          <div className="text-[#94A3B8] text-[13px] font-bold">
+                            {task.dueDate || 'N/A'}
                           </div>
-                          <div className="flex justify-between text-[11px] font-bold">
-                            <span className="text-[#64748B]">{isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length}</span>
-                            <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
-                          </div>
+                        )}
+                        <div className="flex justify-center">
+                          {userRole === 'admin' ? (
+                            <div className="flex flex-col justify-center text-center">
+                              <span className="text-[13px] font-bold text-[#2F63FF]">{task.completionCount || 0} / {task.totalTargetUsersCount || 0}</span>
+                              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wide">Users Completed</span>
+                            </div>
+                          ) : (
+                            <span className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
+                              isCompletedByMe ? 'bg-green-100 text-green-600' :
+                              task.id === activeSubmittingTaskId ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-100 text-[#64748B]'
+                            }`}>
+                              {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
+                            </span>
+                          )}
                         </div>
+                        {userRole !== 'admin' && (
+                          <div className="pr-4 pt-1">
+                            <div className="h-[6px] w-full bg-gray-100 rounded-full overflow-hidden mb-1.5">
+                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                            </div>
+                            <div className="flex justify-between text-[11px] font-bold">
+                              <span className="text-[#64748B]">{isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length}</span>
+                              <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center justify-end gap-3">
                           <div className="flex -space-x-1.5 mr-2">
                             {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
@@ -913,14 +924,77 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                             {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
                             {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
                           </div>
-                          {!isCompletedByMe && (
-                            <button
-                              type="button"
-                              onClick={() => setActiveSubmittingTaskId(task.id)}
-                              className="px-5 py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
-                            >
-                              Start
-                            </button>
+                          {userRole === 'admin' ? (
+                            <div className="flex items-center justify-end space-x-4">
+                              {confirmDeleteTaskId === task.id ? (
+                                <div className="flex items-center space-x-2 animate-fade-in">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (onTaskDeleted) {
+                                        onTaskDeleted(task.id);
+                                      }
+                                      setConfirmDeleteTaskId(null);
+                                    }}
+                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
+                                  >
+                                    Confirm Delete
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteTaskId(null)}
+                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedReportTask(task);
+                                      setSelectedSubtaskId(task.tasks[0]?.id || '');
+                                      setReportFeedback('');
+                                      setReportDuration('30_days');
+                                      setReportEmail('');
+                                    }}
+                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
+                                  >
+                                    <span>Report</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (onEditTaskRequest) {
+                                        onEditTaskRequest(task);
+                                      }
+                                    }}
+                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
+                                  >
+                                    <span>Reassign</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteTaskId(task.id)}
+                                    className="text-xs font-semibold p-1.5 rounded-lg border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                                    title="Delete Task"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            !isCompletedByMe && (
+                              <button
+                                type="button"
+                                onClick={() => setActiveSubmittingTaskId(task.id)}
+                                className="px-5 py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                              >
+                                Start
+                              </button>
+                            )
                           )}
                         </div>
                       </div>
@@ -980,7 +1054,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                     <div className="space-y-1">
                       
                       <h3 className="font-display font-medium text-[#0F172A] leading-snug text-sm tracking-tight text-[#0F172A] font-bold">
-                        {task.tasks.map(t => t.title).join(' • ')}
+                        {task.title || task.tasks.map(t => t.title).join(' • ')}
                       </h3>
                     </div>
 
@@ -1065,12 +1139,16 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                 }}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
                               >
-                                <span>Generate AI Report</span>
+                                <span>Report</span>
                               </button>
 
                               <button
                                 type="button"
-                                onClick={() => startReassigning(task)}
+                                onClick={() => {
+                                  if (onEditTaskRequest) {
+                                    onEditTaskRequest(task);
+                                  }
+                                }}
                                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
                               >
                                 <span>Reassign</span>
@@ -1087,241 +1165,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                           )}
                         </div>
 
-                        {/* Inline Reassign Section */}
-                        {reassigningTaskId === task.id && (
-                          <div className="mt-4 p-4 border border-[#2F63FF]/20 bg-slate-50/50 rounded-xl space-y-4 animate-fade-in text-left">
-                            <div className="flex items-center justify-between border-b border-gray-150 pb-2">
-                              <span className="text-xs font-bold font-sans text-[#0F172A] flex items-center space-x-1">
-                                <span>Reassign / Re-target Task</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setReassigningTaskId(null)}
-                                className="text-xs font-bold text-gray-450 hover:text-gray-600 cursor-pointer bg-transparent border-none p-0"
-                              >
-                                &times; Close
-                              </button>
-                            </div>
 
-                            {/* Mode Selection */}
-                            <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100/70 rounded-lg">
-                              <button
-                                type="button"
-                                onClick={() => setReassignMode('copy')}
-                                className={`text-[10px] font-bold py-1.5 rounded-md transition-all cursor-pointer ${
-                                  reassignMode === 'copy' 
-                                    ? 'bg-white text-[#2F63FF] shadow-xs' 
-                                    : 'text-gray-500 hover:text-gray-700'
-                                }`}
-                              >
-                                Clone as New Task
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setReassignMode('modify')}
-                                className={`text-[10px] font-bold py-1.5 rounded-md transition-all cursor-pointer ${
-                                  reassignMode === 'modify' 
-                                    ? 'bg-white text-amber-600 shadow-xs' 
-                                    : 'text-gray-500 hover:text-gray-700'
-                                }`}
-                              >
-                                Modify Target In-Place
-                              </button>
-                            </div>
-
-                            {/* Level Switch */}
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-sans font-bold text-gray-400 uppercase tracking-widest block">Assignment Type</label>
-                              <div className="grid grid-cols-2 gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setReassignLevel('sprint')}
-                                  className={`text-xs py-1 rounded-md border text-center font-medium transition-all cursor-pointer ${
-                                    reassignLevel === 'sprint'
-                                      ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
-                                      : 'border-slate-200 bg-white text-gray-600'
-                                  }`}
-                                >
-                                  Sprint Level
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setReassignLevel('individual')}
-                                  className={`text-xs py-1 rounded-md border text-center font-medium transition-all cursor-pointer ${
-                                    reassignLevel === 'individual'
-                                      ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
-                                      : 'border-slate-200 bg-white text-gray-600'
-                                  }`}
-                                >
-                                  Custom Cohort
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Audience Chooser */}
-                            {reassignLevel === 'sprint' ? (
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Select Sprints</label>
-                                <div className="space-y-1 max-h-32 overflow-y-auto border border-gray-150 rounded-lg p-1.5 bg-white">
-                                  {['Brewing Tools Fundamentals', 'Detailing_Orientation_Sprint', 'Grayscale image colourization', 'Core System Diagnostics Hub'].map((title) => {
-                                    const isSel = reassignSprints.includes(title);
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={title}
-                                        onClick={() => {
-                                          if (isSel) {
-                                            setReassignSprints(reassignSprints.filter(s => s !== title));
-                                          } else {
-                                            setReassignSprints([...reassignSprints, title]);
-                                          }
-                                        }}
-                                        className={`w-full flex items-center justify-between px-2 py-1 rounded text-[11px] font-medium text-left cursor-pointer transition-colors ${
-                                          isSel ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'hover:bg-slate-50 text-gray-600'
-                                        }`}
-                                      >
-                                        <span>{title}</span>
-                                        {isSel && <Check size={11} className="text-[#2F63FF]" />}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="space-y-2">
-                                {/* Branches / Orgs */}
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Branch / Org</label>
-                                  <div className="flex gap-1.5">
-                                    {['Workfloww HQ', 'Workfloww Global'].map(org => {
-                                      const isSel = reassignOrgs.includes(org);
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={org}
-                                          onClick={() => {
-                                            if (isSel) {
-                                              setReassignOrgs(reassignOrgs.filter(o => o !== org));
-                                            } else {
-                                              setReassignOrgs([...reassignOrgs, org]);
-                                            }
-                                          }}
-                                          className={`px-2 py-1 rounded text-[10px] border font-semibold cursor-pointer transition-colors ${
-                                            isSel ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]' : 'border-slate-200 bg-white text-gray-600'
-                                          }`}
-                                        >
-                                          {org}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Departments / Functions */}
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Department</label>
-                                  <div className="flex flex-wrap gap-1">
-                                    {['Engineering', 'Operations', 'Product Management', 'Sales & Growth', 'Design'].map(dept => {
-                                      const isSel = reassignFunctions.includes(dept);
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={dept}
-                                          onClick={() => {
-                                            if (isSel) {
-                                              setReassignFunctions(reassignFunctions.filter(d => d !== dept));
-                                            } else {
-                                              setReassignFunctions([...reassignFunctions, dept]);
-                                            }
-                                          }}
-                                          className={`px-2 py-0.5 rounded text-[10px] border font-semibold cursor-pointer transition-colors ${
-                                            isSel ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]' : 'border-slate-200 bg-white text-gray-600'
-                                          }`}
-                                        >
-                                          {dept}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Individuals */}
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Individuals</label>
-                                  <div className="space-y-1 max-h-24 overflow-y-auto border border-gray-150 rounded-lg p-1.5 bg-white">
-                                    {teamMembers.map(member => {
-                                      const isSel = reassignIndividuals.includes(member.name);
-                                      return (
-                                        <button
-                                          type="button"
-                                          key={member.id}
-                                          onClick={() => {
-                                            if (isSel) {
-                                              setReassignIndividuals(reassignIndividuals.filter(n => n !== member.name));
-                                            } else {
-                                              setReassignIndividuals([...reassignIndividuals, member.name]);
-                                            }
-                                          }}
-                                          className={`w-full flex items-center justify-between px-2 py-0.5 rounded text-[10px] font-semibold text-left cursor-pointer transition-colors ${
-                                            isSel ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'hover:bg-slate-100/50 text-gray-600'
-                                          }`}
-                                        >
-                                          <span>{member.name} ({member.function})</span>
-                                          {isSel && <Check size={10} className="text-[#2F63FF]" />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Schedule Details */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Due Date</label>
-                                <input
-                                  type="date"
-                                  value={reassignDueDate}
-                                  onChange={(e) => setReassignDueDate(e.target.value)}
-                                  className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:ring-1 focus:ring-[#2F63FF] outline-none"
-                                />
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-sans font-bold text-gray-400 uppercase block">Frequency</label>
-                                <select
-                                  value={reassignRecurrence}
-                                  onChange={(e: any) => setReassignRecurrence(e.target.value)}
-                                  className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 focus:ring-1 focus:ring-[#2F63FF] outline-none bg-white font-sans text-slate-700"
-                                >
-                                  <option value="none">One-time Task</option>
-                                  <option value="every_2_days">Every 2 Days</option>
-                                  <option value="weekly">Every Week</option>
-                                  <option value="monthly">Every Month</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Submit Reassignment Action Buttons */}
-                            <div className="flex justify-end space-x-2 pt-2 border-t border-gray-150">
-                              <button
-                                type="button"
-                                onClick={() => setReassigningTaskId(null)}
-                                className="text-xs font-semibold px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-slate-50 cursor-pointer bg-white"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleConfirmReassign(task)}
-                                className="text-xs font-semibold px-3.5 py-1.5 bg-[#2F63FF] hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
-                              >
-                                {reassignMode === 'copy' ? 'Clone & Assign' : 'Save Changes'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     ) : (
                       /* Employee Submission Interactive View */
@@ -1421,7 +1265,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                   <div className="space-y-4">
                     <div className="flex justify-between items-start gap-4">
                       <h3 className="font-bold text-gray-900 text-[15px] leading-snug">
-                        {task.tasks.map(t => t.title).join(' • ')}
+                        {task.title || task.tasks.map(t => t.title).join(' • ')}
                       </h3>
                       <span className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
                         isCompletedByMe ? 'bg-green-100 text-green-600' : 
@@ -1472,21 +1316,58 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               {isSubmittingActive && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in font-sans" onClick={() => setActiveSubmittingTaskId(null)}>
                   <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-between items-center pb-4 border-b border-gray-100">
-                      <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.tasks.map(t => t.title).join(', ')}</h3>
-                      <button onClick={() => setActiveSubmittingTaskId(null)} className="text-gray-400 hover:text-gray-600 font-bold text-2xl cursor-pointer leading-none">
+                    <div className="flex justify-between items-start pb-4 border-b border-gray-100">
+                      <div className="space-y-1">
+                        <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.title || task.tasks[0]?.title}</h3>
+                        {task.description && <p className="text-sm text-gray-500 leading-normal">{task.description}</p>}
+                      </div>
+                      <button onClick={() => setActiveSubmittingTaskId(null)} className="text-gray-400 hover:text-gray-600 font-bold text-2xl cursor-pointer leading-none ml-4 mt-1">
                         &times;
                       </button>
                     </div>
                     <div className="space-y-4 pt-1">
-                                {task.tasks.map((subTask) => (
+                                {task.tasks.map((subTask, index) => (
                               <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-xl space-y-3">
-                                  {/* {(() => { console.log("Submission Format:", subTask.submissionFormat); return null; })()} */}
-                                <p className="text-[11px] font-semibold text-[#0F172A] leading-tight flex items-center space-x-1.5">
-                                  <span>🚀</span>
-                                  <span>{subTask.title}</span>
-                                </p>
-                                <p className="text-[10px] text-gray-500 leading-normal">{subTask.description}</p>
+                                <div className="flex justify-between items-start">
+                                  <div className="flex space-x-2">
+                                    <span className="bg-[#2F63FF] text-white w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold mt-0.5">{index + 1}</span>
+                                    <div>
+                                      <p className="text-[12px] font-bold text-[#0F172A] leading-tight">
+                                        {subTask.title}
+                                      </p>
+                                      {subTask.description && <p className="text-[10px] text-gray-500 mt-1 leading-normal">{subTask.description}</p>}
+                                    </div>
+                                  </div>
+                                  <div className="flex-shrink-0 ml-4 flex items-center space-x-2">
+                                    {subTask.submissionFormat === 'audio' && (
+                                      <>
+                                        {activeRecordingAudioTaskId === subTask.id ? (
+                                          <div className="flex items-center space-x-2 bg-red-50 px-2 py-1 rounded-full border border-red-100">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
+                                            <span className="text-[10px] text-red-600 font-bold">{audioTimer}s</span>
+                                            <button type="button" onClick={() => stopAudioRecording()} className="w-6 h-6 rounded-full bg-red-100 hover:bg-red-200 text-red-600 flex items-center justify-center transition-colors shadow-sm cursor-pointer ml-1" title="Stop Recording">
+                                              <Square size={10} fill="currentColor" />
+                                            </button>
+                                          </div>
+                                        ) : !audioFiles[subTask.id] ? (
+                                          <button type="button" onClick={() => { setAudioFiles(prev => ({ ...prev, [subTask.id]: '' })); startAudioRecording(subTask.id); }} className="w-8 h-8 rounded-full bg-sky-100 hover:bg-sky-200 text-sky-600 flex items-center justify-center transition-colors shadow-sm cursor-pointer" title="Record Audio">
+                                            <Mic size={14} />
+                                          </button>
+                                        ) : null}
+                                      </>
+                                    )}
+                                    {subTask.submissionFormat === 'video' && !videoFiles[subTask.id] && activeRecordingVideoTaskId !== subTask.id && (
+                                      <button type="button" onClick={() => { setVideoFiles(prev => ({ ...prev, [subTask.id]: '' })); startVideoRecording(subTask.id); }} className="w-8 h-8 rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-600 flex items-center justify-center transition-colors shadow-sm cursor-pointer" title="Start Video">
+                                        <VideoIcon size={14} />
+                                      </button>
+                                    )}
+                                    {subTask.submissionFormat === 'image' && !imageFiles[subTask.id] && activeCameraTaskId !== subTask.id && (
+                                      <button type="button" onClick={() => { setImageFiles(prev => ({ ...prev, [subTask.id]: '' })); startCamera(subTask.id); }} className="w-8 h-8 rounded-full bg-emerald-100 hover:bg-emerald-200 text-emerald-600 flex items-center justify-center transition-colors shadow-sm cursor-pointer" title="Take Picture">
+                                        <Camera size={14} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
 
                                 {/* Form control based on format */}
                                 {subTask.submissionFormat === 'text' && (
@@ -1636,45 +1517,33 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 )}
                                       </>
                                     ) : activeCameraTaskId === subTask.id ? (
-                                      <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in">
-                                        <video
-                                          ref={videoRef}
-                                          autoPlay
-                                          playsInline
-                                          className="w-full h-full object-cover transform scale-x-[-1]"
-                                        />
-                                        <div className="absolute bottom-3 left-0 right-0 flex justify-center space-x-3 px-3">
-                                          <button
-                                            type="button"
-                                            onClick={() => captureLivePicture(subTask.id)}
-                                            className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 shadow-md font-sans"
-                                          >
-                                            <Camera size={13} />
-                                            <span>Capture Picture</span>
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => stopCamera()}
-                                            className="bg-black/60 hover:bg-black/80 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 font-sans"
-                                          >
-                                            <CameraOff size={13} />
-                                            <span>Cancel</span>
-                                          </button>
+                                        <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in mt-3">
+                                          <video
+                                            ref={videoRef}
+                                            autoPlay
+                                            playsInline
+                                            className="w-full h-full object-cover transform scale-x-[-1]"
+                                          />
+                                          <div className="absolute bottom-3 left-0 right-0 flex justify-center space-x-3 px-3">
+                                            <button
+                                              type="button"
+                                              onClick={() => captureLivePicture(subTask.id)}
+                                              className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 shadow-md font-sans"
+                                            >
+                                              <Camera size={13} />
+                                              <span>Capture Picture</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => stopCamera()}
+                                              className="bg-black/60 hover:bg-black/80 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 font-sans"
+                                            >
+                                              <CameraOff size={13} />
+                                              <span>Cancel</span>
+                                            </button>
+                                          </div>
                                         </div>
-                                      </div>
-                                    ) : (
-                                      <div>
-                                        <button
-                                          type="button"
-                                          onClick={() => startCamera(subTask.id)}
-                                          className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
-                                        >
-                                          <Camera className="text-indigo-600 mb-1.5 animate-pulse" size={20} />
-                                          <span className="text-xs font-semibold text-indigo-950 block">Live Camera Snap</span>
-                                          <span className="text-[9px] text-indigo-400 mt-1 max-w-[130px] leading-snug">Take live web camera picture</span>
-                                        </button>
-                                      </div>
-                                    )}
+                                      ) : null}
                                   </div>
                                 )}
 
@@ -1689,10 +1558,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                           </span>
                                           <button
                                             type="button"
-                                            onClick={() => setAudioFiles(prev => ({ ...prev, [subTask.id]: '' }))}
-                                            className="text-[10px] font-bold text-red-500 hover:text-red-700 cursor-pointer text-right bg-transparent border-0"
+                                            onClick={() => { setAudioFiles(prev => ({ ...prev, [subTask.id]: '' })); startAudioRecording(subTask.id); }}
+                                            className="w-7 h-7 rounded-full bg-sky-50 hover:bg-sky-100 text-[#2F63FF] flex items-center justify-center transition-colors shadow-sm cursor-pointer"
+                                            title="Record Again"
                                           >
-                                            × Re-record
+                                            <Mic size={12} />
                                           </button>
                                         </div>
                                         <audio 
@@ -1701,59 +1571,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                           className="w-full h-11" 
                                         />
                                       </div>
-                                    ) : activeRecordingAudioTaskId === subTask.id ? (
-                                      <div className="bg-white border border-red-200 p-4 rounded-xl text-center space-y-3 animate-pulse shadow-sm">
-                                        <div className="flex items-center justify-center space-x-2">
-                                          <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping"></span>
-                                          <span className="text-xs font-bold text-red-700 font-sans uppercase">Audio Live Recording...</span>
-                                        </div>
-                                        
-                                        {/* Dynamic waveform representation */}
-                                        <div className="flex justify-center items-end space-x-1.5 h-12 py-1">
-                                          <span className="w-1 bg-[#2F63FF] rounded h-4 animate-bounce [animation-delay:0.1s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-8 animate-bounce [animation-delay:0.3s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-11 animate-bounce [animation-delay:0.2s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-5 animate-bounce [animation-delay:0s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-9 animate-bounce [animation-delay:0.4s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-3 animate-bounce [animation-delay:0.25s]"></span>
-                                          <span className="w-1 bg-[#2F63FF] rounded h-7 animate-bounce [animation-delay:0.15s]"></span>
-                                        </div>
-
-                                        <p className="text-[11px] font-medium text-gray-500">Duration: {audioTimer} seconds</p>
-                                        
-                                        <button
-                                          type="button"
-                                          onClick={() => stopAudioRecording()}
-                                          className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-md text-center"
-                                        >
-                                          Save Recording
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <div className="flex justify-center w-full">
-  
-
-                                        <button
-  type="button"
-  onClick={() => startAudioRecording(subTask.id)}
-  className="flex flex-col items-center justify-center text-center 
-  border border-dashed border-sky-200 bg-sky-50/20 
-  hover:bg-sky-50 hover:border-sky-400 
-  p-4 w-64 rounded-xl cursor-pointer 
-  transition-all duration-150 active:scale-[0.98]"
->
-  <Mic className="text-sky-600 mb-1.5 animate-pulse" size={20} />
-
-  <span className="text-xs font-semibold text-sky-955 block">
-    Live Microphone
-  </span>
-
-  <span className="text-[9px] text-sky-400 mt-1 max-w-[200px] leading-snug">
-    Record live audio speech verification
-  </span>
-</button>
-                                      </div>
-                                    )}
+                                    ) : null}
                                   </div>
                                 )}
 
@@ -1821,30 +1639,33 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                   <div className="space-y-4">
                                     {subTask.questions.map((q) => (
                                       <div key={q.id} className="space-y-2">
-                                        <p className="text-[10px] font-bold text-gray-600 leading-tight">
-                                          Question: {q.question || 'Standard question statement?'}
+                                        <p className="text-sm font-bold text-[#0F172A] leading-tight">
+                                          {q.question || 'Standard question statement?'}
                                         </p>
-                                        <div className="space-y-1.5">
+                                        <div className="space-y-2">
                                           {q.options.map((optionText, oIndex) => {
-                                            const isSelected = quizAnswers[task.id]?.[q.id] === optionText;
+                                            const currentAns = quizAnswers[task.id]?.[q.id];
+                                            const isSelected = Array.isArray(currentAns) 
+                                                ? currentAns.includes(optionText) 
+                                                : currentAns === optionText;
                                             return (
-                                              <button
-                                                key={oIndex}
-                                                type="button"
-                                                onClick={() => handleAnswerQuiz(task.id, q.id, optionText)}
-                                                className={`w-full text-left p-2 rounded-lg text-xs transition-all flex items-center space-x-2 border cursor-pointer ${
-                                                  isSelected
-                                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF] font-medium'
-                                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-slate-50'
-                                                }`}
-                                              >
-                                                <span className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center text-[8px] font-bold font-sans ${
-                                                  isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400'
-                                                }`}>
-                                                  {String.fromCharCode(65 + oIndex)}
-                                                </span>
-                                                <span className="truncate">{optionText || `Option Choice Statement ${oIndex + 1}`}</span>
-                                              </button>
+                                                <button
+                                                  key={oIndex}
+                                                  type="button"
+                                                  onClick={() => handleAnswerQuiz(task.id, q.id, optionText, q.type)}
+                                                  className={`w-full text-left p-2 rounded-lg text-sm transition-all flex items-center space-x-2 border-2 cursor-pointer shadow-sm active:scale-[0.99] ${
+                                                    isSelected
+                                                      ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF] font-bold'
+                                                      : 'border-gray-200 bg-white text-gray-700 hover:bg-slate-50 hover:border-gray-300 font-semibold'
+                                                  }`}
+                                                >
+                                                  <span className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-black font-sans transition-colors ${
+                                                    isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400 bg-gray-50'
+                                                  }`}>
+                                                    {String.fromCharCode(65 + oIndex)}
+                                                  </span>
+                                                  <span className="truncate">{optionText || `Option Choice Statement ${oIndex + 1}`}</span>
+                                                </button>
                                             );
                                           })}
                                         </div>
@@ -1862,22 +1683,15 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                               </div>
                             )}
 
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setActiveSubmittingTaskId(null)}
-                                className="flex-1 text-center py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
+                            <div className="flex gap-2 justify-center">
                               <button
                                 type="button"
                                 onClick={() => handleSubmitVerification(task.id)}
                                 disabled={isSubmittingNow}
-                                className="flex-1 text-center py-2.5 bg-[#2F63FF] hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-xl shadow-md cursor-pointer flex items-center justify-center space-x-1"
+                                className="text-center py-2.5 px-6 bg-[#2F63FF] hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-md cursor-pointer flex items-center justify-center space-x-1"
                               >
-                                <Send size={12} />
-                                <span>{isSubmittingNow ? 'Submitting...' : 'Submit Verification'}</span>
+                                <Send size={11} />
+                                <span>{isSubmittingNow ? 'Submitting...' : 'Submit'}</span>
                               </button>
                             </div>
                           </div>
@@ -1916,43 +1730,23 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
           <div className="bg-white w-full max-w-md rounded-3xl p-6 border border-[#E2E8F0] shadow-xl space-y-6 relative animate-scale-in">
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xl">📊</span>
                 <div>
-                  <h3 className="text-sm font-bold text-[#0F172A]">Generate AI Performance Report</h3>
+                  <h3 className="text-sm font-bold text-[#0F172A]">Generate Performance Report</h3>
                   <p className="text-[11px] text-gray-500">Synthesize completed submission analysis into a PDF report.</p>
                 </div>
               </div>
             </div>
 
             <div className="space-y-4">
-              {selectedReportTask.tasks.length > 1 ? (
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Select Subtask</label>
-                  <select
-                    value={selectedSubtaskId}
-                    onChange={(e) => setSelectedSubtaskId(e.target.value)}
-                    className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
-                  >
-                    {selectedReportTask.tasks.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.title} ({sub.submissionFormat})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Selected Task</label>
-                  <input
-                    type="text"
-                    value={selectedReportTask.tasks[0]?.title || selectedReportTask.id}
-                    disabled
-                    className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs text-gray-500 focus:outline-none"
-                  />
-                </div>
-              )}
-
               <div>
+                <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Task</label>
+                <input
+                  type="text"
+                  value={selectedReportTask.title || selectedReportTask.id}
+                  disabled
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs text-gray-500 focus:outline-none"
+                />
+              </div>              <div>
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Duration</label>
                 <select
                   value={reportDuration}
