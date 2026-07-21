@@ -263,8 +263,43 @@ async def get_users_by_company(
             created_at
             '''
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
-        
-        return {"data": response.data, "error": None}
+
+        users = response.data or []
+        if users:
+            user_ids = [u.get('user_id') for u in users if u.get('user_id')]
+            if user_ids:
+                role_resp = query_client.table('user_role_assignments').select(
+                    'user_id, is_active, role:roles(name, display_name, level)'
+                ).in_('user_id', user_ids).execute()
+                assignments = role_resp.data or []
+
+                active_assignments_by_user: Dict[str, List[Dict[str, Any]]] = {}
+                for assignment in assignments:
+                    if assignment.get('is_active') is False:
+                        continue
+                    user_id = assignment.get('user_id')
+                    if not user_id:
+                        continue
+                    active_assignments_by_user.setdefault(user_id, []).append(assignment)
+
+                for user in users:
+                    user_id = user.get('user_id')
+                    user_assignments = active_assignments_by_user.get(user_id, [])
+                    if user_assignments:
+                        # Prefer the highest-level active role for display purposes.
+                        sorted_roles = sorted(
+                            (a.get('role') or {} for a in user_assignments),
+                            key=lambda r: r.get('level', 0),
+                            reverse=True
+                        )
+                        top_role = sorted_roles[0] if sorted_roles else None
+                        if top_role:
+                            user['role'] = {
+                                'name': top_role.get('name'),
+                                'display_name': top_role.get('display_name') or top_role.get('name'),
+                                'level': top_role.get('level')
+                            }
+        return {"data": users, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 

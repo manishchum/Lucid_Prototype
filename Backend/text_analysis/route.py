@@ -88,10 +88,15 @@ async def submit_text_analysis(
 
     if existing_row:
         is_completed = False
-        if submission_type == "text" and existing_row.get("text_response"):
-            is_completed = True
-        elif submission_type == "multiple_choice" and existing_row.get("answers"):
-            is_completed = True
+        if is_bundle_submission:
+            answers = existing_row.get("answers") or []
+            if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in answers):
+                is_completed = True
+        else:
+            if submission_type == "text" and existing_row.get("text_response"):
+                is_completed = True
+            elif submission_type == "multiple_choice" and existing_row.get("answers"):
+                is_completed = True
             
         if is_completed:
             raise HTTPException(status_code=409, detail="Task already completed")

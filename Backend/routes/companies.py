@@ -318,6 +318,8 @@ async def update_company_route(
         "task_management",
         "kpi",
         "role_play",
+        "reports",
+        "sprintverse",
     }
     allowed_language_codes = {
         "en",

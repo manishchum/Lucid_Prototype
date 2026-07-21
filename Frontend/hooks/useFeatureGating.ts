@@ -170,8 +170,8 @@ export function useFeatureGating() {
       'taskManagement': { requiredAddons: ['task_management'] },
       'kpi': { requiredAddons: ['kpi'] },
       'rolePlay': { requiredAddons: ['role_play'] },
-      'reports': { requireAddons: ['reports']},
-      'sprintverse' : {requireAddons: ['sprintverse']},
+      'reports': { requiredAddons: ['reports']},
+      'sprintverse' : { requiredAddons: ['sprintverse']},
     };
 
     const config = features[featureName];

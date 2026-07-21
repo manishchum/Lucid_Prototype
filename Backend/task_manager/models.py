@@ -17,13 +17,22 @@ class QuizQuestion(BaseModel):
     writtenAnswer: Optional[str] = None
 
 
+class ChildTask(BaseModel):
+    child_task_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    submission_format: str
+    expected_answer: Optional[str] = None
+    questions: Optional[List[QuizQuestion]] = []
+
+
 class TaskCreate(BaseModel):
     title: str = Field(..., min_length=5)
     description: Optional[str] = None
     expected_answer: Optional[str] = None
     submission_format: Union[str, List[str]]
     questions: Optional[List[QuizQuestion]] = []
-    bundle_tasks: Optional[List[dict]] = []
+    bundle_tasks: Optional[List[ChildTask]] = []
     level: str
     target_module_id: Optional[str] = None
     target_function_id: Optional[str] = None
@@ -65,13 +74,13 @@ class SubmissionCreate(BaseModel):
     task_id: str
     user_id: str
     assignment_id: Optional[str] = None
+    child_task_id: Optional[str] = None
 
-    # text/image/audio/video/quiz
+    # text/image/audio/quiz (video hidden per request)
     submission_type: Literal[
         "text",
         "image",
         "audio",
-        "video",
         "multiple_choice"
     ]
 

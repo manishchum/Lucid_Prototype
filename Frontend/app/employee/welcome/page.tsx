@@ -19,7 +19,7 @@ import {
   Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
-  Download, Linkedin, X
+  Download, Linkedin, X, Mic
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { useTasks } from "@/hooks/useTasks";
@@ -106,7 +106,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       };
 
       subtasks = task.bundle_tasks.map((sub, index) => ({
-        id: index === 0 ? task.task_id : `${task.task_id}-${index}`,
+        id: `${task.task_id}-${index}`,
         title: sub.title || "",
         description: sub.description || "",
         submissionFormat: normalizeFormat(sub.submission_format),
@@ -147,6 +147,9 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 
     const mapped = {
       id: task.assignment_id || task.task_id,
+      taskId: task.task_id,
+      title: task.title,
+      description: task.description || "",
       level,
       mode: isMultiple ? ("multiple" as const) : ("single" as const),
       tasks: subtasks,
@@ -154,7 +157,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
       targetSubFunctions: level === "sub_function" ? [audienceName].filter(Boolean) : [],
-      targetIndividuals: level === "individual" ? [audienceName].filter(Boolean) : [],
+      targetIndividuals: level === "individual" ? (task.target_user_ids || []) : [],
       dueDate: task.due_date,
       createdAt: task.created_at,
       status: hasSubmission ? "Completed" : "Active",
@@ -231,7 +234,7 @@ export default function EmployeeWelcome() {
     loading: tasksLoading,
     error: tasksError,
     refetch: refetchTasks
-  } = useTasks(taskUserId, isAdminUser, effectiveCompanyId, hasTaskManagementAccess);
+  } = useTasks(taskUserId, false, effectiveCompanyId, hasTaskManagementAccess);
 
   const assignedTaskItems = useMemo(() => mapBackendTasksToAssignedTasks(tasks), [tasks]);
   // const { tasks: _tasks, loading: _loading, error: _error, refetch: refetchTasks } = useTasks(taskUserId, isAdminUser, effectiveCompanyId);
@@ -1148,9 +1151,23 @@ const handleGenerateCertificate = (sprintId: string) => {
                 </p>
               </div>
             </div>
-            <div className="w-full md:w-[320px]">
+            {/* <div className="w-full md:w-[320px]">
               <CompanySelector showLabel />
-            </div>
+            </div> */}
+            
+              <div className="flex items-end gap-3">
+                <div className="w-[220px]">
+                  <CompanySelector showLabel />
+                </div>
+
+                <Button
+                  onClick={() => router.push("/employee/voice-notes")}
+                  className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
+                >
+                  <Mic className="mr-2 h-4 w-4" />
+                  Open Voice Agent
+                </Button>
+              </div>
           </div>
 
           <div className="grid gap-4 md:gap-8">

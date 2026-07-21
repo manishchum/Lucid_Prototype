@@ -16,6 +16,8 @@ interface Sprint {
   title: string;
   moduleName?: string;
   dueDate?: string;
+  dueDateExpired?: boolean;
+  isDueDateLocked: boolean;
   status: "Not Started" | "In Progress" | "Completed" | "Not Assigned";
   completionPercentage: number;
   completedModules: number;
@@ -64,6 +66,17 @@ export function AssignedSprintsSection({
   }, [assignedModules, moduleProgress]);
 
   const enrichSprintsData = async () => {
+    const isDateInPast = (dateString?: string) => {
+      if (!dateString) return false;
+      const parsed = new Date(dateString);
+      if (Number.isNaN(parsed.getTime())) return false;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const target = new Date(parsed);
+      target.setHours(0, 0, 0, 0);
+      return target < today;
+    };
+
     try {
       // const headers = {
       //   "X-User-ID": userId,
@@ -87,6 +100,7 @@ export function AssignedSprintsSection({
         assignedModules.map(async (module) => {
           const plan = plansByModuleId[module.id];
           const dueDate = plan?.due_date;
+          const dueDateExpired = isDateInPast(dueDate);
 
           const totalModules = module.modules.length;
 
@@ -118,11 +132,15 @@ export function AssignedSprintsSection({
               : 0;
 
           // console.log(`Module: ${module.title}, Quizzes Attempted: ${quizzesAttempted}, Total Quizzes: ${totalQuizzes}, Status: ${status}, Completion: ${completionPercentage}%`);
+          const isDueDateLocked = dueDateExpired && status !== "Completed";
+
           return {
             id: module.id,
             title: module.title,
             moduleName: module.moduleName,
             dueDate,
+            dueDateExpired,
+            isDueDateLocked,
             status,
             completionPercentage,
             completedModules,
@@ -146,6 +164,8 @@ export function AssignedSprintsSection({
         title: module.title,
         moduleName: module.moduleName,
         dueDate: undefined,
+        dueDateExpired: false,
+        isDueDateLocked: false,
         status: "Not Assigned",
         completionPercentage: 0,
         completedModules: 0,
@@ -154,6 +174,7 @@ export function AssignedSprintsSection({
         baselineCompleted: Boolean(module.baselineCompleted),
         baselineScore: module.baselineScore ?? null,
         baselineMaxScore: module.baselineMaxScore ?? null,
+        learningPlanId: undefined,
         certificateEarned: module.certificateEarned,
       }));
       // console.log("Basic sprints data:", basicSprints);
@@ -365,12 +386,14 @@ export function AssignedSprintsSection({
                   </div>
 
                   {/* Due date */}
-                  <div className="mb-3 flex items-center justify-between">
+                  <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="text-xs">
                       <span className="text-slate-500">Due: </span>
                       <span
                         className={
-                          sprint.dueDate
+                          sprint.dueDateExpired
+                            ? "text-red-600 font-semibold"
+                            : sprint.dueDate
                             ? "text-slate-700 font-medium"
                             : "text-slate-400"
                         }
@@ -378,6 +401,12 @@ export function AssignedSprintsSection({
                         {formatDate(sprint.dueDate)}
                       </span>
                     </div>
+
+{sprint.isDueDateLocked && (
+                      <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">
+                        Locked
+                      </Badge>
+                    )}
 
                     {sprint.hasBaseline && (
                       <Badge
@@ -419,36 +448,40 @@ export function AssignedSprintsSection({
                       <button
                         onClick={() => {
                           if (sprint.baselineCompleted) return;
+                          if (sprint.isDueDateLocked) return;
                           router.push(`/employee/assessment?moduleId=${sprint.id}`);
                         }}
-                        disabled={sprint.baselineCompleted}
+                        disabled={
+                          sprint.baselineCompleted || sprint.isDueDateLocked
+                        }
                         className={[
                           "flex-1 px-3 py-2 rounded-lg text-xs border font-bold transition-colors",
-                          sprint.baselineCompleted
+                          sprint.baselineCompleted || sprint.isDueDateLocked
                             ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
                             : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
                         ].join(" ")}
                       >
-                        {sprint.baselineCompleted
-                          ? "Baseline"
-                          : "Baseline"}
+                        Baseline
                       </button>
                     )}
 
                     <button
                       onClick={() => {
-                        if (sprint.hasBaseline && !sprint.baselineCompleted)
-                          return;
+                        if (sprint.hasBaseline && !sprint.baselineCompleted) return;
+                        if (sprint.isDueDateLocked) return;
                         router.push(
                           `/employee/training-plan?module_id=${sprint.id}`
                         );
                       }}
                       disabled={
-                        sprint.hasBaseline && !sprint.baselineCompleted
+                        (sprint.hasBaseline && !sprint.baselineCompleted) ||
+                        sprint.isDueDateLocked
                       }
                       className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
                         sprint.status === "Completed"
                           ? "bg-slate-400 hover:bg-slate-500"
+                          : sprint.isDueDateLocked
+                          ? "bg-blue-200 text-blue-600 cursor-not-allowed"
                           : sprint.hasBaseline && !sprint.baselineCompleted
                           ? "bg-blue-300 cursor-not-allowed"
                           : "bg-blue-600 hover:bg-blue-700"
@@ -551,8 +584,16 @@ export function AssignedSprintsSection({
                       </p>
                     </td>
                     <td className="px-4 md:px-6 py-4">
-                      <Badge className={`text-xs font-semibold ${getStatusColor(sprint.status)}`}>
-                        {sprint.status}
+                      <Badge
+                        className={`text-xs font-semibold ${
+                          sprint.isDueDateLocked
+                            ? "bg-red-100 text-red-700"
+                            : getStatusColor(sprint.status)
+                        }`}
+                      >
+                        {sprint.isDueDateLocked
+                          ? "Locked"
+                          : sprint.status}
                       </Badge>
                     </td>
                     <td className="px-4 md:px-6 py-4">
@@ -579,12 +620,18 @@ export function AssignedSprintsSection({
                         <button
                           onClick={() => {
                             if (sprint.hasBaseline && !sprint.baselineCompleted) return;
+                            if (sprint.isDueDateLocked) return;
                             router.push(`/employee/training-plan?module_id=${sprint.id}`);
                           }}
-                          disabled={sprint.hasBaseline && !sprint.baselineCompleted}
+                          disabled={
+                            (sprint.hasBaseline && !sprint.baselineCompleted) ||
+                            sprint.isDueDateLocked
+                          }
                           className={`px-4 py-1.5 rounded text-xs font-semibold text-white transition-colors whitespace-nowrap ${
                             sprint.status === "Completed"
                               ? "bg-slate-400 hover:bg-slate-500"
+                              : sprint.isDueDateLocked
+                              ? "bg-blue-200 text-blue-600 cursor-not-allowed"
                               : sprint.hasBaseline && !sprint.baselineCompleted
                               ? "bg-blue-300 cursor-not-allowed"
                               : "bg-blue-600 hover:bg-blue-700"
@@ -594,8 +641,6 @@ export function AssignedSprintsSection({
                             ? "Review"
                             : sprint.status === "In Progress"
                             ? "Resume"
-                            : sprint.hasBaseline && !sprint.baselineCompleted
-                            ? "Start"
                             : "Start"}
                         </button>
                       </div>
