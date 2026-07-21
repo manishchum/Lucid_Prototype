@@ -1,4 +1,5 @@
 from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import bcrypt
 from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
@@ -31,6 +32,31 @@ def normalize_phone(phone: str) -> str:
 
     # fallback
     return f"+{digits}"
+
+async def record_login_in_db(user_id: str) -> Dict[str, Any]:
+    """
+    Update last_login timestamp and increment login_count for a user.
+    """
+    try:
+        service_client = get_service_supabase_client()
+        user_resp = service_client.table("users").select("login_count").eq("user_id", user_id).limit(1).execute()
+        rows = user_resp.data if hasattr(user_resp, 'data') else []
+        current_count = int(rows[0].get("login_count") or 0) if rows else 0
+        
+        now_iso = datetime.now(timezone.utc).isoformat()
+        new_count = current_count + 1
+        
+        service_client.table("users").update({
+            "last_login": now_iso,
+            "login_count": new_count,
+            "updated_at": now_iso
+        }).eq("user_id", user_id).execute()
+        
+        return {"data": {"last_login": now_iso, "login_count": new_count}, "error": None}
+    except Exception as e:
+        print(f"[record_login_in_db] Exception for {user_id}: {e}")
+        return {"data": None, "error": str(e)}
+
 
 async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -238,8 +264,43 @@ async def get_users_by_company(
             created_at
             '''
         ).eq('company_id', company_id).eq('is_active', True).order('name').execute()
-        
-        return {"data": response.data, "error": None}
+
+        users = response.data or []
+        if users:
+            user_ids = [u.get('user_id') for u in users if u.get('user_id')]
+            if user_ids:
+                role_resp = query_client.table('user_role_assignments').select(
+                    'user_id, is_active, role:roles(name, display_name, level)'
+                ).in_('user_id', user_ids).execute()
+                assignments = role_resp.data or []
+
+                active_assignments_by_user: Dict[str, List[Dict[str, Any]]] = {}
+                for assignment in assignments:
+                    if assignment.get('is_active') is False:
+                        continue
+                    user_id = assignment.get('user_id')
+                    if not user_id:
+                        continue
+                    active_assignments_by_user.setdefault(user_id, []).append(assignment)
+
+                for user in users:
+                    user_id = user.get('user_id')
+                    user_assignments = active_assignments_by_user.get(user_id, [])
+                    if user_assignments:
+                        # Prefer the highest-level active role for display purposes.
+                        sorted_roles = sorted(
+                            (a.get('role') or {} for a in user_assignments),
+                            key=lambda r: r.get('level', 0),
+                            reverse=True
+                        )
+                        top_role = sorted_roles[0] if sorted_roles else None
+                        if top_role:
+                            user['role'] = {
+                                'name': top_role.get('name'),
+                                'display_name': top_role.get('display_name') or top_role.get('name'),
+                                'level': top_role.get('level')
+                            }
+        return {"data": users, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 

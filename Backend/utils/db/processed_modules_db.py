@@ -6,6 +6,90 @@ from typing import Dict, Any, Optional, List
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
+LANGUAGE_ALIAS_TO_CODE = {
+    "english": "en",
+    "en": "en",
+    "hindi": "hinglish",
+    "hi": "hinglish",
+    "hinglish": "hinglish",
+    "german": "de",
+    "de": "de",
+    "russian": "ru",
+    "ru": "ru",
+    "french": "fr",
+    "fr": "fr",
+    "italian": "it",
+    "it": "it",
+    "spanish": "es",
+    "es": "es",
+    "polish": "pl",
+    "pl": "pl",
+    "ukrainian": "uk",
+    "uk": "uk",
+    "romanian": "ro",
+    "ro": "ro",
+    "dutch": "nl",
+    "nl": "nl",
+    "bengali": "bn",
+    "bn": "bn",
+    "tamil": "ta",
+    "ta": "ta",
+    "telugu": "te",
+    "te": "te",
+    "marathi": "mr",
+    "mr": "mr",
+    "kannada": "kn",
+    "kn": "kn",
+    "punjabi": "pa",
+    "pa": "pa",
+    "gujarati": "gu",
+    "gu": "gu",
+    "urdu": "ur",
+    "ur": "ur",
+    "odia": "or",
+    "or": "or",
+}
+
+LANGUAGE_CODE_TO_SUFFIX = {
+    "en": "",
+    "hinglish": "hinglish",
+    "de": "german",
+    "ru": "russian",
+    "fr": "french",
+    "it": "italian",
+    "es": "spanish",
+    "pl": "polish",
+    "uk": "ukrainian",
+    "ro": "romanian",
+    "nl": "dutch",
+    "bn": "bengali",
+    "ta": "tamil",
+    "te": "telugu",
+    "mr": "marathi",
+    "kn": "kannada",
+    "pa": "punjabi",
+    "gu": "gujarati",
+    "ur": "urdu",
+    "or": "odia",
+}
+
+
+def normalizeLanguageCode(language: str) -> str:
+    if not language:
+        return "en"
+    normalized = str(language).strip().lower().replace("-", "_")
+    return LANGUAGE_ALIAS_TO_CODE.get(normalized, "en")
+
+
+def getLocalizedFieldName(language: str, kind: str) -> str:
+    normalized = normalizeLanguageCode(language)
+    suffix = LANGUAGE_CODE_TO_SUFFIX.get(normalized, "")
+    if kind == "audio":
+        return "audio_url" if not suffix else f"audio_url_{suffix}"
+    if kind == "transcript":
+        return "podcast_transcript" if not suffix else f"podcast_transcript_{suffix}"
+    return "podcast_timeline" if not suffix else f"podcast_timeline_{suffix}"
+
 
 async def get_user_company_id(user_id: str) -> Optional[str]:
     """Helper function to get user's company_id"""
@@ -324,11 +408,11 @@ async def update_audio_data(
         updates = {
             'audio_generated_at': 'now()'
         }
-        
-        if language == 'hinglish':
-            updates['audio_url_hinglish'] = audio_url
-        else:
-            updates['audio_url'] = audio_url
+
+        audio_field = getLocalizedFieldName(language, 'audio')
+        updates[audio_field] = audio_url
+
+        if language == 'english' or normalizeLanguageCode(language) == 'en':
             if audio_duration is not None:
                 updates['audio_duration'] = audio_duration
         
@@ -497,17 +581,13 @@ async def update_podcast_data(
         
         # Prepare updates based on language
         updates = {}
-        
-        if language == 'hinglish':
-            if podcast_transcript is not None:
-                updates['podcast_transcript_hinglish'] = podcast_transcript
-            if podcast_timeline is not None:
-                updates['podcast_timeline_hinglish'] = podcast_timeline
-        else:
-            if podcast_transcript is not None:
-                updates['podcast_transcript'] = podcast_transcript
-            if podcast_timeline is not None:
-                updates['podcast_timeline'] = podcast_timeline
+        transcript_field = getLocalizedFieldName(language, 'transcript')
+        timeline_field = getLocalizedFieldName(language, 'timeline')
+
+        if podcast_transcript is not None:
+            updates[transcript_field] = podcast_transcript
+        if podcast_timeline is not None:
+            updates[timeline_field] = podcast_timeline
         
         if not updates:
             return {"data": None, "error": "No data provided for update"}

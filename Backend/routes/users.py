@@ -14,6 +14,7 @@ from utils.db.users_db import (
     get_users_by_filter,
     DEFAULT_PASSWORD,
     normalize_phone,
+    record_login_in_db,
 )
 from utils.db.companies_db import get_company_by_id
 
@@ -443,4 +444,23 @@ async def get_user_by_phone_route(
         "success": True,
         "user": user_data,
         "error": None
+    }
+
+
+@router.post("/record-login")
+async def record_user_login_route(
+    payload: dict,
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+):
+    user_id = payload.get("user_id") or auth_ctx.user_id
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID is required")
+        
+    result = await record_login_in_db(user_id)
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+        
+    return {
+        "success": True,
+        "data": result["data"]
     }
