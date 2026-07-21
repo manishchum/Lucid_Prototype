@@ -79,7 +79,7 @@ def run(video_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     print("[W8] Quiz Generator (Polish Pass) starting...")
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     enriched_segments: List[Dict] = video_data.get("enriched_segments", [])
     topics: List[Dict] = video_data.get("topics", [])
 

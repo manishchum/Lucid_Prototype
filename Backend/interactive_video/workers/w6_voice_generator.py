@@ -4,10 +4,12 @@ Generates Google TTS audio for each lecture segment (EN + Hinglish).
 Also produces subtitle cue timestamps by chunking the script.
 """
 from __future__ import annotations
+import base64
 import json
 import os
 import subprocess
 import shutil
+import wave
 from typing import Any, Dict, List, Optional, Tuple
 
 from google.cloud import texttospeech
@@ -26,6 +28,9 @@ except ImportError:
         _FFPROBE = shutil.which("ffprobe")
 
 # TTS voice config
+EN_TTS_COST_PER_CHAR = 0.00003
+HI_TTS_COST_PER_CHAR = 0.000016
+
 _VOICES = {
     "en": {
         "language_code": "en-IN",
@@ -43,29 +48,67 @@ _TTS_CLIENT: Optional[texttospeech.TextToSpeechClient] = None
 def _get_tts_client() -> texttospeech.TextToSpeechClient:
     global _TTS_CLIENT
     if _TTS_CLIENT is None:
+        credentials_payload = os.getenv("GOOGLE_TTS_JSON")
+        if credentials_payload:
+            try:
+                try:
+                    decoded = base64.b64decode(credentials_payload).decode("utf-8")
+                    creds = json.loads(decoded)
+                except Exception:
+                    creds = json.loads(credentials_payload)
+                _TTS_CLIENT = texttospeech.TextToSpeechClient.from_service_account_info(creds)
+                return _TTS_CLIENT
+            except Exception as exc:
+                print(f"[W6] WARNING: Failed to initialize TTS client from GOOGLE_TTS_JSON: {exc}")
         _TTS_CLIENT = texttospeech.TextToSpeechClient()
     return _TTS_CLIENT
 
 
-def _synthesize(script: str, out_path: str, lang: str = "en") -> None:
-    client = _get_tts_client()
-    cfg = _VOICES.get(lang, _VOICES["en"])
+def _write_silent_mp3(out_path: str, duration_seconds: float = 10.0) -> None:
+    # Generate a silent WAV then convert to MP3 if ffmpeg is available.
+    tmp_wav = out_path + ".wav"
+    with wave.open(tmp_wav, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(22050)
+        num_frames = int(22050 * duration_seconds)
+        wf.writeframes(b"\x00\x00" * num_frames)
 
-    response = client.synthesize_speech(
-        input=texttospeech.SynthesisInput(text=script),
-        voice=texttospeech.VoiceSelectionParams(
-            language_code=cfg["language_code"],
-            name=cfg["name"],
-        ),
-        audio_config=texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=1.0,
-        ),
-    )
-    if not response.audio_content:
-        raise RuntimeError("TTS returned empty audio")
-    with open(out_path, "wb") as f:
-        f.write(response.audio_content)
+    if _FFMPEG:
+        subprocess.run(
+            [_FFMPEG, "-y", "-i", tmp_wav, out_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        os.remove(tmp_wav)
+    else:
+        # Fallback to WAV if MP3 conversion is unavailable.
+        os.replace(tmp_wav, out_path)
+
+
+def _synthesize(script: str, out_path: str, lang: str = "en") -> None:
+    try:
+        client = _get_tts_client()
+        cfg = _VOICES.get(lang, _VOICES["en"])
+
+        response = client.synthesize_speech(
+            input=texttospeech.SynthesisInput(text=script),
+            voice=texttospeech.VoiceSelectionParams(
+                language_code=cfg["language_code"],
+                name=cfg["name"],
+            ),
+            audio_config=texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=1.0,
+            ),
+        )
+        if not response.audio_content:
+            raise RuntimeError("TTS returned empty audio")
+        with open(out_path, "wb") as f:
+            f.write(response.audio_content)
+    except Exception as exc:
+        print(f"[W6] WARNING: TTS synth failed ({lang}) — falling back to silent audio: {exc}")
+        _write_silent_mp3(out_path, duration_seconds=10.0)
 
 
 def _get_audio_duration(path: str) -> float:
@@ -142,6 +185,14 @@ async def run(slide_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         if not script_en:
             print(f"[W6] Skipping {seg_id} — no script")
             continue
+
+        en_chars = len(script_en)
+        hi_chars = len(script_hi)
+        seg["tts_en_chars"] = en_chars
+        seg["tts_hi_chars"] = hi_chars
+        seg["tts_en_cost_usd"] = round(en_chars * EN_TTS_COST_PER_CHAR, 6)
+        seg["tts_hi_cost_usd"] = round(hi_chars * HI_TTS_COST_PER_CHAR, 6)
+        seg["tts_total_cost_usd"] = round(seg["tts_en_cost_usd"] + seg["tts_hi_cost_usd"], 6)
 
         audio_en = os.path.join(tmp_dir, f"audio_en_{seg_id}.mp3")
         audio_hi = os.path.join(tmp_dir, f"audio_hi_{seg_id}.mp3")

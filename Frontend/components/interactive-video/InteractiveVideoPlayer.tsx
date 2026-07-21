@@ -67,6 +67,15 @@ interface CourseManifest {
   total_segments: number;
   quiz_gates: number;
   estimated_duration_minutes: number;
+  pricing?: {
+    image_model?: string;
+    legacy_fallback_model?: string;
+    image_output_cost_usd?: number;
+    generated_background_images?: number;
+    generated_background_cost_usd?: number;
+    estimated_30s_video_cost_usd?: number;
+    notes?: string;
+  };
 }
 
 interface InteractiveVideoPlayerProps {
@@ -75,6 +84,7 @@ interface InteractiveVideoPlayerProps {
 
 export default function InteractiveVideoPlayer({ manifest }: InteractiveVideoPlayerProps) {
   const { segments, processed_module_id } = manifest;
+  const pricing = manifest.pricing;
 
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const activeSegment = segments[activeSegmentIndex];
@@ -209,6 +219,17 @@ export default function InteractiveVideoPlayer({ manifest }: InteractiveVideoPla
             <p className="text-sm text-slate-400 font-semibold mt-1">Interactive Video Learning Course</p>
           </div>
 
+          {pricing && (
+            <div className="hidden lg:flex flex-col items-end gap-1 text-right">
+              <div className="px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/25 text-emerald-200 text-xs font-bold">
+                Est. 30s video cost: ${Number(pricing.estimated_30s_video_cost_usd ?? 0).toFixed(3)}
+              </div>
+              <div className="text-[11px] text-slate-500 max-w-[280px]">
+                Uses {pricing.image_model ?? "Gemini image generation"} when vector images are missing.
+              </div>
+            </div>
+          )}
+
           {/* Lang Selector Toggle */}
           <div className="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1">
             <button
@@ -233,6 +254,13 @@ export default function InteractiveVideoPlayer({ manifest }: InteractiveVideoPla
             </button>
           </div>
         </div>
+
+        {pricing && (
+          <div className="lg:hidden flex items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            <span className="font-semibold">Est. 30s video cost</span>
+            <span className="font-bold">${Number(pricing.estimated_30s_video_cost_usd ?? 0).toFixed(3)}</span>
+          </div>
+        )}
 
         {/* Video Player Display Container */}
         <div className="relative aspect-[16/9] w-full rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 shadow-xl group">

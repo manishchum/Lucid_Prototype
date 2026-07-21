@@ -109,7 +109,7 @@ def run(topics_data: Dict[str, Any]) -> Dict[str, Any]:
 
     topic_summary = _build_topic_summary(topics_data)
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(
         _PROMPT.format(topic_summary=topic_summary),
         generation_config=genai.GenerationConfig(

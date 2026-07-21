@@ -13,6 +13,8 @@ from utils.auth_bridge import get_service_supabase_client
 from .w7_avatar_video_generator import _concat_videos_sync
 
 BUCKET = "module-visuals"
+IMAGE_OUTPUT_COST_USD = 0.039
+BACKGROUND_IMAGES_PER_SEGMENT = 5
 
 async def ensure_bucket_exists():
     try:
@@ -55,6 +57,13 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
     enriched_segments: List[Dict] = video_data.get("enriched_segments", [])
     
     final_segments = []
+    lecture_video_en_paths: List[str] = []
+    lecture_video_hi_paths: List[str] = []
+    total_generated_slide_images = 0
+    total_generated_slide_cost = 0.0
+    total_generated_bg_images = 0
+    total_generated_bg_cost = 0.0
+    total_tts_cost = 0.0
     
     # 1. Upload segment videos and construct final segments outline
     for i, seg in enumerate(enriched_segments):
@@ -73,6 +82,23 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         if seg_type == "lecture":
             video_en_path = seg.get("video_en_path")
             video_hi_path = seg.get("video_hi_path")
+            total_generated_slide_images += 1 if seg.get("slide_image_source") == "generated" else 0
+            total_generated_slide_cost += float(seg.get("slide_image_cost_usd", 0.0) or 0.0)
+            total_generated_bg_images += int(seg.get("generated_bg_image_count", 0) or 0)
+            total_generated_bg_cost += float(seg.get("generated_bg_image_cost_usd", 0.0) or 0.0)
+            total_tts_cost += float(seg.get("tts_total_cost_usd", 0.0) or 0.0)
+
+            slide_cost = float(seg.get("slide_image_cost_usd", 0.0) or 0.0)
+            bg_cost = float(seg.get("generated_bg_image_cost_usd", 0.0) or 0.0)
+            tts_cost = float(seg.get("tts_total_cost_usd", 0.0) or 0.0)
+            total_cost = slide_cost + bg_cost + tts_cost
+            print(
+                f"[W9][Cost] Segment {seg_id}: "
+                f"slide=${slide_cost:.3f}, "
+                f"backgrounds=${bg_cost:.3f}, "
+                f"tts=${tts_cost:.3f}, "
+                f"total=${total_cost:.3f}"
+            )
             
             url_en = None
             url_hi = None
@@ -81,11 +107,13 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
                 upload_path_en = f"{processed_module_id}/interactive/{course_id}_{seg_id}_en.mp4"
                 print(f"[W9] Uploading EN video for segment {seg_id}...")
                 url_en = _upload_file_sync(video_en_path, upload_path_en)
+                lecture_video_en_paths.append(video_en_path)
                 
             if video_hi_path and os.path.exists(video_hi_path):
                 upload_path_hi = f"{processed_module_id}/interactive/{course_id}_{seg_id}_hi.mp4"
                 print(f"[W9] Uploading Hinglish video for segment {seg_id}...")
                 url_hi = _upload_file_sync(video_hi_path, upload_path_hi)
+                lecture_video_hi_paths.append(video_hi_path)
                 
             final_seg.update({
                 "video_url_en": url_en,
@@ -93,7 +121,22 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
                 "subtitles_en": seg.get("subtitles_en", []),
                 "subtitles_hi": seg.get("subtitles_hi", []),
                 "slide_bullets": seg.get("slide_bullets", []),
-                "visual_prompt": seg.get("visual_prompt", "")
+                "visual_prompt": seg.get("visual_prompt", ""),
+                "slide_image_source": seg.get("slide_image_source", "none"),
+                "slide_image_cost_usd": seg.get("slide_image_cost_usd", 0.0),
+                "slide_image_match_score": seg.get("slide_image_match_score", 0.0),
+                "generated_bg_image_count": seg.get("generated_bg_image_count", 0),
+                "generated_bg_image_cost_usd": seg.get("generated_bg_image_cost_usd", 0.0),
+                "tts_en_chars": seg.get("tts_en_chars", 0),
+                "tts_hi_chars": seg.get("tts_hi_chars", 0),
+                "tts_en_cost_usd": seg.get("tts_en_cost_usd", 0.0),
+                "tts_hi_cost_usd": seg.get("tts_hi_cost_usd", 0.0),
+                "tts_total_cost_usd": seg.get("tts_total_cost_usd", 0.0),
+                "estimated_30s_video_cost_usd": round(
+                    float(seg.get("slide_image_cost_usd", 0.0) or 0.0)
+                    + float(seg.get("generated_bg_image_cost_usd", 0.0) or 0.0),
+                    3,
+                ),
             })
             
         elif seg_type == "quiz_gate":
@@ -164,11 +207,24 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
     }
 
     # 3. Concatenate and publish a flat backup video of lectures if requested/needed
-    # We can also generate a single unified backup video using W7's concat if necessary
-    # For now, let's keep it segment-based for interactivity, but update video_url to the first segment
-    first_lecture = next((s for s in final_segments if s["type"] == "lecture"), None)
-    backup_video_url_en = first_lecture["video_url_en"] if first_lecture else ""
-    backup_video_url_hi = first_lecture["video_url_hi"] if first_lecture else ""
+    backup_video_url_en = ""
+    backup_video_url_hi = ""
+
+    if lecture_video_en_paths:
+        backup_en_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_en.mp4")
+        list_file_en = os.path.join(tmp_dir, "lecture_en_list.txt")
+        _concat_videos_sync(lecture_video_en_paths, list_file_en, backup_en_path)
+        upload_backup_en = f"{processed_module_id}/interactive/{course_id}_lecture_backup_en.mp4"
+        backup_video_url_en = _upload_file_sync(backup_en_path, upload_backup_en)
+        print(f"[W9] Uploaded EN backup video: {backup_video_url_en}")
+
+    if lecture_video_hi_paths:
+        backup_hi_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_hi.mp4")
+        list_file_hi = os.path.join(tmp_dir, "lecture_hi_list.txt")
+        _concat_videos_sync(lecture_video_hi_paths, list_file_hi, backup_hi_path)
+        upload_backup_hi = f"{processed_module_id}/interactive/{course_id}_lecture_backup_hi.mp4"
+        backup_video_url_hi = _upload_file_sync(backup_hi_path, upload_backup_hi)
+        print(f"[W9] Uploaded HI backup video: {backup_video_url_hi}")
 
     # 4. Save manifest in interactive_video_courses table
     # Upsert course manifest
@@ -193,6 +249,15 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
 
     supabase.table("processed_modules").update(update_data).eq("processed_module_id", processed_module_id).execute()
 
+    print(
+        f"[W9][Cost] Course totals: "
+        f"generated_slides={total_generated_slide_images}, "
+        f"slide_cost=${total_generated_slide_cost:.3f}, "
+        f"background_images={total_generated_bg_images}, "
+        f"background_cost=${total_generated_bg_cost:.3f}, "
+        f"tts_cost=${total_tts_cost:.3f}, "
+        f"total=${(total_generated_slide_cost + total_generated_bg_cost + total_tts_cost):.3f}"
+    )
     print(f"[W9] Course manifest published successfully. Course ID: {course_id}, Interactive Video DB ID: {interactive_video_id}")
     
     return {

@@ -5,13 +5,18 @@ Overlays: background image + glassmorphism slide + animated avatar bubble.
 Avatar is a CSS-animated SVG rendered to PNG frames (no external API needed).
 """
 from __future__ import annotations
+import io
+import re
 import os
 import subprocess
 import shutil
 from typing import Any, Dict, List, Optional
 
+import httpx
+from PIL import Image as PILImage
 from fastapi.concurrency import run_in_threadpool
 from playwright.sync_api import sync_playwright
+from .image_relevance import build_slide_query, rank_candidates
 
 # Resolve ffmpeg path
 try:
@@ -25,6 +30,10 @@ except ImportError:
     except ImportError:
         _FFMPEG = shutil.which("ffmpeg")
         _FFPROBE = shutil.which("ffprobe")
+
+IMAGE_OUTPUT_COST_USD = 0.039
+BACKGROUND_IMAGES_PER_SEGMENT = 5
+MAX_LEGACY_SEGMENT_DURATION_SECONDS = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -148,28 +157,52 @@ body {{
   position:absolute;
   border-radius:50%;
   filter:blur(80px);
-  opacity:0.4;
+  opacity:0.5;
 }}
-.orb1 {{ width:400px; height:400px; top:-100px; right:-100px; background:rgba(99,179,237,0.3); }}
-.orb2 {{ width:300px; height:300px; bottom:-50px; left:50px; background:rgba(159,122,234,0.3); }}
+.orb1 {{ width:400px; height:400px; top:-100px; right:-100px; background:{orb1}; }}
+.orb2 {{ width:300px; height:300px; bottom:-50px; left:50px; background:{orb2}; }}
+.prompt-text {{
+  position:absolute; bottom:24px; left:24px;
+  color: rgba(255,255,255,0.72);
+  font-size: 18px;
+  max-width: 980px;
+  line-height: 1.4;
+  opacity: 0.88;
+  font-family: Inter, sans-serif;
+}}
 </style>
 </head>
 <body>
 <div class="grid"></div>
 <div class="orb orb1"></div>
 <div class="orb orb2"></div>
+{prompt_html}
 </body></html>"""
 
-_GRADIENTS = [
-    "linear-gradient(135deg, #0f172a, #1e293b)",
-    "linear-gradient(135deg, #0a0f1e, #162032)",
-    "linear-gradient(135deg, #120823, #1a1040)",
+_BG_VARIANTS = [
+    {"gradient": "linear-gradient(135deg, #0f172a, #1e293b)", "orb1": "rgba(99,179,237,0.35)", "orb2": "rgba(159,122,234,0.35)"},
+    {"gradient": "linear-gradient(135deg, #08112e, #1b2a4d)", "orb1": "rgba(240,146,56,0.35)", "orb2": "rgba(91,154,255,0.35)"},
+    {"gradient": "linear-gradient(135deg, #141922, #2d1c44)", "orb1": "rgba(111,169,124,0.35)", "orb2": "rgba(226,84,181,0.35)"},
 ]
 
 
-def _render_bg_sync(out_path: str, idx: int = 0):
-    gradient = _GRADIENTS[idx % len(_GRADIENTS)]
-    html = _BG_HTML.format(gradient=gradient)
+def _select_bg_variant(prompt: str, idx: int = 0):
+    if prompt:
+        hash_val = abs(hash(prompt))
+    else:
+        hash_val = idx
+    return _BG_VARIANTS[hash_val % len(_BG_VARIANTS)]
+
+
+def _render_bg_sync(out_path: str, idx: int = 0, prompt: str = ""):
+    variant = _select_bg_variant(prompt, idx)
+    prompt_html = f'<div class="prompt-text">{prompt}</div>' if prompt else ""
+    html = _BG_HTML.format(
+        gradient=variant["gradient"],
+        orb1=variant["orb1"],
+        orb2=variant["orb2"],
+        prompt_html=prompt_html,
+    )
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
         try:
@@ -181,9 +214,151 @@ def _render_bg_sync(out_path: str, idx: int = 0):
             browser.close()
 
 
-async def _render_bg(out_path: str, idx: int = 0) -> str:
-    await run_in_threadpool(_render_bg_sync, out_path, idx)
+async def _render_bg(out_path: str, idx: int = 0, prompt: str = "") -> str:
+    await run_in_threadpool(_render_bg_sync, out_path, idx, prompt)
     return out_path
+
+
+def _download_image_sync(url: str, out_path: str) -> None:
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            response = client.get(url)
+            response.raise_for_status()
+        image = PILImage.open(io.BytesIO(response.content)).convert("RGB")
+        image.save(out_path, "PNG")
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download image {url}: {exc}")
+
+
+async def _download_image(url: str, out_path: str) -> str:
+    await run_in_threadpool(_download_image_sync, url, out_path)
+    return out_path
+
+
+def _parse_prompt_lines(raw_text: str, count: int) -> List[str]:
+    lines = []
+    for line in raw_text.splitlines():
+        if not line.strip():
+            continue
+        clean = re.sub(r"^\s*\d+[\.|\)]\s*", "", line).strip()
+        if clean:
+            lines.append(clean)
+        if len(lines) >= count:
+            break
+    return lines
+
+
+def _generate_visual_prompts(prompt: str, count: int = 5) -> List[str]:
+    if not prompt:
+        prompt = "Modern enterprise learning and sales training background with clean, abstract graphics"
+
+    base_prompt = prompt.strip().rstrip('.')
+    variants = [
+        "A polished corporate training illustration with subtle business icons and product focus",
+        "A modern sales strategy background with gradient data visuals and retail product imagery",
+        "An abstract enterprise learning scene with clean shapes, soft lighting, and professional styling",
+        "A sleek training slide backdrop with muted corporate colors and conceptual product visuals",
+        "A premium business education illustration featuring a modern retail display and process flow",
+    ]
+    prompts = [f"{variant}, inspired by: {base_prompt}" for variant in variants]
+    return prompts[:count]
+
+
+async def _render_bg_images_for_segment(
+    seg_id: str,
+    title: str,
+    prompt: str,
+    slide_text: str,
+    tmp_dir: str,
+    module_image_urls: List[Any],
+    count: int = BACKGROUND_IMAGES_PER_SEGMENT,
+) -> tuple[List[str], int]:
+    bg_paths: List[str] = []
+    used_count = 0
+
+    if module_image_urls:
+        print(f"[W7] Using {len(module_image_urls)} uploaded module images for segment {seg_id}")
+    else:
+        print(f"[W7] No uploaded module images found for segment {seg_id}")
+
+    slide_query = build_slide_query(
+        title=title,
+        slide_text=slide_text,
+        prompt=prompt,
+    )
+    ranked_candidates = rank_candidates(slide_query, module_image_urls)
+    preferred_candidates = [
+        item for item in ranked_candidates
+        if item.get("url") and item.get("match_score", 0.0) >= 0.22
+    ]
+    if not preferred_candidates and ranked_candidates:
+        preferred_candidates = [item for item in ranked_candidates if item.get("url")]
+
+    # Prefer the most relevant uploaded images first.
+    for item in preferred_candidates[:count]:
+        url = item["url"]
+        bg_path = os.path.join(tmp_dir, f"bg_{seg_id}_{used_count+1}.png")
+        try:
+            await _download_image(url, bg_path)
+            bg_paths.append(bg_path)
+            used_count += 1
+            print(
+                f"[W7] Downloaded matched module image score={item.get('match_score', 0.0):.3f} "
+                f"{url} -> {bg_path}"
+            )
+        except Exception as exc:
+            print(f"[W7] WARNING: Failed to download module image {url}: {exc}")
+
+    # Fill the remainder with Gemini-derived visual prompts and lightweight rendered backgrounds.
+    remaining = count - len(bg_paths)
+    if remaining > 0:
+        prompts = _generate_visual_prompts(
+            f"{prompt}. {slide_text[:120]}" if slide_text else prompt,
+            remaining,
+        )
+        for idx, visual_prompt in enumerate(prompts):
+            bg_path = os.path.join(tmp_dir, f"bg_{seg_id}_{used_count + idx + 1}.png")
+            print(f"[W7] Rendering fallback background {idx+1}/{remaining} for segment {seg_id}: {visual_prompt}")
+            await _render_bg(bg_path, idx=used_count + idx, prompt=visual_prompt)
+            bg_paths.append(bg_path)
+
+    if not bg_paths:
+        raise ValueError(f"No background images could be created for segment {seg_id}")
+
+    generated_count = max(0, count - used_count)
+    return bg_paths, generated_count
+
+
+def _make_bg_video_sync(bg_image_paths: List[str], out_path: str, duration: float) -> None:
+    if not _FFMPEG:
+        raise RuntimeError("ffmpeg not found")
+    if not bg_image_paths:
+        raise ValueError("No background images provided")
+
+    image_count = len(bg_image_paths)
+    per_image = max(0.5, duration / image_count)
+    cmd = [_FFMPEG, "-y"]
+    filter_parts = []
+    for idx, img_path in enumerate(bg_image_paths):
+        cmd.extend(["-loop", "1", "-t", str(per_image), "-i", img_path])
+        filter_parts.append(
+            f"[{idx}:v]scale=1280:720,format=rgba,setpts=PTS-STARTPTS[bg{idx}]"
+        )
+
+    concat_inputs = "".join(f"[bg{idx}]" for idx in range(image_count))
+    concat_filter = ";".join(filter_parts + [f"{concat_inputs}concat=n={image_count}:v=1:a=0[bg]"])
+    cmd.extend([
+        "-filter_complex", concat_filter,
+        "-map", "[bg]",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-t", str(duration),
+        out_path,
+    ])
+
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8", errors="ignore")[:2000])
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +392,7 @@ def _compose_segment_sync(
 
     cmd = [
         _FFMPEG, "-y",
-        "-loop", "1", "-t", str(duration), "-i", bg_path,
+        "-i", bg_path,
         "-loop", "1", "-t", str(duration), "-i", slide_path,
         "-loop", "1", "-t", str(duration), "-i", avatar_path,
         "-i", audio_path,
@@ -285,6 +460,12 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
     avatar_path = os.path.join(tmp_dir, "avatar.png")
     await _render_avatar_png(avatar_path)
 
+    module_images = voice_data.get("module_images", []) or []
+    print(f"[W7] Pipeline received {len(module_images)} module image URLs")
+    if module_images:
+        for img_url in module_images:
+            print(f"[W7] module image URL: {img_url}")
+
     for i, seg in enumerate(enriched_segments):
         seg_id = seg.get("id", f"seg_{i}")
         seg_type = seg.get("type", "lecture")
@@ -298,20 +479,38 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         audio_hi = seg.get("audio_hi_path")
         duration = seg.get("duration", 10.0)
 
+        if duration > MAX_LEGACY_SEGMENT_DURATION_SECONDS:
+            print(f"[W7] Capping segment {seg_id} duration from {duration:.1f}s to {MAX_LEGACY_SEGMENT_DURATION_SECONDS:.1f}s")
+            duration = MAX_LEGACY_SEGMENT_DURATION_SECONDS
+
         if not slide_path or not os.path.exists(slide_path):
             print(f"[W7] Skipping {seg_id} — no slide PNG")
             continue
 
-        # Render background
-        bg_path = os.path.join(tmp_dir, f"bg_{seg_id}.png")
-        await _render_bg(bg_path, idx=i)
+        # Render a set of background images for the segment and combine them into a moving background video
+        bg_image_paths, generated_bg_count = await _render_bg_images_for_segment(
+            seg_id=seg_id,
+            title=seg.get("title", ""),
+            prompt=seg.get("visual_prompt", seg.get("title", "")),
+            slide_text=seg.get("slide_text", ""),
+            tmp_dir=tmp_dir,
+            module_image_urls=module_images,
+            count=BACKGROUND_IMAGES_PER_SEGMENT,
+        )
+        print(f"[W7] Segment {seg_id} background image paths: {bg_image_paths}")
+        seg["generated_bg_image_count"] = generated_bg_count
+        seg["generated_bg_image_cost_usd"] = round(generated_bg_count * IMAGE_OUTPUT_COST_USD, 3)
+        seg["estimated_30s_video_cost_usd"] = round(BACKGROUND_IMAGES_PER_SEGMENT * IMAGE_OUTPUT_COST_USD, 3)
+        bg_path = os.path.join(tmp_dir, f"bg_video_{seg_id}.mp4")
+        await run_in_threadpool(_make_bg_video_sync, bg_image_paths, bg_path, duration)
 
         # Compose EN video
+        en_duration = min(seg.get("duration_en", duration), duration)
         if audio_en and os.path.exists(audio_en):
             out_en = os.path.join(tmp_dir, f"seg_{seg_id}_en.mp4")
             try:
                 await _compose_segment(
-                    bg_path, slide_path, avatar_path, audio_en, out_en, seg.get("duration_en", duration)
+                    bg_path, slide_path, avatar_path, audio_en, out_en, en_duration
                 )
                 seg["video_en_path"] = out_en
                 print(f"[W7] EN video: {seg_id}")
@@ -319,16 +518,20 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
                 print(f"[W7] EN compose failed {seg_id}: {e}")
 
         # Compose HI video
+        hi_duration = min(seg.get("duration_hi", duration), duration)
         if audio_hi and os.path.exists(audio_hi):
             out_hi = os.path.join(tmp_dir, f"seg_{seg_id}_hi.mp4")
             try:
                 await _compose_segment(
-                    bg_path, slide_path, avatar_path, audio_hi, out_hi, seg.get("duration_hi", duration)
+                    bg_path, slide_path, avatar_path, audio_hi, out_hi, hi_duration
                 )
                 seg["video_hi_path"] = out_hi
                 print(f"[W7] HI video: {seg_id}")
             except Exception as e:
                 print(f"[W7] HI compose failed {seg_id}: {e}")
+
+        if not seg.get("video_en_path") and not seg.get("video_hi_path"):
+            raise RuntimeError(f"Failed to compose video for segment {seg_id}")
 
     print("[W7] Done: all segment videos composed")
     return voice_data

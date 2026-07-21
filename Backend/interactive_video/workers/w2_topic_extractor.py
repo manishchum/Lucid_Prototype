@@ -51,12 +51,75 @@ DOCUMENT:
 
 
 def _extract_json(text: str) -> Dict:
-    text = re.sub(r"```json|```", "", text).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
+    cleaned = re.sub(r"```json|```", "", (text or "")).strip()
+    if not cleaned:
         raise ValueError("No JSON object found in Gemini response")
-    return json.loads(text[start : end + 1])
+
+    first_open = cleaned.find("{")
+    if first_open == -1:
+        raise ValueError("No JSON object found in Gemini response")
+
+    brace_depth = 0
+    for idx in range(first_open, len(cleaned)):
+        if cleaned[idx] == "{":
+            brace_depth += 1
+        elif cleaned[idx] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                candidate = cleaned[first_open : idx + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+
+    # Final attempt: try to parse the cleaned string directly if it looks like JSON
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        raise ValueError("No JSON object found in Gemini response")
+
+
+def _fallback_topic_extraction(parsed_doc: Dict[str, Any]) -> Dict[str, Any]:
+    paragraphs = parsed_doc.get("paragraphs", [])
+    title = parsed_doc.get("title", "Training Module")
+    chunk_size = max(1, len(paragraphs) // 3)
+    topics = []
+    for i in range(3):
+        start = i * chunk_size
+        end = start + chunk_size
+        segment_text = "\n\n".join(paragraphs[start:end]).strip()
+        if not segment_text:
+            continue
+        topics.append({
+            "id": f"t{i+1}",
+            "title": f"Topic {i+1}: {segment_text[:50].rstrip()}",
+            "objectives": [
+                "Explain the key idea from this section.",
+                "Summarize the main sales or training point.",
+            ],
+            "paragraph_indices": list(range(start, min(end, len(paragraphs)))),
+            "needs_simulation": False,
+            "simulation_hint": "",
+            "content_text": segment_text,
+        })
+
+    if not topics:
+        topics = [{
+            "id": "t1",
+            "title": title,
+            "objectives": ["Understand the module content."],
+            "paragraph_indices": list(range(len(paragraphs))),
+            "needs_simulation": False,
+            "simulation_hint": "",
+            "content_text": parsed_doc.get("clean_text", ""),
+        }]
+
+    return {
+        "course_title": title,
+        "topics": topics,
+        "quiz_after_topics": [topics[i]["id"] for i in range(0, len(topics), 2) if i < len(topics)],
+        "total_estimated_minutes": max(5, len(topics) * 3),
+    }
 
 
 def run(parsed_doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,7 +139,7 @@ def run(parsed_doc: Dict[str, Any]) -> Dict[str, Any]:
     if len(content) > 12000:
         content = content[:12000] + "\n\n[...content truncated for analysis...]"
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     response = model.generate_content(
         _PROMPT.format(content=content),
         generation_config=genai.GenerationConfig(
@@ -86,7 +149,16 @@ def run(parsed_doc: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     raw = response.text or ""
-    topics_data = _extract_json(raw)
+    if not raw.strip():
+        print("[W2] Gemini returned an empty response for topic extraction, using fallback generate.")
+        topics_data = _fallback_topic_extraction(parsed_doc)
+    else:
+        try:
+            topics_data = _extract_json(raw)
+        except ValueError as exc:
+            print("[W2] Gemini raw response:\n" + raw)
+            print(f"[W2] WARNING: Failed to parse Gemini topics JSON: {exc}. Falling back to simple topic extraction.")
+            topics_data = _fallback_topic_extraction(parsed_doc)
 
     topics: List[Dict] = topics_data.get("topics", [])
     quiz_after: List[str] = topics_data.get("quiz_after_topics", [])

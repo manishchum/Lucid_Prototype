@@ -60,6 +60,7 @@ async def run_pipeline(job_id: str, processed_module_id: str):
     module_data = module_resp.data[0]
     tmp_dir = tempfile.mkdtemp(prefix=f"interactive_vid_{job_id}_")
     
+    success = True
     try:
         # W1: Document Parser
         update_job_status(job_id, "w1_parsing", 1)
@@ -111,6 +112,7 @@ async def run_pipeline(job_id: str, processed_module_id: str):
         print(f"[Pipeline] Job {job_id} completed successfully!")
         
     except Exception as e:
+        success = False
         tb = traceback.format_exc()
         print(f"[Pipeline] Job {job_id} failed with exception:\n{tb}")
         update_job_status(job_id, "failed", 0, str(e))
@@ -122,3 +124,4 @@ async def run_pipeline(job_id: str, processed_module_id: str):
             print(f"[Pipeline] Cleaned up temporary directory {tmp_dir}")
         except Exception as cleanup_err:
             print(f"[Pipeline] Failed to clean up tmp_dir {tmp_dir}: {cleanup_err}")
+        return success
