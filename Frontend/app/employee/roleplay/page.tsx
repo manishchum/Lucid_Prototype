@@ -12,7 +12,7 @@ import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
 import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/RoleplayConfigPage';
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
-import { supabase } from '@/lib/supabase';
+// import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
@@ -283,34 +283,19 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
     try {
       // Fetch departments (entries with department_name and no sub_department_name)
-      const { data: deptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name')
-        // .is('sub_department_name', null);
-      
-      // Remove duplicates based on department_name
-      const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
-        if (!acc.find(d => d.department_name === curr.department_name)) {
-          acc.push(curr);
-        }
-        return acc;
-      }, []);
-      setDepartments(uniqueDepts || []);
+      const response = await fetchWithAuth(
+          `${API_URL}/api/roleplay/page/assignment-targets`
+      );
 
-      // Fetch sub-departments (entries with both department_name and sub_department_name)
-      const { data: subDeptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name, sub_department_name')
-        .not('sub_department_name', 'is', null);
-      setSubDepartments(subDeptData || []);
+      if (!response.ok) {
+          throw new Error("Failed to load assignment targets");
+      }
 
-      // Fetch users for this company
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('user_id, name, email, department_id')
-        .eq('company_id', companyId)
-        .eq('is_active', true);
-      setUsers(usersData || []);
+      const result = await response.json();
+
+      setDepartments(result.departments || []);
+      setSubDepartments(result.sub_departments || []);
+      setUsers(result.users || []);
     } catch (error) {
       console.error('Error fetching assignment targets:', error);
     }

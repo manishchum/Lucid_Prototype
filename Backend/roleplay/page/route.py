@@ -23,8 +23,7 @@ class AssignScenarioRequest(BaseModel):
     scenario_id: str
     assignment_type: Literal['department', 'sub_department', 'user']
     target_ids: List[str]
-    company_id: str
-
+    # company_id: str
 
 class DeleteScenarioRequest(BaseModel):
     scenario_id: str
@@ -309,6 +308,78 @@ async def delete_scenario(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/assignment-targets")
+async def get_assignment_targets(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
+    """
+    Returns all departments, sub-departments and active users
+    for the authenticated user's company.
+    """
+
+    try:
+        # --------------------------
+        # Departments
+        # --------------------------
+
+        subdepartment_result = (
+            supabase
+            .table("sub_department")
+            .select(
+                "department_id, department_name, sub_department_name"
+            )
+            .execute()
+        )
+
+        rows = subdepartment_result.data or []
+
+        departments = []
+        seen = set()
+
+        sub_departments = []
+
+        for row in rows:
+
+            dept_name = row["department_name"]
+
+            if dept_name not in seen:
+                seen.add(dept_name)
+
+                departments.append({
+                    "department_id": row["department_id"],
+                    "department_name": dept_name
+                })
+
+            if row.get("sub_department_name"):
+                sub_departments.append(row)
+        # --------------------------
+        # Users
+        # --------------------------
+
+        users_result = (
+            supabase
+            .table("users")
+            .select(
+                "user_id,name,email,department_id"
+            )
+            .eq("company_id", effective_company_id)
+            .eq("is_active", True)
+            .execute()
+        )
+
+        return {
+            "success": True,
+            "departments": departments,
+            "sub_departments": sub_departments,
+            "users": users_result.data or []
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @router.post("/scenarios/assign")
 async def assign_scenario_to_targets(

@@ -4,7 +4,8 @@ import asyncio
 from fastapi import APIRouter, WebSocket
 from websockets.asyncio.client import connect
 from utils.supabase_client import supabase_admin
-from fastapi import WebSocket, status
+from fastapi import WebSocket
+from datetime import datetime
 from utils.auth import _verify_firebase_token, resolve_user_context_from_claims
 
 from config import OPENAI_API_KEY, OPENAI_REALTIME_MODEL
@@ -22,10 +23,10 @@ if not _OPENAI_API_KEY:
 if not _OPENAI_API_KEY.startswith("sk-"):
     raise ValueError(f"OPENAI_API_KEY has invalid prefix: {_OPENAI_API_KEY[:10]}")
 
-logger.warning("[Realtime] Key loaded: yes")
-logger.warning(f"[Realtime] Key prefix: {_OPENAI_API_KEY[:8]}")
-logger.warning(f"[Realtime] Key length: {len(_OPENAI_API_KEY)}")
-logger.warning(f"[Realtime] Model: {OPENAI_REALTIME_MODEL}")
+# logger.warning("[Realtime] Key loaded: yes")
+# logger.warning(f"[Realtime] Key prefix: {_OPENAI_API_KEY[:8]}")
+# logger.warning(f"[Realtime] Key length: {len(_OPENAI_API_KEY)}")
+# logger.warning(f"[Realtime] Model: {OPENAI_REALTIME_MODEL}")
 
 OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
@@ -225,11 +226,60 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                                final_transcript = conversation_transcript
                             conversation_transcript = final_transcript
 
-                            logger.info(f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages")  
+                            logger.info(
+                                f"[Realtime] 📞 Session end requested - transcript contains {len(conversation_transcript)} messages"
+                            )
+
+                            # -----------------------------
+                            # Persist transcript
+                            # -----------------------------
+                            if scenario_context and scenario_context.get("session_id"):
+                                session_id = scenario_context["session_id"]
+
+                                try:
+                                    logger.info(
+                                        f"[Realtime] 💾 Saving transcript for session {session_id}"
+                                    )
+
+                                    update_data = {
+                                        "conversation_transcript": final_transcript,
+                                        "message_count": len(final_transcript),
+                                        "completed_at": datetime.utcnow().isoformat()
+                                    }
+
+                                    # Calculate duration exactly like frontend did
+                                    if len(final_transcript) >= 2:
+                                        try:
+                                            start_time = datetime.fromisoformat(
+                                                final_transcript[0]["timestamp"].replace("Z", "+00:00")
+                                            )
+                                            end_time = datetime.fromisoformat(
+                                                final_transcript[-1]["timestamp"].replace("Z", "+00:00")
+                                            )
+
+                                            update_data["duration_seconds"] = int(
+                                                (end_time - start_time).total_seconds()
+                                            )
+                                        except Exception as e:
+                                            logger.warning(
+                                                f"[Realtime] Could not calculate duration: {e}"
+                                            )
+
+                                    supabase_admin.table("roleplay_sessions").update(update_data)\
+                                        .eq("id", session_id)\
+                                        .execute()
+
+                                    logger.info("[Realtime] ✅ Transcript saved")
+
+                                except Exception as e:
+                                    logger.error(f"[Realtime] ❌ Failed to save transcript: {e}")
+
                             await websocket.send_json({
                                 "type": "session_ended",
                                 "transcript": final_transcript
                             })
+
+                            break
 
                 except Exception as e:
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
@@ -362,15 +412,3 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         logger.info(f"[Realtime] 🔌 Disconnected, session {sid}. Final backend transcript has {len(final_transcript)} messages.")
         if len(final_transcript) > 0:
             logger.info(f"[Realtime] Last message: {final_transcript[-1]['text'][:100]}")
-                    # --- START PHASE 2 ENTERPRISE STATE MANAGEMENT ---
-        if sid != "unknown":
-                try:
-                    logger.info(f"[Realtime] 💾 Auto-saving {len(final_transcript)} messages to DB for session {sid}...")
-                    supabase_admin.table('roleplay_sessions').update({
-                        "conversation_transcript": final_transcript,
-                        "message_count": len(final_transcript)
-                    }).eq('id', sid).execute()
-                    logger.info("[Realtime] ✅ Transcript safely stored on disconnect.")
-                except Exception as e:
-                    logger.error(f"[Realtime] ❌ Failed to auto-save transcript: {str(e)}")
-            # --- END PHASE 2 ENTERPRISE STATE MANAGEMENT ---

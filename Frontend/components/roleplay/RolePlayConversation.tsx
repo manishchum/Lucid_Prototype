@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplay/types";
-import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
+import { createRolePlaySession } from "@/lib/roleplayDatabase";
 import { getFirebaseIdToken } from "@/lib/fetch-with-auth";
 
 interface RolePlayConversationProps {
@@ -508,21 +508,21 @@ export default function RolePlayConversation({
     // });
 
     // ✅ SAVE TRANSCRIPT FIRST - before generating assessment
-    if (sessionIdRef.current && messages.length > 0) {
-      try {
-        // console.log("[handleEndSession] 💾 Saving transcript to DB...");
-        await updateRolePlaySession(sessionIdRef.current, messages, true);
-        // console.log("[handleEndSession] ✅ Transcript saved to DB");
-      } catch (e) {
-        console.error("[handleEndSession] ❌ Failed to save transcript:", e);
-        // Continue anyway - assessment generation is still important
-      }
-    } else {
-      console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
-        hasSessionId: !!sessionIdRef.current,
-        messagesCount: messages.length
-      });
-    }
+    // if (sessionIdRef.current && messages.length > 0) {
+    //   try {
+    //     // console.log("[handleEndSession] 💾 Saving transcript to DB...");
+    //     await updateRolePlaySession(sessionIdRef.current, messages, true);
+    //     // console.log("[handleEndSession] ✅ Transcript saved to DB");
+    //   } catch (e) {
+    //     console.error("[handleEndSession] ❌ Failed to save transcript:", e);
+    //     // Continue anyway - assessment generation is still important
+    //   }
+    // } else {
+    //   console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
+    //     hasSessionId: !!sessionIdRef.current,
+    //     messagesCount: messages.length
+    //   });
+    // }
 
     onEndSession(messages, sessionIdRef.current || undefined);
   };

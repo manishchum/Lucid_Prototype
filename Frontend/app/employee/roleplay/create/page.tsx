@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -10,12 +11,9 @@ import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 import { 
-  fetchUserDataAPI, 
   insertCustomScenarioAPI, 
   updateCustomScenarioAPI 
 } from '@/lib/roleplayApi';
-let userId:any = '';
-let userCompanyId:any = '';
 
 interface CustomRoleplayData {
   // Basic Info
@@ -56,6 +54,7 @@ const CreateRoleplayComponent = () => {
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get('edit') === 'true';
   const { user, loading: authLoading, logout } = useAuth();
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
   const [editingScenarioId, setEditingScenarioId] = useState<string | null>(null);
@@ -85,6 +84,8 @@ const CreateRoleplayComponent = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [sidebarLeft, setSidebarLeft] = useState('280px');
+  const [userId, setUserId] = useState("");
+  const [userCompanyId, setUserCompanyId] = useState("");
 
   // Track sidebar width so the sticky bar starts after the nav
   useEffect(() => {
@@ -101,11 +102,22 @@ const CreateRoleplayComponent = () => {
   useEffect(() => {
     if (!authLoading) {
       if (!user) router.push("/login");
-      else fetchUserData();
-      
+      else {
+        fetchUserData();
+        checkAdminRole();
+      }
     }
   }, [user, authLoading, router]);
   
+  useEffect(() =>{
+    if (isAdmin === false){
+      toast.error("Access Denied: You do not have permission to create or edit roleplay scenarios.");
+      const timer = setTimeout(() => {
+        router.replace('/employee/roleplay');
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isAdmin, router]);
   // Check for saved draft or edit scenario on component mount
   useEffect(() => {
     // Load scenario for editing if in edit mode
@@ -181,8 +193,8 @@ const CreateRoleplayComponent = () => {
       let userData = payload?.user ?? payload;
       if (Array.isArray(userData)) userData = userData[0];
       if (userData?.user_id) {
-        userId = userData.user_id;
-        userCompanyId = userData.company_id;
+        setUserId(userData.user_id);
+        setUserCompanyId(userData.company_id);
         console.log('Fetched user ID:', userId);
         console.log('Fetched user Company ID:', userCompanyId);
       }
@@ -190,6 +202,75 @@ const CreateRoleplayComponent = () => {
       console.log('User not logged in yet.');
     }
   }
+
+  const checkAdminRole = async () => {
+      if (!user?.email) {
+          setIsAdmin(false);
+          return;
+      }
+
+      try {
+          const res = await fetchWithAuth(
+              `${API_URL}/api/users/by-email/${encodeURIComponent(user.email)}`
+          );
+
+          if (!res.ok) {
+              setIsAdmin(false);
+              return;
+          }
+
+          const payload = await res.json();
+          let userData = payload?.user ?? payload;
+
+          if (Array.isArray(userData)) {
+              userData = userData[0];
+          }
+
+          const roleRes = await fetchWithAuth(
+              `${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`,
+              {
+                  headers: {
+                      "X-User-ID": userData.user_id,
+                  },
+              }
+          );
+
+          if (!roleRes.ok) {
+              setIsAdmin(false);
+              return;
+          }
+
+          const rolePayload = await roleRes.json();
+          const assignments =
+              rolePayload?.assignments ??
+              rolePayload?.data ??
+              rolePayload ??
+              [];
+
+          const hasAdminRole = assignments.some((assignment: any) => {
+              const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
+              const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
+
+              const roleName = String(roleNode?.name || "")
+                  .toLowerCase()
+                  .replace(/[-_\s]/g, "");
+
+              const roleLevel = Number(
+                  roleNode?.level ?? assignment?.level ?? -1
+              );
+
+              return (
+                  roleLevel >= 3 ||
+                  ["admin", "companyadmin", "superadmin", "ceo"].includes(roleName)
+              );
+          });
+
+          setIsAdmin(hasAdminRole);
+      } catch (err) {
+          console.error(err);
+          setIsAdmin(false);
+      }
+  };
 
   // Predefined options
   const scenarioTemplates = [
@@ -434,6 +515,18 @@ const CreateRoleplayComponent = () => {
     }
     return 'Start Roleplay';
   };
+
+  if (authLoading || isAdmin === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        Loading...
+        </div>
+    );
+  }
+
+  if (isAdmin === false) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pt-6 pb-12">

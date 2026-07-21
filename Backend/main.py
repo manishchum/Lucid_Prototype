@@ -45,7 +45,7 @@ from voice_document.transcripts import router as voice_transcripts_router
 # Import user routes
 # from routes.users import router as users_router
 from roleplay.assessment.route import router as roleplay_assessment_router
-from roleplay.assessment.conversation.route import router as roleplay_conversation_router
+# from roleplay.assessment.conversation.route import router as roleplay_conversation_router
 from roleplay.realtime_ws.route import router as roleplay_realtime_router
 from roleplay.scenario.route import router as roleplay_scenario_router
 from roleplay.page.route import router as roleplay_page_router
@@ -199,7 +199,7 @@ app.include_router(generate_infographic_router, prefix="/api", tags=["generate-i
 app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-generation"])
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
 app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
-app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
+# app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 app.include_router(roleplay_scenario_router, prefix="/api", tags=["roleplay-scenarios"])
 app.include_router(roleplay_page_router, prefix="/api", tags=["roleplay-page"])
 app.include_router(roleplay_sessions_router, prefix="/api", tags=["roleplay-sessions"])

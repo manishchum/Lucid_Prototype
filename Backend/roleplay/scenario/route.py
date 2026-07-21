@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.db.permissions import check_user_permission
 
 router = APIRouter(prefix="/roleplay/scenarios", tags=["roleplay-scenarios"])
 
@@ -61,6 +62,16 @@ async def create_scenario(
     try:
         company_id = effective_company_id
 
+        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+
+        if not (is_admin or is_super_admin or is_developer):
+            raise HTTPException(
+                status_code=403,
+                detail="Only administrators can create roleplay scenarios."
+            )
+            
         # Convert Pydantic models to dictionaries
         evaluation_params = [
             {
@@ -121,7 +132,16 @@ async def update_scenario(
     """
     try:
         company_id = effective_company_id
+        
+        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
 
+        if not (is_admin or is_super_admin or is_developer):
+            raise HTTPException(
+                status_code=403,
+                detail="Only administrators can update roleplay scenarios."
+            )
         # Verify ownership
         existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
         
@@ -200,6 +220,16 @@ async def delete_scenario(
     """
     try:
         company_id = effective_company_id
+        
+        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+
+        if not (is_admin or is_super_admin or is_developer):
+            raise HTTPException(
+                status_code=403,
+                detail="Only administrators can delete roleplay scenarios."
+            )
 
         # Verify ownership
         existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
