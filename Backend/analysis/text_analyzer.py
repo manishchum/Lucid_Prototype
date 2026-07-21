@@ -208,19 +208,36 @@ def analyze_mcq(questions: list, answers: list) -> dict:
 
     for ans in answers:
         q_id = str(ans.get("question_id") or ans.get("id") or "")
-        selected = str(ans.get("selected_option") or "").strip()
-        
         q_obj = q_map.get(q_id)
+
+        selected = str(ans.get("selected_option") or ans.get("selected_answer") or ans.get("answer") or ans.get("selected") or ""
+
+).strip()
+        correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or ans.get("correct_answer") or ans.get("correct") or "").strip()
+        print("\n===== MCQ DEBUG =====")
+
+        print("Selected :", selected)
+
+        print("Correct  :", correct)
+
+        print("=====================\n")
         if q_obj:
-            correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or "").strip()
-            # If correctAnswer is not there, maybe it's in the answer payload itself as correct_answer
-            if not correct:
-                correct = str(ans.get("correct_answer") or "").strip()
-            
-            is_correct = (selected.lower() == correct.lower())
+            selected_items = {
+                x.strip().lower()
+                for x in selected.split(",")
+                if x.strip()
+            }
+
+            correct_items = {
+                x.strip().lower()
+                for x in correct.split(",")
+                if x.strip()
+            }
+
+            is_correct = (selected_items == correct_items)
             if is_correct:
                 correct_count += 1
-            
+
             analysis.append({
                 "question": q_obj.get("question", ""),
                 "selected_answer": selected,
@@ -230,10 +247,10 @@ def analyze_mcq(questions: list, answers: list) -> dict:
             })
         else:
             # Fallback if question not found in map
-            correct = str(ans.get("correct_answer") or "").strip()
             is_correct = (selected.lower() == correct.lower())
             if is_correct:
                 correct_count += 1
+
             analysis.append({
                 "question": ans.get("question", ""),
                 "selected_answer": selected,

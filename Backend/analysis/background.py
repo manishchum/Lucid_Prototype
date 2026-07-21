@@ -9,9 +9,99 @@ from analysis.image_analyzer import analyze_image
 from analysis.audio_analyzer import analyze_audio
 from analysis.video_analyzer import analyze_video
 
-def generate_task_insights(task_title: str, task_description: str, expected_answer: str | None, submission_type: str, submission_content: dict | str | list) -> dict:
+from enum import Enum
+from typing import List, Dict, Any
+from pydantic import BaseModel, Field
+
+class SubmissionType(str, Enum):
+    TEXT = "text"
+    AUDIO = "audio"
+    VIDEO = "video"
+    IMAGE = "image"
+    MULTIPLE_CHOICE = "multiple_choice"
+
+class TaskInsightsResponse(BaseModel):
+    summary: str = Field(description="A brief executive summary of performance.")
+    measurable_outcomes: List[str] = Field(default_factory=list)
+    actions_taken: List[str] = Field(default_factory=list)
+    unique_methods: List[str] = Field(default_factory=list)
+    challenges: List[str] = Field(default_factory=list)
+    learnings: List[str] = Field(default_factory=list)
+    missing_information: List[str] = Field(default_factory=list)
+    extraction_confidence: str = Field(default="high")
+
+TYPE_CONFIGS = {
+    SubmissionType.MULTIPLE_CHOICE: {
+        "analysis_focus": """
+            - Knowledge demonstrated
+            - Correct and Incorrect concepts
+            - Learning gaps and Knowledge strengths
+            - Revision recommendations
+        """,
+        "schema_mapping": """
+            - 'measurable_outcomes': List the correct concepts and knowledge strengths demonstrated.
+            - 'challenges': List the incorrect concepts and identified learning gaps.
+            - 'learnings': List the recommended revision topics and next steps.
+            - 'missing_information': List specific knowledge areas that were completely absent or skipped.
+            - 'actions_taken' & 'unique_methods': MUST be empty arrays [] as these do not apply to MCQs.
+        """
+    },
+    SubmissionType.AUDIO: {
+        "analysis_focus": """
+            - Communication and Sales skills
+            - Customer handling and Objections
+            - Confidence and Business outcomes
+        """,
+        "schema_mapping": """
+            - 'measurable_outcomes': Business outcomes achieved or objections successfully overcome.
+            - 'actions_taken': Specific conversational tactics or communication strategies used.
+            - 'unique_methods': Unique sales skills or rapport-building techniques.
+            - 'challenges': Customer objections faced or communication stumbles.
+        """
+    },
+    SubmissionType.IMAGE: {
+        "analysis_focus": """
+            - Visual proof and Compliance
+            - Required objects and Task completion
+            - Missing evidence
+        """,
+        "schema_mapping": """
+            - 'measurable_outcomes': List compliant items and visual proof of task completion.
+            - 'actions_taken': Actions clearly visible in the image.
+            - 'missing_information': Required objects, safety gear, or compliance elements missing from the image.
+            - 'unique_methods', 'learnings', 'challenges': Return empty arrays [] unless visually obvious.
+        """
+    },
+    SubmissionType.VIDEO: {
+        "analysis_focus": """
+            - Communication and Visual behaviour
+            - Task completion and Presentation
+            - Customer interaction
+        """,
+        "schema_mapping": """
+            - 'measurable_outcomes': Task completion markers and interaction outcomes.
+            - 'actions_taken': Physical actions and presentation behaviours demonstrated.
+            - 'unique_methods': Exceptional presentation or interaction techniques.
+            - 'challenges': Visible struggles, awkward interactions, or missed steps.
+        """
+    },
+    SubmissionType.TEXT: {
+        "analysis_focus": """
+            - Writing clarity and Professionalism
+            - Detail orientation and Key arguments
+            - Task completion
+        """,
+        "schema_mapping": """
+            - 'measurable_outcomes': Key arguments made and task objectives met.
+            - 'unique_methods': Unique problem-solving approaches described in the text.
+            - 'challenges': Weak arguments or missing logical steps.
+        """
+    }
+}
+
+def generate_task_insights(task_title: str, task_description: str, expected_answer: str | None, submission_type: str, submission_content: dict | str | list, evaluation_result: dict) -> dict:
     """
-    Generate business/task outcomes (insights) dynamically using Gemini.
+    Generate business/task outcomes (insights) dynamically using Gemini structured outputs.
     """
     api_key = os.getenv("GEMINI_API_KEY") or ""
     if not api_key:
@@ -29,7 +119,6 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
 
     client = genai.Client(api_key=api_key)
 
-    # Standardize input format description based on submission type
     content_str = ""
     stype = str(submission_type).lower()
     if stype == "text":
@@ -37,94 +126,93 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
     elif stype == "audio":
         content_str = f"Employee Spoken Transcript:\n{submission_content}"
     elif stype == "video":
-        transcript = submission_content.get("transcript", "")
-        visual_summary = submission_content.get("visual_summary", "")
+        transcript = submission_content.get("transcript", "") if isinstance(submission_content, dict) else ""
+        visual_summary = submission_content.get("visual_summary", "") if isinstance(submission_content, dict) else ""
         content_str = f"Employee Spoken Transcript:\n{transcript}\n\nVideo Visual Summary:\n{visual_summary}"
     elif stype == "image":
-        detected_objects = submission_content.get("detected_objects", [])
-        clip_similarity = submission_content.get("clip_similarity", 0.0)
-        generated_description = submission_content.get("generated_description", "")
+        if isinstance(submission_content, dict):
+            detected_objects = submission_content.get("detected_objects", [])
+            clip_similarity = submission_content.get("clip_similarity", 0.0)
+            generated_description = submission_content.get("generated_description", "")
+        else:
+            detected_objects, clip_similarity, generated_description = [], 0.0, ""
 
         content_str = (
-        f"Detected objects in image:\n{detected_objects}\n\n"
-        f"CLIP semantic similarity score: {clip_similarity}\n\n"
-        f"Generated Description:\n{generated_description}"
-    )
+            f"Detected objects in image:\n{detected_objects}\n\n"
+            f"CLIP semantic similarity score: {clip_similarity}\n\n"
+            f"Generated Description:\n{generated_description}"
+        )
     elif stype == "multiple_choice":
-        # MCQ question/answer results list
         content_str = "MCQ Quiz Question and Answer Results:\n"
-        for idx, qa in enumerate(submission_content):
-            content_str += (
-                f"{idx + 1}. Question: {qa.get('question')}\n"
-                f"   Employee Selected: {qa.get('selected_answer')}\n"
-                f"   Correct Answer: {qa.get('correct_answer')}\n"
-                f"   Is Correct: {qa.get('is_correct')}\n"
-            )
+        if isinstance(submission_content, list):
+            for idx, qa in enumerate(submission_content):
+                if isinstance(qa, dict):
+                    content_str += (
+                        f"{idx + 1}. Question: {qa.get('question')}\n"
+                        f"   Employee Selected: {qa.get('selected_answer')}\n"
+                        f"   Correct Answer: {qa.get('correct_answer')}\n"
+                        f"   Is Correct: {qa.get('is_correct')}\n"
+                    )
+
+    import json
+    evaluation_summary = f"""
+        AI Evaluation Results:
+        Overall Score: {evaluation_result.get("overall_score", 0)}
+        Strengths: {json.dumps(evaluation_result.get("strengths", []), indent=2)}
+        Weaknesses: {json.dumps(evaluation_result.get("weaknesses", []), indent=2)}
+        Detected Issues: {json.dumps(evaluation_result.get("detected_issues", []), indent=2)}
+        Improvement Points: {json.dumps(evaluation_result.get("improvement_points", []), indent=2)}
+        Metrics: {json.dumps(evaluation_result.get("metrics", {}), indent=2)}
+    """
+    
+    try:
+        sub_enum = SubmissionType(stype)
+    except ValueError:
+        sub_enum = SubmissionType.TEXT
+        
+    config = TYPE_CONFIGS.get(sub_enum, TYPE_CONFIGS[SubmissionType.TEXT])
 
     prompt = f"""
-You are an AI task analyst.
+    You are an AI task analyst and expert Enterprise AI Coaching Assistant.
+    Your task is to extract BUSINESS outcomes and manager-ready coaching insights from the employee submission.
+    Ignore AI quality metrics, CLIP scores, audio quality, and visual scores. Focus on employee performance.
 
-Extract only BUSINESS outcomes from employee submission.
-Ignore AI quality metrics, CLIP scores, audio quality, visual scores.
+    Task: {task_title}
+    Description: {task_description}
+    Expected Answer/Behavior: {expected_answer or "N/A"}
+    Submission Type: {stype.upper()}
 
-Task:
-{task_title}
+    ANALYSIS FOCUS:
+    You must ONLY analyze the following criteria relevant to this submission type:
+    {config['analysis_focus']}
 
-Description:
-{task_description}
+    SCHEMA MAPPING INSTRUCTIONS:
+    Map your findings into the JSON output according to these exact rules:
+    {config['schema_mapping']}
 
-Expected:
-{expected_answer or "N/A"}
+    STRICT CONSTRAINTS:
+    1. NEVER invent or hallucinate information.
+    2. Metrics need exact evidence from the submission.
+    3. If information for a field cannot be inferred, you MUST return an empty array [].
+    4. Do NOT write "Missing", "Not applicable", or "None found" inside the array.
 
-Submission type:
-{stype}
+    SUBMISSION CONTENT:
+    {content_str}
 
-Submission:
-{content_str}
-
-
-Return ONLY valid JSON:
-
-{{
- "summary":"",
- "measurable_outcomes":[
-  {{
-   "name":"",
-   "value":null,
-   "confidence":"high/medium/low",
-   "evidence":""
-  }}
- ],
- "actions_taken":[],
- "unique_methods":[],
- "challenges":[],
- "learnings":[],
- "missing_information":[],
- "extraction_confidence":"high/medium/low"
-}}
-
-Rules:
-- Do not invent numbers.
-- Metrics need exact evidence from submission.
-- Missing values must be null.
-- No markdown.
-"""
+    {evaluation_summary}
+    """
 
     try:
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=TaskInsightsResponse,
+                temperature=0.2
+            )
         )
-        # if hasattr(response, "usage_metadata") and response.usage_metadata:
-        #     meta = response.usage_metadata
-        #     print("\n========== GEMINI TOKEN USAGE (Transcript Cleaner) ==========")
-        #     print(f"Input tokens:    {getattr(meta, 'prompt_token_count', 'N/A')}")
-        #     print(f"Output tokens:   {getattr(meta, 'candidates_token_count', 'N/A')}")
-        #     print(f"Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
-        #     print(f"Total tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
-        #     print("=============================================================\n")
 
-        # ---- TOKEN USAGE LOGGING ----
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
             meta = response.usage_metadata
             print("\n========== GEMINI TOKEN USAGE (analysis/background.py - generate_task_insights) ==========")
@@ -133,26 +221,17 @@ Rules:
             print(f"  Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
             print(f"  TOTAL tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
             print("=========================================================================================\n")
-        else:
-            print("[background.py] WARNING: No usage_metadata in Gemini response")
-        # ---- END TOKEN USAGE LOGGING ----
 
         text = response.text.strip()
-        # Clean markdown code block wraps if present
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\n", "", text)
-            text = re.sub(r"\n```$", "", text)
+        insights = json.loads(text)
         
-        insights = json.loads(text.strip())
-        
-        # Enforce structural integrity of returned keys
         expected_keys = ["summary", "measurable_outcomes", "actions_taken", "unique_methods", "challenges", "learnings", "missing_information", "extraction_confidence"]
         for key in expected_keys:
             if key not in insights:
-                if key in ["actions_taken", "unique_methods", "challenges", "learnings", "missing_information"]:
+                if key in ["actions_taken", "unique_methods", "challenges", "learnings", "missing_information", "measurable_outcomes"]:
                     insights[key] = []
-                elif key == "measurable_outcomes":
-                    insights[key] = []
+                elif key == "extraction_confidence":
+                    insights[key] = "high"
                 else:
                     insights[key] = ""
                     
@@ -414,7 +493,8 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             task_description=task.get("description", ""),
             expected_answer=task.get("expected_answer"),
             submission_type=stype,
-            submission_content=text_inputs_for_insights
+            submission_content=text_inputs_for_insights,
+            evaluation_result=result
         )
 
         # 5. Restructure ai_analysis dict to save both insights and quality analysis, keeping legacy attributes at root

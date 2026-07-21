@@ -5,6 +5,8 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
+import { fetchWithAuth } from "@/lib/fetch-with-auth";
+
 interface EvaluationParameter {
   name: string;
   description: string;
@@ -41,7 +43,7 @@ interface UserData {
  */
 export async function fetchUserDataAPI(email: string): Promise<{ data: UserData | null; error: any }> {
   try {
-    const response = await fetch(
+    const response = await fetchWithAuth(
       `${API_BASE_URL}/roleplay/scenarios/user-data/${encodeURIComponent(email)}`,
       {
         method: "GET",
@@ -89,7 +91,7 @@ export async function insertCustomScenarioAPI(
         : scenario.evaluationParameters,
     };
 
-    const response = await fetch(`${API_BASE_URL}/roleplay/scenarios/create`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/roleplay/scenarios/create`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -141,7 +143,7 @@ export async function updateCustomScenarioAPI(
       }),
     };
 
-    const response = await fetch(`${API_BASE_URL}/roleplay/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/roleplay/scenarios/${scenarioId}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -177,7 +179,7 @@ export async function deleteCustomScenarioAPI(
   companyId: string
 ): Promise<{ success: boolean; error: any }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/roleplay/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/roleplay/scenarios/${scenarioId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
