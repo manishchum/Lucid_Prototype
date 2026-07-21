@@ -72,11 +72,11 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
             query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = query_client.table('users').select('*').eq('email', email).eq('is_active', True).limit(1).execute()
+        resp = query_client.table('users').select('*').eq('email', email).limit(1).execute()
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
-            print(f"[get_user_by_email] No active user found for email: {email}")
+            print(f"[get_user_by_email] No user found for email: {email}")
             return {"data": None, "error": "User not found"}
         
         # Enrich user with company subscription data
@@ -144,7 +144,6 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
             .table("users")
             .select("*")
             .in_("phone", possible_formats)
-            .eq("is_active", True)
             .limit(1)
             .execute()
         )
@@ -153,7 +152,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
         if auth_claims and user and requesting_user_id and str(user.get("user_id")) != str(requesting_user_id):
             return {"data": None, "error": "Permission denied"}
         if not user:
-            print(f"[get_user_by_phone] No active user found for phone: {phone}")
+            print(f"[get_user_by_phone] No user found for phone: {phone}")
             return {"data": None, "error": "User not found"}
                 # Enrich user with company subscription data
         company_id = user.get("company_id")
