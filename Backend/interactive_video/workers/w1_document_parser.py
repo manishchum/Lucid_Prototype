@@ -139,39 +139,32 @@ def run(module: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _fetch_module_uploaded_images(processed_module_id: Optional[str], original_module_id: Optional[str]) -> List[str]:
-    module_ids = [mid for mid in {processed_module_id, original_module_id} if mid]
+def _fetch_module_uploaded_images(processed_module_id: Optional[str], original_module_id: Optional[str]) -> List[Dict[str, Any]]:
+    module_ids = [mid for mid in {original_module_id, processed_module_id} if mid]
     if not module_ids:
         return []
 
-    candidate_columns = ["module_id", "processed_module_id", "original_module_id"]
     candidate_selects = [
-        ["storage_path"],
-        ["image_url"],
-        ["public_url"],
-        ["signed_url"],
-        ["url"],
+        "storage_path",
+        "image_url",
+        "caption",
+        "surrounding_text",
+        "chunk_id",
+        "source_type",
     ]
     response_data: List[Dict[str, Any]] = []
 
-    for column in candidate_columns:
-        for select_columns in candidate_selects:
-            try:
-                query = supabase.table("vectordb_images").select(",".join(select_columns))
-                if len(module_ids) == 1:
-                    query = query.eq(column, module_ids[0])
-                else:
-                    query = query.in_(column, module_ids)
-                response = query.execute()
-                if response and getattr(response, "data", None):
-                    response_data.extend(response.data)
-                    break
-            except Exception as exc:
-                print(
-                    f"[W1] WARNING: Failed to query module images via {column} "
-                    f"select={select_columns}: {exc}"
-                )
-                continue
+    try:
+        query = supabase.table("vectordb_images").select(",".join(candidate_selects))
+        if len(module_ids) == 1:
+            query = query.eq("module_id", module_ids[0])
+        else:
+            query = query.in_("module_id", module_ids)
+        response = query.execute()
+        if response and getattr(response, "data", None):
+            response_data.extend(response.data)
+    except Exception as exc:
+        print(f"[W1] WARNING: Failed to query module images via module_id: {exc}")
 
     if not response_data:
         return []

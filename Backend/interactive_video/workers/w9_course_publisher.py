@@ -5,12 +5,13 @@ saves it in the database, and links it to the processed module.
 """
 from __future__ import annotations
 import os
+import subprocess
 import uuid
 import datetime
 from typing import Any, Dict, List, Optional
 from utils.supabase_client import supabase, supabase_admin
 from utils.auth_bridge import get_service_supabase_client
-from .w7_avatar_video_generator import _concat_videos_sync
+from .w7_avatar_video_generator import _concat_videos_sync, _FFMPEG
 
 BUCKET = "module-visuals"
 IMAGE_OUTPUT_COST_USD = 0.039
@@ -44,6 +45,25 @@ def _upload_file_sync(local_path: str, upload_path: str) -> str:
     if isinstance(url, dict):
         url = url.get("publicURL") or url.get("publicUrl") or url.get("signedURL")
     return url
+
+
+def _trim_video_sync(input_path: str, output_path: str, duration_seconds: float = 30.0) -> None:
+    """Clamp a rendered video to the requested duration."""
+    if not _FFMPEG:
+        raise RuntimeError("ffmpeg not found")
+
+    cmd = [
+        _FFMPEG, "-y",
+        "-i", input_path,
+        "-t", str(duration_seconds),
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8", errors="ignore")[:2000])
 
 async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
     """
@@ -214,6 +234,9 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         backup_en_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_en.mp4")
         list_file_en = os.path.join(tmp_dir, "lecture_en_list.txt")
         _concat_videos_sync(lecture_video_en_paths, list_file_en, backup_en_path)
+        trimmed_backup_en_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_en_30s.mp4")
+        _trim_video_sync(backup_en_path, trimmed_backup_en_path, duration_seconds=30.0)
+        backup_en_path = trimmed_backup_en_path
         upload_backup_en = f"{processed_module_id}/interactive/{course_id}_lecture_backup_en.mp4"
         backup_video_url_en = _upload_file_sync(backup_en_path, upload_backup_en)
         print(f"[W9] Uploaded EN backup video: {backup_video_url_en}")
@@ -222,6 +245,9 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         backup_hi_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_hi.mp4")
         list_file_hi = os.path.join(tmp_dir, "lecture_hi_list.txt")
         _concat_videos_sync(lecture_video_hi_paths, list_file_hi, backup_hi_path)
+        trimmed_backup_hi_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_hi_30s.mp4")
+        _trim_video_sync(backup_hi_path, trimmed_backup_hi_path, duration_seconds=30.0)
+        backup_hi_path = trimmed_backup_hi_path
         upload_backup_hi = f"{processed_module_id}/interactive/{course_id}_lecture_backup_hi.mp4"
         backup_video_url_hi = _upload_file_sync(backup_hi_path, upload_backup_hi)
         print(f"[W9] Uploaded HI backup video: {backup_video_url_hi}")

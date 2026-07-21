@@ -24,15 +24,16 @@ You are an expert enterprise e-learning scriptwriter.
 
 Write a complete storyboard for ONE video segment on the topic below.
 Pick the most relevant text directly from the module title and content to create slide bullets and slide text.
+Keep the narration short enough to fit a focused 25-35 second segment.
 
 Return ONLY valid JSON:
 {{
   "title": "...",
-  "script_en": "Full natural spoken English narration (1-3 minutes). Conversational, engaging, avoids jargon unless explained.",
+  "script_en": "Full natural spoken English narration (about 25-35 seconds). Conversational, engaging, and concise.",
   "script_hi": "Same script in conversational Hinglish (Hindi-English mix, written in Latin script). Friendly tone.",
   "slide_bullets": ["Bullet 1", "Bullet 2", "Bullet 3"],
   "slide_text": "A short text excerpt from the module title or content for the slide visual.",
-  "visual_prompt": "Describe a background image (no text, no human faces). E.g. modern office dashboard, abstract data flow",
+  "visual_prompt": "Describe a relevant visual for the slide image placeholder using the module and segment context. No text in the image.",
   "avatar_cue": "explaining",
   "key_takeaway": "One sentence summary of the most important concept"
 }}
@@ -171,6 +172,24 @@ def _derive_slide_bullets(content: str, max_bullets: int = 4) -> List[str]:
     return bullets
 
 
+def _trim_to_word_limit(text: str, max_words: int = 80) -> str:
+    words = (text or "").split()
+    if len(words) <= max_words:
+        return (text or "").strip()
+    return " ".join(words[:max_words]).rstrip(" ,;:-") + "."
+
+
+def _default_visual_prompt(title: str, content: str = "") -> str:
+    """Return a neutral fallback that keeps the module context for W5 matching."""
+    context = re.sub(r"\s+", " ", f"{title}. {content}").strip()
+    if context:
+        return (
+            "Create a clear educational visual for the slide image placeholder based on this context: "
+            f"{context[:900]}. Do not add words, labels, logos, or UI text to the image."
+        )
+    return "Create a clear educational visual for the slide image placeholder based on the module topic. Do not add text."
+
+
 def _build_lecture_storyboard(seg: Dict, topics: List[Dict], model, module_title: str = "", module_content: str = "") -> Dict:
     topic = _get_topic_for_segment(seg, topics)
     content = topic.get("content_text", "") if topic else ""
@@ -206,13 +225,18 @@ def _build_lecture_storyboard(seg: Dict, topics: List[Dict], model, module_title
     script_hi = data.get("script_hi", "") or (
         f"{seg.get('title', 'Yeh topic')} par baat karte hain. Is section mein hum module ke mukhya points ko Hindi-English style mein samjhenge."
     )
+    script_en = _trim_to_word_limit(script_en, max_words=80)
+    script_hi = _trim_to_word_limit(script_hi, max_words=90)
 
     return {
         "script_en": script_en,
         "script_hi": script_hi,
         "slide_bullets": slide_bullets,
         "slide_text": slide_text,
-        "visual_prompt": data.get("visual_prompt", "abstract professional background"),
+        "visual_prompt": data.get(
+            "visual_prompt",
+            _default_visual_prompt(seg.get("title", module_title), content or module_content),
+        ),
         "avatar_cue": data.get("avatar_cue", "explaining"),
         "key_takeaway": data.get("key_takeaway", ""),
         "source_text": content,
@@ -319,7 +343,7 @@ def run(design_data: Dict[str, Any]) -> Dict[str, Any]:
                     "script_en": f"Welcome to {seg.get('title', 'this section')}. Let's explore the key concepts.",
                     "script_hi": f"{seg.get('title', 'Is section')} mein aapka swagat hai. Aao milke key concepts samjhein.",
                     "slide_bullets": ["Key concept 1", "Key concept 2", "Key concept 3"],
-                    "visual_prompt": "Modern professional office workspace with digital displays",
+                    "visual_prompt": _default_visual_prompt(seg.get("title", ""), module_content),
                     "avatar_cue": "explaining",
                 })
 

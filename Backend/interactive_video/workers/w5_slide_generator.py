@@ -13,7 +13,7 @@ import httpx
 from google import genai
 from playwright.sync_api import sync_playwright
 from fastapi.concurrency import run_in_threadpool
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from .image_relevance import build_slide_query, rank_candidates, select_best_candidate
 
 
@@ -117,14 +117,17 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       min-height: 260px;
       border-radius: 24px;
       overflow: hidden;
-      background: rgba(15, 23, 42, 0.8);
+      background: linear-gradient(180deg, rgba(9, 16, 34, 0.96), rgba(20, 30, 52, 0.98));
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+      padding: 14px;
     }}
     .image-container img {{
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
       display: block;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.02);
     }}
     .image-placeholder {{
       display: flex;
@@ -142,10 +145,7 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       padding: 24px;
     }}
     .placeholder-icon {{ font-size: 48px; }}
-    .placeholder-text {{ max-width: 260px; }}
-    .visual-body {{ font-size: 20px; line-height: 1.5; color: rgba(229,231,235,0.9); max-height: 220px; overflow: hidden; }}
-    .visual-tag {{ display: inline-flex; gap: 8px; align-items: center; font-size: 15px; color: #a5b4fc; }}
-    .slide-text {{ margin-top: 0; font-size: 20px; line-height: 1.5; color: rgba(255,255,255,0.86); overflow: hidden; }}
+    .placeholder-text {{ max-width: 260px; font-weight: 600; }}
   </style>
 </head>
 <body>
@@ -156,10 +156,7 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       {takeaway_html}
     </div>
     <div class="visual">
-      <div class="visual-title">Slide text from module content</div>
       {image_html}
-      <div class="visual-body slide-text">{slide_text}</div>
-      <div class="visual-tag">• Derived from processed module content</div>
     </div>
   </div>
 </body>
@@ -337,17 +334,124 @@ def _download_image_as_data_uri(url: str, out_path: str) -> str:
             response.raise_for_status()
         with open(out_path, "wb") as f:
             f.write(response.content)
+        _enhance_slide_image_sync(out_path, out_path)
         return _data_uri_from_file(out_path)
     except Exception as exc:
         raise RuntimeError(f"Failed to download module image from {url}: {exc}")
 
 
-def _build_image_prompt(prompt: str, slide_text: str) -> str:
+def _build_image_prompt(prompt: str, slide_text: str, title: str = "") -> str:
+    context_bits = [bit for bit in [title, slide_text] if bit]
+    context = ". ".join(context_bits[:2]).strip()
+    """Domain-neutral image prompt; all subject matter comes from caller context."""
+    style_hint = (
+        "Create a high-resolution 1:1 visual with strong contrast, clear educational composition, "
+        "subtle depth, and a polished professional style. Preserve the subject and setting implied by "
+        "the provided context. Keep it text-free, label-free, and free of unrelated generic imagery."
+    )
     if prompt:
-        return prompt
-    if slide_text:
-        return f"A high-resolution professional illustration for an enterprise training slide about: {slide_text}. No text, no people, clean corporate styling."
-    return "A polished enterprise training illustration with modern learning and professional sales context. No text, no people."
+        if context:
+            return f"{prompt}. Relevant to: {context}. {style_hint}"
+        return f"{prompt}. {style_hint}"
+    if context:
+        return f"A high-resolution professional illustration for an enterprise training slide about: {context}. {style_hint}"
+    return f"A polished enterprise training illustration based on the module context. {style_hint}"
+
+
+def _looks_placeholder(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return not normalized or normalized.startswith("key concept") or "placeholder" in normalized
+
+
+def _looks_placeholder_bullets(bullets: List[str]) -> bool:
+    if not bullets:
+        return True
+    return all(_looks_placeholder(b) for b in bullets[:3])
+
+
+def _derive_bullets_from_content(content: str, max_items: int = 3) -> List[str]:
+    lines: List[str] = []
+    for raw_line in (content or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            line = re.sub(r"^#+\s*", "", line).strip()
+        if len(line) < 24:
+            continue
+        if line not in lines:
+            lines.append(line)
+        if len(lines) >= max_items:
+            return lines[:max_items]
+
+    sentences = re.split(r"(?<=[.!?])\s+", content or "")
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) < 24:
+            continue
+        if sentence not in lines:
+            lines.append(sentence)
+        if len(lines) >= max_items:
+            break
+    return lines[:max_items]
+
+
+def _extract_content_excerpt(content: str, title: str = "", limit: int = 260) -> str:
+    parts = []
+    if title:
+        parts.append(title)
+    text = " ".join((content or "").split())
+    if text:
+        parts.append(text[:limit])
+    return ". ".join(parts).strip()
+
+
+def _enhance_slide_image_sync(src_path: str, out_path: str) -> str:
+    """Upscale and color-balance a slide image so it reads well in the video frame."""
+    with Image.open(src_path) as source:
+        image = source.convert("RGBA")
+
+    canvas_size = 1400
+    canvas = Image.new("RGBA", (canvas_size, canvas_size), (10, 18, 36, 255))
+    overlay = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay, "RGBA")
+    overlay_draw.ellipse((-120, -120, 720, 720), fill=(52, 124, 196, 80))
+    overlay_draw.ellipse((720, 860, 1480, 1480), fill=(229, 168, 37, 68))
+    overlay_draw.ellipse((180, 840, 960, 1460), fill=(77, 181, 176, 50))
+    canvas = Image.alpha_composite(canvas, overlay)
+
+    resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+    fit = ImageOps.contain(image, (1120, 1120), method=resample)
+    fit = ImageEnhance.Color(fit).enhance(1.12)
+    fit = ImageEnhance.Contrast(fit).enhance(1.08)
+    fit = ImageEnhance.Sharpness(fit).enhance(1.18)
+
+    shadow = Image.new("RGBA", (fit.width + 46, fit.height + 46), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow, "RGBA")
+    shadow_draw.rounded_rectangle((18, 18, shadow.width - 8, shadow.height - 8), radius=42, fill=(0, 0, 0, 72))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
+
+    x = (canvas_size - shadow.width) // 2
+    y = (canvas_size - shadow.height) // 2
+    canvas.alpha_composite(shadow, (x, y))
+
+    mask = Image.new("L", fit.size, 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.rounded_rectangle((0, 0, fit.width - 1, fit.height - 1), radius=36, fill=255)
+    x = (canvas_size - fit.width) // 2
+    y = (canvas_size - fit.height) // 2
+    canvas.paste(fit, (x, y), mask)
+
+    border_draw = ImageDraw.Draw(canvas, "RGBA")
+    border_draw.rounded_rectangle(
+        (x - 2, y - 2, x + fit.width + 1, y + fit.height + 1),
+        radius=38,
+        outline=(255, 255, 255, 120),
+        width=2,
+    )
+
+    canvas.convert("RGB").save(out_path, "PNG")
+    return out_path
 
 
 def _extract_image_bytes_from_response(response: Any) -> bytes | None:
@@ -602,6 +706,8 @@ async def _resolve_slide_image(
     seg_id: str,
     prompt: str,
     slide_text: str,
+    title: str,
+    module_content: str,
     tmp_dir: str,
     module_images: List[Any],
     slide_query: str,
@@ -609,7 +715,7 @@ async def _resolve_slide_image(
     out_path = os.path.join(tmp_dir, f"slide_image_{seg_id}.png")
 
     if module_images:
-        best = select_best_candidate(slide_query, module_images, threshold=0.28)
+        best = select_best_candidate(slide_query, module_images, threshold=0.25)
         if best and best.get("url"):
             try:
                 _download_image_as_data_uri(best["url"], out_path)
@@ -637,9 +743,15 @@ async def _resolve_slide_image(
                 f"{ranked[0]['match_score']:.3f}"
             )
 
-    image_prompt = _build_image_prompt(prompt, slide_text)
+    content_excerpt = _extract_content_excerpt(module_content, title=title)
+    prompt_text = slide_text or content_excerpt or title
+    context_for_image = ". ".join(
+        part for part in [title, prompt_text, content_excerpt[:1200]] if part
+    )
+    image_prompt = _build_image_prompt(prompt, context_for_image, title=title)
     try:
         await _generate_image_from_google(image_prompt, out_path)
+        _enhance_slide_image_sync(out_path, out_path)
         print(f"[W5] Generated slide image for segment {seg_id} from prompt: {image_prompt}")
         return {
             "image_url": _data_uri_from_file(out_path),
@@ -669,27 +781,36 @@ async def render_lecture_slide(
     bullets: List[str],
     key_takeaway: str,
     slide_text: str,
+    module_content: str,
     tmp_dir: str,
     module_images: List[Any],
     prompt: str,
 ) -> Dict[str, Any]:
+    effective_bullets = bullets
+    if _looks_placeholder_bullets(effective_bullets):
+        effective_bullets = _derive_bullets_from_content(module_content, max_items=3)
+    if not effective_bullets:
+        effective_bullets = ["Key point 1", "Key point 2", "Key point 3"]
+
     slide_query = build_slide_query(
         title=title,
-        bullets=bullets,
+        bullets=effective_bullets,
         key_takeaway=key_takeaway,
-        slide_text=slide_text,
+        slide_text=slide_text or module_content,
         prompt=prompt,
     )
     image_result = await _resolve_slide_image(
         seg_id,
         prompt,
         slide_text,
+        title,
+        module_content,
         tmp_dir,
         module_images,
         slide_query,
     )
     image_url = image_result["image_url"]
-    html = _lecture_slide_html(title, bullets, key_takeaway, slide_text, image_url)
+    html = _lecture_slide_html(title, effective_bullets, key_takeaway, "", image_url)
     out = os.path.join(tmp_dir, f"slide_{seg_id}.png")
     await run_in_threadpool(_render_html_to_png_sync, html, out)
     image_result["slide_png"] = out
@@ -739,6 +860,7 @@ async def run(storyboard_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
                     bullets=seg.get("slide_bullets", []),
                     key_takeaway=seg.get("key_takeaway", ""),
                     slide_text=seg.get("slide_text", ""),
+                    module_content=storyboard_data.get("clean_text", ""),
                     tmp_dir=tmp_dir,
                     module_images=seg.get("module_images", []),
                     prompt=seg.get("visual_prompt", seg.get("title", "")),

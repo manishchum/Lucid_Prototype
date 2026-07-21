@@ -18,7 +18,6 @@ STOPWORDS = {
     "about", "into", "over", "under", "through", "using", "use", "used",
 }
 
-
 def normalize_text(text: str) -> str:
     text = (text or "").lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
@@ -107,7 +106,7 @@ def score_candidate(query: str, candidate: Any) -> float:
         if phrase and phrase in candidate_body:
             phrase_bonus += 0.15
 
-    score = (0.45 * overlap) + (0.2 * coverage) + (0.3 * seq_ratio) + phrase_bonus
+    score = (0.40 * overlap) + (0.18 * coverage) + (0.28 * seq_ratio) + phrase_bonus
     return round(min(score, 1.0), 4)
 
 
