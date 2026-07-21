@@ -58,8 +58,8 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
         return (val || 'text') as SubmissionFormat;
       };
 
-      subtasks = task.bundle_tasks.map((sub, index) => ({
-        id: index === 0 ? task.task_id : `${task.task_id}-${index}`,
+      subtasks = task.bundle_tasks.map((sub: any, index: number) => ({
+        id: sub.child_task_id || `${task.task_id}-${index}`,
         title: sub.title || "",
         description: sub.description || "",
         submissionFormat: normalizeFormat(sub.submission_format),
@@ -100,6 +100,9 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
 
     const mapped = {
       id: task.assignment_id || task.task_id,
+      taskId: task.task_id,
+      title: task.title,
+      description: task.description || "",
       level,
       mode: isMultiple ? ("multiple" as const) : ("single" as const),
       tasks: subtasks,
@@ -107,7 +110,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
       targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
       targetSubFunctions: level === "sub_function" ? [audienceName].filter(Boolean) : [],
-      targetIndividuals: level === "individual" ? [audienceName].filter(Boolean) : [],
+      targetIndividuals: level === "individual" ? (task.target_user_ids || []) : [],
       dueDate: task.due_date,
       createdAt: task.created_at,
       status: hasSubmission ? "Completed" : "Active",
@@ -165,6 +168,7 @@ function TaskManagerContent() {
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
   // const [reports, setReports] = useState<ReportItem[]>([]);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [taskToEdit, setTaskToEdit] = useState<AssignedTask | null>(null);
   const searchParams = useSearchParams();
   const createParam = searchParams.get("create");
 
@@ -443,16 +447,27 @@ function TaskManagerContent() {
       {isCreatingTask ? (
         <TaskCreatorWizard
           onTaskCreated={handleTaskCreated}
-          onCancel={() => setIsCreatingTask(false)}
+          onCancel={() => {
+            setIsCreatingTask(false);
+            setTaskToEdit(null);
+          }}
           sprints={sprints}
           teamMembers={teamMembers}
           corporateLevels={corporateLevels}
           onBackendCreate={handleBackendCreate}
+          initialTask={taskToEdit}
         />
       ) : (
         <TaskDashboard
           assignedTasks={assignedTasks}
-          onStartCreateTask={() => setIsCreatingTask(true)}
+          onStartCreateTask={() => {
+            setTaskToEdit(null);
+            setIsCreatingTask(true);
+          }}
+          onEditTaskRequest={(task) => {
+            setTaskToEdit(task);
+            setIsCreatingTask(true);
+          }}
           userRole={role}
           onSubmitTaskResponse={handleBackendSubmit}
           onTaskSubmitted={handleTaskSubmitted}

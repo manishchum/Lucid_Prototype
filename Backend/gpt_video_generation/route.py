@@ -286,7 +286,7 @@ def getLocalizedFieldName(language: str, kind: str) -> str:
 def getGoogleTtsVoiceName(language: str) -> Optional[str]:
     normalized = normalizeLanguageCode(language)
     if normalized == "en":
-        return "en-IN-Chirp3-HD-Callirrhoe"
+        return "en-US-Standard-J"
     if normalized == "hinglish":
         return "hi-IN-Neural2-B"
     return None

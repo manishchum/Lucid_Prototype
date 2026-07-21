@@ -387,19 +387,31 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
+        child_submission_query = (
+            db.table("child_task_submissions")
+            .select("*")
+            .in_("assignment_id", assignment_ids)
+            .eq("company_id", company_id)
+        )
         if user_id and not caller_is_admin:
             submission_query = submission_query.eq("user_id", user_id)
+            child_submission_query = child_submission_query.eq("user_id", user_id)
         submissions = submission_query.execute().data or []
+        submissions.extend(child_submission_query.execute().data or [])
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
             submission_query = db.table("task_submissions").select("*").in_("assignment_id", assignment_ids)
+            child_submission_query = db.table("child_task_submissions").select("*").in_("assignment_id", assignment_ids)
             if user_id and not caller_is_admin:
                 submission_query = submission_query.eq("user_id", user_id)
+                child_submission_query = child_submission_query.eq("user_id", user_id)
             submissions = submission_query.execute().data or []
+            submissions.extend(child_submission_query.execute().data or [])
         except Exception as retry_error:
             print("[task-manager] submissions query failed completely:", retry_error)
             submissions = []
+
 
     # Group submissions by assignment_id and user_id to correctly count child submissions
     submissions_by_assign_user = {}
@@ -437,17 +449,40 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             # Count users who have completed ALL child tasks in the bundle
             comp_count = 0
             for uid, user_subs in assign_users_subs.items():
-                if len(user_subs) >= num_required:
-                    comp_count += 1
+                if user_subs:
+                    if is_bundle:
+                        completed_children = set()
+                        for sub in user_subs:
+                            if sub.get("child_task_id"):
+                                completed_children.add(sub.get("child_task_id"))
+                            for a in (sub.get("answers") or []):
+                                if isinstance(a, dict) and a.get("child_task_id"):
+                                    completed_children.add(a.get("child_task_id"))
+                        if len(completed_children) >= num_required:
+                            comp_count += 1
+                    else:
+                        comp_count += 1
 
             # Check if active user has completed the entire bundle
             user_completed = False
             user_sub_row = None
             if user_id:
                 user_subs = assign_users_subs.get(str(user_id), [])
-                if len(user_subs) >= num_required:
-                    user_completed = True
-                    user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if user_subs else None
+                if user_subs:
+                    if is_bundle:
+                        completed_children = set()
+                        for sub in user_subs:
+                            if sub.get("child_task_id"):
+                                completed_children.add(sub.get("child_task_id"))
+                            for a in (sub.get("answers") or []):
+                                if isinstance(a, dict) and a.get("child_task_id"):
+                                    completed_children.add(a.get("child_task_id"))
+                        if len(completed_children) >= num_required:
+                            user_completed = True
+                            user_sub_row = _format_submission_row(user_subs[0], caller_is_admin)
+                    else:
+                        user_completed = True
+                        user_sub_row = _format_submission_row(user_subs[0], caller_is_admin)
 
             result.append({
                 "task_id": task.get("task_id"),
@@ -463,6 +498,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "due_date": str(assignment.get("due_date", "")),
                 "recurrence": assignment.get("recurrence", "none"),
                 "level": assignment.get("level", ""),
+                "target_user_ids": assignment.get("target_user_ids"),
                 "audience_display_name": assignment.get("audience_display_name") or assignment.get("level", ""),
                 "total_target_count": assignment.get("total_target_count", 0),
                 "completion_count": comp_count,
@@ -506,20 +542,19 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
     user_func = None
     user_subfunc = None
     assigned_modules = set()
-    if not caller_is_admin:
-        try:
-            user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
-            user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
-            if not user_data:
-                user_data = {}
-            user_func = user_data.get("function_id")
-            user_subfunc = user_data.get("sub_function_id")
-            
-            lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
-            if lp_res.data:
-                assigned_modules = {row["module_id"] for row in lp_res.data}
-        except Exception as e:
-            print("[task-manager] Failed to fetch user target validation criteria:", e)
+    try:
+        user_res = db.table("users").select("function_id, sub_function_id").eq("user_id", user_id).maybe_single().execute()
+        user_data = user_res.data if (user_res and hasattr(user_res, 'data')) else {}
+        if not user_data:
+            user_data = {}
+        user_func = user_data.get("function_id")
+        user_subfunc = user_data.get("sub_function_id")
+        
+        lp_res = db.table("learning_plan").select("module_id").eq("user_id", user_id).execute()
+        if lp_res.data:
+            assigned_modules = {row["module_id"] for row in lp_res.data}
+    except Exception as e:
+        print("[task-manager] Failed to fetch user target validation criteria:", e)
 
     assigned_ids = set()
     assignment_map = {}
@@ -531,9 +566,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
         
         # Check audience alignment
         is_assigned = False
-        if caller_is_admin:
-            is_assigned = True
-        elif level == "org":
+        if level == "org":
             is_assigned = True
         elif level == "individual":
             target_users = a.get("target_user_ids") or []
@@ -563,7 +596,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
     try:
         tasks_res = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks")
+            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer")
             .in_("assignment_id", list(assigned_ids))
             .eq("company_id", company_id)
             .execute()
@@ -580,10 +613,19 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             .select("*")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
-            .order("submitted_at", desc=True)  # Fix: desc=True instead of ascending=False
+            .order("submitted_at", desc=True)
+            .execute()
+        )
+        child_submissions_res = (
+            db.table("child_task_submissions")
+            .select("*")
+            .eq("company_id", company_id)
+            .eq("user_id", user_id)
+            .order("submitted_at", desc=True)
             .execute()
         )
         submissions = submissions_res.data or []
+        submissions.extend(child_submissions_res.data or [])
     except Exception as e:
         print("[task-manager] submissions query failed:", e)
         submissions = []
@@ -609,8 +651,28 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             num_required = 1
 
         user_subs = user_submissions_by_assignment.get(assignment_id, [])
-        user_completed = len(user_subs) >= num_required
+        user_completed = False
+        if user_subs:
+            if is_bundle:
+                completed_children = set()
+                for sub in user_subs:
+                    if sub.get("child_task_id"):
+                        completed_children.add(sub.get("child_task_id"))
+                    for a in (sub.get("answers") or []):
+                        if isinstance(a, dict) and a.get("child_task_id"):
+                            completed_children.add(a.get("child_task_id"))
+                user_completed = len(completed_children) >= num_required
+            else:
+                user_completed = True
         user_sub_row = _format_submission_row(user_subs[0], caller_is_admin) if (user_completed and user_subs) else None
+
+        # Hide expected_answer from end users unless caller is admin
+        safe_bundle_tasks = []
+        for bt in (task.get("bundle_tasks") or []):
+            safe_bt = dict(bt)
+            if not caller_is_admin and "expected_answer" in safe_bt:
+                del safe_bt["expected_answer"]
+            safe_bundle_tasks.append(safe_bt)
 
         row = {
             "task_id": task.get("task_id"),
@@ -620,13 +682,18 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             "description": task.get("description", ""),
             "submission_format": submission_format_list,
             "questions": task.get("questions") or [],
-            "bundle_tasks": task.get("bundle_tasks") or [],
+            "bundle_tasks": safe_bundle_tasks,
             "due_date": str(assignment.get("due_date", "")),
             "assignment_status": assignment.get("status", "active"),
             "status": "completed" if user_completed else assignment.get("status", "active"),
             "submitted": user_completed,
-            "submission": user_sub_row
+            "submission": user_sub_row,
+            "target_user_ids": assignment.get("target_user_ids")
         }
+        
+        if caller_is_admin and "expected_answer" in task:
+            row["expected_answer"] = task["expected_answer"]
+            
         filtered.append(row)
 
     return filtered
@@ -716,7 +783,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
 
     db_bundle_tasks = []
     if is_bundle:
-        db_bundle_tasks = [t for t in (payload.bundle_tasks or [])]
+        db_bundle_tasks = [t.model_dump() if hasattr(t, "model_dump") else dict(t) for t in (payload.bundle_tasks or [])]
 
     db.table("tasks").insert({
         "task_id": task_id,
@@ -731,6 +798,23 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
         "status": "active",
         "bundle_tasks": db_bundle_tasks,
     }).execute()
+
+    if is_bundle and db_bundle_tasks:
+        child_inserts = []
+        for idx, ct in enumerate(db_bundle_tasks):
+            child_inserts.append({
+                "parent_task_id": task_id,
+                "company_id": company_id,
+                "title": ct.get("title", ""),
+                "description": ct.get("description", ""),
+                "submission_format": ct.get("submission_format", "text"),
+                "expected_answer": ct.get("expected_answer", ""),
+                "questions": ct.get("questions") or [],
+                "order_index": idx
+            })
+        if child_inserts:
+            db.table("child_tasks").insert(child_inserts).execute()
+
 
     returned_submission_format = payload.submission_format
     if not isinstance(returned_submission_format, list):
@@ -765,34 +849,58 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
 
     submission_id = str(uuid4())
 
-    # Resolve child task ID to parent task UUID if suffix exists
+    # Resolve child task ID
+    is_bundle_submission = payload.child_task_id is not None
     resolved_task_id = payload.task_id
-    is_bundle_submission = False
-    if payload.task_id and "-" in payload.task_id:
-        parts = payload.task_id.rsplit("-", 1)
-        if parts[1].isdigit() or parts[1] in ["image", "text", "audio", "video", "multiple_choice"]:
-            resolved_task_id = parts[0]
-            is_bundle_submission = True
 
     db = get_service_supabase_client()
+
+    if is_bundle_submission:
+        cid = payload.child_task_id
+        if cid == payload.task_id:
+            payload.child_task_id = None
+            is_bundle_submission = False
+        elif cid and "-" in cid:
+            parts = cid.rsplit("-", 1)
+            if len(parts) == 2 and len(parts[0]) == 36:
+                parent_id = parts[0]
+                suffix = parts[1]
+                if suffix.isdigit():
+                    idx = int(suffix)
+                    ct_res = db.table("child_tasks").select("child_task_id").eq("parent_task_id", parent_id).eq("order_index", idx).execute()
+                    if ct_res.data:
+                        payload.child_task_id = ct_res.data[0]["child_task_id"]
+                    else:
+                        import uuid
+                        payload.child_task_id = str(uuid.uuid5(uuid.NAMESPACE_OID, cid))
+                else:
+                    # It's a single task with multiple formats (pseudo child task). Drop it.
+                    payload.child_task_id = None
+                    is_bundle_submission = False
+            else:
+                # cid is likely a raw UUID. If it's not found in child_tasks, we let the DB constraint handle it,
+                # or if we know it's a pseudo-child, we should drop it. 
+                # Since we already handled cid == task_id, we leave it as is.
+                pass
+
+    table_name = "child_task_submissions" if is_bundle_submission else "task_submissions"
+    print(f"DEBUG: table_name={table_name}, is_bundle={is_bundle_submission}, cid={getattr(payload, 'child_task_id', None)}")
+    print("IN SERVICE, table_name:", table_name, "cid:", getattr(payload, "child_task_id", "None"))
 
     # Fetch existing submission to check if already completed for this format
     existing_row = None
     if payload.task_id and payload.user_id:
-        existing_res = (
-            db
-            .table("task_submissions")
-            .select("*")
-            .eq("task_id", payload.task_id)
-            .eq("user_id", payload.user_id)
-            .execute()
-        )
+        query = db.table(table_name).select("*").eq("user_id", payload.user_id)
+        if is_bundle_submission:
+            query = query.eq("child_task_id", payload.child_task_id)
+        else:
+            query = query.eq("task_id", resolved_task_id)
+            
+        existing_res = query.execute()
         rows = existing_res.data or []
-        if rows:
-            existing_row = rows[0]
+        existing_row = rows[0] if rows else None
 
     if existing_row:
-        # Check if the specific format is already submitted in the existing row
         is_completed = False
         stype = (payload.submission_type or "").lower()
         if stype == "video" and existing_row.get("video_url"):
@@ -807,24 +915,12 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             is_completed = True
             
         if is_completed:
-            raise Exception("Task already completed")
+            return {"submission_id": "already_completed", "message": "Task already completed"}
 
-    # Fetch task details for AI evaluation
-    task_res = (
-        db
-        .table("tasks")
-        .select(
-            "task_id, assignment_id, title, description, submission_format, questions"
-        )
-        .eq("task_id", resolved_task_id)
-        .eq("company_id", company_id)
-        .maybe_single()
-        .execute()
-    )
-    task = task_res.data or {}
-
-    # Define scratch/saved_submissions directory
-    saved_dir = "scratch/saved_submissions"
+    # Fetch task details for AI evaluation (we don't strictly need it here unless checking questions)
+    # Background worker will fetch again anyway.
+    
+    saved_dir = os.path.join(tempfile.gettempdir(), "lucid_saved_submissions")
     os.makedirs(saved_dir, exist_ok=True)
 
     input_data = None
@@ -842,7 +938,6 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             with open(local_path, "wb") as f:
                 f.write(image_bytes)
             input_data = local_path
-            # Upload to Supabase Storage
             stored_image_url = _store_image_media(payload, company_id, submission_id)
         except Exception as e:
             print("[task-manager] image extraction/storage failed:", e)
@@ -856,7 +951,6 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             with open(local_path, "wb") as f:
                 f.write(audio_bytes)
             input_data = local_path
-            # Upload to Supabase Storage
             stored_audio_url = _store_audio_media(payload, company_id, submission_id)
         except Exception as e:
             print("[task-manager] audio extraction/storage failed:", e)
@@ -870,7 +964,6 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             with open(local_path, "wb") as f:
                 f.write(video_bytes)
             input_data = local_path
-            # Upload to Supabase Storage
             stored_video_url = _store_video_media(payload, company_id, submission_id)
         except Exception as e:
             print("[task-manager] video extraction/storage failed:", e)
@@ -883,25 +976,19 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
 
     db_answers = [ans.model_dump() if hasattr(ans, "model_dump") else dict(ans) for ans in (payload.answers or [])]
 
-    # Save submission record with pending status
     insert_data = {
         "submission_id": submission_id,
         "company_id": company_id,
-        "task_id": payload.task_id,
         "user_id": payload.user_id,
         "assignment_id": payload.assignment_id,
         "submission_type": payload.submission_type,
         "text_response": payload.text_response if submission_type not in ("video", "audio") else None,
         "image_url": stored_image_url or payload.image_url,
         "audio_url": stored_audio_url or payload.audio_url or (
-            payload.text_response
-            if submission_type == "audio"
-            else None
+            payload.text_response if submission_type == "audio" else None
         ),
         "video_url": stored_video_url or payload.video_url or (
-            payload.text_response
-            if submission_type == "video"
-            else None
+            payload.text_response if submission_type == "video" else None
         ),
         "answers": db_answers,
         "score": 0,
@@ -916,30 +1003,27 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         "status": "submitted",
         "submitted_at": datetime.utcnow().isoformat()
     }
+    
+    if is_bundle_submission:
+        insert_data["child_task_id"] = payload.child_task_id
+        insert_data["parent_task_id"] = resolved_task_id
+    else:
+        insert_data["task_id"] = resolved_task_id
 
     if not existing_row:
         try:
-            result = (
-                db
-                .table("task_submissions")
-                .insert(insert_data)
-                .execute()
-            )
+            db.table(table_name).insert(insert_data).execute()
         except Exception as e:
             err_msg = str(e).lower()
             if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
-                # Retrieve the row that was just inserted by the concurrent request
-                existing_res = (
-                    db
-                    .table("task_submissions")
-                    .select("*")
-                    .eq("task_id", payload.task_id)
-                    .eq("user_id", payload.user_id)
-                    .execute()
-                )
-                rows = existing_res.data or []
-                if rows:
-                    existing_row = rows[0]
+                query = db.table(table_name).select("*").eq("user_id", payload.user_id)
+                if is_bundle_submission:
+                    query = query.eq("child_task_id", payload.child_task_id)
+                else:
+                    query = query.eq("task_id", resolved_task_id)
+                
+                rows = query.execute().data or []
+                existing_row = rows[0] if rows else None
                 if not existing_row:
                     raise e
             else:
@@ -955,23 +1039,19 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             if val is not None:
                 update_data[field] = val
         
-        result = (
-            db
-            .table("task_submissions")
-            .update(update_data)
-            .eq("submission_id", existing_row["submission_id"])
-            .execute()
-        )
+        db.table(table_name).update(update_data).eq("submission_id", existing_row["submission_id"]).execute()
         submission_id = existing_row["submission_id"]
 
     # Queue background task
+    target_task_id = payload.child_task_id if is_bundle_submission else resolved_task_id
     background_tasks.add_task(
         run_ai_pipeline_bg,
         submission_id,
         company_id,
-        payload.task_id,
-        payload.submission_type,
-        input_data
+        target_task_id,
+        submission_type,
+        input_data,
+        is_bundle_submission=is_bundle_submission
     )
 
     return {

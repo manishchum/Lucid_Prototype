@@ -510,7 +510,7 @@ export default function CompanyAccessPage() {
         )}
 
         <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] min-h-[720px] overflow-hidden">
-          <Card className="border-slate-200 shadow-lg h-[1300px] flex flex-col">
+          <Card className="border-slate-200 shadow-lg h-[1360px] flex flex-col">
             <CardHeader className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -716,6 +716,7 @@ export default function CompanyAccessPage() {
                               ))}
                             </div>
                           </div>
+                          <p className="mt-3 text-xs text-slate-500 col-span-full"> Database supports English, Hindi, Kannada, Bengali, Spanish, French, German. For other languages, add columns in database </p>
                         </>
                       )
                     })()}
