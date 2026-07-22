@@ -13,7 +13,7 @@ import httpx
 from google import genai
 from playwright.sync_api import sync_playwright
 from fastapi.concurrency import run_in_threadpool
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from .image_relevance import build_slide_query, rank_candidates, select_best_candidate
 
 
@@ -63,7 +63,7 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       font-family: 'Inter', sans-serif;
       display: flex; align-items: center; justify-content: center; overflow: hidden;
     }}
-    .content {{ display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 32px; width: 1180px; padding: 40px; }}
+    .content {{ display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 24px; width: 1180px; padding: 32px; }}
     .card {{
       background: rgba(8, 12, 36, 0.54);
       backdrop-filter: blur(42px);
@@ -104,7 +104,7 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       background: rgba(255,255,255,0.08);
       border: 1px solid rgba(255,255,255,0.12);
       border-radius: 30px;
-      padding: 24px;
+      padding: 16px;
       display: grid;
       grid-template-rows: auto 1fr;
       gap: 20px;
@@ -119,14 +119,14 @@ def _lecture_slide_html(title: str, bullets: List[str], key_takeaway: str = "", 
       overflow: hidden;
       background: linear-gradient(180deg, rgba(9, 16, 34, 0.96), rgba(20, 30, 52, 0.98));
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
-      padding: 14px;
+      padding: 6px;
     }}
     .image-container img {{
       width: 100%;
       height: 100%;
       object-fit: contain;
       display: block;
-      border-radius: 18px;
+      border-radius: 20px;
       background: rgba(255,255,255,0.02);
     }}
     .image-placeholder {{
@@ -411,6 +411,24 @@ def _enhance_slide_image_sync(src_path: str, out_path: str) -> str:
     with Image.open(src_path) as source:
         image = source.convert("RGBA")
 
+    # Uploaded diagrams often have a large white border; remove it before
+    # fitting the image into the placeholder so the actual visual is readable.
+    rgb = Image.new("RGB", image.size, (255, 255, 255))
+    rgb.paste(image, mask=image.getchannel("A"))
+    background = Image.new("RGB", rgb.size, rgb.getpixel((0, 0)))
+    difference = ImageChops.difference(rgb, background).convert("L")
+    difference = difference.point(lambda value: 0 if value < 18 else 255)
+    bbox = difference.getbbox()
+    if bbox:
+        left, top, right, bottom = bbox
+        margin = max(12, int(min(image.size) * 0.025))
+        image = image.crop((
+            max(0, left - margin),
+            max(0, top - margin),
+            min(image.width, right + margin),
+            min(image.height, bottom + margin),
+        ))
+
     canvas_size = 1400
     canvas = Image.new("RGBA", (canvas_size, canvas_size), (10, 18, 36, 255))
     overlay = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
@@ -421,7 +439,7 @@ def _enhance_slide_image_sync(src_path: str, out_path: str) -> str:
     canvas = Image.alpha_composite(canvas, overlay)
 
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
-    fit = ImageOps.contain(image, (1120, 1120), method=resample)
+    fit = ImageOps.contain(image, (1280, 1280), method=resample)
     fit = ImageEnhance.Color(fit).enhance(1.12)
     fit = ImageEnhance.Contrast(fit).enhance(1.08)
     fit = ImageEnhance.Sharpness(fit).enhance(1.18)
