@@ -392,7 +392,7 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
               <div className="flex flex-col gap-14">
                 {/* Role Title */}
                 <div className="w-full text-center space-y-5">
-                  <h2 className="text-5xl md:text-6xl font-black text-white tracking-tighter leading-tight">
+                  <h2 className="text-3xl md:text-4xl font-black text-white tracking-tighter leading-tight">
                     {titleCase(selectedJourney.roleName)}
                   </h2>
                   <div className="flex items-center justify-center gap-4">
@@ -527,9 +527,6 @@ export default function SkillUpgrade({ onNotification }: SkillUpgradeProps) {
                                   <h3 className="font-black text-3xl text-white tracking-tight">
                                     Level {activeLevel.levelNumber}
                                   </h3>
-                                  <p className="text-[10px] font-black text-slate-600 tracking-widest mt-2">
-                                    Master {activeLevel.sprints.length} Core Skills for this stage
-                                  </p>
                                 </div>
                               </div>
                             </div>

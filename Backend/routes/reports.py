@@ -223,8 +223,8 @@ def build_pdf_report(task_title: str, report_text: str, pending_failed: List[dic
     story.append(Spacer(1, 10))
 
     # Parse headings from Gemini output
-    # Splits text on headings starting with "1. ", "2. ", etc. or markdown titles
-    parts = re.split(r'\n(?=\d\.\s+[A-Za-z\s]+:?)', report_text)
+    # Splits text on headings starting with "1. ", "2. ", "SECTION X", etc.
+    parts = re.split(r'\n(?=(?:SECTION\s+\d+|\d\.\s+[A-Za-z\s]+:?))', report_text, flags=re.IGNORECASE)
     cell_style_counter = 0
     for part in parts:
         part = part.strip()
@@ -437,14 +437,35 @@ async def generate_report(
     task_title = task.get("title", "Task")
     task_description = task.get("description", "")
 
-    resolved_task_id = task.get("parent_task_id") or payload.task_id
-    is_bundle_report = task.get("parent_task_id") is not None
+    parent_task_id = task.get("parent_task_id")
+    bundle_tasks = task.get("bundle_tasks") or []
+
+    if parent_task_id is not None:
+        # Case 3: Specific child task of a bundle
+        table_name = "child_task_submissions"
+        id_column = "child_task_id"
+        query_task_id = payload.task_id
+        needs_manual_user_join = True
+    elif len(bundle_tasks) > 0:
+        # Case 2: Parent bundle task
+        table_name = "child_task_submissions"
+        id_column = "parent_task_id"
+        query_task_id = payload.task_id
+        needs_manual_user_join = True
+    else:
+        # Case 1: Normal task
+        table_name = "task_submissions"
+        id_column = "task_id"
+        query_task_id = payload.task_id
+        needs_manual_user_join = False
+
+    select_clause = "*" if needs_manual_user_join else "*, users:users!task_submissions_user_id_fkey(name, email)"
 
     # 3. Query Task Submissions inside duration filter
     query = (
-        supabase.table("task_submissions")
-        .select("*, users:users!task_submissions_user_id_fkey(name, email)")
-        .eq("task_id", resolved_task_id)
+        supabase.table(table_name)
+        .select(select_clause)
+        .eq(id_column, query_task_id)
         .eq("company_id", company_id)
     )
 
@@ -461,11 +482,26 @@ async def generate_report(
     submissions_res = query.execute()
     submissions = submissions_res.data or []
 
-    if is_bundle_report:
-        submissions = [
-            r for r in submissions
-            if any(isinstance(ans, dict) and ans.get("child_task_id") == payload.task_id for ans in (r.get("answers") or []))
-        ]
+    # Manually populate users for bundle reports since the foreign key relation doesn't exist
+    if needs_manual_user_join and submissions:
+        user_ids = list(set([s.get("user_id") for s in submissions if s.get("user_id")]))
+        if user_ids:
+            users_res = supabase.table("users").select("user_id, name, email").in_("user_id", user_ids).execute()
+            users_dict = {u.get("user_id"): {"name": u.get("name"), "email": u.get("email")} for u in (users_res.data or [])}
+            for s in submissions:
+                s["users"] = users_dict.get(s.get("user_id"), {})
+
+    # Map subtask titles for parent bundle tasks
+    if len(bundle_tasks) > 0 and parent_task_id is None and submissions:
+        child_task_ids = list(set([s.get("child_task_id") for s in submissions if s.get("child_task_id")]))
+        if child_task_ids:
+            ct_res = supabase.table("child_tasks").select("child_task_id, title").in_("child_task_id", child_task_ids).execute()
+            ct_dict = {ct.get("child_task_id"): ct.get("title") for ct in (ct_res.data or [])}
+            for s in submissions:
+                s["subtask_title"] = ct_dict.get(s.get("child_task_id"), task_title)
+    else:
+        for s in submissions:
+            s["subtask_title"] = task_title
 
     if not submissions:
         raise HTTPException(status_code=404, detail="No submissions found for the selected parameters.")
@@ -487,8 +523,14 @@ async def generate_report(
         for r in completed_records:
             user_info = r.get("users") or {}
             name = user_info.get("name") or user_info.get("email") or "Unknown Employee"
-            analysis = r.get("ai_analysis") or {}
-            
+            analysis_raw = r.get("ai_analysis")
+            if isinstance(analysis_raw, str):
+                try:
+                    analysis = json.loads(analysis_raw)
+                except json.JSONDecodeError:
+                    analysis = {}
+            else:
+                analysis = analysis_raw or {}
             # Normalize score (e.g. 1/1 binary scores to 100%)
             raw_score = r.get("score") or analysis.get("overall_score") or 0
             max_score = r.get("max_score") or 100
@@ -531,59 +573,224 @@ async def generate_report(
             
             submissions_summary.append({
                 "employee": name,
+                "subtask": r.get("subtask_title"),
+                "status": r.get("status"),
                 "task_insights": task_insights,
                 "quality_analysis": quality_analysis
             })
 
         gemini_prompt = f"""
-You are a senior Team Lead / Manager creating an operational intelligence report.
+You are an Enterprise Performance Reporting Assistant.
 
-Analyze employee task submissions for:
-Task: {task_title}
+Your job is NOT to write an AI report.
+
+Your job is to create a management dashboard that helps a manager understand the team's performance within 2 minutes.
+
+The report should answer only these questions:
+
+1. Who is performing well?
+2. Who needs coaching?
+3. Which tasks are causing the most problems?
+4. What actions should the manager take?
+
+If any section does not help answer one of these questions, DO NOT include it.
+
+==========================================================
+GENERAL RULES
+==========================================================
+
+• Think like an Operations Manager, not an AI model.
+• Think like Excel, not ChatGPT.
+• Keep the report extremely easy to scan.
+• Prefer tables over paragraphs.
+• One row = one business record.
+• Never repeat the same information.
+• Every section should provide NEW information.
+• Avoid long explanations.
+• Maximum comment length: one sentence.
+• No HTML.
+• No CSS.
+• No Markdown code blocks.
+• No decorative formatting.
+• No AI terminology.
+• Tables MUST be formatted as proper markdown tables with a separator line (e.g. |---|---|). Do not skip the separator line.
+
+Never use words such as
+
+- Semantic Similarity
+- CLIP
+- OCR
+- YOLO
+- Gemini
+- Confidence
+- Object Detection
+- Verification Criteria
+
+Instead use simple business language.
+
+Examples
+
+"The uploaded image does not match the assigned task."
+
+"The required item is not visible."
+
+"The submission is incomplete."
+
+"The uploaded image is unclear."
+
+==========================================================
+REPORT STRUCTURE
+==========================================================
+
+SECTION 1
+EXECUTIVE SUMMARY
+
+Display only a KPI table.
+
+| Metric | Value |
+|--------|-------|
+| Total Employees | ... |
+| Total Tasks | ... |
+| Total Submissions | ... |
+| Completed | ... |
+| Passed | ... |
+| Needs Review | ... |
+| Average Score | ... |
+| Best Performer | ... |
+| Lowest Performer | ... |
+
+Maximum one sentence summarizing the team's overall performance.
+
+----------------------------------------------------------
+
+SECTION 2
+EMPLOYEES REQUIRING ATTENTION
+
+This should be the MOST IMPORTANT section.
+
+Show ONLY employees needing manager action.
+
+| Employee | Score | Tasks Needing Review | Main Issue | Recommended Action |
+|----------|-------|----------------------|------------|--------------------|
+| ...      | ...   | ...                  | ...        | ...                |
+
+----------------------------------------------------------
+
+SECTION 3
+TASK PERFORMANCE
+
+One row per subtask.
+
+| Subtask | Avg Score | Pass Rate | Employees Reviewed | Main Issue |
+|---------|-----------|-----------|--------------------|------------|
+| ...     | ...       | ...       | ...                | ...        |
+
+Sort from lowest score to highest.
+
+Manager should immediately know which task requires improvement.
+
+----------------------------------------------------------
+
+SECTION 4
+EMPLOYEE LEADERBOARD
+
+One row per employee.
+
+| Rank | Employee | Avg Score | Passed | Review | Status |
+|------|----------|-----------|--------|--------|--------|
+| ...  | ...      | ...       | ...    | ...    | ...    |
+
+Status examples: Excellent, Good, Satisfactory, Needs Coaching
+Sort by score descending.
+
+----------------------------------------------------------
+
+SECTION 5
+ACTION ITEMS
+
+Generate only actionable items.
+
+| Priority | Action | Owner |
+|----------|--------|-------|
+| ...      | ...    | ...   |
+
+----------------------------------------------------------
+
+SECTION 6
+OPTIONAL DETAILS
+
+Generate this section ONLY for employees who require coaching.
+
+For each employee generate ONE table.
+
+Employee Name
+
+| Subtask | Score | Issue | Recommendation |
+|---------|-------|-------|----------------|
+| ...     | ...   | ...   | ...            |
+
+Maximum one sentence in Issue.
+Maximum one sentence in Recommendation.
+
+DO NOT explain the AI analysis.
+DO NOT explain technical metrics.
+DO NOT write paragraphs.
+DO NOT include employees who passed all tasks.
+
+==========================================================
+WHAT NOT TO DO
+==========================================================
+
+Do NOT generate
+
+Long reports
+Essays
+Repeated summaries
+Repeated recommendations
+Paragraphs for every employee
+Paragraphs for every submission
+Technical explanations
+AI explanations
+Storytelling
+
+==========================================================
+SCALABILITY
+==========================================================
+
+The report must remain readable if
+
+5 employees
+50 employees
+500 employees
+5000 employees
+
+If there are many employees
+
+Summarize first.
+
+Only expand details for employees requiring manager intervention.
+
+==========================================================
+FINAL GOAL
+==========================================================
+
+The manager should be able to answer these questions within 2 minutes:
+
+• Who needs coaching?
+• Which task is failing?
+• Who are the top performers?
+• What actions should I take today?
+
+If the report does not help answer these questions quickly, simplify it further.
+
+The report should feel like an enterprise MIS dashboard or executive review sheet rather than an AI-generated report.
+
+Here is the data you must analyze:
+Task Name: {task_title}
 Task Description: {task_description}
 
-Input Data (All employees' ai_analysis JSON):
+Submissions Data JSON (contains employees, their subtasks, status, scores, and analysis):
 {json.dumps(submissions_summary, indent=2)}
-
-Generate a professional, decision-focused Team Lead / Manager intelligence report that analyzes actual business outcomes and task completion.
-Do NOT focus on AI metrics (like audio quality, speaking pace, pronunciation, similarity score, transcription confidence). Focus on the actual business outcomes.
-
-Format all tables as standalone markdown blocks separated from other text by double newlines.
-Begin your response directly with the first section: '1. Team Snapshot'. Do not include any preamble, introduction, or conversational filler.
-
-You MUST structure the report with these exact headings, starting with their section numbers:
-
-1. Team Snapshot
-Create a markdown table with columns: Metric | Result.
-Include dynamic, task-specific metrics representing the aggregated outcomes of the team (e.g. Total sales, total customers handled, total bugs resolved, etc.).
-Important Aggregation Rules:
-- Aggregate values ONLY when the confidence is "medium" or "high". Ignore null/missing values in totals.
-- Never invent, assume, or extrapolate missing numbers.
-- Under the table, mention any missing data/values separately (e.g. "X employees did not provide exact customer counts").
-
-2. Employee Task Insights
-Create a markdown table with columns: Employee | Task Result / Numbers | Positive Contributions | Improvement Areas.
-- In the "Task Result / Numbers" column, detail the numbers and results reported by each employee. If an employee did not mention a value/number, write "Not provided".
-- Use the "evidence" field from their task_insights internally to justify and show exactly what they stated/reported.
-- Highlight positive behaviors and contributions.
-- Highlight improvement areas and missing info.
-
-3. Team Insights
-Provide concise business summaries of:
-- Strengths Found: Key successes, positive trends, and outstanding behaviors.
-- Weaknesses / Risks: Significant gaps, missing data trends, or failure patterns.
-
-4. Unique Task Findings
-Identify and summarize situational task-specific findings, such as unique methods, customer objections, process blockers, or unexpected customer feedback.
-
-5. Suggested Next Sprint Focus
-Create a markdown table with columns: Next Sprint Addition | Reason / Expected Impact.
-Suggest specific operational adjustments, process refinements, training, or tools to address the team's gaps.
-
-6. Final Manager Summary
-Write a concise paragraph summarizing the overall team position, key achievements, major gaps, and immediate action items.
-
-Ensure the entire report is readable under 2 minutes, highly concise, and mostly structured as tables.
 """
 
         try:

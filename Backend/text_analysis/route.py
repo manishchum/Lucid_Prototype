@@ -191,6 +191,7 @@ async def submit_text_analysis(
 
     # 3. Queue background task
     from analysis.background import run_ai_pipeline_bg
+    # run_ai_pipeline_bg.delay(
     background_tasks.add_task(
         run_ai_pipeline_bg,
         submission_id,
