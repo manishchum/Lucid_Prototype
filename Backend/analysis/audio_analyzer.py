@@ -32,7 +32,6 @@ def transcribe_audio_whisper(audio_path: str) -> str:
         print("[Audio Analyzer] Whisper transcription failed:", e)
         return ""
 
-
 def analyze_audio(audio_path: str, task_title: str, task_description: str, expected_answer: str | None) -> dict:
     """
     Silent audio submission analyzer.
@@ -57,6 +56,12 @@ def analyze_audio(audio_path: str, task_title: str, task_description: str, expec
 
     # 1. Whisper Transcription
     transcript = transcribe_audio_whisper(audio_path)
+    transcript = clean_transcript_with_gemini(
+        transcript,
+        task_title,
+        task_description,
+        expected_answer
+    )
     if not transcript.strip():
         return {
             "overall_score": 0,
