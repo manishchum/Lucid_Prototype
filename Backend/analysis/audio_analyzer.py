@@ -56,12 +56,6 @@ def analyze_audio(audio_path: str, task_title: str, task_description: str, expec
 
     # 1. Whisper Transcription
     transcript = transcribe_audio_whisper(audio_path)
-    transcript = clean_transcript_with_gemini(
-        transcript,
-        task_title,
-        task_description,
-        expected_answer
-    )
     if not transcript.strip():
         return {
             "overall_score": 0,
