@@ -185,38 +185,83 @@ async def POST(
         await check_rate_limit(user_id=auth_ctx.user_id, endpoint="module-chat")
 
         processed_module_id = body.get("processed_module_id")
+        module_id = body.get("module_id")
         user_message = body.get("user_message")
         chat_history = body.get("chat_history")
         fallback_user_id = body.get("user_id")
         fallback_company_id = body.get("company_id")
 
-        if not processed_module_id or not user_message:
+        if not user_message:
+            return JSONResponse({"error": "Missing user message"}, status_code=400)
 
-            return JSONResponse(
-                {"error": "Missing required fields"},
-                status_code=400
-            )
+        if not processed_module_id and not module_id:
+            return JSONResponse({"error": "Missing required fields: processed_module_id or module_id"}, status_code=400)
 
-        try:
-            moduleQuery = supabase.table("processed_modules") \
-                .select("title, content") \
-                .eq("processed_module_id", processed_module_id) \
-                .single() \
-                .execute()
+        moduleData = None
+        target_processed_module_id = processed_module_id
 
-            moduleData = moduleQuery.data
+        if module_id and not processed_module_id:
+            try:
+                # 1. Fetch all processed modules for this sprint
+                pm_query = supabase.table("processed_modules") \
+                    .select("processed_module_id, title, content") \
+                    .eq("original_module_id", module_id) \
+                    .execute()
+                
+                pm_list = pm_query.data
+                if not pm_list:
+                    return JSONResponse({"error": "No processed modules found for this sprint"}, status_code=404)
+                
+                # 2. Generate embeddings to find the best match
+                from ingestion.embedder import get_model
+                import numpy as np
+                
+                model = get_model()
+                
+                query_text = f"Represent this sentence for searching relevant passages: {user_message}"
+                query_emb = model.encode(query_text, normalize_embeddings=True)
+                
+                best_score = -2.0
+                best_pm = pm_list[0]
+                
+                for pm in pm_list:
+                    content_preview = pm.get("content", "")[:1000] if pm.get("content") else ""
+                    doc_text = f"Represent this document for retrieval: {pm.get('title', '')}. {content_preview}"
+                    doc_emb = model.encode(doc_text, normalize_embeddings=True)
+                    
+                    score = np.dot(query_emb, doc_emb)
+                    if score > best_score:
+                        best_score = score
+                        best_pm = pm
+                        
+                moduleData = best_pm
+                target_processed_module_id = best_pm["processed_module_id"]
+                print(f"[module-chat] Sprint-level search matched: {best_pm.get('title')} with score {best_score}")
 
-            if not moduleData:
+            except Exception as e:
+                print(f"[module-chat] Error finding best module for sprint: {e}")
+                return JSONResponse({"error": "Failed to find best module context"}, status_code=500)
+        else:
+            try:
+                moduleQuery = supabase.table("processed_modules") \
+                    .select("title, content") \
+                    .eq("processed_module_id", processed_module_id) \
+                    .single() \
+                    .execute()
+
+                moduleData = moduleQuery.data
+
+                if not moduleData:
+                    return JSONResponse(
+                        {"error": "Module not found"},
+                        status_code=404
+                    )
+            except Exception as e:
+                print(f"[module-chat] Error fetching module: {e}")
                 return JSONResponse(
                     {"error": "Module not found"},
                     status_code=404
                 )
-        except Exception as e:
-            print(f"[module-chat] Error fetching module: {e}")
-            return JSONResponse(
-                {"error": "Module not found"},
-                status_code=404
-            )
 
         historyContext = ""
 
@@ -302,7 +347,7 @@ Do NOT use bold, italics, or bullet formatting unless explicitly requested.
             )
 
         _persist_conversation(
-            processed_module_id=processed_module_id,
+            processed_module_id=target_processed_module_id,
             user_id=user_id,
             company_id=company_id,
             conversation_payload=conversation_payload
