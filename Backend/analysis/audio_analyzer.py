@@ -32,7 +32,6 @@ def transcribe_audio_whisper(audio_path: str) -> str:
         print("[Audio Analyzer] Whisper transcription failed:", e)
         return ""
 
-
 def analyze_audio(audio_path: str, task_title: str, task_description: str, expected_answer: str | None) -> dict:
     """
     Silent audio submission analyzer.
