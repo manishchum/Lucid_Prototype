@@ -399,3 +399,115 @@ def save_transcript(
         .eq("id", session_id)
         .execute()
     )
+    
+# ============================================================
+# Assignment CRUD
+# ============================================================
+
+def get_departments():
+    return (
+        supabase
+        .table("sub_department")
+        .select("department_id, department_name")
+        .execute()
+    )
+    
+def get_sub_departments():
+    return (
+        supabase
+        .table("sub_department")
+        .select(
+            "department_id, department_name, sub_department_name"
+        )
+        .execute()
+    )
+    
+def get_active_company_users(company_id: str):
+    return (
+        supabase
+        .table("users")
+        .select(
+            "user_id,name,email,department_id"
+        )
+        .eq("company_id", company_id)
+        .eq("is_active", True)
+        .execute()
+    )
+    
+def get_existing_assignments(
+    scenario_id: str,
+    assignment_type: str,
+    target_ids: list
+):
+    query = (
+        supabase
+        .table("scenario_assignments")
+        .select("*")
+        .eq("scenario_id", scenario_id)
+        .eq("assignment_type", assignment_type)
+    )
+
+    if assignment_type == "user":
+        query = query.in_("user_id", target_ids)
+
+    elif assignment_type == "department":
+        query = query.in_("department_id", target_ids)
+
+    elif assignment_type == "sub_department":
+        query = query.in_("sub_department_id", target_ids)
+
+    return query.execute()
+
+def create_scenario_assignments(assignments: list):
+    return (
+        supabase
+        .table("scenario_assignments")
+        .insert(assignments)
+        .execute()
+    )
+    
+def delete_scenario_assignment(
+    scenario_id: str
+):
+    return (
+        supabase
+        .table("scenario_assignments")
+        .delete()
+        .eq("scenario_id", scenario_id)
+        .execute()
+    )
+    
+def get_user_by_email(email: str):
+    return (
+        supabase
+        .table("users")
+        .select("user_id, company_id")
+        .eq("email", email)
+        .execute()
+    )
+    
+def get_scenarios_by_ids(
+    scenario_ids: list
+):
+    return(
+        supabase.table("scenarios").select(
+            "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
+        ).in_(
+            "scenario_id", scenario_ids
+        ).order('created_at', desc=True).execute()
+    )
+    
+def get_scenario_assignments(
+    scenario_id: str,
+    company_id: str
+):
+    return (
+        supabase
+        .table("scenario_assignments")
+        .select(
+            "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
+        )
+        .eq("company_id", company_id)
+        .eq("scenario_id", scenario_id)
+        .execute()
+    )

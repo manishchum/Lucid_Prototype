@@ -45,12 +45,12 @@ from routes.uploads import router as uploads_router
 
 # Import user routes
 # from routes.users import router as users_router
-from roleplay.assessment.route import router as roleplay_assessment_router
+# from roleplay.assessment.route import router as roleplay_assessment_router
 # from roleplay.assessment.conversation.route import router as roleplay_conversation_router
-from roleplay.realtime_ws.route import router as roleplay_realtime_router
-from roleplay.scenario.route import router as roleplay_scenario_router
-from roleplay.page.route import router as roleplay_page_router
-from roleplay.sessions.route import router as roleplay_sessions_router
+# from roleplay.realtime_ws.route import router as roleplay_realtime_router
+# from roleplay.scenario.route import router as roleplay_scenario_router
+# from roleplay.page.route import router as roleplay_page_router
+# from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
 from routes import sub_departments
 
