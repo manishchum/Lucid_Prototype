@@ -696,14 +696,14 @@ async def synthesizeText(
 
         if gender == "male":
             voice = {
-                "languageCode": "en-IN",
-                "name": "en-US-Standard-J",
+                "languageCode": "hi-IN",
+                "name": "hi-IN-Standard-C",
                 "ssmlGender": "MALE"
             }
         else:
             voice = {
-                "languageCode": "en-IN",
-                "name": "en-US-Standard-G",
+                "languageCode": "hi-IN",
+                "name": "hi-IN-Standard-E",
                 "ssmlGender": "FEMALE"
             }
 

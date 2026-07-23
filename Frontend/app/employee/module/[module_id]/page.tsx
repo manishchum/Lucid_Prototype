@@ -168,6 +168,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
   const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatLevel, setChatLevel] = useState<'module' | 'sprint'>('module');
   const router = useRouter();
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
@@ -290,7 +291,9 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
           ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {}),
         },
         body: JSON.stringify({
-          processed_module_id: module.processed_module_id,
+          ...(chatLevel === 'module'
+            ? { processed_module_id: module.processed_module_id }
+            : { module_id: module.original_module_id || moduleId }),
           user_message: userMessage,
           chat_history: userChatHistory,
           user_id: employeeData?.user_id,
@@ -522,6 +525,20 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                 {/* Chat Section - Only visible for Tier 2+ */}
                 <FeatureGate feature={FEATURES.CHAT_IN_STUDIO}>
                   <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                    <div className="p-3 bg-gray-50 flex justify-end gap-2 border-b border-gray-200">
+                      <button 
+                        onClick={() => setChatLevel('module')} 
+                        className={clsx("px-3 py-1.5 text-xs font-medium rounded-full transition-colors", chatLevel === 'module' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600 hover:bg-gray-300')}
+                      >
+                        Module Chat
+                      </button>
+                      <button 
+                        onClick={() => setChatLevel('sprint')} 
+                        className={clsx("px-3 py-1.5 text-xs font-medium rounded-full transition-colors", chatLevel === 'sprint' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600 hover:bg-gray-300')}
+                      >
+                        Sprint Chat
+                      </button>
+                    </div>
                     <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
                       {userChatHistory.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-center">

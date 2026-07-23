@@ -1044,6 +1044,7 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
 
     # Queue background task
     target_task_id = payload.child_task_id if is_bundle_submission else resolved_task_id
+    # run_ai_pipeline_bg.delay(
     background_tasks.add_task(
         run_ai_pipeline_bg,
         submission_id,
