@@ -3,9 +3,10 @@ import logging
 import asyncio
 from fastapi import APIRouter, WebSocket
 from websockets.asyncio.client import connect
-from utils.supabase_client import supabase_admin
+# from utils.supabase_client import supabase_admin
 from fastapi import WebSocket, status
 from utils.auth import _verify_firebase_token, resolve_user_context_from_claims
+from utils.db import roleplay_db
 
 from config import OPENAI_API_KEY, OPENAI_REALTIME_MODEL
 
@@ -366,10 +367,9 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         if sid != "unknown":
                 try:
                     logger.info(f"[Realtime] 💾 Auto-saving {len(final_transcript)} messages to DB for session {sid}...")
-                    supabase_admin.table('roleplay_sessions').update({
-                        "conversation_transcript": final_transcript,
-                        "message_count": len(final_transcript)
-                    }).eq('id', sid).execute()
+                    roleplay_db.save_transcript(
+                        sid, final_transcript
+                    )
                     logger.info("[Realtime] ✅ Transcript safely stored on disconnect.")
                 except Exception as e:
                     logger.error(f"[Realtime] ❌ Failed to auto-save transcript: {str(e)}")

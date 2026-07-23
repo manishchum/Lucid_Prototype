@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Header, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
-from utils.supabase_client import supabase
+# from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.db import roleplay_db
 
 router = APIRouter(prefix="/roleplay/scenarios", tags=["roleplay-scenarios"])
 
@@ -92,8 +93,7 @@ async def create_scenario(
         }
 
         # Insert into Supabase
-        result = supabase.table("scenarios").insert(payload).execute()
-
+        result = roleplay_db.create_scenario(payload)
         if result.data:
             return {
                 "success": True,
@@ -123,7 +123,7 @@ async def update_scenario(
         company_id = effective_company_id
 
         # Verify ownership
-        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+        existing = roleplay_db.get_scenario(scenario_id, company_id)
         
         if not existing.data:
             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
@@ -172,7 +172,7 @@ async def update_scenario(
             payload["initialPrompt"] = request_data.initialPrompt
 
         # Update in Supabase
-        result = supabase.table("scenarios").update(payload).eq("scenario_id", scenario_id).execute()
+        result = roleplay_db.update_scenario(scenario_id, payload)
 
         if result.data:
             return {
@@ -202,14 +202,14 @@ async def delete_scenario(
         company_id = effective_company_id
 
         # Verify ownership
-        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+        existing = roleplay_db.get_scenario(scenario_id, company_id)
         
         if not existing.data:
             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
 
         # Delete from Supabase
-        result = supabase.table("scenarios").delete().eq("scenario_id", scenario_id).execute()
-
+        result = roleplay_db.delete_scenario(scenario_id)
+        
         return {
             "success": True,
             "message": "Scenario deleted successfully"
@@ -234,7 +234,7 @@ async def fetch_user_data(
             raise HTTPException(status_code=400, detail="User email required")
 
         # Fetch user data from Supabase
-        result = supabase.table("users").select("user_id, company_id").eq("email", user_email).execute()
+        result = roleplay_db.get_user_by_email(user_email)
 
         if result.data and len(result.data) > 0:
             return {
