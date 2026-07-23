@@ -51,7 +51,7 @@ from roleplay.scenario.route import router as roleplay_scenario_router
 from roleplay.page.route import router as roleplay_page_router
 from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
-from routes import sub_departments
+from routes import functions
 
 
 # Create FastAPI app
@@ -223,7 +223,7 @@ app.include_router(voice_transcripts_router)  # voice transcript / daily report 
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
-app.include_router(sub_departments.router, prefix="/api/sub-departments", tags=["sub-departments"])
+app.include_router(functions.router, prefix="/api/functions", tags=["functions"])
 app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/roleplay/page", tags=["roleplay-page"])
 
 class AssignScenarioRequest(BaseModel):
     scenario_id: str
-    assignment_type: Literal['department', 'sub_department', 'user']
+    assignment_type: Literal['function', 'sub_function', 'user']
     target_ids: List[str]
     company_id: str
 
@@ -107,13 +107,14 @@ def fetch_all_scenarios(company_id: str) -> tuple[list, dict | None]:
 def get_assigned_scenario_ids_for_user(user_id: str) -> tuple[list, dict | None]:
     """Get scenario IDs assigned to a user"""
     try:
-        # Get user's department
-        user_result = supabase.table("users").select("department_id").eq("user_id", user_id).single().execute()
-        if not user_result.data:
-            return [], None
-        
-        user_data = user_result.data
-        department_id = user_data.get('department_id')
+        # Get user's company and functions
+        user_meta, error = get_user_company_and_functions(user_id)
+        if error:
+            return [], error
+            
+        company_id = user_meta.get('company_id')
+        function_id = user_meta.get('function_id')
+        sub_function_id = user_meta.get('sub_function_id')
         
         # Check if user has admin roles
         role_result = supabase.table("user_role_assignments").select("role_id").eq("user_id", user_id).execute()
@@ -124,17 +125,7 @@ def get_assigned_scenario_ids_for_user(user_id: str) -> tuple[list, dict | None]
             scenario_ids = [s.get('scenario_id') for s in (all_scenarios.data or [])]
             return scenario_ids, None
         
-        # Get user's direct assignments
-        user_assignments = supabase.table("scenario_assignments").select("scenario_id").eq("user_id", user_id).execute()
-        scenario_ids = [a.get('scenario_id') for a in (user_assignments.data or [])]
-        
-        # Get department assignments
-        if department_id:
-            dept_assignments = supabase.table("scenario_assignments").select("scenario_id").eq("department_id", department_id).execute()
-            dept_ids = [a.get('scenario_id') for a in (dept_assignments.data or [])]
-            scenario_ids = list(set(scenario_ids + dept_ids))
-        
-        return scenario_ids, None
+        return get_distinct_assigned_scenario_ids_for_user(user_id, company_id, function_id, sub_function_id)
     except Exception as e:
         return [], {'code': 'DB_ERROR', 'message': str(e)}
 
@@ -158,10 +149,10 @@ def get_company_roleplay_limits(company_id: str) -> tuple[dict, dict | None]:
         return {}, {'code': 'DB_ERROR', 'message': str(e)}
 
 
-def get_user_company_and_department(user_id: str) -> tuple[dict, dict | None]:
-    """Get user's company and department"""
+def get_user_company_and_functions(user_id: str) -> tuple[dict, dict | None]:
+    """Get user's company and functions"""
     try:
-        result = supabase.table("users").select("company_id, department_id").eq("user_id", user_id).single().execute()
+        result = supabase.table("users").select("company_id, function_id, sub_function_id").eq("user_id", user_id).single().execute()
         if not result.data:
             return {}, {'code': 'USER_NOT_FOUND', 'message': 'User not found'}
         
@@ -173,9 +164,10 @@ def get_user_company_and_department(user_id: str) -> tuple[dict, dict | None]:
 def get_distinct_assigned_scenario_ids_for_user(
     user_id: str,
     company_id: str,
-    department_id: Optional[str]
+    function_id: Optional[str],
+    sub_function_id: Optional[str]
 ) -> tuple[list, dict | None]:
-    """Get distinct scenario IDs assigned to user (via user or department)"""
+    """Get distinct scenario IDs assigned to user (via user, function, or sub_function)"""
     try:
         # User direct assignments
         user_result = supabase.table("scenario_assignments").select("scenario_id").eq(
@@ -184,17 +176,26 @@ def get_distinct_assigned_scenario_ids_for_user(
         
         user_ids = [a.get('scenario_id') for a in (user_result.data or [])]
         
-        # Department assignments
-        dept_ids = []
-        if department_id:
-            dept_result = supabase.table("scenario_assignments").select("scenario_id").eq(
+        # Function assignments
+        func_ids = []
+        if function_id:
+            func_result = supabase.table("scenario_assignments").select("scenario_id").eq(
                 "company_id", company_id
-            ).eq("assignment_type", "department").eq("department_id", department_id).execute()
+            ).eq("assignment_type", "function").eq("department_id", function_id).execute()
             
-            dept_ids = [a.get('scenario_id') for a in (dept_result.data or [])]
+            func_ids = [a.get('scenario_id') for a in (func_result.data or [])]
+            
+        # Sub-function assignments
+        sub_func_ids = []
+        if sub_function_id:
+            sub_func_result = supabase.table("scenario_assignments").select("scenario_id").eq(
+                "company_id", company_id
+            ).eq("assignment_type", "sub_function").eq("department_id", sub_function_id).execute()
+            
+            sub_func_ids = [a.get('scenario_id') for a in (sub_func_result.data or [])]
         
         # Combine and deduplicate
-        distinct_ids = list(set(user_ids + dept_ids))
+        distinct_ids = list(set(user_ids + func_ids + sub_func_ids))
         return distinct_ids, None
     except Exception as e:
         return [], {'code': 'DB_ERROR', 'message': str(e)}
@@ -335,13 +336,14 @@ async def assign_scenario_to_targets(
         # Validate user assignments
         if assignment_type == 'user':
             for target_user_id in target_ids:
-                # Get user's company and department
-                user_meta, error = get_user_company_and_department(target_user_id)
+                # Get user's company and functions
+                user_meta, error = get_user_company_and_functions(target_user_id)
                 if error:
                     raise HTTPException(status_code=400, detail=error['message'])
                 
                 target_company_id = user_meta.get('company_id')
-                target_department_id = user_meta.get('department_id')
+                target_function_id = user_meta.get('function_id')
+                target_sub_function_id = user_meta.get('sub_function_id')
                 
                 # Get company limits
                 company_limits, error = get_company_roleplay_limits(target_company_id)
@@ -357,7 +359,8 @@ async def assign_scenario_to_targets(
                 assigned_ids, error = get_distinct_assigned_scenario_ids_for_user(
                     target_user_id,
                     target_company_id,
-                    target_department_id
+                    target_function_id,
+                    target_sub_function_id
                 )
                 
                 if error:

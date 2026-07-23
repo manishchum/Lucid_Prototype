@@ -51,7 +51,8 @@ interface User {
   position?: string;
   hire_date: string;
   employment_status: string;
-  department_id?: string;
+  function_id?: string;
+  sub_function_id?: string;
   manager_id?: string;
   avatar_url?: string;
   last_login?: string;
@@ -59,10 +60,10 @@ interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  department?: {
-    department_name: string;
-    sub_department_name?: string;
-    department_id: string;
+  function?: {
+    function_name: string;
+    sub_function_name?: string;
+    function_id: string;
   };
   role?: {
     name: string;
@@ -71,11 +72,14 @@ interface User {
   };
 }
 
-interface Department {
-  department_id: string;
-  department_name: string;
-  sub_department_name?: string;
-  created_at: string;
+interface OrgFunction {
+  function_id: string;
+  function_name: string;
+  sub_functions?: {
+    sub_function_id: string;
+    sub_function_name: string;
+  }[];
+  created_at?: string;
 }
 
 interface CustomFunctionEntry {
@@ -110,7 +114,7 @@ export default function EmployeesPage() {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [functions, setFunctions] = useState<OrgFunction[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -130,15 +134,15 @@ export default function EmployeesPage() {
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [selectedFunction, setSelectedFunction] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
-  // Add new department filtering states
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
-  const [selectedSubDepartments, setSelectedSubDepartments] = useState<string[]>([]);
-  const [showDepartmentDropdown, setShowDepartmentDropdown] = useState(false);
-  const [showSubDepartmentDropdown, setShowSubDepartmentDropdown] = useState(false);
+  // Add new function filtering states
+  const [selectedFunctions, setSelectedFunctions] = useState<string[]>([]);
+  const [selectedSubFunctions, setSelectedSubFunctions] = useState<string[]>([]);
+  const [showFunctionDropdown, setShowFunctionDropdown] = useState(false);
+  const [showSubFunctionDropdown, setShowSubFunctionDropdown] = useState(false);
   const currentUserId = admin?.user_id || null;
   
   const bootstrapStarted = useRef(false);
@@ -165,7 +169,7 @@ export default function EmployeesPage() {
   // Filter users when filters change
   useEffect(() => {
     filterUsers();
-  }, [users, searchTerm, selectedDepartment, selectedStatus, selectedRole, selectedDepartments, selectedSubDepartments]);
+  }, [users, searchTerm, selectedFunction, selectedStatus, selectedRole, selectedFunctions, selectedSubFunctions]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;
@@ -312,7 +316,7 @@ export default function EmployeesPage() {
       const payload = await res.json();
 
       setUsers(payload.users || []);
-      setDepartments(payload.departments || []);
+      setFunctions(payload.functions || []);
       setRoles(payload.roles || []);
       setTrainingModules(payload.training_modules || []);
       setLearningPlans(payload.learning_plans || []);
@@ -324,18 +328,18 @@ export default function EmployeesPage() {
     }
   };
 
-  const loadDepartments = async (companyId: string) => {
+  const loadFunctions = async (companyId: string) => {
     try {
-      const res = await fetchWithAuth(`${API_URL}/api/sub-departments/`);
+      const res = await fetchWithAuth(`${API_URL}/api/functions/`);
       if (res.ok) {
         const payload = await res.json();
-        setDepartments(payload.data || []);
+        setFunctions(payload.data || []);
       } else {
-        console.warn('Failed to load departments: bad response');
-        setDepartments([]);
+        console.warn('Failed to load functions: bad response');
+        setFunctions([]);
       }
     } catch (error: any) {
-      console.error('Failed to load departments:', error.message || error);
+      console.error('Failed to load functions:', error.message || error);
     }
   };
 
@@ -414,18 +418,18 @@ export default function EmployeesPage() {
       );
     }
 
-    // New department filtering logic (replaces old single department filter)
-    if (selectedSubDepartments.length > 0) {
+    // New function filtering logic (replaces old single department filter)
+    if (selectedSubFunctions.length > 0) {
       filtered = filtered.filter(user => 
-        user.department_id && selectedSubDepartments.includes(user.department_id)
+        user.sub_function_id && selectedSubFunctions.includes(user.sub_function_id)
       );
-    } else if (selectedDepartments.length > 0) {
-      const selectedDeptSubDeptIds = departments
-        .filter(dept => selectedDepartments.includes(dept.department_name))
-        .map(dept => dept.department_id);
+    } else if (selectedFunctions.length > 0) {
+      const selectedFuncIds = functions
+        .filter(func => selectedFunctions.includes(func.function_name))
+        .map(func => func.function_id);
       
       filtered = filtered.filter(user => 
-        user.department_id && selectedDeptSubDeptIds.includes(user.department_id)
+        user.function_id && selectedFuncIds.includes(user.function_id)
       );
     }
 
@@ -442,60 +446,73 @@ export default function EmployeesPage() {
     setFilteredUsers(filtered);
   };
 
-  // Department selection handlers
-  const handleDepartmentToggle = (department: string) => {
-    setSelectedDepartments(prev => {
-      const newSelection = prev.includes(department)
-        ? prev.filter(d => d !== department)
-        : [...prev, department];
+  // Function selection handlers
+  const handleFunctionToggle = (func: string) => {
+    setSelectedFunctions(prev => {
+      const newSelection = prev.includes(func)
+        ? prev.filter(f => f !== func)
+        : [...prev, func];
       
-      // Clear subdepartment selections when department selection changes
+      // Clear subfunction selections when function selection changes
       if (newSelection.length !== prev.length) {
-        setSelectedSubDepartments([]);
+        setSelectedSubFunctions([]);
       }
       
       return newSelection;
     });
   };
 
-  const handleSubDepartmentToggle = (subDepartmentId: string) => {
-    setSelectedSubDepartments(prev =>
-      prev.includes(subDepartmentId)
-        ? prev.filter(id => id !== subDepartmentId)
-        : [...prev, subDepartmentId]
+  const handleSubFunctionToggle = (subFunctionId: string) => {
+    setSelectedSubFunctions(prev =>
+      prev.includes(subFunctionId)
+        ? prev.filter(id => id !== subFunctionId)
+        : [...prev, subFunctionId]
     );
   };
 
-  const selectAllDepartments = () => {
-    const uniqueDepartments = Array.from(new Set(departments.map(dept => dept.department_name))).sort();
-    setSelectedDepartments(uniqueDepartments);
-    setSelectedSubDepartments([]);
+  const selectAllFunctions = () => {
+    const uniqueFunctions = Array.from(new Set(functions.map(func => func.function_name))).sort();
+    setSelectedFunctions(uniqueFunctions);
+    setSelectedSubFunctions([]);
   };
 
-  const clearDepartments = () => {
-    setSelectedDepartments([]);
-    setSelectedSubDepartments([]);
+  const clearFunctions = () => {
+    setSelectedFunctions([]);
+    setSelectedSubFunctions([]);
   };
 
-  const selectAllSubDepartments = () => {
-    const availableSubDepartments = selectedDepartments.length > 0
-      ? departments.filter(dept => selectedDepartments.includes(dept.department_name))
-      : departments;
-    const sortedSubDepartments = availableSubDepartments.sort((a, b) => {
-      const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
-      if (deptSort !== 0) return deptSort;
-      return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+  const selectAllSubFunctions = () => {
+    const availableSubFunctions = selectedFunctions.length > 0
+      ? functions.filter(func => selectedFunctions.includes(func.function_name))
+      : functions;
+      
+    // In our new schema, sub_functions are nested. Let's extract all of them from the available functions.
+    const allSubFuncs: { sub_function_id: string; sub_function_name: string; function_name: string }[] = [];
+    availableSubFunctions.forEach(func => {
+      (func.sub_functions || []).forEach(subf => {
+        allSubFuncs.push({
+          sub_function_id: subf.sub_function_id,
+          sub_function_name: subf.sub_function_name,
+          function_name: func.function_name
+        });
+      });
     });
-    const allSubDeptIds = sortedSubDepartments.map(dept => dept.department_id);
-    setSelectedSubDepartments(allSubDeptIds);
+    
+    const sortedSubFunctions = allSubFuncs.sort((a, b) => {
+      const funcSort = (a.function_name || '').localeCompare(b.function_name || '');
+      if (funcSort !== 0) return funcSort;
+      return (a.sub_function_name || '').localeCompare(b.sub_function_name || '');
+    });
+    const allSubFuncIds = sortedSubFunctions.map(subf => subf.sub_function_id);
+    setSelectedSubFunctions(allSubFuncIds);
   };
 
-  const clearSubDepartments = () => {
-    setSelectedSubDepartments([]);
+  const clearSubFunctions = () => {
+    setSelectedSubFunctions([]);
   };
 
-  const handleDepartmentChange = (departmentId: string) => {
-    setSelectedDepartment(departmentId);
+  const handleFunctionChange = (functionId: string) => {
+    setSelectedFunction(functionId);
   };
 
   const handleSelectUser = (userId: string) => {
@@ -524,11 +541,11 @@ export default function EmployeesPage() {
 
   const clearFilters = () => {
     setSearchTerm('');
-    setSelectedDepartment('all');
+    setSelectedFunction('all');
     setSelectedStatus('all');
     setSelectedRole('all');
-    setSelectedDepartments([]);
-    setSelectedSubDepartments([]);
+    setSelectedFunctions([]);
+    setSelectedSubFunctions([]);
   };
 
   const handleEditUser = (user: User) => {
@@ -580,15 +597,15 @@ export default function EmployeesPage() {
   // Close dropdown handlers when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
-      setShowDepartmentDropdown(false);
-      setShowSubDepartmentDropdown(false);
+      setShowFunctionDropdown(false);
+      setShowSubFunctionDropdown(false);
     };
 
-    if (showDepartmentDropdown || showSubDepartmentDropdown) {
+    if (showFunctionDropdown || showSubFunctionDropdown) {
       document.addEventListener('click', handleClickOutside);
       return () => document.removeEventListener('click', handleClickOutside);
     }
-  }, [showDepartmentDropdown, showSubDepartmentDropdown]);
+  }, [showFunctionDropdown, showSubFunctionDropdown]);
 
   // Convert legacy success banners into unified Radix toasts
   useEffect(() => {
@@ -662,7 +679,7 @@ export default function EmployeesPage() {
       {/* Header Card */}
       <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">User Management</h1>
-        <p className="text-slate-600">Manage users, assign sprints, and organize by departments</p>
+        <p className="text-slate-600">Manage users, assign sprints, and organize by functions</p>
       </div>
       
       {/* success banners are shown via unified Radix toasts now */}
@@ -737,7 +754,7 @@ export default function EmployeesPage() {
                 <UserBulkAdd
                   companyId={admin.company_id}
                   adminId={admin.user_id}
-                  departments={departments}
+                  functions={functions}
                   roles={roles}
                   onSuccess={() => {
                     loadBootstrap(admin.company_id);
@@ -811,7 +828,7 @@ export default function EmployeesPage() {
                   {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
-                {(searchTerm || selectedDepartment !== 'all' || selectedStatus !== 'all' || selectedRole !== 'all') && (
+                {(searchTerm || selectedStatus !== 'all' || selectedRole !== 'all') && (
                   <Button variant="outline" onClick={clearFilters}>
                     Clear Filters
                   </Button>
@@ -821,27 +838,27 @@ export default function EmployeesPage() {
               {/* Advanced Filters */}
               {showFilters && (
                 <div className="space-y-4 pt-4 border-t">
-                  {/* Department and Subdepartment Multi-Select Filters */}
+                  {/* Function and Subfunction Multi-Select Filters */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Department Selection */}
+                    {/* Function Selection */}
                     <div className="space-y-2">
-                      <Label>Departments</Label>
+                      <Label>Functions</Label>
                       <div className="relative">
                         <Button
                           type="button"
                           variant="outline"
                           className="w-full justify-between"
-                          onClick={() => setShowDepartmentDropdown(!showDepartmentDropdown)}
+                          onClick={() => setShowFunctionDropdown(!showFunctionDropdown)}
                         >
                           <span>
-                            {selectedDepartments.length === 0
-                              ? "Select Departments"
-                              : `${selectedDepartments.length} department${selectedDepartments.length === 1 ? '' : 's'} selected`}
+                            {selectedFunctions.length === 0
+                              ? "Select Functions"
+                              : `${selectedFunctions.length} function${selectedFunctions.length === 1 ? '' : 's'} selected`}
                           </span>
                           <span className="ml-2">▼</span>
                         </Button>
                         
-                        {showDepartmentDropdown && (
+                        {showFunctionDropdown && (
                           <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
                             {/* Action buttons */}
                             <div className="p-2 border-b bg-gray-50 flex gap-2">
@@ -849,7 +866,7 @@ export default function EmployeesPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={selectAllDepartments}
+                                onClick={selectAllFunctions}
                                 className="text-xs"
                               >
                                 Select All
@@ -858,39 +875,29 @@ export default function EmployeesPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={clearDepartments}
+                                onClick={clearFunctions}
                                 className="text-xs"
                               >
                                 Clear All
                               </Button>
                             </div>
                             
-                            {/* Department grid */}
+                            {/* Function grid */}
                             <div className="p-2 grid grid-cols-1 gap-2">
-                              {[...departments]
-                                .sort((a, b) => {
-                                  const fullNameA = `${a.department_name} - ${a.sub_department_name}`;
-                                  const fullNameB = `${b.department_name} - ${b.sub_department_name}`;
-                                  return fullNameA.localeCompare(fullNameB);
-                                })
-                                .map(dept => ({
-                                  id: dept.department_id,
-                                  name: dept.department_name,
-                                  fullName: `${dept.department_name} - ${dept.sub_department_name}`
-                                }))
-                                .filter((value, index, self) => self.findIndex(v => v.id === value.id) === index)
-                                .map(dept => (
+                              {[...functions]
+                                .sort((a, b) => a.function_name.localeCompare(b.function_name))
+                                .map(func => (
                                   <label
-                                    key={dept.id}
+                                    key={func.function_id}
                                     className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
                                   >
                                     <input
                                       type="checkbox"
-                                      checked={selectedDepartments.includes(dept.name)}
-                                      onChange={() => handleDepartmentToggle(dept.name)}
+                                      checked={selectedFunctions.includes(func.function_name)}
+                                      onChange={() => handleFunctionToggle(func.function_name)}
                                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                     />
-                                    <span className="text-sm">{dept.fullName}</span>
+                                    <span className="text-sm">{func.function_name}</span>
                                   </label>
                                 ))}
                             </div>
@@ -899,26 +906,26 @@ export default function EmployeesPage() {
                       </div>
                     </div>
 
-                    {/* Subdepartment Selection */}
+                    {/* Subfunction Selection */}
                     <div className="space-y-2">
-                      <Label>Subdepartments</Label>
+                      <Label>Subfunctions</Label>
                       <div className="relative">
                         <Button
                           type="button"
                           variant="outline"
                           className="w-full justify-between"
-                          onClick={() => setShowSubDepartmentDropdown(!showSubDepartmentDropdown)}
-                          disabled={departments.length === 0}
+                          onClick={() => setShowSubFunctionDropdown(!showSubFunctionDropdown)}
+                          disabled={functions.length === 0}
                         >
                           <span>
-                            {selectedSubDepartments.length === 0
-                              ? "Select Subdepartments"
-                              : `${selectedSubDepartments.length} subdepartment${selectedSubDepartments.length === 1 ? '' : 's'} selected`}
+                            {selectedSubFunctions.length === 0
+                              ? "Select Subfunctions"
+                              : `${selectedSubFunctions.length} subfunction${selectedSubFunctions.length === 1 ? '' : 's'} selected`}
                           </span>
                           <span className="ml-2">▼</span>
                         </Button>
                         
-                        {showSubDepartmentDropdown && departments.length > 0 && (
+                        {showSubFunctionDropdown && functions.length > 0 && (
                           <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
                             {/* Action buttons */}
                             <div className="p-2 border-b bg-gray-50 flex gap-2">
@@ -926,7 +933,7 @@ export default function EmployeesPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={selectAllSubDepartments}
+                                onClick={selectAllSubFunctions}
                                 className="text-xs"
                               >
                                 Select All
@@ -935,31 +942,33 @@ export default function EmployeesPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={clearSubDepartments}
+                                onClick={clearSubFunctions}
                                 className="text-xs"
                               >
                                 Clear All
                               </Button>
                             </div>
                             
-                            {/* Subdepartment grid */}
+                            {/* Subfunction grid */}
                             <div className="p-2 grid grid-cols-1 gap-2">
-                              {(selectedDepartments.length > 0
-                                ? departments.filter(dept => selectedDepartments.includes(dept.department_name))
-                                : departments
-                              ).map(subDept => (
-                                <label
-                                  key={subDept.department_id}
-                                  className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedSubDepartments.includes(subDept.department_id)}
-                                    onChange={() => handleSubDepartmentToggle(subDept.department_id)}
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                  />
-                                  <span className="text-sm">{subDept.sub_department_name || subDept.department_name}</span>
-                                </label>
+                              {(selectedFunctions.length > 0
+                                ? functions.filter(func => selectedFunctions.includes(func.function_name))
+                                : functions
+                              ).map(func => (
+                                (func.sub_functions || []).map(subFunc => (
+                                  <label
+                                    key={subFunc.sub_function_id}
+                                    className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedSubFunctions.includes(subFunc.sub_function_id)}
+                                      onChange={() => handleSubFunctionToggle(subFunc.sub_function_id)}
+                                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <span className="text-sm">{func.function_name} - {subFunc.sub_function_name}</span>
+                                  </label>
+                                ))
                               ))}
                             </div>
                           </div>
@@ -1007,29 +1016,37 @@ export default function EmployeesPage() {
                   </div>
 
                   {/* Selected Items Display */}
-                  {(selectedDepartments.length > 0 || selectedSubDepartments.length > 0) && (
+                  {(selectedFunctions.length > 0 || selectedSubFunctions.length > 0) && (
                     <div className="space-y-2 pt-2 border-t">
-                      {selectedDepartments.length > 0 && (
+                      {selectedFunctions.length > 0 && (
                         <div>
-                          <span className="text-sm font-medium text-gray-700">Selected Departments:</span>
+                          <span className="text-sm font-medium text-gray-700">Selected Functions:</span>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            {selectedDepartments.map(dept => (
-                              <span key={dept} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                                {dept}
+                            {selectedFunctions.map(func => (
+                              <span key={func} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
+                                {func}
                               </span>
                             ))}
                           </div>
                         </div>
                       )}
-                      {selectedSubDepartments.length > 0 && (
+                      {selectedSubFunctions.length > 0 && (
                         <div>
-                          <span className="text-sm font-medium text-gray-700">Selected Subdepartments:</span>
+                          <span className="text-sm font-medium text-gray-700">Selected Subfunctions:</span>
                           <div className="flex flex-wrap gap-2 mt-1">
-                            {selectedSubDepartments.map(subDeptId => {
-                              const subDept = departments.find(sd => sd.department_id === subDeptId);
-                              return subDept ? (
-                                <span key={subDeptId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
-                                  {subDept.sub_department_name || subDept.department_name}
+                            {selectedSubFunctions.map(subFuncId => {
+                              let subFuncName = '';
+                              let parentFuncName = '';
+                              functions.forEach(f => {
+                                const sf = f.sub_functions?.find(s => s.sub_function_id === subFuncId);
+                                if (sf) {
+                                  subFuncName = sf.sub_function_name;
+                                  parentFuncName = f.function_name;
+                                }
+                              });
+                              return subFuncName ? (
+                                <span key={subFuncId} className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">
+                                  {parentFuncName} - {subFuncName}
                                 </span>
                               ) : null;
                             })}
@@ -1045,14 +1062,14 @@ export default function EmployeesPage() {
               <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t">
                 <span>
                   Showing {filteredUsers.length} of {users.length} users
-                  {selectedDepartments.length > 0 && (
+                  {selectedFunctions.length > 0 && (
                     <span className="text-blue-600 ml-2">
-                      • {selectedDepartments.length} department{selectedDepartments.length === 1 ? '' : 's'} selected
+                      • {selectedFunctions.length} function{selectedFunctions.length === 1 ? '' : 's'} selected
                     </span>
                   )}
-                  {selectedSubDepartments.length > 0 && (
+                  {selectedSubFunctions.length > 0 && (
                     <span className="text-green-600 ml-2">
-                      • {selectedSubDepartments.length} subdepartment{selectedSubDepartments.length === 1 ? '' : 's'} selected
+                      • {selectedSubFunctions.length} subfunction{selectedSubFunctions.length === 1 ? '' : 's'} selected
                     </span>
                   )}
                 </span>
@@ -1106,7 +1123,7 @@ export default function EmployeesPage() {
                             />
                           </th>
                           <th className="text-left p-3 font-medium text-gray-700">User</th>
-                          <th className="text-center p-3 font-medium text-gray-700">Department</th>
+                          <th className="text-center p-3 font-medium text-gray-700">Function</th>
                           <th className="text-center p-3 font-medium text-gray-700">Role</th>
                           <th className="text-center p-3 font-medium text-gray-700">Status</th>
                           <th className="text-center p-3 font-medium text-gray-700">Position</th>
@@ -1136,17 +1153,17 @@ export default function EmployeesPage() {
                             <td className="text-center p-3">
                               <div className="text-sm">
                                 {(() => {
-                                  const dept = departments.find(d => d.department_id === user.department_id);
-                                  if (dept?.department_name) {
+                                  const func = functions.find(f => f.function_id === user.function_id);
+                                  if (func?.function_name) {
                                     return (
                                       <>
                                         <div className="font-medium text-gray-700 flex items-center justify-center">
                                           <Building2 className="w-3 h-3 mr-1" />
-                                          {dept.department_name}
+                                          {func.function_name}
                                         </div>
-                                        {dept.sub_department_name && (
+                                        {user.sub_function_id && (
                                           <div className="text-xs text-gray-500 mt-1">
-                                            {dept.sub_department_name}
+                                            {func.sub_functions?.find((sf: any) => sf.sub_function_id === user.sub_function_id)?.sub_function_name}
                                           </div>
                                         )}
                                       </>
@@ -1264,11 +1281,22 @@ export default function EmployeesPage() {
                             <p className="font-medium text-gray-700">{user.position || 'Not specified'}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-gray-500 uppercase font-semibold">Department</p>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Function</p>
                             <p className="font-medium text-gray-700">{
                               (() => {
-                                const dept = departments.find(d => d.department_id === user.department_id);
-                                return dept?.department_name || 'N/A';
+                                const func = functions.find(f => f.function_id === user.function_id);
+                                return func?.function_name || 'N/A';
+                              })()
+                            }</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase font-semibold">Sub-Function</p>
+                            <p className="font-medium text-gray-700">{
+                              (() => {
+                                if (!user.function_id || !user.sub_function_id) return 'N/A';
+                                const func = functions.find(f => f.function_id === user.function_id);
+                                const subFunc = func?.sub_functions?.find(sf => sf.sub_function_id === user.sub_function_id);
+                                return subFunc?.sub_function_name || 'N/A';
                               })()
                             }</p>
                           </div>
@@ -1302,7 +1330,7 @@ export default function EmployeesPage() {
         companyId={admin.company_id}
         companyName={admin.company_name || ''}
         adminId={admin.user_id}
-        departments={departments}
+        functions={functions}
         roles={roles}
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
@@ -1328,7 +1356,7 @@ export default function EmployeesPage() {
           isSuperAdmin={isSuperAdmin}
           isDeveloper={isDeveloper}
           currentRole={selectedEmployee.role ? [selectedEmployee.role.name] : []}
-          departments={departments}
+          functions={functions}
           roles={roles}
           onSuccess={() => {
             loadBootstrap(admin.company_id);
@@ -1395,7 +1423,7 @@ export default function EmployeesPage() {
 }
 
 // Placeholder components that need to be implemented
-function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onError }: any) {
+function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError }: any) {
   const [mode, setMode] = useState<'manual' | 'upload' | 'detailed'>('upload');
   const [showModal, setShowModal] = useState(false);
   const [manualEmails, setManualEmails] = useState('');
@@ -1605,13 +1633,13 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
       
       const results = { added: 0, skipped: 0, errors: [] as string[] };
 
-      // Load existing roles and departments for mapping
+      // Load existing roles and functions for mapping
       let rolesData = [];
-      let departmentsData = [];
+      let functionsData = [];
       try {
         const [rRes, dRes] = await Promise.all([
           fetchWithAuth(`${API_URL || ''}/api/roles/`),
-          fetchWithAuth(`${API_URL || ''}/api/sub-departments/`)
+          fetchWithAuth(`${API_URL || ''}/api/functions/`)
         ]);
         if (rRes.ok) {
           const rPayload = await rRes.json();
@@ -1619,7 +1647,7 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
         }
         if (dRes.ok) {
           const dPayload = await dRes.json();
-          departmentsData = dPayload.data || [];
+          functionsData = dPayload.data || [];
         }
       } catch (err) {
         console.warn('Error fetching roles/departments for upload:', err);
@@ -1641,7 +1669,14 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
     }
       
       const rolesMap = new Map(rolesData?.map((r: any) => [r.name.toLowerCase(), r.role_id]) || []);
-      const departmentsMap = new Map(departmentsData?.map((d: any) => [`${d.department_name.toLowerCase()}-${d.sub_department_name.toLowerCase()}`, d.department_id]) || []);
+      
+      const functionsMap = new Map();
+      functionsData?.forEach((f: any) => {
+        f.sub_functions?.forEach((sf: any) => {
+          functionsMap.set(`${f.function_name.toLowerCase()}-${sf.sub_function_name.toLowerCase()}`, sf.sub_function_id);
+        });
+      });
+      
       const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
       let temp = false;
       // for (const row of dataRows) {
@@ -1875,7 +1910,7 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
         onClose={() => setShowModal(false)}
         companyId={companyId || ''}
         adminId={adminId || ''}
-        departments={departments}
+        functions={functions}
         roles={roles}
         onSuccess={() => {
           onSuccess();
@@ -1886,12 +1921,13 @@ function UserBulkAdd({ companyId, adminId, departments, roles, onSuccess, onErro
   );
 }
 
-function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, departments, roles, isAdmin, isSuperAdmin, isDeveloper, onSuccess }: any) {
+function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functions, roles, isAdmin, isSuperAdmin, isDeveloper, onSuccess }: any) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     company_name: '',
-    department_id: '',
+    function_id: '',
+    sub_function_id: '',
     role_id: '',
     role_unique_id: '',
     employment_status: 'ACTIVE',
@@ -1911,7 +1947,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
   const [creatingCompany, setCreatingCompany] = useState(false);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [provisioningCompany, setProvisioningCompany] = useState<any | null>(null);
-  const [templateDepartments, setTemplateDepartments] = useState<Department[]>([]);
+  const [templateFunctions, setTemplateFunctions] = useState<OrgFunction[]>([]);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [customFunctionEntries, setCustomFunctionEntries] = useState<CustomFunctionEntry[]>([
     { function_name: '', sub_function_name: '' },
@@ -1996,7 +2032,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     loadCompanies();
   }, [isOpen, isDeveloper, isSuperAdmin]);
 
-  const loadDepartmentTemplatesForProvisioning = async () => {
+  const loadFunctionTemplatesForProvisioning = async () => {
     const response = await fetchWithAuth(`${API_URL}/api/companies/org-templates`, {
       headers: {
         'X-User-ID': adminId,
@@ -2005,12 +2041,12 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
 
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(payload?.detail || payload?.error || 'Failed to load department templates');
+      throw new Error(payload?.detail || payload?.error || 'Failed to load function templates');
     }
 
-    const rows: Department[] = payload?.data || [];
-    setTemplateDepartments(rows);
-    setSelectedTemplateIds(rows.map((row) => row.department_id));
+    const rows: OrgFunction[] = payload?.data || [];
+    setTemplateFunctions(rows);
+    setSelectedTemplateIds(rows.map((row) => row.function_id));
   };
 
   const updateCustomFunctionEntry = (index: number, field: 'function_name' | 'sub_function_name', value: string) => {
@@ -2069,7 +2105,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
             'X-User-ID': adminId,
           },
           body: JSON.stringify({
-            selected_department_ids: selectedTemplateIds,
+            selected_function_ids: selectedTemplateIds,
             custom_entries: validCustomEntries,
           }),
         }
@@ -2307,7 +2343,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
       setNewCompanyLogoFile(null);
       setNewCompanyLogoPreview('');
 
-      await loadDepartmentTemplatesForProvisioning();
+      await loadFunctionTemplatesForProvisioning();
       setProvisioningCompany(createdCompany);
       setShowProvisionModal(true);
     } catch (e: any) {
@@ -2360,7 +2396,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
           name: formData.name,
           email: formData.email.toLowerCase(),
           company_id: targetCompanyId,
-          department_id: formData.department_id || null,
+          function_id: formData.function_id || null,
+          sub_function_id: formData.sub_function_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
           hire_date: new Date().toISOString().split('T')[0]
@@ -2416,7 +2453,8 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
         name: '',
         email: '',
         company_name: '',
-        department_id: '',
+        function_id: '',
+        sub_function_id: '',
         role_id: '',
         phone: '',
         position: '',
@@ -2443,21 +2481,16 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
     }
   };
 
-  // Get unique departments
-  const uniqueDepartments = Array.from(
-    new Set((departments || []).map((sd: any) => sd.department_name))
+  // Get unique functions
+  const uniqueFunctions = Array.from(
+    new Set((functions || []).map((f: any) => f.function_name))
   ).sort();
 
-  // Get subdepartments for selected department
-  const selectedDepartmentName = departments.find((sd: any) => sd.department_id === formData.department_id)?.department_name;
-  const availableSubDepartments = (selectedDepartmentName
-  ? departments.filter((sd: any) => sd.department_name === selectedDepartmentName)
-  : departments
-).sort((a: any, b: any) => {
-  const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
-  if (deptSort !== 0) return deptSort;
-  return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
-});
+  // Get subfunctions for selected function
+  const selectedFunction = functions?.find((f: any) => f.function_id === formData.function_id);
+  const availableSubFunctions = (selectedFunction?.sub_functions || []).sort((a: any, b: any) => {
+    return (a.sub_function_name || '').localeCompare(b.sub_function_name || '');
+  });
 
   if (!isOpen) return null;
   
@@ -2604,26 +2637,51 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
               )}
             </div>
 
-            {/* Department and Employment Status */}
+            {/* Function and Employment Status */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="department_id">Department</Label>
+                <Label htmlFor="function_id">Function</Label>
                 <select
-                  id="department_id"
-                  name="department_id"
-                  value={formData.department_id}
+                  id="function_id"
+                  name="function_id"
+                  value={formData.function_id}
                   onChange={handleInputChange}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="">Select Department</option>
-                  {availableSubDepartments.map((subDept: any) => (
-                    <option key={subDept.department_id} value={subDept.department_id}>
-                      {subDept.department_name} - {subDept.sub_department_name}
+                  <option value="">Select Function</option>
+                  {uniqueFunctions.map((funcName: any) => {
+                    const f = functions.find((fn: any) => fn.function_name === funcName);
+                    return f ? (
+                      <option key={f.function_id} value={f.function_id}>
+                        {f.function_name}
+                      </option>
+                    ) : null;
+                  })}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">
+                  Select a function first
+                </div>
+              </div>
+              
+              <div>
+                <Label htmlFor="sub_function_id">Sub-Function</Label>
+                <select
+                  id="sub_function_id"
+                  name="sub_function_id"
+                  value={formData.sub_function_id}
+                  onChange={handleInputChange}
+                  disabled={!formData.function_id}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <option value="">Select Sub-Function</option>
+                  {availableSubFunctions.map((subFunc: any) => (
+                    <option key={subFunc.sub_function_id} value={subFunc.sub_function_id}>
+                      {subFunc.sub_function_name}
                     </option>
                   ))}
                 </select>
                 <div className="text-xs text-gray-500 mt-1">
-                  This will assign both department and subdepartment
+                  Then select a sub-function
                 </div>
               </div>
               
@@ -2793,20 +2851,20 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
                 <div className="p-6 border-b border-gray-200">
                   <h3 className="text-lg font-semibold text-gray-900">Provision Company Functions</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    Select default department templates and optionally add custom function/sub-function pairs for {provisioningCompany?.name}.
+                    Select default function templates and optionally add custom function/sub-function pairs for {provisioningCompany?.name}.
                   </p>
                 </div>
 
                 <div className="p-6 space-y-6">
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <Label>Default Templates From sub_department</Label>
+                      <Label>Default Templates From org_templates</Label>
                       <div className="flex gap-2">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => setSelectedTemplateIds(templateDepartments.map((row) => row.department_id))}
+                          onClick={() => setSelectedTemplateIds(templateFunctions.map((row) => row.function_id))}
                         >
                           Select All
                         </Button>
@@ -2822,27 +2880,29 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, depart
                     </div>
 
                     <div className="border border-gray-300 rounded-md max-h-56 overflow-y-auto">
-                      {templateDepartments.length === 0 ? (
-                        <div className="p-3 text-gray-500 text-center">No department templates found</div>
+                      {templateFunctions.length === 0 ? (
+                        <div className="p-3 text-gray-500 text-center">No function templates found</div>
                       ) : (
                         <div className="p-2 space-y-1">
-                          {templateDepartments.map((row) => (
-                            <label key={row.department_id} className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                          {templateFunctions.map((row) => (
+                            <label key={row.function_id} className="flex items-start space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={selectedTemplateIds.includes(row.department_id)}
+                                checked={selectedTemplateIds.includes(row.function_id)}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setSelectedTemplateIds((prev) => [...prev, row.department_id]);
+                                    setSelectedTemplateIds((prev) => [...prev, row.function_id]);
                                   } else {
-                                    setSelectedTemplateIds((prev) => prev.filter((id) => id !== row.department_id));
+                                    setSelectedTemplateIds((prev) => prev.filter((id) => id !== row.function_id));
                                   }
                                 }}
                                 className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                               />
                               <div className="text-sm text-gray-800">
-                                <span className="font-medium">{row.department_name}</span>
-                                <span className="text-gray-500">{' -> '}{row.sub_department_name || 'No sub-function'}</span>
+                                <span className="font-medium">{row.function_name}</span>
+                                <span className="text-gray-500">
+                                  {row.sub_functions?.map((sf: any) => sf.sub_function_name).join(', ') || 'No sub-functions'}
+                                </span>
                               </div>
                             </label>
                           ))}
@@ -3800,7 +3860,7 @@ function UpdateEmployeeModal({
   isAdmin,
   isSuperAdmin,
   isDeveloper,
-  departments,
+  functions,
   roles,
   currentRole, 
   onSuccess 
@@ -3813,7 +3873,7 @@ function UpdateEmployeeModal({
   isAdmin: boolean;
   isSuperAdmin: boolean;
   isDeveloper: boolean;
-  departments: Department[];
+  functions: OrgFunction[];
   roles: Role[];
   currentRole?: string[];
   onSuccess: () => void;
@@ -3822,7 +3882,8 @@ function UpdateEmployeeModal({
     name: '',
     email: '',
     company_name: '',
-    department_id: '',
+    function_id: '',
+    sub_function_id: '',
     role_id: '',
     role_unique_id: '',
     employment_status: 'ACTIVE',
@@ -3878,7 +3939,8 @@ function UpdateEmployeeModal({
         name: employee.name || '',
         email: employee.email || '',
         company_name: '',
-        department_id: employee.department_id || '',
+        function_id: employee.function_id || '',
+        sub_function_id: employee.sub_function_id || '',
         role_id: '',
         role_unique_id: '',
         employment_status: employee.employment_status || 'ACTIVE',
@@ -4050,7 +4112,8 @@ function UpdateEmployeeModal({
         body: JSON.stringify({
           name: formData.name,
           email: formData.email.toLowerCase(),
-          department_id: formData.department_id || null,
+          function_id: formData.function_id || null,
+          sub_function_id: formData.sub_function_id || null,
           position: formData.position || null,
           phone: formData.phone || null,
           employment_status: formData.employment_status || 'ACTIVE'
@@ -4157,11 +4220,15 @@ function UpdateEmployeeModal({
     }
   }, [isOpen]);
 
-  // Get available subdepartments based on current selection
-  const availableSubDepartments = [...departments].sort((a: any, b: any) => {
-    const deptSort = (a.department_name || '').localeCompare(b.department_name || '');
-    if (deptSort !== 0) return deptSort;
-    return (a.sub_department_name || '').localeCompare(b.sub_department_name || '');
+  // Get unique functions
+  const uniqueFunctions = Array.from(
+    new Set((functions || []).map((f: any) => f.function_name))
+  ).sort();
+
+  // Get subfunctions for selected function
+  const selectedFunction = functions?.find((f: any) => f.function_id === formData.function_id);
+  const availableSubFunctions = (selectedFunction?.sub_functions || []).sort((a: any, b: any) => {
+    return (a.sub_function_name || '').localeCompare(b.sub_function_name || '');
   });
 
   if (!isOpen) return null;
@@ -4220,26 +4287,51 @@ function UpdateEmployeeModal({
               </div>
             </div>
 
-            {/* Department and Employment Status */}
+            {/* Function and Employment Status */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="department_id">Department</Label>
+                <Label htmlFor="function_id">Function</Label>
                 <select
-                  id="department_id"
-                  name="department_id"
-                  value={formData.department_id}
+                  id="function_id"
+                  name="function_id"
+                  value={formData.function_id}
                   onChange={handleInputChange}
                   className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="">Select Department</option>
-                  {availableSubDepartments.map((subDept: any) => (
-                    <option key={subDept.department_id} value={subDept.department_id}>
-                      {subDept.department_name} - {subDept.sub_department_name}
+                  <option value="">Select Function</option>
+                  {uniqueFunctions.map((funcName: any) => {
+                    const f = functions.find((fn: any) => fn.function_name === funcName);
+                    return f ? (
+                      <option key={f.function_id} value={f.function_id}>
+                        {f.function_name}
+                      </option>
+                    ) : null;
+                  })}
+                </select>
+                <div className="text-xs text-gray-500 mt-1">
+                  Select a function first
+                </div>
+              </div>
+              
+              <div>
+                <Label htmlFor="sub_function_id">Sub-Function</Label>
+                <select
+                  id="sub_function_id"
+                  name="sub_function_id"
+                  value={formData.sub_function_id}
+                  onChange={handleInputChange}
+                  disabled={!formData.function_id}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <option value="">Select Sub-Function</option>
+                  {availableSubFunctions.map((subFunc: any) => (
+                    <option key={subFunc.sub_function_id} value={subFunc.sub_function_id}>
+                      {subFunc.sub_function_name}
                     </option>
                   ))}
                 </select>
                 <div className="text-xs text-gray-500 mt-1">
-                  This will assign both department and subdepartment
+                  Then select a sub-function
                 </div>
               </div>
               
