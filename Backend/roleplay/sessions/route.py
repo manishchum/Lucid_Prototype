@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from utils.auth import get_request_auth_required
 from utils.supabase_client import supabase_admin
+from utils.db import roleplay_db
 
 router = APIRouter()
 
@@ -41,13 +42,13 @@ async def create_roleplay_session(
         if payload.employee_id != auth_ctx.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to create sessions for other users")
         # Check attempts
-        user_res = supabase_admin.table('users').select('company_id, department_id').eq('user_id', payload.employee_id).execute()
+        user_res = roleplay_db.get_user(payload.employee_id)
         if not user_res.data:
             raise HTTPException(status_code=400, detail="User not found")
             
         company_id = user_res.data[0]['company_id']
         
-        comp_res = supabase_admin.table('companies').select('rate_limit_role_play_retries').eq('company_id', company_id).execute()
+        comp_res = roleplay_db.get_company(company_id)
         if not comp_res.data:
             raise HTTPException(status_code=400, detail="Company not found")
             
@@ -60,11 +61,13 @@ async def create_roleplay_session(
         if retry_limit <= 0:
             raise HTTPException(status_code=403, detail="Roleplay retries are disabled for your company.")
             
-        sessions_res = supabase_admin.table('roleplay_sessions').select('id').eq('employee_id', payload.employee_id).eq('scenario_id', payload.scenario_id).execute()
+        sessions_res = roleplay_db.get_roleplay_sessions(payload.employee_id, payload.scenario_id)
         session_ids = [s['id'] for s in sessions_res.data] if sessions_res.data else []
         
         if session_ids:
-            assess_res = supabase_admin.table('roleplay_assessments').select('id', count='exact').eq('employee_id', payload.employee_id).in_('session_id', session_ids).execute()
+            assess_res = roleplay_db.count_roleplay_attempts(
+                payload.employee_id, session_ids
+            )
             attempt_count = assess_res.count or 0
             if attempt_count >= retry_limit:
                 raise HTTPException(status_code=403, detail=f"Roleplay retry limit reached. You can attempt this scenario up to {retry_limit} time(s).")
@@ -82,7 +85,7 @@ async def create_roleplay_session(
         if payload.module_id:
             insert_data["module_id"] = payload.module_id
 
-        res = supabase_admin.table('roleplay_sessions').insert(insert_data).execute()
+        res = roleplay_db.create_roleplay_session(insert_data)
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to create session in database")
             
@@ -109,7 +112,7 @@ async def update_roleplay_session(
         if payload.is_completed:
             update_data["completed_at"] = datetime.utcnow().isoformat()
 
-        res = supabase_admin.table('roleplay_sessions').update(update_data).eq('id', session_id).execute()
+        res = roleplay_db.update_roleplay_session(session_id, update_data)
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to update session in database")
             
@@ -133,7 +136,7 @@ async def create_roleplay_assessment(
             "parameters": [p.model_dump() for p in payload.parameters],
             "recommendations": payload.recommendations
         }
-        res = supabase_admin.table('roleplay_assessments').insert(insert_data).execute()
+        res = roleplay_db.save_roleplay_assessment(insert_data)
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to create assessment in database")
             
