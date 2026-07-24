@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { 
   Users, 
@@ -2548,8 +2549,10 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
               </div>
             </div>
 
-            {/* Company Name - Read-only for admin/super_admin */}
-            <div>
+            {/* Company Name and Employment Status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              {/* Company Name */}
+              <div className="w-full">
               <Label htmlFor="company_name">Company Name</Label>
               {canManageCompanySelection ? (
                 <>
@@ -2637,7 +2640,25 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
               )}
             </div>
 
-            {/* Function and Employment Status */}
+              {/* Employment Status */}
+              <div className="w-full">
+                <Label htmlFor="employment_status">Employment Status</Label>
+                <select
+                  id="employment_status"
+                  name="employment_status"
+                  value={formData.employment_status || 'ACTIVE'}
+                  onChange={handleInputChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="TERMINATED">Terminated</option>
+                  <option value="ON_LEAVE">On Leave</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Function and Sub-Function */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="function_id">Function</Label>
@@ -2684,84 +2705,49 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
                   Then select a sub-function
                 </div>
               </div>
-              
-              <div>
-                <Label htmlFor="employment_status">Employment Status</Label>
-                <select
-                  id="employment_status"
-                  name="employment_status"
-                  value={formData.employment_status || 'ACTIVE'}
-                  onChange={handleInputChange}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="ACTIVE">Active</option>
-                  <option value="INACTIVE">Inactive</option>
-                  <option value="TERMINATED">Terminated</option>
-                  <option value="ON_LEAVE">On Leave</option>
-                </select>
-              </div>
             </div>
 
             {/* Multiple Role Selection */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Roles (Select Multiple)</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={selectAllRoles}
-                    disabled={formData.selected_roles.length === filteredRoles.length}
-                  >
-                    Select All
+              <Label className="mb-2 block">Roles (Select Multiple)</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between font-normal">
+                    {formData.selected_roles.length > 0 
+                      ? `${formData.selected_roles.length} role${formData.selected_roles.length === 1 ? '' : 's'} selected` 
+                      : "Select roles..."}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={clearAllRoles}
-                    disabled={formData.selected_roles.length === 0}
-                  >
-                    Clear All
-                  </Button>
-                </div>
-              </div>
-
-              <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
-                {filteredRoles.length === 0 ? (
-                  <div className="p-3 text-gray-500 text-center">No roles available for assignment</div>
-                ) : (
-                  <div className="p-2 space-y-2">
-                    {filteredRoles.map((role: any) => (
-                      <label
-                        key={role.role_id}
-                        className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formData.selected_roles.includes(role.role_id)}
-                          onChange={() => handleRoleToggle(role.role_id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{role.name}</div>
-                          {role.description && (
-                            <div className="text-sm text-gray-500">{role.description}</div>
-                          )}
-                        </div>
-                      </label>
-                    ))}
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <div className="p-2 border-b flex justify-between bg-gray-50">
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={selectAllRoles} disabled={formData.selected_roles.length === filteredRoles.length}>Select All</Button>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={clearAllRoles} disabled={formData.selected_roles.length === 0}>Clear All</Button>
                   </div>
-                )}
-              </div>
-
-              <div className="text-xs text-gray-500 mt-1">
-                Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
-                {isDeveloper && <span className="ml-2 text-emerald-600">(Developers can assign all roles)</span>}
-                {isAdmin && !isSuperAdmin && !isDeveloper && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
-                {isSuperAdmin && !isDeveloper && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
-              </div>
+                  <div className="max-h-60 overflow-y-auto p-1">
+                    {filteredRoles.length === 0 ? (
+                      <div className="p-3 text-gray-500 text-sm text-center">No roles available</div>
+                    ) : (
+                      filteredRoles.map((role: any) => (
+                        <label key={role.role_id} className="flex items-center space-x-3 p-2 hover:bg-gray-100 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.selected_roles.includes(role.role_id)}
+                            onChange={() => handleRoleToggle(role.role_id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="font-medium text-gray-900 text-sm">{role.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <div className="text-xs text-gray-500 mt-2 space-y-1">
+                {isDeveloper && <div className="text-emerald-600">(Developers can assign all roles)</div>}
+                {isAdmin && !isSuperAdmin && !isDeveloper && <div className="text-amber-600">(Admins can only assign User role)</div>}
+                {isSuperAdmin && !isDeveloper && <div className="text-blue-600">(Super Admins can assign User and Admin roles)</div>}
+            </div>
 
               {/* Selected Roles Preview */}
               {formData.selected_roles.length > 0 && (
@@ -4354,63 +4340,44 @@ function UpdateEmployeeModal({
 
             {/* Multiple Role Selection */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Roles (Select Multiple)</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={selectAllRoles}
-                    disabled={formData.selected_roles.length === filteredRoles.length}
-                  >
-                    Select All
+              <Label className="mb-2 block">Roles (Select Multiple)</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between font-normal">
+                    {formData.selected_roles.length > 0 
+                      ? `${formData.selected_roles.length} role${formData.selected_roles.length === 1 ? '' : 's'} selected` 
+                      : "Select roles..."}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={clearAllRoles}
-                    disabled={formData.selected_roles.length === 0}
-                  >
-                    Clear All
-                  </Button>
-                </div>
-              </div>
-
-              <div className="border border-gray-300 rounded-md max-h-40 overflow-y-auto">
-                {filteredRoles.length === 0 ? (
-                  <div className="p-3 text-gray-500 text-center">No roles available for assignment</div>
-                ) : (
-                  <div className="p-2 space-y-2">
-                    {filteredRoles.map((role: any) => (
-                      <label
-                        key={role.role_id}
-                        className="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formData.selected_roles.includes(role.role_id)}
-                          onChange={() => handleRoleToggle(role.role_id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium text-gray-900">{role.name}</div>
-                          {role.description && (
-                            <div className="text-sm text-gray-500">{role.description}</div>
-                          )}
-                        </div>
-                      </label>
-                    ))}
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0" align="start">
+                  <div className="p-2 border-b flex justify-between bg-gray-50">
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={selectAllRoles} disabled={formData.selected_roles.length === filteredRoles.length}>Select All</Button>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={clearAllRoles} disabled={formData.selected_roles.length === 0}>Clear All</Button>
                   </div>
-                )}
-              </div>
-
-              <div className="text-xs text-gray-500 mt-1">
-                Selected: {formData.selected_roles.length} role{formData.selected_roles.length === 1 ? '' : 's'}
-                {isDeveloper && <span className="ml-2 text-emerald-600">(Developers can assign all roles)</span>}
-                {isAdmin && !isSuperAdmin && !isDeveloper && <span className="ml-2 text-amber-600">(Admins can only assign User role)</span>}
-                {isSuperAdmin && !isDeveloper && <span className="ml-2 text-blue-600">(Super Admins can assign User and Admin roles)</span>}
+                  <div className="max-h-60 overflow-y-auto p-1">
+                    {filteredRoles.length === 0 ? (
+                      <div className="p-3 text-gray-500 text-sm text-center">No roles available</div>
+                    ) : (
+                      filteredRoles.map((role: any) => (
+                        <label key={role.role_id} className="flex items-center space-x-3 p-2 hover:bg-gray-100 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.selected_roles.includes(role.role_id)}
+                            onChange={() => handleRoleToggle(role.role_id)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="font-medium text-gray-900 text-sm">{role.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <div className="text-xs text-gray-500 mt-2 space-y-1">
+                {isDeveloper && <div className="text-emerald-600">(Developers can assign all roles)</div>}
+                {isAdmin && !isSuperAdmin && !isDeveloper && <div className="text-amber-600">(Admins can only assign User role)</div>}
+                {isSuperAdmin && !isDeveloper && <div className="text-blue-600">(Super Admins can assign User and Admin roles)</div>}
               </div>
 
               {/* Selected Roles Preview */}
