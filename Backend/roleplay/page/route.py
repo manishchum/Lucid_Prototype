@@ -181,7 +181,7 @@ def get_distinct_assigned_scenario_ids_for_user(
         if function_id:
             func_result = supabase.table("scenario_assignments").select("scenario_id").eq(
                 "company_id", company_id
-            ).eq("assignment_type", "function").eq("department_id", function_id).execute()
+            ).eq("assignment_type", "function").eq("target_id", function_id).execute()
             
             func_ids = [a.get('scenario_id') for a in (func_result.data or [])]
             
@@ -190,7 +190,7 @@ def get_distinct_assigned_scenario_ids_for_user(
         if sub_function_id:
             sub_func_result = supabase.table("scenario_assignments").select("scenario_id").eq(
                 "company_id", company_id
-            ).eq("assignment_type", "sub_function").eq("department_id", sub_function_id).execute()
+            ).eq("assignment_type", "sub_function").eq("target_id", sub_function_id).execute()
             
             sub_func_ids = [a.get('scenario_id') for a in (sub_func_result.data or [])]
         
@@ -397,7 +397,7 @@ async def assign_scenario_to_targets(
                 'scenario_id': scenario_id,
                 'assignment_type': assignment_type,
                 'user_id': target_id if assignment_type == 'user' else None,
-                'department_id': target_id if assignment_type != 'user' else None,
+                'target_id': target_id if assignment_type != 'user' else None,
                 'company_id': company_id,
                 'assigned_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
             }
@@ -433,7 +433,7 @@ async def get_scenario_assignments(
         #     "scenario_id", scenario_id
         # ).execute()
         result = supabase.table("scenario_assignments").select(
-        "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
+        "assignment_id, scenario_id, assignment_type, target_id, company_id, assigned_at, user_id"
         ).eq("company_id", effective_company_id).eq(
         "scenario_id", scenario_id
         ).execute()
