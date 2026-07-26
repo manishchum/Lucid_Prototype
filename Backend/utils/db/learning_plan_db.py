@@ -4,9 +4,10 @@ Handles CRUD operations with permission checks.
 """
 
 from typing import Dict, Any, List, Optional
+import asyncio
 from utils.supabase_client import supabase
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission
 from utils.assignment_notifications import send_assignment_notification_email
@@ -125,6 +126,9 @@ async def get_learning_plan_by_id(
         plan = resp.data
         plan_user_id = plan.get('user_id')
         
+        # Expire overdue plan on read
+        await _expire_plan_if_overdue(plan)
+        
         # Check if user is viewing their own plan
         if resolved_requesting_user_id == plan_user_id:
             return {"data": plan, "error": None}
@@ -201,6 +205,12 @@ async def list_learning_plans(
         
         # Filter by company if manager+
         plans = resp.data or []
+
+        await asyncio.gather(*[
+            _expire_plan_if_overdue(plan)
+            for plan in plans
+        ])
+
         if has_permission:
             user_company_id = await get_user_company_id(resolved_requesting_user_id)
             filtered_plans = []
@@ -210,7 +220,7 @@ async def list_learning_plans(
                 if plan_company_id == user_company_id:
                     filtered_plans.append(plan)
             plans = filtered_plans
-        
+
         return {"data": plans, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -874,6 +884,46 @@ async def get_company_learning_plans(
             "error": str(e)
         }
 
+def _parse_due_date(due_date_str: Optional[str]) -> Optional[datetime]:
+    if not due_date_str:
+        return None
+
+    try:
+        return datetime.fromisoformat(due_date_str)
+    except ValueError:
+        try:
+            return datetime.combine(date.fromisoformat(due_date_str), datetime.min.time())
+        except Exception:
+            return None
+
+
+def _is_due_date_expired(due_date_str: Optional[str]) -> bool:
+    due_date = _parse_due_date(due_date_str)
+    if not due_date:
+        return False
+
+    return due_date < datetime.utcnow()
+
+
+async def _expire_plan_if_overdue(plan: Dict[str, Any]) -> None:
+    if not plan or not plan.get("learning_plan_id"):
+        return
+
+    if _is_due_date_expired(plan.get("due_date")) and plan.get("status") not in ("COMPLETED", "EXPIRED"):
+        db = get_service_supabase_client()
+        try:
+            db.table("learning_plan").update(
+                {
+                    "status": "EXPIRED",
+                    "overall_status": False
+                }
+            ).eq("learning_plan_id", plan["learning_plan_id"]).execute()
+            plan["status"] = "EXPIRED"
+            plan["overall_status"] = False
+        except Exception:
+            pass
+
+
 async def refresh_learning_plan_status(
     user_id: str,
     module_id: str
@@ -900,7 +950,7 @@ async def refresh_learning_plan_status(
     plan_resp = (
         db.table("learning_plan")
         .select(
-            "learning_plan_id, processed_module_ids, status, started_at"
+            "learning_plan_id, processed_module_ids, status, started_at, overall_status, due_date"
         )
         .eq("user_id", user_id)
         .eq("module_id", module_id)
@@ -915,90 +965,85 @@ async def refresh_learning_plan_status(
 
     print("plan: " , plan)
 
+    due_date = plan.get("due_date")
+    due_date_expired = _is_due_date_expired(due_date)
+
     processed_module_ids = (
         plan.get("processed_module_ids")
         or []
     )
 
-    if len(processed_module_ids) == 0:
-        return
-
-    print("processed_module_ids: ", processed_module_ids)
-    # ---------------------------------------------------
-    # Fetch progress only for assigned processed modules
-    # ---------------------------------------------------
-
-    progress_resp = (
-        db.table("module_progress")
-        .select(
-            "started_at, completed_at"
-        )
-        .eq("user_id", user_id)
-        .in_(
-            "processed_module_id",
-            processed_module_ids
-        )
-        .execute()
-    )
-
-    rows = progress_resp.data or []
-
     assigned = len(processed_module_ids)
+    started = 0
+    completed = 0
 
-    print("rows found:", len(rows))
-    print(rows)
-    started = sum(
-        1
-        for row in rows
-        if row.get("started_at")
-    )
-
-    completed = sum(
-        1
-        for row in rows
-        if row.get("completed_at")
-    )
-
-    update_data = {}
-
-    if assigned > 0 and completed == assigned:
-
-        update_data["status"] = "COMPLETED"
-        update_data["overall_status"] = True
-
-        if not plan.get("started_at"):
-            update_data["started_at"] = datetime.utcnow().isoformat()
-
-        update_data["completed_at"] = datetime.utcnow().isoformat()
-
-    elif started > 0:
-
-        update_data["status"] = "IN_PROGRESS"
-        update_data["overall_status"] = False
-
-        if not plan.get("started_at"):
-            update_data["started_at"] = datetime.utcnow().isoformat()
-
-    else:
-
-        update_data["status"] = "ASSIGNED"
-        update_data["overall_status"] = False
-
-    try:
-        if(plan.get("status") == update_data["status"]
-           and
-           plan.get("overall_status") == update_data["overall_status"]
-           ):
-            return
-        (
-            db.table("learning_plan")
-            .update(update_data)
-            .eq(
-                "learning_plan_id",
-                plan["learning_plan_id"]
+    if assigned > 0:
+        progress_resp = (
+            db.table("module_progress")
+            .select(
+                "started_at, completed_at"
+            )
+            .eq("user_id", user_id)
+            .in_(
+                "processed_module_id",
+                processed_module_ids
             )
             .execute()
         )
+
+        rows = progress_resp.data or []
+        started = sum(
+            1
+            for row in rows
+            if row.get("started_at")
+        )
+        completed = sum(
+            1
+            for row in rows
+            if row.get("completed_at")
+        )
+
+    update_data: Dict[str, Any] = {}
+
+    if assigned > 0 and completed == assigned:
+        update_data["status"] = "COMPLETED"
+        update_data["overall_status"] = True
+        if not plan.get("started_at"):
+            update_data["started_at"] = datetime.utcnow().isoformat()
+        update_data["completed_at"] = datetime.utcnow().isoformat()
+    elif due_date_expired:
+        update_data["status"] = "EXPIRED"
+        update_data["overall_status"] = False
+        if not plan.get("started_at"):
+            update_data["started_at"] = datetime.utcnow().isoformat()
+    elif started > 0:
+        update_data["status"] = "IN_PROGRESS"
+        update_data["overall_status"] = False
+        if not plan.get("started_at"):
+            update_data["started_at"] = datetime.utcnow().isoformat()
+    else:
+        update_data["status"] = "ASSIGNED"
+        update_data["overall_status"] = False
+
+    if not update_data:
+        return
+
+    try:
+        if (
+            plan.get("status") != update_data["status"]
+            or plan.get("overall_status") != update_data["overall_status"]
+        ):
+            (
+                db.table("learning_plan")
+                .update(update_data)
+                .eq(
+                    "learning_plan_id",
+                    plan["learning_plan_id"]
+                )
+                .execute()
+            )
     except Exception as e:
         if "204" not in str(e):
             raise
+
+    

@@ -30,3 +30,6 @@ python-docx
 ultralytics
 openpyxl
 openai
+redis
+firebase-admin
+reportlab

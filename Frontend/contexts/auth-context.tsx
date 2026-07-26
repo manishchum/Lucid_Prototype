@@ -27,6 +27,7 @@ interface AuthContextType {
   isSuperAdmin: boolean
   isDeveloper: boolean
   isManager: boolean
+  isManagerofUsers: boolean
   userId: string | null
   employeeData: any | null
   login: (userData: any) => Promise<void>
@@ -43,6 +44,7 @@ const AuthContext = createContext<AuthContextType>({
   isSuperAdmin: false,
   isDeveloper: false,
   isManager: false,
+  isManagerofUsers: false,
   userId: null,
   employeeData: null,
   login: async () => {},
@@ -208,6 +210,23 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
         }
 
         const rolesData = await fetchUserRoles(resolvedUserId)
+        
+        // Fetch actual manager status from backend (has direct reports)
+        let isActualManager = rolesData.isManager
+        try {
+          const managerStatusRes = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/check-manager-status`, {
+            headers: { 'X-User-ID': resolvedUserId }
+          })
+          if (managerStatusRes.ok) {
+            const statusData = await managerStatusRes.json()
+            isActualManager = Boolean(statusData.is_manager || rolesData.isManager)
+            console.log('[auth-context] Manager status check:', { statusData, isActualManager, userId: resolvedUserId })
+          }
+        } catch (err) {
+          console.warn('[auth-context] Failed to fetch actual manager status, falling back to role-based check', err)
+          // Fall back to role-based check if endpoint fails
+          isActualManager = rolesData.isManager
+        }
 
         return {
           employeeData: empData,
@@ -216,7 +235,8 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
           isAdmin: rolesData.isAdmin,
           isSuperAdmin: rolesData.isSuperAdmin,
           isDeveloper: rolesData.isDeveloper,
-          isManager: rolesData.isManager
+          isManager: rolesData.isManager,
+          isManagerofUsers: isActualManager
         }
       },
       {
@@ -294,6 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [isDeveloper, setIsDeveloper] = useState(false)
   const [isManager, setIsManager] = useState(false)
+  const [isManagerofUsers, setIsManagerofUsers] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
@@ -316,6 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
+            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)
@@ -325,6 +347,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(false)
             setIsDeveloper(false)
             setIsManager(false)
+            setIsManagerofUsers(false)
             setRolesLoaded(false)
           }
         }
@@ -343,6 +366,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsSuperAdmin(false)
         setIsDeveloper(false)
         setIsManager(false)
+        setIsManagerofUsers(false)
         setRolesLoaded(false)
       }
       
@@ -401,6 +425,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
+            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)
@@ -410,6 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(false)
             setIsDeveloper(false)
             setIsManager(false)
+            setIsManagerofUsers(false)
             setRolesLoaded(false)
           }
         }
@@ -435,6 +461,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsSuperAdmin(false)
     setIsDeveloper(false)
     setIsManager(false)
+    setIsManagerofUsers(false)
     setRolesLoaded(false)
   }
 
@@ -459,6 +486,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(profile.isSuperAdmin)
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
+            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)
@@ -468,6 +496,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsSuperAdmin(false)
             setIsDeveloper(false)
             setIsManager(false)
+            setIsManagerofUsers(false)
             setRolesLoaded(false)
           }
         }
@@ -486,6 +515,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSuperAdmin,
         isDeveloper,
         isManager,
+        isManagerofUsers,
         userId, 
         employeeData, 
         login, 

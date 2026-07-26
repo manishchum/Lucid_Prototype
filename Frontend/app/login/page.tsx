@@ -61,6 +61,24 @@ function LoginContent() {
       if (!employeeData) {
         throw new Error("Access denied. Your email is not in the allowed users list.")
       }
+      if (employeeData.is_active === false) {
+        throw new Error("Your account has been deactivated. Please contact your administrator.")
+      }
+
+      // Company must exist
+      const companyRes = await fetchWithAuth(
+        `${API_BASE}/api/companies/${employeeData.company_id}`
+      )
+
+      if (!companyRes.ok) {
+        throw new Error("Your organization is no longer available. Please contact your administrator.")
+      }
+
+      const companyPayload = await companyRes.json()
+
+      if (!companyPayload?.data) {
+        throw new Error("Your organization is no longer available. Please contact your administrator.")
+      }
       return employeeData;
     } catch (error: any) {
       throw new Error(error.message || "Failed to verify user access.")

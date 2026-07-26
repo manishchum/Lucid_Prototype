@@ -1,4 +1,6 @@
 import os
+from google import genai
+from google.genai import types
 from analysis.models import whisper_pipeline, bge_model
 from analysis.text_analyzer import cosine_similarity, extract_keywords
 from audio_analysis.services.acoustic_analysis import analyze_audio_features
@@ -13,7 +15,18 @@ def transcribe_audio_whisper(audio_path: str) -> str:
         return ""
     
     try:
-        res = whisper_pipeline(audio_path)
+        res = whisper_pipeline(
+              audio_path,
+              generate_kwargs={
+        "task": "transcribe",
+        "language": "en",
+    },
+    return_timestamps=True,
+)
+
+        print("\n========== WHISPER OUTPUT ==========")
+        print(res)
+        print("====================================\n")
         return res.get("text", "").strip()
     except Exception as e:
         print("[Audio Analyzer] Whisper transcription failed:", e)
@@ -43,6 +56,37 @@ def analyze_audio(audio_path: str, task_title: str, task_description: str, expec
 
     # 1. Whisper Transcription
     transcript = transcribe_audio_whisper(audio_path)
+    transcript = clean_transcript_with_gemini(
+        transcript,
+        task_title,
+        task_description,
+        expected_answer
+    )
+    if not transcript.strip():
+        return {
+            "overall_score": 0,
+            "metrics": {
+                "transcript": "",
+                "clarity": 0,
+                "fluency": 0,
+                "confidence": 0,
+                "relevance_score": 0,
+                "improvement_points": [
+                    "Speech could not be transcribed."
+                ]
+            },
+            "strengths": [],
+            "weaknesses": [
+                "Speech could not be recognized."
+            ],
+            "detected_issues": [
+                "No speech detected or audio quality too poor."
+            ],
+            "improvement_points": [
+                "Please speak clearly into the microphone."
+            ],
+            "model_output": {}
+        }
 
     # 2. Acoustic features via Librosa
     acoustic_result = analyze_audio_features(audio_path)

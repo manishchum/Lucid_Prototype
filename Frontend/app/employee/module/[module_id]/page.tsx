@@ -169,6 +169,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
   const [userChatHistory, setUserChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string; isVoice?: boolean }>>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatLevel, setChatLevel] = useState<'module' | 'sprint'>('module');
   const router = useRouter();
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const [voiceLoopActive, setVoiceLoopActive] = useState(false);
@@ -291,7 +292,9 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
           ...(employeeData?.user_id ? { 'X-User-ID': employeeData.user_id } : {}),
         },
         body: JSON.stringify({
-          processed_module_id: module.processed_module_id,
+          ...(chatLevel === 'module'
+            ? { processed_module_id: module.processed_module_id }
+            : { module_id: module.original_module_id || moduleId }),
           user_message: userMessage,
           chat_history: userChatHistory,
           user_id: employeeData?.user_id,
@@ -523,6 +526,20 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                 {/* Chat Section - Only visible for Tier 2+ */}
                 <FeatureGate feature={FEATURES.CHAT_IN_STUDIO}>
                   <div className="rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden mt-10">
+                    <div className="p-3 bg-gray-50 flex justify-end gap-2 border-b border-gray-200">
+                      <button 
+                        onClick={() => setChatLevel('module')} 
+                        className={clsx("px-3 py-1.5 text-xs font-medium rounded-full transition-colors", chatLevel === 'module' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600 hover:bg-gray-300')}
+                      >
+                        Module Chat
+                      </button>
+                      <button 
+                        onClick={() => setChatLevel('sprint')} 
+                        className={clsx("px-3 py-1.5 text-xs font-medium rounded-full transition-colors", chatLevel === 'sprint' ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600 hover:bg-gray-300')}
+                      >
+                        Sprint Chat
+                      </button>
+                    </div>
                     <div className="p-4 sm:p-6 h-[22rem] sm:h-96 overflow-y-auto bg-gray-50">
                       {userChatHistory.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-center">
@@ -1398,19 +1415,86 @@ function ContentTransformer({
   }, [activeCompany]);
   const enabledLanguages = getCompanyEnabledLanguages(activeCompany);
 
+  const getLocalizedFieldName = (languageCode: AudioVideoLanguage | string, kind: 'audio' | 'transcript' | 'timeline' | 'video') => {
+    const normalized = String(languageCode || 'en').toLowerCase();
+
+    const languageSuffixMap: Record<string, string> = {
+      en: '',
+      english: '',
+      hi: 'hinglish',
+      hinglish: 'hinglish',
+      de: 'german',
+      german: 'german',
+      es: 'spanish',
+      spanish: 'spanish',
+      fr: 'french',
+      french: 'french',
+      it: 'italian',
+      italian: 'italian',
+      ru: 'russian',
+      russian: 'russian',
+      pl: 'polish',
+      polish: 'polish',
+      uk: 'ukrainian',
+      ukrainian: 'ukrainian',
+      ro: 'romanian',
+      romanian: 'romanian',
+      nl: 'dutch',
+      dutch: 'dutch',
+      bn: 'bengali',
+      bengali: 'bengali',
+      ta: 'tamil',
+      tamil: 'tamil',
+      te: 'telugu',
+      telugu: 'telugu',
+      mr: 'marathi',
+      marathi: 'marathi',
+      kn: 'kannada',
+      kannada: 'kannada',
+      pa: 'punjabi',
+      punjabi: 'punjabi',
+      gu: 'gujarati',
+      gujarati: 'gujarati',
+      ur: 'urdu',
+      urdu: 'urdu',
+      or: 'odia',
+      odia: 'odia',
+    };
+
+    const suffix = languageSuffixMap[normalized] ?? normalized;
+    const isEnglish = !suffix;
+
+    if (kind === 'audio') {
+      return isEnglish ? 'audio_url' : `audio_url_${suffix}`;
+    }
+    if (kind === 'video') {
+      return isEnglish ? 'video_url' : `video_url_${suffix}`;
+    }
+    if (kind === 'transcript') {
+      return isEnglish ? 'podcast_transcript' : `podcast_transcript_${suffix}`;
+    }
+    return isEnglish ? 'podcast_timeline' : `podcast_timeline_${suffix}`;
+  };
+
   // Map audio/video language codes to company language codes
   const filteredAudioVideoLanguages = enabledLanguages.map(lang => ({
     code: lang.code,
     name: lang.name,
   }));
-  const hasEnglishAudio = !!(module.audio_url && module.podcast_transcript && module.podcast_timeline);
-  const hasHinglishAudio = !!(module.audio_url_hinglish && module.podcast_transcript_hinglish && module.podcast_timeline_hinglish);
-  const hasGermanAudio = !!(module.audio_url_german && module.podcast_transcript_german && module.podcast_timeline_german);
-  const hasSpanishAudio = !!(module.audio_url_spanish && module.podcast_transcript_spanish && module.podcast_timeline_spanish);
-  const hasFrenchAudio = !!(module.audio_url_french && module.podcast_transcript_french && module.podcast_timeline_french);
-  const hasKannadaAudio = !!(module.audio_url_kannada && module.podcast_transcript_kannada && module.podcast_timeline_kannada);
-  const hasAudio = hasEnglishAudio || hasHinglishAudio || hasGermanAudio || hasSpanishAudio || hasFrenchAudio || hasKannadaAudio;
- 
+  const videoDropdownLanguages = enabledLanguages;
+  const getVideoFieldName = (languageCode: AudioVideoLanguage) => getLocalizedFieldName(languageCode, 'video');
+  const hasVideoForLanguage = (languageCode: AudioVideoLanguage) => {
+    const field = getVideoFieldName(languageCode);
+    return !!module?.[field];
+  };
+  const hasAnyVideo = enabledLanguages.some((lang) => hasVideoForLanguage(lang.code));
+  const hasAudio = enabledLanguages.some((lang) => {
+    const audioField = getLocalizedFieldName(lang.code, 'audio');
+    const transcriptField = getLocalizedFieldName(lang.code, 'transcript');
+    const timelineField = getLocalizedFieldName(lang.code, 'timeline');
+    return !!(module?.[audioField] && module?.[transcriptField] && module?.[timelineField]);
+  });
+
   // Check if current language audio is available
   const hasCurrentLanguageAudio = (languageCode: AudioVideoLanguage) => {
     const audioField = getLocalizedFieldName(languageCode, 'audio');
@@ -1433,26 +1517,11 @@ function ContentTransformer({
   const [infographicLoading, setInfographicLoading] = useState(false);
   const [videoLanguage, setVideoLanguage] = useState<AudioVideoLanguage>('en');
 
-  const getLocalizedFieldName = (languageCode: AudioVideoLanguage | string, kind: 'audio' | 'transcript' | 'timeline' | 'video') => {
-    const normalized = String(languageCode || 'en').toLowerCase();
-
-    const fieldMap: Record<string, Record<'audio' | 'transcript' | 'timeline' | 'video', string>> = {
-      en: { audio: 'audio_url', transcript: 'podcast_transcript', timeline: 'podcast_timeline', video: 'video_url' },
-      hi: { audio: 'audio_url_hinglish', transcript: 'podcast_transcript_hinglish', timeline: 'podcast_timeline_hinglish', video: 'video_url_hinglish' },
-      de: { audio: 'audio_url_german', transcript: 'podcast_transcript_german', timeline: 'podcast_timeline_german', video: 'video_url_german' },
-      es: { audio: 'audio_url_spanish', transcript: 'podcast_transcript_spanish', timeline: 'podcast_timeline_spanish', video: 'video_url_spanish' },
-      fr: { audio: 'audio_url_french', transcript: 'podcast_transcript_french', timeline: 'podcast_timeline_french', video: 'video_url_french' },
-      kn: { audio: 'audio_url_kannada', transcript: 'podcast_transcript_kannada', timeline: 'podcast_timeline_kannada', video: 'video_url_kannada' },
-      hinglish: { audio: 'audio_url_hinglish', transcript: 'podcast_transcript_hinglish', timeline: 'podcast_timeline_hinglish', video: 'video_url_hinglish' },
-      german: { audio: 'audio_url_german', transcript: 'podcast_transcript_german', timeline: 'podcast_timeline_german', video: 'video_url_german' },
-      spanish: { audio: 'audio_url_spanish', transcript: 'podcast_transcript_spanish', timeline: 'podcast_timeline_spanish', video: 'video_url_spanish' },
-      french: { audio: 'audio_url_french', transcript: 'podcast_transcript_french', timeline: 'podcast_timeline_french', video: 'video_url_french' },
-      kannada: { audio: 'audio_url_kannada', transcript: 'podcast_transcript_kannada', timeline: 'podcast_timeline_kannada', video: 'video_url_kannada' },
-      english: { audio: 'audio_url', transcript: 'podcast_transcript', timeline: 'podcast_timeline', video: 'video_url' },
-    };
-
-    return fieldMap[normalized]?.[kind] ?? (kind === 'audio' ? 'audio_url' : kind === 'video' ? 'video_url' : `podcast_${kind}`);
-  };
+  useEffect(() => {
+    if (!videoDropdownLanguages.length) return;
+    if (videoDropdownLanguages.some((lang) => lang.code === videoLanguage)) return;
+    setVideoLanguage(videoDropdownLanguages[0].code);
+  }, [videoDropdownLanguages, videoLanguage]);
 
   useEffect(() => {
     const parseMaybeJson = (value: any) => {
@@ -1996,19 +2065,7 @@ function ContentTransformer({
                     employeeId={employeeId}
                     processedModuleId={module.processed_module_id}
                     moduleId={module.original_module_id}
-                    audioUrl={
-                      language === "hi"
-                        ? module.audio_url_hinglish
-                        : language === "de"
-                        ? module.audio_url_german
-                        : language === "es"
-                        ? module.audio_url_spanish
-                        : language === "fr"
-                        ? module.audio_url_french
-                        : language === "kn"
-                        ? module.audio_url_kannada
-                        : module.audio_url
-                    }
+                    audioUrl={module?.[getLocalizedFieldName(language, 'audio')]}
                     onTimeUpdate={(current, duration, playbackRate) => handleTimeUpdate(current, duration, playbackRate)}
                     onPlayExtra={handleResetTranscript}
                     className="w-full"
@@ -2124,130 +2181,67 @@ function ContentTransformer({
 
         {selectedOption === 'video' && (
           <div className="space-y-3 flex flex-col">
-            {(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french) && (
-              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex justify-start gap-2 mb-2">
-                  <select
-                    value={videoLanguage}
-                    onChange={(e) => {
-                      const selectedLang = e.target.value as AudioVideoLanguage;
-                      setVideoLanguage(selectedLang);
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex justify-start gap-2 mb-2">
+                <select
+                  value={videoLanguage}
+                  onChange={(e) => {
+                    const selectedLang = e.target.value as AudioVideoLanguage;
+                    setVideoLanguage(selectedLang);
 
-                      const video = document.getElementById("module-video") as HTMLVideoElement;
-                      if (!video) return;
+                    const video = document.getElementById("module-video") as HTMLVideoElement;
+                    if (!video) return;
 
-                      const currentTime = video.currentTime;
-                      const wasPaused = video.paused;
+                    const currentTime = video.currentTime;
+                    const wasPaused = video.paused;
 
-                      const languageMap: Record<string, string> = {
-                        en: "",
-                        hi: "hinglish",
-                        de: "german",
-                        es: "spanish",
-                        fr: "french",
-                        kn: "kannada",
-                      };
+                    const fieldName = getLocalizedFieldName(selectedLang, 'video');
+                    const newSrc = module?.[fieldName];
 
-                      const suffix = languageMap[selectedLang] ?? selectedLang;
-                      const fieldName = suffix ? `video_url_${suffix}` : "video_url";
-
-                      const newSrc = module[fieldName];
-
-                      if (!newSrc) {
-                        console.warn(`Video not found for field: ${fieldName}`);
-                        return;
-                      }
-
-                      video.src = newSrc;
-                      video.load();
-
-                      video.onloadedmetadata = () => {
-                        video.currentTime = currentTime;
-                        if (!wasPaused) {
-                          video.play();
-                        }
-                        video.onloadedmetadata = null;
-                      };
-                    }}
-                  >
-                    {enabledLanguages.map((lang) => (
-                      <option key={lang.code} value={lang.code}>
-                        {lang.name}
-                      </option>
-                    ))}
-                  </select>
-                  {/* <select
-                    value={videoLanguage}
-                    onChange={(e) => {
-                      const selectedLang = e.target.value as AudioVideoLanguage;
-                      setVideoLanguage(selectedLang);
-                      const video = document.getElementById('module-video') as HTMLVideoElement;
-                      if (!video) return;
-                      const currentTime = video.currentTime;
-                      const isPaused = video.paused;
-                      const newSrc =
-                        selectedLang === 'hinglish'
-                          ? module.video_url_hinglish
-                          : selectedLang === 'german'
-                          ? module.video_url_german
-                          : selectedLang === 'spanish'
-                          ? module.video_url_spanish
-                          : selectedLang === 'french'
-                          ? module.video_url_french
-                          : module.video_url;
-                      if (newSrc) {
-                        video.src = newSrc;
-                        video.onloadedmetadata = () => {
-                          video.currentTime = currentTime;
-                          if (!isPaused) video.play();
-                          video.onloadedmetadata = null;
-                        };
-                      }
-                    }}
-                    className="px-3 py-1 rounded border text-sm bg-white"
-                  >
-                    {enabledLanguages.map((lang) => {
-                      const hasVideo =
-                        lang.code === 'en'
-                          ? !!module.video_url
-                          : lang.code === 'hinglish'
-                          ? !!module.video_url_hinglish
-                          : lang.code === 'german'
-                          ? !!module.video_url_german
-                          : lang.code === 'spanish'
-                          ? !!module.video_url_spanish
-                          : lang.code === 'french'
-                          ? !!module.video_url_french
-                          : false;
-                      return hasVideo ? (
-                        <option key={lang.code} value={lang.code}>{lang.name}</option>
-                      ) : null;
-                    })}
-                  </select> */}
-                </div>
-                <video id="module-video" controls className="w-full rounded-lg">
-                  <source
-                    src={
-                      videoLanguage === 'hinglish'
-                        ? module.video_url_hinglish
-                        : videoLanguage === 'german'
-                        ? module.video_url_german
-                        : videoLanguage === 'spanish'
-                        ? module.video_url_spanish
-                        : videoLanguage === 'french'
-                        ? module.video_url_french
-                        : videoLanguage === 'kannada'
-                        ? module.video_url_kannada
-                        : module.video_url
+                    if (!newSrc) {
+                      console.warn(`Video not found for field: ${fieldName}`);
+                      return;
                     }
+
+                    video.src = newSrc;
+                    video.load();
+
+                    video.onloadedmetadata = () => {
+                      video.currentTime = currentTime;
+                      if (!wasPaused) {
+                        video.play();
+                      }
+                      video.onloadedmetadata = null;
+                    };
+                  }}
+                >
+                  {videoDropdownLanguages.map((lang) => {
+                    const hasVideo = hasVideoForLanguage(lang.code);
+                    return (
+                      <option key={lang.code} value={lang.code} disabled={!hasVideo}>
+                        {lang.name}{!hasVideo ? ' (not generated)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <video id="module-video" controls className="w-full rounded-lg">
+                {module?.[getLocalizedFieldName(videoLanguage, 'video')] ? (
+                  <source
+                    src={module?.[getLocalizedFieldName(videoLanguage, 'video')]}
                     type="video/mp4"
                   />
-                  Your browser does not support video playback.
-                </video>
-              </div>
-            )}
+                ) : null}
+                Your browser does not support video playback.
+              </video>
+              {!hasVideoForLanguage(videoLanguage) && (
+                <div className="mt-3 text-sm text-slate-500">
+                  Video is not generated yet for {videoDropdownLanguages.find((lang) => lang.code === videoLanguage)?.name || videoLanguage}.
+                </div>
+              )}
+            </div>
 
-            {!(module.video_url || module.video_url_hinglish || module.video_url_german || module.video_url_spanish || module.video_url_french || module.video_url_kannada) && (
+            {!hasAnyVideo && (
               <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 space-y-4">
                 <div>Video is not available yet.</div>
                 <GenerateVideoButton

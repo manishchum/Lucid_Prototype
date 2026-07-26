@@ -18,6 +18,7 @@ export interface Task {
   total_target_count: number;
   completion_count: number;
   created_at: string;
+  target_user_ids?: string[];
   // optional fields attached by backend when returning user-specific tasks
   submitted?: boolean;
   submission?: any;
@@ -47,6 +48,7 @@ export interface CreateTaskPayload {
 
 export interface SubmitTaskPayload {
   task_id: string;
+  child_task_id?: string;
   user_id: string;
   assignment_id: string;
   submission_type: string;
@@ -165,7 +167,7 @@ export async function submitTaskResponse(
 ): Promise<any> {
   const submissionType = (payload.submission_type || "").toLowerCase();
   if (submissionType === "text" || submissionType === "multiple_choice") {
-    return submitTextAnalysis(payload as any, params);
+    return submitTask(payload, params);
   }
   return submitTask(payload, params);
 }

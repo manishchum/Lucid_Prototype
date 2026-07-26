@@ -208,19 +208,30 @@ def analyze_mcq(questions: list, answers: list) -> dict:
 
     for ans in answers:
         q_id = str(ans.get("question_id") or ans.get("id") or "")
-        selected = str(ans.get("selected_option") or "").strip()
-        
         q_obj = q_map.get(q_id)
+
+        selected = str(ans.get("selected_option") or ans.get("selected_answer") or ans.get("answer") or ans.get("selected") or ""
+
+).strip()
         if q_obj:
             correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or "").strip()
-            # If correctAnswer is not there, maybe it's in the answer payload itself as correct_answer
-            if not correct:
-                correct = str(ans.get("correct_answer") or "").strip()
             
-            is_correct = (selected.lower() == correct.lower())
+            selected_items = {
+                x.strip().lower()
+                for x in selected.split(",")
+                if x.strip()
+            }
+
+            correct_items = {
+                x.strip().lower()
+                for x in correct.split(",")
+                if x.strip()
+            }
+
+            is_correct = (selected_items == correct_items) if correct_items else False
             if is_correct:
                 correct_count += 1
-            
+
             analysis.append({
                 "question": q_obj.get("question", ""),
                 "selected_answer": selected,
@@ -229,17 +240,13 @@ def analyze_mcq(questions: list, answers: list) -> dict:
                 "feedback": "Correct option selected." if is_correct else f"Incorrect. The correct option was: {correct}"
             })
         else:
-            # Fallback if question not found in map
-            correct = str(ans.get("correct_answer") or "").strip()
-            is_correct = (selected.lower() == correct.lower())
-            if is_correct:
-                correct_count += 1
+            # Invalid question ID provided in payload
             analysis.append({
-                "question": ans.get("question", ""),
+                "question": ans.get("question", f"Unknown Question ID: {q_id}"),
                 "selected_answer": selected,
-                "correct_answer": correct,
-                "is_correct": is_correct,
-                "feedback": "Correct option selected." if is_correct else f"Incorrect. The correct option was: {correct}"
+                "correct_answer": "UNKNOWN",
+                "is_correct": False,
+                "feedback": "Invalid question. No matching question found in the database."
             })
 
     score = int((correct_count / total) * 100) if total > 0 else 0

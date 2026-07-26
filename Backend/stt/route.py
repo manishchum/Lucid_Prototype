@@ -87,6 +87,12 @@ async def speech_to_text(
         transcription = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
             file=buffer,
+            prompt=(
+                "The speaker may speak English, Hindi, Hinglish "
+                "(Hindi written using English letters), or mixed language. "
+                "Transcribe exactly as spoken. "
+                "Do not translate."
+            )
         )
     except Exception as exc:
         print(f"[STT] Transcription failed: {exc}")
