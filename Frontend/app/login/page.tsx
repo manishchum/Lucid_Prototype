@@ -79,6 +79,10 @@ function LoginContent() {
       if (!companyPayload?.data) {
         throw new Error("Your organization is no longer available. Please contact your administrator.")
       }
+
+      if (companyPayload.data.is_company_active === false) {
+        throw new Error("Your organization account has been deactivated. Please contact your administrator.")
+      }
       return employeeData;
     } catch (error: any) {
       throw new Error(error.message || "Failed to verify user access.")
