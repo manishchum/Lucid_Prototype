@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
 import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/RoleplayConfigPage';
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
-import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
+// import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 // import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
@@ -283,7 +283,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     // Fetch functions and sub-functions and users for the dropdown
     try {
       const response = await fetchWithAuth(
-        `${API_URL}/api/assignment-targets`
+        `${API_URL}/api/roleplay/assignment-targets`
       );
 
       if (!response.ok) {
@@ -291,10 +291,11 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
       }
 
       const result = await response.json();
+      const targets = result.data || {};
 
-      setFunctions(result.functions || []);
-      setSubFunctions(result.sub_functions || []);
-      setUsers(result.users || []);
+      setFunctions(targets.functions || []);
+      setSubFunctions(targets.sub_functions || []);
+      setUsers(targets.users || []);
       } catch (error) {
       console.error("Error fetching assignment targets:", error);
     }
@@ -394,22 +395,21 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         throw new Error('Scenario information not available');
       }
 
-      const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
+      const response = await fetchWithAuth(`${API_URL}/api/roleplay/sessions/${sessionId}/assessment`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-        },
         cache: 'no-store',
-        body: JSON.stringify({
-          messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
-          scenarioTitle: selectedScenario?.title,
-          scenarioRole: selectedScenario?.role,
-          userRole: selectedScenario?.userRole
-        }),
-      });
-
+        // headers: {
+        //   'Content-Type': 'application/json',
+        //   'Cache-Control': 'no-cache, no-store, must-revalidate',
+        //   'Pragma': 'no-cache',
+        // },
+        
+        // body: JSON.stringify({
+        //   messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
+        //   scenarioTitle: selectedScenario?.title,
+        //   scenarioRole: selectedScenario?.role,
+        //   userRole: selectedScenario?.userRole
+        });
       // console.log('[Assessment] Response status:', response.status);
 
       if (!response.ok) {
@@ -423,7 +423,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
       }
 
-      const assessment = await response.json();
+      const assessmentResult = await response.json();
+      const assessment = assessmentResult?.data ?? assessmentResult;
       // console.log('[Assessment] Success, score:', assessment?.overallScore);
       
       // ✅ Validate assessment structure - zero score is valid!
@@ -446,7 +447,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           // });
           
           // console.log('[Assessment] Saving to DB with sessionId:', sessionId);
-          await createRolePlayAssessment(sessionId, employeeId, assessment);
+          // await createRolePlayAssessment(sessionId, employeeId, assessment);
           // console.log('[Assessment] ✅ Saved to database');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);

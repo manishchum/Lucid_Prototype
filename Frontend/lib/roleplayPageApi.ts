@@ -48,7 +48,7 @@ export async function fetchScenariosForUserAPI(
   isAdmin: boolean
 ): Promise<{ data: Scenario[] | null; error: any }> {
   try {
-    const response = await fetchWithAuth(`${API_URL}/api/scenarios?is_admin=${isAdmin}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/scenarios?is_admin=${isAdmin}`, {
       method: 'GET',
       headers: {
         'X-User-ID': userId,
@@ -113,7 +113,7 @@ export async function deleteCustomScenarioAPI(
   companyId: string
 ): Promise<{ error: any }> {
   try {
-    const response = await fetchWithAuth(`${API_URL}/api/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/scenarios/${scenarioId}`, {
       method: 'DELETE',
       headers: {
         'X-User-ID': userId,
@@ -185,17 +185,15 @@ export async function assignScenarioAPI(
       };
     }
 
-    const response = await fetchWithAuth(`${API_URL}/api/scenarios/assign`, {
+    const response = await fetchWithAuth(`${API_URL}/api/roleplay/scenarios/${scenarioId}/assignments`, {
       method: 'POST',
       headers: {
         'X-User-ID': userId,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        scenario_id: scenarioId,
         assignment_type: assignmentType,
         target_ids: targetIds,
-        company_id: companyId,
       }),
       cache: 'no-store',
     });
@@ -253,7 +251,7 @@ export async function getScenarioAssignmentsAPI(
 ): Promise<{ data: any; error: any }> {
   try {
     const response = await fetchWithAuth(
-      `${API_URL}/api/scenarios/assignments/${scenarioId}`,
+      `${API_URL}/api/roleplay/scenarios/assignments/${scenarioId}`,
       {
         method: 'GET',
         headers: {

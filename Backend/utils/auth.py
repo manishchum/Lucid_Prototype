@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from utils.auth_bridge import (
 	BridgeConfigurationError,
 	BridgeResolutionError,
@@ -329,8 +329,6 @@ def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
 	return get_request_auth_required(authorization=authorization)
 
-from fastapi import Depends
-
 async def get_effective_company_id(
 	request: Request,
 	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
@@ -382,3 +380,21 @@ async def get_effective_company_id(
 		return home_company_id
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
+
+
+@dataclass
+class RoleplayContext:
+	user_id: str
+	company_id: str
+	auth_ctx: RequestAuth
+
+
+async def get_roleplay_context(
+	auth_ctx: RequestAuth = Depends(get_request_auth_required),
+	company_id: str = Depends(get_effective_company_id),
+) -> RoleplayContext:
+	return RoleplayContext(
+		user_id=auth_ctx.user_id,
+		company_id=company_id,
+		auth_ctx=auth_ctx,
+	)

@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplay/types";
-import { createRolePlaySession } from "@/lib/roleplayDatabase";
+// import { createRolePlaySession } from "@/lib/roleplayDatabase";
+import { createRolePlaySessionAPI } from "@/lib/roleplayApi";
 import { getFirebaseIdToken } from "@/lib/fetch-with-auth";
 
 interface RolePlayConversationProps {
@@ -367,9 +368,13 @@ export default function RolePlayConversation({
     conversationTranscriptRef.current = [];
     if (employeeId) {
       try {
-        const { data, error } = await createRolePlaySession(
-          employeeId, scenario.scenario_id, scenario.title,
-          scenario.role, scenario.difficulty, moduleId
+        const { data, error } = await createRolePlaySessionAPI(
+            employeeId,
+            scenario.scenario_id,
+            scenario.title,
+            scenario.role,
+            scenario.difficulty,
+            moduleId
         );
         if (data && !error) {
           sessionIdRef.current = data.id;

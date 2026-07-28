@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
@@ -9,12 +8,9 @@ import httpx
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Query,
-    Request,
     WebSocket,
-    status,
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -23,18 +19,19 @@ from websockets.asyncio.client import connect
 from config import GEMINI_API_KEY, OPENAI_API_KEY, OPENAI_REALTIME_MODEL
 
 from utils.auth import (
-    RequestAuth,
+    RoleplayContext,
     _verify_firebase_token,
-    get_effective_company_id,
-    get_request_auth_optional,
-    get_request_auth_required,
+    get_roleplay_context,
     resolve_user_context_from_claims,
 )
 
 from utils.db import roleplay_db
 from utils.db.permissions import check_user_permission
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/roleplay",
+    tags=["Roleplay"]
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -95,10 +92,8 @@ class UpdateScenarioRequest(BaseModel):
 # ------------------------------------------------------------
 
 class AssignScenarioRequest(BaseModel):
-    scenario_id: str
     assignment_type: Literal['function', 'sub_function', 'user']
     target_ids: List[str]
-    company_id: str
 
 
 class DeleteScenarioRequest(BaseModel):
@@ -129,33 +124,37 @@ class AssessmentParameter(BaseModel):
     feedback: str
 
 
-class CreateAssessmentRequest(BaseModel):
-    session_id: str
-    employee_id: str
-    overallScore: int
-    summary: str
-    parameters: List[AssessmentParameter]
-    recommendations: List[str]
+# class CreateAssessmentRequest(BaseModel):
+#     session_id: str
+#     employee_id: str
+#     overallScore: int
+#     summary: str
+#     parameters: List[AssessmentParameter]
+#     recommendations: List[str]
     
     
 def fallback_assessment(summary: str) -> JSONResponse:
     return JSONResponse(
         content={
-            "overallScore": 50,
-            "summary": summary,
-            "parameters": [
-                {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},
-                {"name": "Confidence & Professionalism", "score": 50, "feedback": "Assessment pending"},
-            ],
-            "recommendations": [
-                "Your practice session was recorded successfully.",
-                "Try again later to get a detailed assessment.",
-                "Contact support if the issue persists.",
-                "Your progress is being tracked.",
-            ],
+            "success": True,
+            "data": {
+                "overallScore": 50,
+                "summary": summary,
+                "parameters": [
+                    {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
+                    {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
+                    {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
+                    {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},
+                    {"name": "Confidence & Professionalism", "score": 50, "feedback": "Assessment pending"},
+                ],
+                "recommendations": [
+                    "Your practice session was recorded successfully.",
+                    "Try again later to get a detailed assessment.",
+                    "Contact support if the issue persists.",
+                    "Your progress is being tracked.",
+                ],
+            },
+            "message": "Assessment generated with fallback response",
         },
         status_code=200,
     )
@@ -198,21 +197,20 @@ AI character objective: {ai_objectives}"""
 # Scenario CRUD
 # ============================================================
 
-@router.post("/create")
+@router.post("/scenarios")
 async def create_scenario(
     request_data: CreateScenarioRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Create a new custom roleplay scenario
     """
     try:
-        company_id = effective_company_id
+        company_id = ctx.company_id
 
-        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
-        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
-        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+        is_admin = await check_user_permission(ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(ctx.user_id, "developer")
 
         if not (is_admin or is_super_admin or is_developer):
             raise HTTPException(
@@ -268,22 +266,21 @@ async def create_scenario(
         raise HTTPException(status_code=500, detail=f"Error creating scenario: {str(e)}")
 
 
-@router.put("/{scenario_id}")
+@router.put("/scenarios/{scenario_id}")
 async def update_scenario(
     scenario_id: str,
     request_data: UpdateScenarioRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Update an existing custom roleplay scenario
     """
     try:
-        company_id = effective_company_id
+        company_id = ctx.company_id
         
-        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
-        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
-        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+        is_admin = await check_user_permission(ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(ctx.user_id, "developer")
 
         if not (is_admin or is_super_admin or is_developer):
             raise HTTPException(
@@ -291,10 +288,7 @@ async def update_scenario(
                 detail="Only administrators can update roleplay scenarios."
             )
         # Verify ownership
-        existing = roleplay_db.get_scenario(scenario_id, company_id)
-        
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Scenario not found or access denied")
+        roleplay_db.require_company_scenario(scenario_id, company_id)
 
         # Prepare update payload (only include non-None fields)
         payload = {}
@@ -357,21 +351,20 @@ async def update_scenario(
         raise HTTPException(status_code=500, detail=f"Error updating scenario: {str(e)}")
 
 
-@router.delete("/{scenario_id}")
+@router.delete("/scenarios/{scenario_id}")
 async def delete_scenario(
     scenario_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Delete a custom roleplay scenario
     """
     try:
-        company_id = effective_company_id
+        company_id = ctx.company_id
         
-        is_admin = await check_user_permission(auth_ctx.user_id, "admin")
-        is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
-        is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+        is_admin = await check_user_permission(ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(ctx.user_id, "developer")
 
         if not (is_admin or is_super_admin or is_developer):
             raise HTTPException(
@@ -380,16 +373,14 @@ async def delete_scenario(
             )
 
         # Verify ownership
-        existing = roleplay_db.get_scenario(scenario_id, company_id)
-        
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Scenario not found or access denied")
+        roleplay_db.require_company_scenario(scenario_id, company_id)
 
         # Delete from Supabase
         result = roleplay_db.delete_scenario(scenario_id)
 
         return {
             "success": True,
+            "data": None,
             "message": "Scenario deleted successfully"
         }
 
@@ -402,7 +393,6 @@ async def delete_scenario(
 @router.get("/user-data/{user_email}")
 async def fetch_user_data(
     user_email: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
 ):
     """
     Fetch user data (user_id and company_id) by email
@@ -431,10 +421,8 @@ async def fetch_user_data(
     
 @router.get("/scenarios")
 async def fetch_scenarios_for_user(
-    request: Request,
     is_admin: bool = Query(False),
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Fetch scenarios for a user (admin gets all, regular users get assigned)
@@ -442,14 +430,14 @@ async def fetch_scenarios_for_user(
     Query: is_admin (boolean)
     """
     try:
-        user_id = auth_ctx.user_id
+        user_id = ctx.user_id
         # print("Auth context for scenario fetch:", auth_ctx)
         if not user_id:
             raise HTTPException(status_code=401, detail="Authentication required")
         
         # Admin gets all scenarios
         if is_admin:
-            db_scenarios, error = roleplay_db.fetch_all_scenarios(effective_company_id)
+            db_scenarios, error = roleplay_db.fetch_all_scenarios(ctx.company_id)
             # print("Fetched all scenarios for admin:", db_scenarios)
             
             if error:
@@ -458,7 +446,8 @@ async def fetch_scenarios_for_user(
             normalized = [roleplay_db.normalize_scenario(s) for s in (db_scenarios or [])]
             return {
                 'success': True,
-                'data': normalized
+                'data': normalized,
+                'message': 'Scenarios fetched successfully'
             }
         
         # Regular user gets assigned scenarios
@@ -469,13 +458,15 @@ async def fetch_scenarios_for_user(
             # Fall back to returning no custom scenarios
             return {
                 'success': True,
-                'data': []
+                'data': [],
+                'message': 'No assigned scenarios found'
             }
         
         if not assigned_ids:
             return {
                 'success': True,
-                'data': []
+                'data': [],
+                'message': 'No assigned scenarios found'
             }
         
         # Fetch assigned scenarios
@@ -488,7 +479,8 @@ async def fetch_scenarios_for_user(
         print("These are the assigned_scenarios:", assigned_scenarios)
         return {
             'success': True,
-            'data': normalized
+            'data': normalized,
+            'message': 'Scenarios fetched successfully'
         }
     
     except HTTPException:
@@ -497,52 +489,21 @@ async def fetch_scenarios_for_user(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/scenarios/{scenario_id}")
-async def delete_scenario(
-    scenario_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
-):
-    """
-    Delete a custom scenario
-    """
-    try:
-        # Verify ownership (scenario belongs to company)
-        scenario_result = roleplay_db.get_scenario(scenario_id, effective_company_id)
-        
-        if not scenario_result.data:
-            raise HTTPException(status_code=403, detail="Scenario not found or access denied")
-        
-        # Delete scenario
-        delete_result = roleplay_db.delete_scenario(scenario_id)
-        
-        return {
-            'success': True,
-            'message': 'Scenario deleted successfully'
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/scenarios/assign")
+@router.post("/scenarios/{scenario_id}/assignments")
 async def assign_scenario_to_targets(
+    scenario_id: str,
     request_data: AssignScenarioRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Assign a scenario to departments, sub-departments, or users
     """
     try:
-        user_id = auth_ctx.user_id
-        scenario_id = request_data.scenario_id
         assignment_type = request_data.assignment_type
         target_ids = request_data.target_ids
-        # OVERRIDE the request_data company_id with the secure one
-        company_id = effective_company_id
+        company_id = ctx.company_id
+
+        roleplay_db.require_company_scenario(scenario_id, company_id)
         
         if not target_ids:
             raise HTTPException(status_code=400, detail="No targets provided")
@@ -633,8 +594,7 @@ async def assign_scenario_to_targets(
 @router.get("/scenarios/assignments/{scenario_id}")
 async def get_scenario_assignments(
     scenario_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     """
     Get all assignments for a scenario
@@ -644,11 +604,13 @@ async def get_scenario_assignments(
         # result = supabase.table("scenario_assignments").select("*").eq(
         #     "scenario_id", scenario_id
         # ).execute()
-        result = roleplay_db.get_scenario_assignments(scenario_id, effective_company_id)
+        roleplay_db.require_company_scenario(scenario_id, ctx.company_id)
+        result = roleplay_db.get_scenario_assignments(scenario_id, ctx.company_id)
         
         return {
             'success': True,
-            'data': result.data or []
+            'data': result.data or [],
+            'message': 'Scenario assignments fetched successfully'
         }
     
     except HTTPException:
@@ -658,19 +620,21 @@ async def get_scenario_assignments(
 
 @router.get("/assignment-targets")
 async def get_assignment_targets(
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     try:
-        functions = roleplay_db.get_functions(effective_company_id)
-        sub_functions = roleplay_db.get_sub_functions(effective_company_id)
-        users = roleplay_db.get_active_company_users(effective_company_id)
+        functions = roleplay_db.get_functions(ctx.company_id)
+        sub_functions = roleplay_db.get_sub_functions(ctx.company_id)
+        users = roleplay_db.get_active_company_users(ctx.company_id)
 
         return {
             "success": True,
-            "functions": functions.data or [],
-            "sub_functions": sub_functions.data or [],
-            "users": users.data or []
+            "data": {
+                "functions": functions.data or [],
+                "sub_functions": sub_functions.data or [],
+                "users": users.data or [],
+            },
+            "message": "Assignment targets fetched successfully"
         }
 
     except Exception as e:
@@ -682,44 +646,17 @@ async def get_assignment_targets(
 # SESSIONS
 # ==================================================
 
-@router.post("/roleplay/sessions/create")
+@router.post("/sessions")
 async def create_roleplay_session(
     payload: CreateSessionRequest,
-    auth_ctx = Depends(get_request_auth_required)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     try:
-        if payload.employee_id != auth_ctx.user_id:
+        if payload.employee_id != ctx.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to create sessions for other users")
-        # Check attempts
-        user_res = roleplay_db.get_user(payload.employee_id)
-        if not user_res.data:
-            raise HTTPException(status_code=400, detail="User not found")
-            
-        company_id = user_res.data[0]['company_id']
-        
-        comp_res = roleplay_db.get_company(company_id)
-        if not comp_res.data:
-            raise HTTPException(status_code=400, detail="Company not found")
-            
-        retry_limit = comp_res.data[0].get('rate_limit_role_play_retries')
-        if retry_limit is None:
-            retry_limit = 3
-        else:
-            retry_limit = int(retry_limit)
-            
-        if retry_limit <= 0:
-            raise HTTPException(status_code=403, detail="Roleplay retries are disabled for your company.")
-            
-        sessions_res = roleplay_db.get_roleplay_sessions(payload.employee_id, payload.scenario_id)
-        session_ids = [s['id'] for s in sessions_res.data] if sessions_res.data else []
-        
-        if session_ids:
-            assess_res = roleplay_db.count_roleplay_attempts(
-                payload.employee_id, session_ids
-            )
-            attempt_count = assess_res.count or 0
-            if attempt_count >= retry_limit:
-                raise HTTPException(status_code=403, detail=f"Roleplay retry limit reached. You can attempt this scenario up to {retry_limit} time(s).")
+
+        roleplay_db.require_company_scenario(payload.scenario_id, ctx.company_id)
+        roleplay_db.check_retry_limit(payload.employee_id, payload.scenario_id)
 
         insert_data = {
             "employee_id": payload.employee_id,
@@ -738,7 +675,11 @@ async def create_roleplay_session(
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to create session in database")
             
-        return {"data": res.data[0]}
+        return {
+            "success": True,
+            "data": res.data[0],
+            "message": "Session created successfully"
+        }
 
     except HTTPException:
         raise
@@ -747,11 +688,11 @@ async def create_roleplay_session(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/roleplay/sessions/{session_id}")
+@router.put("/sessions/{session_id}")
 async def update_roleplay_session(
     session_id: str,
     payload: UpdateSessionRequest,
-    auth_ctx = Depends(get_request_auth_required)
+    ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     try:
         update_data = {
@@ -765,53 +706,84 @@ async def update_roleplay_session(
         if not res.data:
             raise HTTPException(status_code=500, detail="Failed to update session in database")
             
-        return {"data": res.data[0]}
+        return {
+            "success": True,
+            "data": res.data[0],
+            "message": "Session updated successfully"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/roleplay/assessments/create")
-async def create_roleplay_assessment(
-    payload: CreateAssessmentRequest,
-    auth_ctx = Depends(get_request_auth_required)
-):
-    try:
-        if payload.employee_id != auth_ctx.user_id:
-            raise HTTPException(status_code=403, detail="Not authorized to create assessments for other users")
-        insert_data = {
-            "session_id": payload.session_id,
-            "employee_id": payload.employee_id,
-            "overall_score": payload.overallScore,
-            "summary": payload.summary,
-            "parameters": [p.model_dump() for p in payload.parameters],
-            "recommendations": payload.recommendations
-        }
-        res = roleplay_db.save_roleplay_assessment(insert_data)
-        if not res.data:
-            raise HTTPException(status_code=500, detail="Failed to create assessment in database")
+# @router.post("/assessments/create")
+# async def create_roleplay_assessment(
+#     payload: CreateAssessmentRequest,
+#     ctx: RoleplayContext = Depends(get_roleplay_context)
+# ):
+#     try:
+#         if payload.employee_id != ctx.user_id:
+#             raise HTTPException(status_code=403, detail="Not authorized to create assessments for other users")
+#         insert_data = {
+#             "session_id": payload.session_id,
+#             "employee_id": payload.employee_id,
+#             "overall_score": payload.overallScore,
+#             "summary": payload.summary,
+#             "parameters": [p.model_dump() for p in payload.parameters],
+#             "recommendations": payload.recommendations
+#         }
+#         res = roleplay_db.save_roleplay_assessment(insert_data)
+#         if not res.data:
+#             raise HTTPException(status_code=500, detail="Failed to create assessment in database")
             
-        return {"data": res.data[0]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#         return {
+#             "success": True,
+#             "data": res.data[0],
+#             "message": "Assessment saved successfully"
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================
 # Assessment
 # ============================================================
 
-@router.post("/roleplay/assessment")
-async def generate_assessment(request: Request, auth_ctx = Depends(get_request_auth_required)):
+@router.post("/sessions/{session_id}/assessment")
+async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(get_roleplay_context)):
     try:
+        logging.info("Assessment request for session_id=%s user_id=%s", session_id, ctx.user_id)
+
+        session_result = roleplay_db.get_roleplay_session(session_id)
+
+        if not session_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Roleplay session not found"
+            )
+
+        session = session_result.data
+
+        if session.get("employee_id") != ctx.user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to access this roleplay session")
+
+        scenario_result = roleplay_db.get_roleplay_scenario(session["scenario_id"])
+
+        if not scenario_result.data:
+            raise HTTPException(
+                status_code=404,
+                detail="Scenario not found"
+            )
+
+        scenario = scenario_result.data
+
         if not GEMINI_API_KEY:
             return JSONResponse(
                 content={"error": "Gemini API key not configured"},
                 status_code=500
             )
 
-        body = await request.json()
-
-        messages = body.get("messages")
-        scenario_title = body.get("scenarioTitle")
-        scenario_role = body.get("scenarioRole")
-        user_role = body.get("userRole")
+        messages = session["messages"]
+        scenario_title = scenario["title"]
+        scenario_role = scenario["role"]
+        user_role = scenario["userRole"]
 
         # ✅ Handle both missing and empty messages array
         if messages is None:
@@ -841,30 +813,34 @@ async def generate_assessment(request: Request, auth_ctx = Depends(get_request_a
 
             return JSONResponse(
                 content={
-                    "overallScore": 0,
-                    "summary": (
-                        "The conversation was ended abruptly or was too short to provide "
-                        "a meaningful assessment. Please complete a full roleplay session "
-                        "with at least 3-4 exchanges to receive proper feedback."
-                    ),
-                    "parameters": [
-                        {"name": "Communication Clarity", "score": 0,
-                         "feedback": "Insufficient conversation to evaluate communication skills."},
-                        {"name": "Objection Handling", "score": 0,
-                         "feedback": "No sufficient interaction to evaluate objection handling."},
-                        {"name": "Value Proposition", "score": 0,
-                         "feedback": "Conversation ended before value proposition could be assessed."},
-                        {"name": "Active Listening", "score": 0,
-                         "feedback": "Insufficient dialogue to assess listening skills."},
-                        {"name": "Confidence & Professionalism", "score": 0,
-                         "feedback": "Not enough interaction to evaluate confidence and professionalism."},
-                    ],
-                    "recommendations": [
-                        "Complete a full roleplay session without ending it prematurely.",
-                        "Engage in at least 4-5 exchanges with the LT to demonstrate your skills.",
-                        "Practice maintaining the conversation until a natural conclusion is reached.",
-                        "Use the session duration effectively to showcase your abilities.",
-                    ],
+                    "success": True,
+                    "data": {
+                        "overallScore": 0,
+                        "summary": (
+                            "The conversation was ended abruptly or was too short to provide "
+                            "a meaningful assessment. Please complete a full roleplay session "
+                            "with at least 3-4 exchanges to receive proper feedback."
+                        ),
+                        "parameters": [
+                            {"name": "Communication Clarity", "score": 0,
+                             "feedback": "Insufficient conversation to evaluate communication skills."},
+                            {"name": "Objection Handling", "score": 0,
+                             "feedback": "No sufficient interaction to evaluate objection handling."},
+                            {"name": "Value Proposition", "score": 0,
+                             "feedback": "Conversation ended before value proposition could be assessed."},
+                            {"name": "Active Listening", "score": 0,
+                             "feedback": "Insufficient dialogue to assess listening skills."},
+                            {"name": "Confidence & Professionalism", "score": 0,
+                             "feedback": "Not enough interaction to evaluate confidence and professionalism."},
+                        ],
+                        "recommendations": [
+                            "Complete a full roleplay session without ending it prematurely.",
+                            "Engage in at least 4-5 exchanges with the LT to demonstrate your skills.",
+                            "Practice maintaining the conversation until a natural conclusion is reached.",
+                            "Use the session duration effectively to showcase your abilities.",
+                        ],
+                    },
+                    "message": "Assessment generated successfully",
                 }
             )
 
@@ -1021,7 +997,22 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
             logging.error("Missing required keys: %s. Available keys: %s", missing_keys, list(assessment.keys()))
             raise HTTPException(status_code=500, detail=f"Invalid assessment report structure. Missing: {missing_keys}")
 
-        return JSONResponse(content=assessment)
+        insert_data = {
+            "session_id": session_id,
+            "employee_id": session["employee_id"],
+            "overall_score": assessment["overallScore"],
+            "summary": assessment["summary"],
+            "parameters": assessment["parameters"],
+            "recommendations": assessment["recommendations"],
+        }
+
+        roleplay_db.save_roleplay_assessment(insert_data)
+
+        return {
+            "success": True,
+            "data": assessment,
+            "message": "Assessment generated successfully"
+        }
 
     except json.JSONDecodeError as e:
         logging.error("❌ JSON decode error: %s", str(e))
@@ -1041,25 +1032,9 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         
         # ✅ Return a graceful fallback assessment on error
         logging.info("Returning fallback assessment due to error")
-        return JSONResponse(
-            content={
-                "overallScore": 50,
-                "summary": "Assessment could not be generated at this moment. Please try again in a few minutes. Your conversation has been saved and you can review it in your reports.",
-                "parameters": [
-                    {"name": "Communication Clarity", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Objection Handling", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Value Proposition", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Active Listening", "score": 50, "feedback": "Assessment pending"},
-                    {"name": "Confidence & Professionalism", "score": 50, "feedback": "Assessment pending"},
-                ],
-                "recommendations": [
-                    "Your practice session was recorded successfully.",
-                    "Try again later to get a detailed assessment.",
-                    "Contact support if the issue persists.",
-                    "Your progress is being tracked.",
-                ]
-            },
-            status_code=200  # ✅ Return 200 so frontend accepts it
+        return fallback_assessment(
+            "Assessment could not be generated at this moment. Please try again in a few minutes. "
+            "Your conversation has been saved and you can review it in your reports."
         )
 
 # ============================================================
@@ -1071,7 +1046,7 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
 # Realtime
 # ============================================================
 
-@router.websocket("/roleplay/realtime")
+@router.websocket("/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
     # Security: Grab the token from the URL query
     token = websocket.query_params.get("token")

@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from fastapi import HTTPException
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 
@@ -187,6 +188,13 @@ def get_scenario(scenario_id:str, company_id:str):
         .execute()
     )
 
+
+def require_company_scenario(scenario_id: str, company_id: str):
+    result = get_scenario(scenario_id, company_id)
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Scenario not found or access denied")
+    return result
+
 def update_scenario(
     scenario_id: str,
     payload: dict
@@ -300,6 +308,81 @@ def save_roleplay_assessment(
         supabase
         .table("roleplay_assessments")
         .insert(insert_data)
+        .execute()
+    )
+
+
+def check_retry_limit(employee_id: str, scenario_id: str):
+    user_res = get_user(employee_id)
+    if not user_res.data:
+        raise HTTPException(status_code=400, detail="User not found")
+
+    company_id = user_res.data[0].get("company_id")
+    comp_res = get_company(company_id)
+    if not comp_res.data:
+        raise HTTPException(status_code=400, detail="Company not found")
+
+    retry_limit = comp_res.data[0].get("rate_limit_role_play_retries")
+    retry_limit = int(retry_limit) if retry_limit is not None else 3
+
+    if retry_limit <= 0:
+        raise HTTPException(status_code=403, detail="Roleplay retries are disabled for your company.")
+
+    sessions_res = get_roleplay_sessions(employee_id, scenario_id)
+    session_ids = [s.get("id") for s in (sessions_res.data or []) if s.get("id")]
+
+    attempt_count = 0
+    if session_ids:
+        assess_res = count_roleplay_attempts(employee_id, session_ids)
+        attempt_count = assess_res.count or 0
+
+    if attempt_count >= retry_limit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Roleplay retry limit reached. You can attempt this scenario up to {retry_limit} time(s).",
+        )
+
+    return {
+        "retry_limit": retry_limit,
+        "attempt_count": attempt_count,
+    }
+
+def get_roleplay_session(session_id: str):
+    return (
+        supabase
+        .table("roleplay_sessions")
+        .select("""
+            id,
+            employee_id,
+            scenario_id,
+            conversation_transcript,
+            message_count,
+            is_completed
+        """)
+        .eq("id", session_id)
+        .single()
+        .execute()
+    )
+    
+def get_roleplay_scenario(scenario_id: str):
+    return (
+        supabase
+        .table("scenarios")
+        .select("""
+            scenario_id,
+            title,
+            role,
+            tone,
+            userRole,
+            learnerBrief,
+            initialPrompt,
+            aiPersonality,
+            aiObjective,
+            evaluationParams,
+            passingScore
+        """)
+        .eq("scenario_id", scenario_id)
+        .single()
         .execute()
     )
     

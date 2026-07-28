@@ -3,9 +3,7 @@
  * Interfaces with backend routes instead of direct Supabase calls
  */
 
-import { fetchWithAuth } from "./fetch-with-auth";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
@@ -46,7 +44,7 @@ interface UserData {
 export async function fetchUserDataAPI(email: string): Promise<{ data: UserData | null; error: any }> {
   try {
     const response = await fetchWithAuth(
-      `${API_BASE_URL}/user-data/${encodeURIComponent(email)}`,
+      `${API_BASE_URL}/api/roleplay/user-data/${encodeURIComponent(email)}`,
       {
         method: "GET",
         headers: {
@@ -93,7 +91,7 @@ export async function insertCustomScenarioAPI(
         : scenario.evaluationParameters,
     };
 
-    const response = await fetchWithAuth(`${API_BASE_URL}/api/create`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/scenarios`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -145,7 +143,7 @@ export async function updateCustomScenarioAPI(
       }),
     };
 
-    const response = await fetchWithAuth(`${API_BASE_URL}/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/scenarios/${scenarioId}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -181,7 +179,7 @@ export async function deleteCustomScenarioAPI(
   companyId: string
 ): Promise<{ success: boolean; error: any }> {
   try {
-    const response = await fetchWithAuth(`${API_BASE_URL}/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/scenarios/${scenarioId}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -201,4 +199,45 @@ export async function deleteCustomScenarioAPI(
     console.error("Error deleting scenario:", error);
     return { success: false, error };
   }
+}
+
+export async function createRolePlaySessionAPI(
+  employeeId: string,
+  scenarioId: string,
+  scenarioTitle: string,
+  scenarioRole: string,
+  scenarioDifficulty: string,
+  moduleId?: string
+) {
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/roleplay/sessions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        employee_id: employeeId,
+        scenario_id: scenarioId,
+        scenario_title: scenarioTitle,
+        scenario_role: scenarioRole,
+        scenario_difficulty: scenarioDifficulty,
+        module_id: moduleId,
+      }),
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    return {
+      data: null,
+      error: result,
+    };
+  }
+
+  return {
+    data: result.data,
+    error: null,
+  };
 }
