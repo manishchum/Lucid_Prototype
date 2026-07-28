@@ -239,7 +239,7 @@ async def update_career_journey(
         # Get existing journey
         resp = supabase.table("career_journeys").select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at").eq(
             "id", journey_id
-        ).maybe_single().execute()
+        ).eq("company_id", effective_company_id).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
