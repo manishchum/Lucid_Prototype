@@ -48,7 +48,7 @@ export async function fetchScenariosForUserAPI(
   isAdmin: boolean
 ): Promise<{ data: Scenario[] | null; error: any }> {
   try {
-    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios?is_admin=${isAdmin}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/scenarios?is_admin=${isAdmin}`, {
       method: 'GET',
       headers: {
         'X-User-ID': userId,
@@ -113,7 +113,7 @@ export async function deleteCustomScenarioAPI(
   companyId: string
 ): Promise<{ error: any }> {
   try {
-    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios/${scenarioId}`, {
+    const response = await fetchWithAuth(`${API_URL}/api/scenarios/${scenarioId}`, {
       method: 'DELETE',
       headers: {
         'X-User-ID': userId,
@@ -185,7 +185,7 @@ export async function assignScenarioAPI(
       };
     }
 
-    const response = await fetchWithAuth(`${API_URL}/api/roleplay/page/scenarios/assign`, {
+    const response = await fetchWithAuth(`${API_URL}/api/scenarios/assign`, {
       method: 'POST',
       headers: {
         'X-User-ID': userId,
@@ -253,7 +253,7 @@ export async function getScenarioAssignmentsAPI(
 ): Promise<{ data: any; error: any }> {
   try {
     const response = await fetchWithAuth(
-      `${API_URL}/api/roleplay/page/scenarios/assignments/${scenarioId}`,
+      `${API_URL}/api/scenarios/assignments/${scenarioId}`,
       {
         method: 'GET',
         headers: {

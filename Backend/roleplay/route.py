@@ -36,6 +36,10 @@ from utils.db.permissions import check_user_permission
 
 router = APIRouter()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
+
 # ============================================================
 # Request Models
 # ============================================================
@@ -445,7 +449,7 @@ async def fetch_scenarios_for_user(
         # Admin gets all scenarios
         if is_admin:
             db_scenarios, error = roleplay_db.fetch_all_scenarios(effective_company_id)
-            print("Fetched all scenarios for admin:", db_scenarios)
+            # print("Fetched all scenarios for admin:", db_scenarios)
             
             if error:
                 raise HTTPException(status_code=500, detail=error['message'])
@@ -573,7 +577,7 @@ async def assign_scenario_to_targets(
                 )
                 
                 if error:
-                    raise HTTPException(status_code=500, detail="Unable to verify existing assignments")
+                    raise HTTPException(status_code=500, detail=error.get("Unable to verify existing assignments", str(error)))
                 
                 is_already_assigned = scenario_id in assigned_ids
                 if not is_already_assigned and len(assigned_ids) >= roleplay_limit:
@@ -602,7 +606,7 @@ async def assign_scenario_to_targets(
                 'scenario_id': scenario_id,
                 'assignment_type': assignment_type,
                 'user_id': target_id if assignment_type == 'user' else None,
-                'department_id': target_id if assignment_type != 'user' else None,
+                'target_id': target_id if assignment_type != 'user' else None,
                 'company_id': company_id,
                 'assigned_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
             }
@@ -648,7 +652,64 @@ async def get_scenario_assignments(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+@router.get("/assignment-targets")
+async def get_assignment_targets(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
+    """
+    Returns all departments, sub-departments and active users
+    for the authenticated user's company.
+    """
+
+    try:
+        # --------------------------
+        # Departments
+        # --------------------------
+
+        subdepartment_result = roleplay_db.get_sub_departments()
+
+        rows = subdepartment_result.data or []
+
+        departments = []
+        seen = set()
+
+        sub_departments = []
+
+        for row in rows:
+
+            dept_name = row["department_name"]
+
+            if dept_name not in seen:
+                seen.add(dept_name)
+
+                departments.append({
+                    "department_id": row["department_id"],
+                    "department_name": dept_name
+                })
+
+            if row.get("sub_department_name"):
+                sub_departments.append(row)
+        # --------------------------
+        # Users
+        # --------------------------
+
+        users_result = roleplay_db.get_active_company_users(effective_company_id)
+
+        return {
+            "success": True,
+            "departments": departments,
+            "sub_departments": sub_departments,
+            "users": users_result.data or []
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+ 
 # ==================================================
 # SESSIONS
 # ==================================================
@@ -1096,14 +1157,14 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not set")
 
-        if not _OPENAI_API_KEY:
+        if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is empty after stripping")
 
         logger.info("[Realtime] 🔑 API Key: loaded and verified")
         logger.info(f"[Realtime] 🌐 URL: {OPENAI_REALTIME_URL}")
 
         headers = {
-            "Authorization": f"Bearer {_OPENAI_API_KEY}",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
         }
 
 

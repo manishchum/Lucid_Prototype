@@ -97,7 +97,7 @@ def get_assigned_scenario_ids_for_user(user_id: str) -> tuple[list, dict | None]
         
         # Get department assignments
         if department_id:
-            dept_assignments = supabase.table("scenario_assignments").select("scenario_id").eq("department_id", department_id).execute()
+            dept_assignments = supabase.table("scenario_assignments").select("scenario_id").eq("target_id", department_id).execute()
             dept_ids = [a.get('scenario_id') for a in (dept_assignments.data or [])]
             scenario_ids = list(set(scenario_ids + dept_ids))
         
@@ -153,7 +153,7 @@ def get_distinct_assigned_scenario_ids_for_user(
         if department_id:
             dept_result = supabase.table("scenario_assignments").select("scenario_id").eq(
                 "company_id", company_id
-            ).eq("assignment_type", "department").eq("department_id", department_id).execute()
+            ).eq("assignment_type", "department").eq("target_id", department_id).execute()
             
             dept_ids = [a.get('scenario_id') for a in (dept_result.data or [])]
         
@@ -334,7 +334,7 @@ def get_assignments(
         supabase
         .table("scenario_assignments")
         .select(
-            "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
+            "assignment_id, scenario_id, assignment_type, target_id, company_id, assigned_at, user_id"
         )
         .eq("company_id", company_id)
         .eq("scenario_id", scenario_id)
@@ -449,12 +449,9 @@ def get_existing_assignments(
 
     if assignment_type == "user":
         query = query.in_("user_id", target_ids)
-
-    elif assignment_type == "department":
-        query = query.in_("department_id", target_ids)
-
-    elif assignment_type == "sub_department":
-        query = query.in_("sub_department_id", target_ids)
+    
+    else:
+        query = query.in_("target_id", target_ids)
 
     return query.execute()
 
@@ -505,7 +502,7 @@ def get_scenario_assignments(
         supabase
         .table("scenario_assignments")
         .select(
-            "assignment_id, scenario_id, assignment_type, department_id, company_id, assigned_at, user_id"
+            "assignment_id, scenario_id, assignment_type, target_id, company_id, assigned_at, user_id"
         )
         .eq("company_id", company_id)
         .eq("scenario_id", scenario_id)

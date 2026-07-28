@@ -284,7 +284,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     try {
       // Fetch departments (entries with department_name and no sub_department_name)
       const response = await fetchWithAuth(
-          `${API_URL}/api/roleplay/page/assignment-targets`
+          `${API_URL}/api/assignment-targets`
       );
 
       if (!response.ok) {

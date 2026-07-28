@@ -169,11 +169,11 @@ export default function RolePlayConversation({
 
   const connectToRealtime = async (stream: MediaStream) => {
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
+    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "");
     
     // Grab the token and put it in the URL
     const token = await getFirebaseIdToken();
-    const wsUrl = `${wsProtocol}//${apiHost}/roleplay/realtime?token=${token}`;
+    const wsUrl = `${wsProtocol}//${apiHost}/api/roleplay/realtime?token=${token}`;
 
     // console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
 
