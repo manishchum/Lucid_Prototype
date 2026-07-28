@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from typing import List, Optional
+import re
 import uuid
 from utils.supabase_client import supabase_admin
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
@@ -8,6 +9,18 @@ router = APIRouter(
     prefix="/api/content-library",
     tags=["Content Library"]
 )
+
+
+def _safe_storage_file_name(filename: str) -> str:
+    raw_name = (filename or "upload").strip()
+    if not raw_name:
+        return "upload"
+
+    name_part, ext_part = raw_name.rsplit(".", 1) if "." in raw_name else (raw_name, "")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name_part).strip("._-") or "upload"
+    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext_part).strip("._-")
+    return f"{safe_name}.{safe_ext}" if safe_ext else safe_name
+
 
 @router.get("/categories")
 async def get_categories(
@@ -21,7 +34,7 @@ async def get_categories(
         result = (
             supabase_admin
             .table("content_categories")
-            .select("id,name,description")
+            .select("id,name,created_at,updated_at")
             .eq("company_id", effective_company_id)
             .order("name", desc=False)
             .execute()
@@ -41,7 +54,7 @@ async def get_content_items(
     Get uploaded content items for the company, optionally filtered by category.
     """
     try:
-        query = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at").eq("company_id", effective_company_id)
+        query = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("company_id", effective_company_id)
         if category_id:
             query = query.eq("category_id", category_id)
             
@@ -74,8 +87,7 @@ async def upload_content(
         
         # Unique file path to avoid collisions
         file_name = getattr(file, "filename", None) or "upload"
-        file_ext = file_name.split('.')[-1] if '.' in file_name else ''
-        file_name_clean = file_name.replace(' ', '_')
+        file_name_clean = _safe_storage_file_name(file_name)
         storage_path = f"raw_content/{effective_company_id}/{uuid.uuid4()}_{file_name_clean}"
         
         # Upload to Supabase Storage Bucket
@@ -138,7 +150,7 @@ async def delete_content(
     """
     try:
         # Get the item
-        item_res = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
+        item_res = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
         if not item_res.data:
             raise HTTPException(status_code=404, detail="Content item not found")
         
