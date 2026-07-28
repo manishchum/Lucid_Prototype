@@ -163,9 +163,9 @@ async def search_companies(requesting_user_id: Optional[str], search_term: str, 
         return {"data": None, "error": str(e)}
 
 
-async def get_org_templates_from_sub_department(requesting_user_id: str) -> Dict[str, Any]:
+async def get_org_templates(requesting_user_id: str) -> Dict[str, Any]:
     """
-    Fetch default org templates from sub_department table.
+    Fetch default org templates from function/sub_function tables where company_id is NULL.
     Permission: Super admin or developer.
     """
     has_super_admin = await check_user_permission(requesting_user_id, 'super_admin')
@@ -176,10 +176,10 @@ async def get_org_templates_from_sub_department(requesting_user_id: str) -> Dict
     try:
         resp = (
             supabase
-            .table('sub_department')
-            .select('department_id, department_name, sub_department_name')
-            .order('department_name')
-            .order('sub_department_name')
+            .table('function')
+            .select('function_id, function_name, sub_functions:sub_function(sub_function_id, sub_function_name)')
+            .is_('company_id', 'null')
+            .order('function_name')
             .execute()
         )
         return {"data": resp.data or [], "error": None}
@@ -190,12 +190,12 @@ async def get_org_templates_from_sub_department(requesting_user_id: str) -> Dict
 async def provision_company_functions(
     requesting_user_id: str,
     company_id: str,
-    selected_department_ids: List[str],
+    selected_function_ids: List[str],
     custom_entries: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
     Provision function/sub_function rows for a company using
-    selected sub_department templates and optional custom mappings.
+    selected function templates and optional custom mappings.
     Permission: Super admin or developer.
     """
     has_super_admin = await check_user_permission(requesting_user_id, 'super_admin')
@@ -216,13 +216,13 @@ async def provision_company_functions(
             return {"data": None, "error": "Company not found"}
 
         template_rows: List[Dict[str, Any]] = []
-        unique_selected_ids = list({sid for sid in (selected_department_ids or []) if sid})
+        unique_selected_ids = list({sid for sid in (selected_function_ids or []) if sid})
         if unique_selected_ids:
             template_resp = (
                 supabase
-                .table('sub_department')
-                .select('department_id, department_name, sub_department_name')
-                .in_('department_id', unique_selected_ids)
+                .table('function')
+                .select('function_id, function_name, sub_functions:sub_function(sub_function_id, sub_function_name)')
+                .in_('function_id', unique_selected_ids)
                 .execute()
             )
             template_rows = template_resp.data or []
@@ -240,20 +240,19 @@ async def provision_company_functions(
         function_to_subfunctions: Dict[str, set] = {}
 
         for row in template_rows:
-            function_name = (row.get('department_name') or '').strip()
-            sub_function_name = (row.get('sub_department_name') or '').strip()
+            function_name = (row.get('function_name') or '').strip()
             if not function_name:
                 continue
             if function_name not in function_to_subfunctions:
                 function_to_subfunctions[function_name] = set()
-            if sub_function_name:
-                function_to_subfunctions[function_name].add(sub_function_name)
+            for sub_func in row.get('sub_functions', []):
+                sub_function_name = (sub_func.get('sub_function_name') or '').strip()
+                if sub_function_name:
+                    function_to_subfunctions[function_name].add(sub_function_name)
 
         for entry in normalized_custom_entries:
-            function_name = (entry.get('function_name') or '').strip()
-            sub_function_name = (entry.get('sub_function_name') or '').strip() if entry.get('sub_function_name') else ''
-            if not function_name:
-                continue
+            function_name = entry['function_name']
+            sub_function_name = entry['sub_function_name']
             if function_name not in function_to_subfunctions:
                 function_to_subfunctions[function_name] = set()
             if sub_function_name:

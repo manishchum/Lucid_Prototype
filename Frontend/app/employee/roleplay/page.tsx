@@ -61,10 +61,10 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
+  const [assignmentType, setAssignmentType] = useState<'function' | 'sub_function' | 'user'>('user');
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [subDepartments, setSubDepartments] = useState<any[]>([]);
+  const [functions, setFunctions] = useState<any[]>([]);
+  const [subFunctions, setSubFunctions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [companyId, setCompanyId] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
@@ -280,34 +280,27 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     setAssigningScenario(scenario);
     setShowAssignModal(true);
     
-    // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
+    // Fetch functions and sub-functions and users for the dropdown
     try {
-      // Fetch departments (entries with department_name and no sub_department_name)
-      const { data: deptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name')
-        // .is('sub_department_name', null);
+      // Fetch functions
+      const { data: funcData } = await supabase
+        .from('function')
+        .select('function_id, function_name')
+        .eq('company_id', companyId);
       
-      // Remove duplicates based on department_name
-      const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
-        if (!acc.find(d => d.department_name === curr.department_name)) {
-          acc.push(curr);
-        }
-        return acc;
-      }, []);
-      setDepartments(uniqueDepts || []);
+      setFunctions(funcData || []);
 
-      // Fetch sub-departments (entries with both department_name and sub_department_name)
-      const { data: subDeptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name, sub_department_name')
-        .not('sub_department_name', 'is', null);
-      setSubDepartments(subDeptData || []);
+      // Fetch sub-functions
+      const { data: subFuncData } = await supabase
+        .from('sub_function')
+        .select('sub_function_id, function_id, sub_function_name');
+      
+      setSubFunctions(subFuncData || []);
 
       // Fetch users for this company
       const { data: usersData } = await supabase
         .from('users')
-        .select('user_id, name, email, department_id')
+        .select('user_id, name, email, function_id')
         .eq('company_id', companyId)
         .eq('is_active', true);
       setUsers(usersData || []);
@@ -874,7 +867,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">
               <h2 className="text-2xl font-bold text-slate-900">Assign Roleplay Scenario</h2>
-              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to departments, sub-departments, or users</p>
+              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to functions, sub-functions, or users</p>
             </div>
 
             <div className="p-6 space-y-4">
@@ -892,8 +885,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 >
                   <option value="user">Individual Users</option>
-                  <option value="sub_department">Sub-Department</option>
-                  <option value="department">Department</option>
+                  <option value="sub_function">Sub-Function</option>
+                  <option value="function">Function</option>
                 </select>
               </div>
 
@@ -903,47 +896,50 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                   Select Targets *
                 </label>
                 
-                {assignmentType === 'department' && (
+                {assignmentType === 'function' && (
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {departments.map((dept) => (
-                      <label key={dept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                    {functions.map((func) => (
+                      <label key={func.function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={selectedTargets.includes(dept.department_id)}
+                          checked={selectedTargets.includes(func.function_id)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, dept.department_id]);
+                              setSelectedTargets([...selectedTargets, func.function_id]);
                             } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== dept.department_id));
+                              setSelectedTargets(selectedTargets.filter(id => id !== func.function_id));
                             }
                           }}
                           className="w-4 h-4"
                         />
-                        <span className="text-sm">{dept.department_name}</span>
+                        <span className="text-sm">{func.function_name}</span>
                       </label>
                     ))}
                   </div>
                 )}
 
-                {assignmentType === 'sub_department' && (
+                {assignmentType === 'sub_function' && (
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {subDepartments.map((subDept) => (
-                      <label key={subDept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedTargets.includes(subDept.department_id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, subDept.department_id]);
-                            } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== subDept.department_id));
-                            }
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <span className="text-sm">{subDept.department_name} - {subDept.sub_department_name}</span>
-                      </label>
-                    ))}
+                    {subFunctions.map((subFunc) => {
+                      const parentFunc = functions.find(f => f.function_id === subFunc.function_id);
+                      return (
+                        <label key={subFunc.sub_function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedTargets.includes(subFunc.sub_function_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedTargets([...selectedTargets, subFunc.sub_function_id]);
+                              } else {
+                                setSelectedTargets(selectedTargets.filter(id => id !== subFunc.sub_function_id));
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm">{parentFunc?.function_name} - {subFunc.sub_function_name}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
 
