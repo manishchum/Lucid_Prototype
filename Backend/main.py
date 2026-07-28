@@ -33,7 +33,7 @@ from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
 from text_analysis.route import router as text_analysis_router
 from stt.route import router as stt_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library, auth
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -52,7 +52,7 @@ from roleplay.scenario.route import router as roleplay_scenario_router
 from roleplay.page.route import router as roleplay_page_router
 from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
-from routes import sub_departments
+from routes import functions
 
 
 # Create FastAPI app
@@ -224,7 +224,7 @@ app.include_router(voice_transcripts_router)  # voice transcript / daily report 
 # Router Includes are here
 # app.include_router(users_router, prefix="/api/users", tags=["users Router"])
 app.include_router(users.router)  # add this line (place with other app.include_router calls)
-app.include_router(sub_departments.router, prefix="/api/sub-departments", tags=["sub-departments"])
+app.include_router(functions.router, prefix="/api/functions", tags=["functions"])
 app.include_router(roles.router)  # roles router
 app.include_router(assessments.router)  # assessments router
 app.include_router(companies.router)  # companies router
@@ -243,6 +243,7 @@ app.include_router(notifications.router)
 app.include_router(reports.router)  # notifications router
 app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
+app.include_router(auth.router)
 
 
 if __name__ == "__main__":

@@ -33,7 +33,7 @@ const ASSIGNMENT_SELECT_COLUMNS = [
   'scenario_id',
   'assignment_type',
   'user_id',
-  'department_id',
+  'target_id',
   'company_id',
   'assigned_at',
 ].join(', ');
@@ -67,11 +67,11 @@ async function getCompanyRoleplayLimits(companyId: string): Promise<{ data: Comp
   }
 }
 
-async function getUserCompanyAndDepartment(userId: string): Promise<{ data: { company_id: string; department_id: string | null } | null; error: any }> {
+async function getUserCompanyAndFunctions(userId: string): Promise<{ data: { company_id: string; function_id: string | null; sub_function_id: string | null } | null; error: any }> {
   try {
     const { data, error } = await supabase
       .from('users')
-      .select('company_id, department_id')
+      .select('company_id, function_id, sub_function_id')
       .eq('user_id', userId)
       .single();
 
@@ -88,7 +88,8 @@ async function getUserCompanyAndDepartment(userId: string): Promise<{ data: { co
 async function getDistinctAssignedScenarioIdsForUser(
   userId: string,
   companyId: string,
-  departmentId: string | null
+  functionId: string | null,
+  subFunctionId: string | null
 ): Promise<{ data: string[] | null; error: any }> {
   try {
     const { data: userAssignments, error: userAssignError } = await supabase
@@ -102,24 +103,38 @@ async function getDistinctAssignedScenarioIdsForUser(
       return { data: null, error: userAssignError };
     }
 
-    let deptScenarioIds: string[] = [];
-    if (departmentId) {
-      const { data: deptAssignments, error: deptAssignError } = await supabase
+    let funcScenarioIds: string[] = [];
+    if (functionId) {
+      const { data: funcAssignments, error: funcAssignError } = await supabase
         .from('scenario_assignments')
         .select('scenario_id')
         .eq('company_id', companyId)
-        .eq('assignment_type', 'department')
-        .eq('department_id', departmentId);
+        .eq('assignment_type', 'function')
+        .eq('target_id', functionId);
 
-      if (deptAssignError) {
-        return { data: null, error: deptAssignError };
+      if (funcAssignError) {
+        return { data: null, error: funcAssignError };
       }
+      funcScenarioIds = (funcAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+    }
+    
+    let subFuncScenarioIds: string[] = [];
+    if (subFunctionId) {
+      const { data: subFuncAssignments, error: subFuncAssignError } = await supabase
+        .from('scenario_assignments')
+        .select('scenario_id')
+        .eq('company_id', companyId)
+        .eq('assignment_type', 'sub_function')
+        .eq('target_id', subFunctionId);
 
-      deptScenarioIds = (deptAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+      if (subFuncAssignError) {
+        return { data: null, error: subFuncAssignError };
+      }
+      subFuncScenarioIds = (subFuncAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
     }
 
     const userScenarioIds = (userAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
-    const distinctIds = [...new Set([...userScenarioIds, ...deptScenarioIds])];
+    const distinctIds = [...new Set([...userScenarioIds, ...funcScenarioIds, ...subFuncScenarioIds])];
 
     return { data: distinctIds, error: null };
   } catch (error) {
@@ -131,7 +146,7 @@ async function checkUserCanAttemptScenario(
   employeeId: string,
   scenarioId: string
 ): Promise<{ allowed: boolean; message?: string; error?: any }> {
-  const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(employeeId);
+  const { data: userMeta, error: userMetaError } = await getUserCompanyAndFunctions(employeeId);
   if (userMetaError || !userMeta) {
     return {
       allowed: false,
@@ -514,7 +529,7 @@ export async function deleteCustomScenario(scenarioId: string) {
  */
 export async function assignScenario(
   scenarioId: string,
-  assignmentType: 'department' | 'sub_department' | 'user',
+  assignmentType: 'function' | 'sub_function' | 'user',
   targetIds: string[],
   companyId: string
 ) {
@@ -523,7 +538,7 @@ export async function assignScenario(
 
     if (assignmentType === 'user') {
       for (const targetUserId of targetIds) {
-        const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(targetUserId);
+        const { data: userMeta, error: userMetaError } = await getUserCompanyAndFunctions(targetUserId);
         if (userMetaError || !userMeta) {
           return {
             data: null,
@@ -536,7 +551,8 @@ export async function assignScenario(
         }
 
         const targetCompanyId = userMeta.company_id;
-        const targetDepartmentId = userMeta.department_id;
+        const targetFunctionId = userMeta.function_id;
+        const targetSubFunctionId = userMeta.sub_function_id;
 
         const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(targetCompanyId);
         if (companyLimitError || !companyLimits) {
@@ -565,7 +581,8 @@ export async function assignScenario(
         const { data: assignedScenarioIds, error: assignedScenarioError } = await getDistinctAssignedScenarioIdsForUser(
           targetUserId,
           targetCompanyId,
-          targetDepartmentId
+          targetFunctionId,
+          targetSubFunctionId
         );
 
         if (assignedScenarioError || !assignedScenarioIds) {
@@ -622,7 +639,7 @@ export async function assignScenario(
       scenario_id: scenarioId,
       assignment_type: assignmentType,
       user_id: assignmentType === 'user' ? targetId : null,
-      department_id: assignmentType !== 'user' ? targetId : null,
+      target_id: assignmentType !== 'user' ? targetId : null,
       company_id: companyId,
       assigned_at: new Date().toISOString(),
     }));
@@ -676,11 +693,11 @@ export async function removeScenarioAssignments(assignmentIds: string[]) {
  */
 export async function getAssignedScenariosForUser(userId: string) {
   try {
-    // Get user's department_id
+    // Get user's function_id and sub_function_id
     console.log("Inside fetching scenarios id for the user",userId);
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('department_id')
+      .select('function_id, sub_function_id')
       .eq('user_id', userId)
       .single();
 
@@ -714,11 +731,14 @@ export async function getAssignedScenariosForUser(userId: string) {
 
     // Build OR condition for assignments
     let orCondition = `user_id.eq.${userId}`;
-    if (userData.department_id) {
-      orCondition += `,department_id.eq.${userData.department_id}`;
+    if (userData.function_id) {
+      orCondition += `,target_id.eq.${userData.function_id}`;
+    }
+    if (userData.sub_function_id) {
+      orCondition += `,target_id.eq.${userData.sub_function_id}`;
     }
 
-    // Get all assignments for this user (direct or department)
+    // Get all assignments for this user (direct or function)
     const { data: assignments, error: assignError } = await supabase
       .from('scenario_assignments')
       .select('scenario_id')
@@ -730,7 +750,7 @@ export async function getAssignedScenariosForUser(userId: string) {
       const {data:assignments, error: assignError} = await supabase
       .from('scenario_assignments')
       .select('scenario_id')
-      .eq('department_id', userData.department_id);
+      .eq('target_id', userData.function_id);
       
       
       
