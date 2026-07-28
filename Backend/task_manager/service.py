@@ -258,9 +258,13 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     def _select_assignments(source_name: str, table_name: str) -> list:
         try:
+            if table_name == "v_active_assignments":
+                cols = "assignment_id, company_id, level, status, due_date, recurrence, total_target_count, created_at, audience_display_name"
+            else:
+                cols = "assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at"
             response = (
                 db.table(table_name)
-                .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, audience_display_name, created_at, updated_at")
+                .select(cols)
                 .eq("company_id", company_id)
                 .execute()
             )
@@ -529,7 +533,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
     try:
         assignments_res = (
             db.table("task_assignments")
-            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, audience_display_name, created_at, updated_at")
+            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at")
             .eq("company_id", company_id)
             .eq("status", "active")
             .execute()
@@ -1444,7 +1448,7 @@ async def reassign_task_assignment(
     if mode == "copy":
         orig_assign = (
             db.table("task_assignments")
-            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, audience_display_name, created_at, updated_at")
+            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
             .maybe_single()
