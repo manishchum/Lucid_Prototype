@@ -213,15 +213,9 @@ def analyze_mcq(questions: list, answers: list) -> dict:
         selected = str(ans.get("selected_option") or ans.get("selected_answer") or ans.get("answer") or ans.get("selected") or ""
 
 ).strip()
-        correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or ans.get("correct_answer") or ans.get("correct") or "").strip()
-        print("\n===== MCQ DEBUG =====")
-
-        print("Selected :", selected)
-
-        print("Correct  :", correct)
-
-        print("=====================\n")
         if q_obj:
+            correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or "").strip()
+            
             selected_items = {
                 x.strip().lower()
                 for x in selected.split(",")
@@ -234,7 +228,7 @@ def analyze_mcq(questions: list, answers: list) -> dict:
                 if x.strip()
             }
 
-            is_correct = (selected_items == correct_items)
+            is_correct = (selected_items == correct_items) if correct_items else False
             if is_correct:
                 correct_count += 1
 
@@ -246,17 +240,13 @@ def analyze_mcq(questions: list, answers: list) -> dict:
                 "feedback": "Correct option selected." if is_correct else f"Incorrect. The correct option was: {correct}"
             })
         else:
-            # Fallback if question not found in map
-            is_correct = (selected.lower() == correct.lower())
-            if is_correct:
-                correct_count += 1
-
+            # Invalid question ID provided in payload
             analysis.append({
-                "question": ans.get("question", ""),
+                "question": ans.get("question", f"Unknown Question ID: {q_id}"),
                 "selected_answer": selected,
-                "correct_answer": correct,
-                "is_correct": is_correct,
-                "feedback": "Correct option selected." if is_correct else f"Incorrect. The correct option was: {correct}"
+                "correct_answer": "UNKNOWN",
+                "is_correct": False,
+                "feedback": "Invalid question. No matching question found in the database."
             })
 
     score = int((correct_count / total) * 100) if total > 0 else 0

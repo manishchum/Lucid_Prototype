@@ -41,6 +41,7 @@ from routes.analytics import router as analytics_router
 from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
+from routes.uploads import router as uploads_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -241,6 +242,7 @@ app.include_router(analytics_export_router)  # analytics export router
 app.include_router(notifications.router)
 app.include_router(reports.router)  # notifications router
 app.include_router(content_library.router)  # content library router
+app.include_router(uploads_router, prefix="/api")
 
 
 if __name__ == "__main__":
