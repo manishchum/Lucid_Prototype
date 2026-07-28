@@ -24,7 +24,8 @@ def _build_user_row(user: Dict[str, Any]) -> Dict[str, Any]:
         "user_id": _safe_str(user.get("user_id")),
         "user_name": user.get("name"),
         "user_email": user.get("email"),
-        "department_id": _safe_str(user.get("department_id")),
+        "function_id": _safe_str(user.get("function_id")),
+        "sub_function_id": _safe_str(user.get("sub_function_id")),
         "employment_status": user.get("employment_status"),
         "position": user.get("position"),
         "phone": user.get("phone"),
@@ -69,7 +70,7 @@ async def export_company_user_analytics(
     users_resp = (
         supabase.table("users")
         .select(
-            "user_id, name, email, company_id, department_id, employment_status, position, "
+            "user_id, name, email, company_id, function_id, sub_function_id, employment_status, position, "
             "phone, hire_date, last_login, is_active"
         )
         .eq("company_id", company_id)
@@ -338,7 +339,8 @@ async def export_company_user_analytics(
         "user_id",
         "user_name",
         "user_email",
-        "department_id",
+        "function_id",
+        "sub_function_id",
         "employment_status",
         "position",
         "phone",

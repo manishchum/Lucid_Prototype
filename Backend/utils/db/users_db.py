@@ -258,7 +258,8 @@ async def get_users_by_company(
             position,
             hire_date,
             employment_status,
-            department_id,
+            function_id,
+            sub_function_id,
             is_active,
             created_at
             '''
