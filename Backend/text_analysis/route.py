@@ -69,7 +69,7 @@ async def submit_text_analysis(
         existing_res = (
             supabase
             .table("task_submissions")
-            .select("*")
+            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .eq("task_id", resolved_task_id)
             .eq("user_id", user_id)
             .execute()
@@ -141,7 +141,7 @@ async def submit_text_analysis(
                 existing_res = (
                     supabase
                     .table("task_submissions")
-                    .select("*")
+                    .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
                     .eq("task_id", resolved_task_id)
                     .eq("user_id", user_id)
                     .execute()

@@ -52,7 +52,7 @@ async def list_notifications(
     try:
         resp = (
             supabase.table("notifications")
-            .select("*")
+            .select("id,title,message,type,metadata,read,created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
@@ -318,4 +318,4 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
             "sent_realtime": sent_realtime
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))
