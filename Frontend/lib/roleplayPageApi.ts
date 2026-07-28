@@ -161,7 +161,7 @@ export async function deleteCustomScenarioAPI(
  * Assign a scenario to departments, sub-departments, or users
  * 
  * @param scenarioId - ID of scenario to assign
- * @param assignmentType - Type of target ('user', 'department', 'sub_department')
+ * @param assignmentType - Type of target ('user', 'function', 'sub_function')
  * @param targetIds - IDs of targets to assign to
  * @param companyId - Company ID
  * @param userId - User ID (for authentication)
@@ -169,7 +169,7 @@ export async function deleteCustomScenarioAPI(
  */
 export async function assignScenarioAPI(
   scenarioId: string,
-  assignmentType: 'department' | 'sub_department' | 'user',
+  assignmentType: 'function' | 'sub_function' | 'user',
   targetIds: string[],
   companyId: string,
   userId: string

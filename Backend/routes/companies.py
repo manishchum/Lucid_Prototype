@@ -14,7 +14,7 @@ from utils.db.companies_db import (
     update_company,
     delete_company,
     search_companies,
-    get_org_templates_from_sub_department,
+    get_org_templates,
     provision_company_functions,
 )
 
@@ -48,7 +48,7 @@ class CustomFunctionEntry(BaseModel):
 
 
 class ProvisionCompanyFunctionsRequest(BaseModel):
-    selected_department_ids: List[str] = []
+    selected_function_ids: List[str] = []
     custom_entries: List[CustomFunctionEntry] = []
 
 
@@ -101,10 +101,10 @@ async def get_org_templates_route(
     user_id: str = Header(..., alias="X-User-ID")
 ):
     """
-    Get default department/sub-department templates from sub_department.
+    Get default function/sub-function templates from function.
     Permission: Super admin/developer.
     """
-    result = await get_org_templates_from_sub_department(user_id)
+    result = await get_org_templates(user_id)
 
     return {
         "success": True,
@@ -274,14 +274,14 @@ async def provision_company_functions_route(
 ):
     """
     Provision function/sub_function rows for a company based on selected
-    sub_department templates and optional custom entries.
+    function templates and optional custom entries.
     Permission: Super admin/developer.
     """
     result = await provision_company_functions(
         user_id,
         company_id,
-        request.selected_department_ids,
-        [entry.dict() for entry in request.custom_entries],
+        selected_function_ids=request.selected_function_ids,
+        custom_entries=[entry.dict() for entry in request.custom_entries],
     )
 
     return {

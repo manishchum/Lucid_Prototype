@@ -96,8 +96,9 @@ class UpdateScenarioRequest(BaseModel):
 
 class AssignScenarioRequest(BaseModel):
     scenario_id: str
-    assignment_type: Literal["department", "sub_department", "user"]
+    assignment_type: Literal['function', 'sub_function', 'user']
     target_ids: List[str]
+    company_id: str
 
 
 class DeleteScenarioRequest(BaseModel):
@@ -551,13 +552,14 @@ async def assign_scenario_to_targets(
         # Validate user assignments
         if assignment_type == 'user':
             for target_user_id in target_ids:
-                # Get user's company and department
-                user_meta, error = roleplay_db.get_user_company_and_department(target_user_id)
+                # Get user's company and functions
+                user_meta, error = roleplay_db.get_user_company_and_functions(target_user_id)
                 if error:
                     raise HTTPException(status_code=400, detail=error['message'])
                 
                 target_company_id = user_meta.get('company_id')
-                target_department_id = user_meta.get('department_id')
+                target_function_id = user_meta.get('function_id')
+                target_sub_function_id = user_meta.get('sub_function_id')
                 
                 # Get company limits
                 company_limits, error = roleplay_db.get_company_roleplay_limits(target_company_id)
@@ -573,7 +575,8 @@ async def assign_scenario_to_targets(
                 assigned_ids, error = roleplay_db.get_distinct_assigned_scenario_ids_for_user(
                     target_user_id,
                     target_company_id,
-                    target_department_id
+                    target_function_id,
+                    target_sub_function_id
                 )
                 
                 if error:
@@ -658,50 +661,16 @@ async def get_assignment_targets(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id)
 ):
-    """
-    Returns all departments, sub-departments and active users
-    for the authenticated user's company.
-    """
-
     try:
-        # --------------------------
-        # Departments
-        # --------------------------
-
-        subdepartment_result = roleplay_db.get_sub_departments()
-
-        rows = subdepartment_result.data or []
-
-        departments = []
-        seen = set()
-
-        sub_departments = []
-
-        for row in rows:
-
-            dept_name = row["department_name"]
-
-            if dept_name not in seen:
-                seen.add(dept_name)
-
-                departments.append({
-                    "department_id": row["department_id"],
-                    "department_name": dept_name
-                })
-
-            if row.get("sub_department_name"):
-                sub_departments.append(row)
-        # --------------------------
-        # Users
-        # --------------------------
-
-        users_result = roleplay_db.get_active_company_users(effective_company_id)
+        functions = roleplay_db.get_functions(effective_company_id)
+        sub_functions = roleplay_db.get_sub_functions(effective_company_id)
+        users = roleplay_db.get_active_company_users(effective_company_id)
 
         return {
             "success": True,
-            "departments": departments,
-            "sub_departments": sub_departments,
-            "users": users_result.data or []
+            "functions": functions.data or [],
+            "sub_functions": sub_functions.data or [],
+            "users": users.data or []
         }
 
     except Exception as e:
@@ -709,7 +678,6 @@ async def get_assignment_targets(
             status_code=500,
             detail=str(e)
         )
- 
 # ==================================================
 # SESSIONS
 # ==================================================

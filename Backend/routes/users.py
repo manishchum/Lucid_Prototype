@@ -129,7 +129,6 @@ class CreateUserRequest(BaseModel):
     name: str
     company_id: str
     password: Optional[str] = None  # Optional - can be set later by user
-    department_id: Optional[str] = None
     manager_id: Optional[str] = None
     position: Optional[str] = None
     phone: Optional[str] = None
@@ -144,7 +143,6 @@ class UpdateUserRequest(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     position: Optional[str] = None
-    department_id: Optional[str] = None
     manager_id: Optional[str] = None
     avatar_url: Optional[str] = None
     employment_status: Optional[str] = None
@@ -199,7 +197,8 @@ async def list_users(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id),
     status: Optional[str] = Query(None),
-    department_id: Optional[str] = Query(None)
+    function_id: Optional[str] = Query(None),
+    sub_function_id: Optional[str] = Query(None)
 ):
     result = await get_users_by_company(auth_ctx.user_id, effective_company_id, auth_ctx.claims)
     if result["error"]:
@@ -207,8 +206,10 @@ async def list_users(
     users = result["data"] or []
     if status:
         users = [u for u in users if u.get("employment_status") == status]
-    if department_id:
-        users = [u for u in users if u.get("department_id") == department_id]
+    if function_id:
+        users = [u for u in users if u.get("function_id") == function_id]
+    if sub_function_id:
+        users = [u for u in users if u.get("sub_function_id") == sub_function_id]
     
     return {
         "success": True,
