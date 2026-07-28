@@ -19,7 +19,7 @@ def resolve_task_details(task_id: str, company_id: str) -> dict:
     try:
         res = (
             supabase.table("tasks")
-            .select("*")
+            .select("id,assignment_id,company_id,title,description,submission_format,questions,expected_answer,status,bundle_tasks")
             .eq("task_id", resolved_id)
             .eq("company_id", company_id)
             .maybe_single()
