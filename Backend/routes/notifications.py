@@ -159,6 +159,7 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                 .table("function")
                 .select("function_name")
                 .in_("function_id", request.target_ids)
+                .eq("company_id", request.company_id)
                 .execute()
             )
             function_names = list({
@@ -180,6 +181,7 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                 .table("function")
                 .select("function_id")
                 .in_("function_name", function_names)
+                .eq("company_id", request.company_id)
                 .execute()
             )
             all_function_ids = [
