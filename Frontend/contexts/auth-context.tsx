@@ -409,15 +409,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (effectiveUser?.email) {
         setRolesLoaded(false)
-        try{
-          await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-            method: "POST",
-            registerSession: true as any,
-          } as any
-        );
-        } catch(err){
-          console.error("[auth-context] Failed to register session:", err)
-        } 
+        // try{
+        //   await fetchWithAuth(`${API_BASE}/api/auth/session`, {
+        //     method: "POST",
+        //     registerSession: true as any,
+        //   } as any
+        // );
+        // } catch(err){
+        //   console.error("[auth-context] Failed to register session:", err)
+        // } 
         const profile = await loadCachedFullProfile(effectiveUser)
 
         if (profile !== undefined) {
@@ -492,13 +492,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Set user data in state for email/password login
       // This simulates what Firebase does automatically for Google sign-in
       setUser(userData as User)
-      await fetchWithAuth(
-        `${API_BASE}/api/auth/session`,
-        {
-          method: "POST",
-          registerSession: true as any,
-        } as any
-      );
+      // await fetchWithAuth(
+      //   `${API_BASE}/api/auth/session`,
+      //   {
+      //     method: "POST",
+      //     registerSession: true as any,
+      //   } as any
+      // );
       
       if (userData?.email && userData?.uid) {
         writeManualAuthUser({

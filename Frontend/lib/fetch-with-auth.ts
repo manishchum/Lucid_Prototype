@@ -107,6 +107,23 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers,
   });
 
+  console.log(
+    "[FETCH]",
+    options.method || "GET",
+    url,
+    response.status
+  );
+
+  if (!response.ok) {
+    console.error(
+      "[FETCH FAILED]",
+      options.method || "GET",
+      url,
+      response.status,
+      await response.clone().text()
+    );
+  }
+
   // If the backend says the token is invalid (401), force a refresh once
   if (response.status === 401) {
     console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
@@ -146,6 +163,23 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         ...options,
         headers: retryHeaders,
       });
+
+      console.log(
+        "[FETCH RETRY]",
+        options.method || "GET",
+        url,
+        response.status
+      );
+
+      if (!response.ok) {
+        console.error(
+          "[FETCH RETRY FAILED]",
+          options.method || "GET",
+          url,
+          response.status,
+          await response.clone().text()
+        );
+      }
 
       if (response.status === 401) {
         window.dispatchEvent(
