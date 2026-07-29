@@ -1,11 +1,11 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
-import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { fetchWithAuth, getFirebaseIdToken } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
@@ -17,6 +17,9 @@ type AuthUserLike = {
   displayName?: string | null
   name?: string | null
 }
+
+let authSocketSingleton: WebSocket | null = null
+let authSocketCurrentUserId: string | null = null
 
 interface AuthContextType {
   user: User | null
@@ -319,6 +322,87 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+
+    if (!user?.uid || !API_BASE) {
+      if (authSocketSingleton) {
+        try {
+          authSocketSingleton.close()
+        } catch {
+          // no-op
+        }
+      }
+      authSocketSingleton = null
+      authSocketCurrentUserId = null
+      return
+    }
+
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+    const connectAuthSocket = async () => {
+      try {
+        const token = await getFirebaseIdToken()
+        if (!token || authSocketCurrentUserId === user.uid) return
+
+        const deviceId = localStorage.getItem("device_id") || (() => {
+          const generatedId = crypto.randomUUID()
+          localStorage.setItem("device_id", generatedId)
+          return generatedId
+        })()
+
+        const wsBase = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws")
+        if (authSocketSingleton && authSocketSingleton.readyState === WebSocket.OPEN) {
+          if (authSocketCurrentUserId === user.uid) {
+            return
+          }
+          try {
+            authSocketSingleton.close()
+          } catch {
+            // no-op
+          }
+        }
+
+        const socket = new WebSocket(
+          `${wsBase}/api/auth/ws?token=${encodeURIComponent(token)}&device_id=${encodeURIComponent(deviceId)}`
+        )
+
+        authSocketSingleton = socket
+        authSocketCurrentUserId = user.uid
+
+        socket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data)
+            if (payload?.type === "force_logout" || payload?.type === "session_replaced") {
+              window.dispatchEvent(new Event("lucid:auth:force-logout"))
+            }
+          } catch {
+            // ignore malformed payloads
+          }
+        }
+
+        socket.onclose = () => {
+          if (auth.currentUser) {
+            reconnectTimer = setTimeout(connectAuthSocket, 3000)
+          } else if (authSocketSingleton === socket) {
+            authSocketSingleton = null
+            authSocketCurrentUserId = null
+          }
+        }
+      } catch (error) {
+        console.warn("[auth-context] Failed to open auth websocket", error)
+      }
+    }
+
+    void connectAuthSocket()
+
+    return () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+      }
+    }
+  }, [user?.uid])
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       const effectiveUser = firebaseUser ?? readManualAuthUser()
       setUser((effectiveUser as User) || null)
@@ -399,6 +483,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Set user data in state for email/password login
       // This simulates what Firebase does automatically for Google sign-in
       setUser(userData as User)
+      await fetchWithAuth(
+        `${API_BASE}/api/auth/session`,
+        {
+          method: "POST",
+          registerSession: true as any,
+        } as any
+      );
       
       if (userData?.email && userData?.uid) {
         writeManualAuthUser({
@@ -449,6 +540,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = async () => {
+    if (authSocketSingleton) {
+      try {
+        authSocketSingleton.close()
+      } catch {
+        // no-op
+      }
+    }
+    authSocketSingleton = null
+    authSocketCurrentUserId = null
     await signOut(auth)
     clearManualAuthUser()
     sharedDataClient.invalidateByPrefix("v1|auth")
