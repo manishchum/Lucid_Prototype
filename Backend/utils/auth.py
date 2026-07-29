@@ -246,8 +246,10 @@ def get_request_auth_optional(
 				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
+			if exc.detail == "Session_Replaced":
+				raise exc
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
-				raise
+				raise exc
 			if isinstance(exc.detail, str) and exc.detail.startswith("Bridge"):
 				raise
 			cause = exc.__cause__
@@ -327,7 +329,11 @@ def get_request_auth_required(
 		raise HTTPException(status_code=401, detail="Missing bearer token")
 
 	claims = _verify_firebase_token(token)
-	return _build_request_auth_from_verified_claims(claims, None)
+	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
+	if x_device_id:
+		validate_device_session(auth_ctx.user_id, x_device_id)
+
+	return auth_ctx
      
 
 def get_request_auth_jwt_required(
@@ -360,7 +366,7 @@ def get_request_auth_jwt_required(
 		source="firebase",
 	)
 
-	if x_device_id:
+	if (x_device_id and x_register_session != "true"):
 		validate_device_session(str(user_id), str(x_device_id))
 
 	return RequestAuth(

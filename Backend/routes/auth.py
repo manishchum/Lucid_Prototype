@@ -8,7 +8,7 @@ from utils.auth import (
     RequestAuth,
     register_device_session,
     _verify_firebase_token,
-    get_request_auth_required,
+    get_request_auth_jwt_required,
     _build_request_auth_from_verified_claims,
 )
 
@@ -105,7 +105,7 @@ async def auth_socket(websocket: WebSocket):
 
 @router.post("/session")
 async def register_session(
-    auth: RequestAuth = Depends(get_request_auth_required),
+    auth: RequestAuth = Depends(get_request_auth_jwt_required),
     x_device_id: str | None = Header(None, alias="X-Device-ID"),
     x_register_session: str | None = Header(None, alias="X-Register-Session"),
 ):
