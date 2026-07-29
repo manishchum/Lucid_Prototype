@@ -16,6 +16,7 @@ from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 import uuid as _uuid
 from httpx import RemoteProtocolError, TransportError
+from utils.redis_client import redis_client
 
 @dataclass
 class RequestAuth:
@@ -184,60 +185,63 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 		company_id=str(company_id) if company_id else None,
 	)
 
-def validate_device_session(user_id: str, device_id: str):
-	try:
-		for attempt in range(2):
-			try:
-				session = (
-					supabase.table("user_sessions")
-					.select("*")
-					.eq("user_id", user_id)
-					.single()
-					.execute()
-				)
-				break
+def validate_device_session(
+    user_id: str,
+    device_id: str,
+):
+    try:
+        existing_device = redis_client.get(
+            f"session:{user_id}"
+        )
 
-			except TransportError as e:
-				print(f"Attempt {attempt + 1} failed: {e}")
+    except Exception as e:
+        print("REDIS VALIDATION FAILED:", e)
 
-				if attempt == 1:
-					raise HTTPException(
-						status_code=503,
-						detail="Unable to validate session"
-					)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to validate session"
+        )
 
-		print("SESSION RESPONSE:", session)
+    #
+    # First login
+    #
+    if existing_device is None:
 
-	except Exception as e:
-		print("SESSION QUERY FAILED:", e)
-		raise HTTPException(
-			status_code=503,
-   			detail="unable to validate session"
-		)
+        try:
+            redis_client.set(
+                f"session:{user_id}",
+                device_id,
+                ex=60 * 60 * 24 * 30,
+            )
+        except Exception as e:
+            print("REDIS INSERT FAILED:", e)
 
-	existing = getattr(session, "data", None)
- 
-	if not existing:
-		supabase.table("user_sessions").insert({
-			"user_id": user_id,
-			"device_id": device_id,
-			"active": True
-		}).execute()
-		return
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to create session"
+            )
 
-	if existing["device_id"] == device_id:
-		supabase.table("user_sessions") \
-			.update({
-				"last_seen_at": datetime.utcnow().isoformat()
-			}) \
-			.eq("session_id", existing["session_id"]) \
-			.execute()
-		return
+        return
 
-	raise HTTPException(
-		status_code = 401,
-		detail="Session_Replaced"
-	)
+    #
+    # Same device
+    #
+    if existing_device == device_id:
+
+        redis_client.expire(
+            f"session:{user_id}",
+            60 * 60 * 24 * 30,
+        )
+
+        return
+
+    #
+    # Different device
+    #
+    raise HTTPException(
+        status_code=401,
+        detail="Session_Replaced",
+    )
 
 def get_request_auth_optional(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
@@ -461,17 +465,15 @@ def register_device_session(
     user_id: str,
     device_id: str
 ):
-    (
-        supabase
-        .table("user_sessions")
-        .upsert(
-            {
-                "user_id": user_id,
-                "device_id": device_id,
-                "last_seen_at": datetime.utcnow().isoformat(),
-                "active": True,
-            },
-            on_conflict="user_id",
+    try:
+        redis_client.set(
+            f"session:{user_id}",
+            device_id,
+            ex=60 * 60 * 24 * 30,   # 30 days
         )
-        .execute()
-    )
+    except Exception as e:
+        print("REDIS REGISTER FAILED:", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to register session"
+        )
