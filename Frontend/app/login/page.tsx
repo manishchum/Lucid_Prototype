@@ -128,6 +128,7 @@ function LoginContent() {
       if(!sessionRes.ok) {
         throw new Error("Failed to register session after login.")
       }
+      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
       await checkUserAccess(email)
 
       await login(emailAuthResult.user)
@@ -193,14 +194,17 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-      await fetchWithAuth(`${API_BASE}/api/auth/session`,
+      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
         {
           method: 'POST',
           registerSession: true as any,
         } as any
       );
+      if(!sessionRes.ok) {
+        throw new Error("Failed to register session after login.")
+      }
+      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
       const userData = await checkUserAccess(result.user.email!)
-      
       await login(result.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
