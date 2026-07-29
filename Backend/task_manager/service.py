@@ -387,13 +387,13 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     try:
         submission_query = (
             db.table("task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
         child_submission_query = (
             db.table("child_task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
@@ -405,8 +405,8 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
-            submission_query = db.table("task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
-            child_submission_query = db.table("child_task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
+            submission_query = db.table("task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
+            child_submission_query = db.table("child_task_submissions").select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
             if user_id and not caller_is_admin:
                 submission_query = submission_query.eq("user_id", user_id)
                 child_submission_query = child_submission_query.eq("user_id", user_id)
@@ -614,7 +614,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
     try:
         submissions_res = (
             db.table("task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .order("submitted_at", desc=True)
@@ -622,7 +622,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
         )
         child_submissions_res = (
             db.table("child_task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .order("submitted_at", desc=True)
@@ -894,7 +894,10 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
     # Fetch existing submission to check if already completed for this format
     existing_row = None
     if payload.task_id and payload.user_id:
-        query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
+        if is_bundle_submission:
+            query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
+        else:
+            query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
         if is_bundle_submission:
             query = query.eq("child_task_id", payload.child_task_id)
         else:
@@ -1020,10 +1023,11 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         except Exception as e:
             err_msg = str(e).lower()
             if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
-                query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
                 if is_bundle_submission:
+                    query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
                     query = query.eq("child_task_id", payload.child_task_id)
                 else:
+                    query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
                     query = query.eq("task_id", resolved_task_id)
                 
                 rows = query.execute().data or []
@@ -1272,7 +1276,7 @@ async def fetch_task_submissions(
         query = (
             db
             .table("task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
         )
 
         if company_id:

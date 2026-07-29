@@ -350,7 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return generatedId
         })()
 
-        const wsBase = API_BASE
+        const wsBase = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws")
         if (authSocketSingleton && authSocketSingleton.readyState === WebSocket.OPEN) {
           if (authSocketCurrentUserId === user.uid) {
             return

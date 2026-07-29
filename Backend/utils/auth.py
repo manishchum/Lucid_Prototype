@@ -242,6 +242,8 @@ def get_request_auth_optional(
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
+			if x_device_id:
+				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
@@ -318,6 +320,7 @@ def get_request_auth_optional(
 
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
+ 	x_device_id=Header(None, alias="X-Device-ID"),
 ) -> RequestAuth:
 	token = _extract_bearer_token(authorization)
 	if not token:
@@ -356,6 +359,9 @@ def get_request_auth_jwt_required(
 		token_exp=claims.get("exp"),
 		source="firebase",
 	)
+
+	if x_device_id:
+		validate_device_session(str(user_id), str(x_device_id))
 
 	return RequestAuth(
 		user_id=str(user_id),
