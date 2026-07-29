@@ -7,6 +7,7 @@ from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.db.permissions import check_user_permission
 from utils.redis_client import get_cache, set_cache, redis_client
+import traceback
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
@@ -206,8 +207,11 @@ async def get_dashboard_summary(
         set_cache(cache_key, response_payload, ttl=300)
         return response_payload
           
-    except Exception as e:
-        print(f"[Dashboard Summary Error] {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # except Exception as e:
+    #     print(f"[Dashboard Summary Error] {e}")
+    #     raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        raise
     finally:
         print(f"[Dashboard Summary] Request completed for user {user_id}")
