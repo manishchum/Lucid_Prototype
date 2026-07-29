@@ -119,7 +119,15 @@ function LoginContent() {
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
-
+      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
+        {
+          method: 'POST',
+          registerSession: true as any,
+        } as any
+      );
+      if(!sessionRes.ok) {
+        throw new Error("Failed to register session after login.")
+      }
       await checkUserAccess(email)
 
       await login(emailAuthResult.user)
@@ -185,7 +193,7 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-      await fetchWithAuth(`${API_BASE}/api/auth/sessions`,
+      await fetchWithAuth(`${API_BASE}/api/auth/session`,
         {
           method: 'POST',
           registerSession: true as any,
