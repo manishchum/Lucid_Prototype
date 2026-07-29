@@ -15,7 +15,7 @@ from utils.auth_bridge import (
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 import uuid as _uuid
-
+from httpx import RemoteProtocolError, TransportError
 
 @dataclass
 class RequestAuth:
@@ -186,20 +186,34 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 
 def validate_device_session(user_id: str, device_id: str):
 	try:
-		session = (
-			supabase
-			.table("user_sessions")
-			.select("*")
-			.eq("user_id", user_id)
-			.maybe_single()
-			.execute()
-		)
+		for attempt in range(2):
+			try:
+				session = (
+					supabase.table("user_sessions")
+					.select("*")
+					.eq("user_id", user_id)
+					.single()
+					.execute()
+				)
+				break
+
+			except TransportError as e:
+				print(f"Attempt {attempt + 1} failed: {e}")
+
+				if attempt == 1:
+					raise HTTPException(
+						status_code=503,
+						detail="Unable to validate session"
+					)
 
 		print("SESSION RESPONSE:", session)
 
 	except Exception as e:
 		print("SESSION QUERY FAILED:", e)
-		return
+		raise HTTPException(
+			status_code=503,
+   			detail="unable to validate session"
+		)
 
 	existing = getattr(session, "data", None)
  
