@@ -333,7 +333,7 @@ def get_request_auth_required(
 	if x_device_id:
 		validate_device_session(auth_ctx.user_id, x_device_id)
 
-	return _build_request_auth_from_verified_claims(claims, None)
+	return auth_ctx
      
 
 def get_request_auth_jwt_required(
@@ -366,7 +366,7 @@ def get_request_auth_jwt_required(
 		source="firebase",
 	)
 
-	if x_device_id:
+	if (x_device_id and x_register_session != "true"):
 		validate_device_session(str(user_id), str(x_device_id))
 
 	return RequestAuth(

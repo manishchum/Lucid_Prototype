@@ -185,7 +185,12 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-      
+      await fetchWithAuth(`${API_BASE}/api/auth/sessions`,
+        {
+          method: 'POST',
+          registerSession: true as any,
+        } as any
+      );
       const userData = await checkUserAccess(result.user.email!)
       
       await login(result.user)

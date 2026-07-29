@@ -409,6 +409,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (effectiveUser?.email) {
         setRolesLoaded(false)
+        try{
+          await fetchWithAuth(`${API_BASE}/api/auth/session`, {
+            method: "POST",
+            registerSession: true as any,
+          } as any
+        );
+        } catch(err){
+          console.error("[auth-context] Failed to register session:", err)
+        } 
         const profile = await loadCachedFullProfile(effectiveUser)
 
         if (profile !== undefined) {
