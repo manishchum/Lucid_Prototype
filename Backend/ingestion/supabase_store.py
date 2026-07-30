@@ -1,18 +1,13 @@
 # ingestion/supabase_store.py
 import io
-from supabase import create_client
 from typing import List
 import numpy as np
 import os
 import config
 from PIL import Image as PILImage
 import uuid
-from utils.supabase_client import supabase_admin
+from utils.supabase_client import supabase
 
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET = "module-assets"
 
 def fetch_document_details(doc_id: str, source_type="training"):

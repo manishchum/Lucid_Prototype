@@ -1,7 +1,6 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import bcrypt
-from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 
@@ -63,13 +62,12 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        query_client = supabase
+        query_client = get_service_supabase_client()
         if auth_claims:
             token_email = (auth_claims.get("email") or "").strip().lower()
             requested_email = (email or "").strip().lower()
             if token_email and requested_email and token_email != requested_email:
                 return {"data": None, "error": "Permission denied"}
-            query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         resp = query_client.table('users').select('*').eq('email', email).limit(1).execute()
@@ -118,9 +116,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
     Return user by phone. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        query_client = supabase
-        if auth_claims:
-            query_client = get_service_supabase_client()
+        query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
         normalized_phone = normalize_phone(phone)
@@ -193,7 +189,8 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select().eq('user_id', target_user_id).single().execute()
+        db = get_service_supabase_client()
+        resp = db.table('users').select().eq('user_id', target_user_id).single().execute()
         if not resp.data:
             return {"data": None, "error": "User not found"}
         user = resp.data
@@ -206,7 +203,7 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
         company_id = user.get("company_id")
 
         if company_id:
-            company_resp = supabase.table("companies") \
+            company_resp = db.table("companies") \
                 .select("subscription_tier, subscription_addons") \
                 .eq("company_id", company_id) \
                 .limit(1) \
@@ -244,9 +241,7 @@ async def get_users_by_company(
         }
     
     try:
-        query_client = supabase
-        if auth_claims:
-            query_client = get_service_supabase_client()
+        query_client = get_service_supabase_client()
 
         response = query_client.table('users').select(
             '''

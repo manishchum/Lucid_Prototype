@@ -18,6 +18,9 @@ AS $$
   SELECT COALESCE(
     auth.uid(),
     (
+      SELECT nullif(current_setting('request.headers', true)::json ->> 'x-user-id', '')::uuid
+    ),
+    (
       SELECT u.user_id
       FROM public.users u
       WHERE lower(u.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
@@ -33,10 +36,17 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT u.company_id
-  FROM public.users u
-  WHERE u.user_id = public.current_app_user_id()
-  LIMIT 1;
+  SELECT COALESCE(
+    (
+      SELECT nullif(current_setting('request.headers', true)::json ->> 'x-company-id', '')::uuid
+    ),
+    (
+      SELECT u.company_id
+      FROM public.users u
+      WHERE u.user_id = public.current_app_user_id()
+      LIMIT 1
+    )
+  );
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_super_admin()
@@ -708,12 +718,16 @@ CREATE POLICY rls_titles_write ON public.titles FOR ALL USING (
   )
 );
 
--- Error logs (super-admin only)
+-- Error logs (super-admin read/manage, open insert for log reporting)
 DROP POLICY IF EXISTS rls_error_logs_read ON public.error_logs;
 DROP POLICY IF EXISTS rls_error_logs_write ON public.error_logs;
+DROP POLICY IF EXISTS rls_error_logs_insert ON public.error_logs;
 
 CREATE POLICY rls_error_logs_read ON public.error_logs
 FOR SELECT USING (public.is_super_admin());
+
+CREATE POLICY rls_error_logs_insert ON public.error_logs
+FOR INSERT WITH CHECK (true);
 
 CREATE POLICY rls_error_logs_write ON public.error_logs
 FOR ALL USING (public.is_super_admin())

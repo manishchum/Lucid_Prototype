@@ -24,12 +24,11 @@ def clean_text(text: str) -> str:
 
 def parse_text_per_page_unstructured(pdf_path: str):
 
-    print("\n--- Parsing Text Per Page (Unstructured HI_RES) ---")
+    print("\n--- Parsing Text Per Page (Unstructured FAST) ---")
 
     elements = partition(
         filename=pdf_path,
-        strategy="hi_res",
-        infer_table_structure=True,
+        strategy="fast",
         extract_images_in_pdf=False,
     )
 

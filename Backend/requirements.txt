@@ -13,7 +13,7 @@ PyJWT
 httpx
 PyPDF2
 pytesseract
-unstructured
+unstructured[pdf]
 websockets
 playwright
 pytest
