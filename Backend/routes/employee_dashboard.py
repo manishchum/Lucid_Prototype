@@ -67,7 +67,7 @@ async def get_dashboard_summary(
             .execute()
         )
         company_data = _get_data(company_res) or {}
-        print(f"Company Data: {company_data}")
+        
         # 2. Fetch User details & Count total users in company
         users_res = service_supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
         users_data = _get_data(users_res)
