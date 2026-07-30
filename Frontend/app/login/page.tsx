@@ -79,6 +79,10 @@ function LoginContent() {
       if (!companyPayload?.data) {
         throw new Error("Your organization is no longer available. Please contact your administrator.")
       }
+
+      if (companyPayload.data.is_company_active === false) {
+        throw new Error("Your organization account has been deactivated. Please contact your administrator.")
+      }
       return employeeData;
     } catch (error: any) {
       throw new Error(error.message || "Failed to verify user access.")
@@ -115,7 +119,16 @@ function LoginContent() {
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
-
+      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
+        {
+          method: 'POST',
+          registerSession: true as any,
+        } as any
+      );
+      if(!sessionRes.ok) {
+        throw new Error("Failed to register session after login.")
+      }
+      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
       await checkUserAccess(email)
 
       await login(emailAuthResult.user)
@@ -181,9 +194,17 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-      
+      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
+        {
+          method: 'POST',
+          registerSession: true as any,
+        } as any
+      );
+      if(!sessionRes.ok) {
+        throw new Error("Failed to register session after login.")
+      }
+      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
       const userData = await checkUserAccess(result.user.email!)
-      
       await login(result.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }

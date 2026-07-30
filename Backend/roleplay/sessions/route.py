@@ -41,7 +41,7 @@ async def create_roleplay_session(
         if payload.employee_id != auth_ctx.user_id:
             raise HTTPException(status_code=403, detail="Not authorized to create sessions for other users")
         # Check attempts
-        user_res = supabase_admin.table('users').select('company_id, department_id').eq('user_id', payload.employee_id).execute()
+        user_res = supabase_admin.table('users').select('company_id').eq('user_id', payload.employee_id).execute()
         if not user_res.data:
             raise HTTPException(status_code=400, detail="User not found")
             

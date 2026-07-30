@@ -8,6 +8,17 @@ function toHeaders(headers?: HeadersInit): Headers {
   return new Headers(headers || {});
 }
 
+function getDeviceId(): string {
+  let deviceId = localStorage.getItem("device_id");
+
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    localStorage.setItem("device_id", deviceId);
+  }
+
+  return deviceId;
+}
+
 /**
  * Returns an Authorization bearer token from Firebase auth when available.
  */
@@ -69,7 +80,12 @@ export async function getFirebaseIdToken(): Promise<string> {
  */
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getFirebaseIdToken();
+  const shouldRegisterSession = Boolean((options as any).registerSession);
   const headers = toHeaders(options.headers);
+  headers.set("X-Device-ID", getDeviceId());
+  if (shouldRegisterSession) {
+    headers.set("X-Register-Session", "true");
+  }
   // console.log(
   //   "[AUTH CHECK]",
   //   {
@@ -84,10 +100,29 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
   }
 
+  delete (options as any).registerSession;
+
   let response = await fetch(url, {
     ...options,
     headers,
   });
+
+  console.log(
+    "[FETCH]",
+    options.method || "GET",
+    url,
+    response.status
+  );
+
+  if (!response.ok) {
+    console.error(
+      "[FETCH FAILED]",
+      options.method || "GET",
+      url,
+      response.status,
+      await response.clone().text()
+    );
+  }
 
   // If the backend says the token is invalid (401), force a refresh once
   if (response.status === 401) {
@@ -109,19 +144,42 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
       const refreshedToken =
         await currentUser.getIdToken(true);
-
+      
       const retryHeaders =
         toHeaders(options.headers);
 
+      retryHeaders.set("X-Device-ID", getDeviceId());
+      if (shouldRegisterSession) {
+        retryHeaders.set("X-Register-Session", "true");
+      }
       retryHeaders.set(
         "Authorization",
         `Bearer ${refreshedToken}`
       );
 
+      delete (options as any).registerSession;
+
       response = await fetch(url, {
         ...options,
         headers: retryHeaders,
       });
+
+      console.log(
+        "[FETCH RETRY]",
+        options.method || "GET",
+        url,
+        response.status
+      );
+
+      if (!response.ok) {
+        console.error(
+          "[FETCH RETRY FAILED]",
+          options.method || "GET",
+          url,
+          response.status,
+          await response.clone().text()
+        );
+      }
 
       if (response.status === 401) {
         window.dispatchEvent(

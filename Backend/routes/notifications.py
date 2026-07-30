@@ -18,7 +18,7 @@ class AssignmentNotificationRequest(BaseModel):
     assignment_type: Literal["sprint", "roleplay"]
     assignment_title: str
     company_id: str
-    target_type: Literal["user", "department", "sub_department"]
+    target_type: Literal["user", "function", "sub_function"]
     target_ids: List[str]
     frontend_url: str | None = None
 
@@ -52,7 +52,7 @@ async def list_notifications(
     try:
         resp = (
             supabase.table("notifications")
-            .select("*")
+            .select("id,title,message,type,metadata,read,created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
@@ -151,44 +151,46 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
 
         if request.target_type == "user":
             query = query.in_("user_id", request.target_ids)
-        elif request.target_type == "sub_department":
-            query = query.in_("department_id", request.target_ids)
+        elif request.target_type == "sub_function":
+            query = query.in_("sub_function_id", request.target_ids)
         else:
-            selected_departments = (
+            selected_functions = (
                 supabase
-                .table("sub_department")
-                .select("department_name")
-                .in_("department_id", request.target_ids)
+                .table("function")
+                .select("function_name")
+                .in_("function_id", request.target_ids)
+                .eq("company_id", request.company_id)
                 .execute()
             )
-            department_names = list({
-                row.get("department_name")
-                for row in (selected_departments.data or [])
-                if row.get("department_name")
+            function_names = list({
+                row.get("function_name")
+                for row in (selected_functions.data or [])
+                if row.get("function_name")
             })
 
-            if not department_names:
+            if not function_names:
                 return {
                     "success": True,
                     "sent_count": 0,
                     "failed_count": 0,
-                    "message": "No matching departments found",
+                    "message": "No matching functions found",
                 }
 
-            all_subdepartments = (
+            all_subfunctions = (
                 supabase
-                .table("sub_department")
-                .select("department_id")
-                .in_("department_name", department_names)
+                .table("function")
+                .select("function_id")
+                .in_("function_name", function_names)
+                .eq("company_id", request.company_id)
                 .execute()
             )
-            all_department_ids = [
-                row.get("department_id")
-                for row in (all_subdepartments.data or [])
-                if row.get("department_id")
+            all_function_ids = [
+                row.get("function_id")
+                for row in (all_subfunctions.data or [])
+                if row.get("function_id")
             ]
 
-            if not all_department_ids:
+            if not all_function_ids:
                 return {
                     "success": True,
                     "sent_count": 0,
@@ -196,7 +198,7 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                     "message": "No matching recipients found",
                 }
 
-            query = query.in_("department_id", all_department_ids)
+            query = query.in_("function_id", all_function_ids)
 
         result = query.execute()
         recipients = result.data or []
@@ -318,4 +320,4 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
             "sent_realtime": sent_realtime
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))

@@ -36,7 +36,7 @@ async def get_employees_bootstrap(
             .table('users')
             .select(
                 'user_id, company_id, name, email, phone, position, hire_date, '
-                'employment_status, department_id, manager_id, avatar_url, last_login, '
+                'employment_status, function_id, sub_function_id, manager_id, avatar_url, last_login, '
                 'login_count, is_active, created_at, updated_at'
             )
             .eq('company_id', company_id)
@@ -92,12 +92,12 @@ async def get_employees_bootstrap(
             .execute()
         )
 
-        departments_resp = (
+        functions_resp = (
             service_client
-            .table('sub_department')
-            .select('*')
-            .order('department_name')
-            .order('sub_department_name')
+            .table('function')
+            .select('*, sub_functions:sub_function(*)')
+            .eq('company_id', company_id)
+            .order('function_name')
             .execute()
         )
 
@@ -121,7 +121,7 @@ async def get_employees_bootstrap(
         response_payload = {
             'users': users_resp.data or [],
             'roles': roles_resp.data or [],
-            'departments': departments_resp.data or [],
+            'functions': functions_resp.data or [],
             'training_modules': modules_resp.data or [],
             'learning_plans': plans,
         }
