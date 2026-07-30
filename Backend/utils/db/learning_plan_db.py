@@ -408,7 +408,7 @@ async def bulk_create_learning_plans(
         module_resp = (
             supabase
             .table("training_modules")
-            .select("*")
+            .select("module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks")
             .in_("module_id", module_ids)
             .execute()
         )
