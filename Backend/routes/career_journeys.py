@@ -136,7 +136,7 @@ async def list_career_journeys(
         # Try to fetch from Supabase
         try:
             resp = supabase.table("career_journeys") \
-                .select("*") \
+                .select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at") \
                 .eq("status", filter_status) \
                 .eq("company_id", effective_company_id) \
                 .order("created_at", desc=True) \
@@ -180,9 +180,9 @@ async def get_career_journey(
     """
     try:
 
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at").eq(
             "id", journey_id
-        ).maybe_single().execute()
+        ).eq("company_id", effective_company_id).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -237,9 +237,9 @@ async def update_career_journey(
         body = await request.json()
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at").eq(
             "id", journey_id
-        ).maybe_single().execute()
+        ).eq("company_id", effective_company_id).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
@@ -313,7 +313,7 @@ async def publish_career_journey(
     try:
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at").eq(
             "id", journey_id
         ).maybe_single().execute()
 
@@ -388,9 +388,9 @@ async def delete_career_journey(
     try:
 
         # Get existing journey
-        resp = supabase.table("career_journeys").select("*").eq(
+        resp = supabase.table("career_journeys").select("id,title,description,category,tags,skills,connections,thumbnail,status,created_by,company_id,created_at,updated_at").eq(
             "id", journey_id
-        ).maybe_single().execute()
+        ).eq("company_id", effective_company_id).maybe_single().execute()
 
         if not resp.data:
             return JSONResponse(
