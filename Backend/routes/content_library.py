@@ -21,7 +21,7 @@ async def get_categories(
         result = (
             supabase_admin
             .table("content_categories")
-            .select("id,name,description")
+            .select("id,company_id,name,created_at,updated_at")
             .eq("company_id", effective_company_id)
             .order("name", desc=False)
             .execute()
