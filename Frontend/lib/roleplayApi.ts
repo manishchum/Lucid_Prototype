@@ -6,6 +6,7 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
+import { Message } from '@/lib/roleplay/types';
 
 interface EvaluationParameter {
   name: string;
@@ -240,4 +241,287 @@ export async function createRolePlaySessionAPI(
     data: result.data,
     error: null,
   };
+}
+
+export async function getEmployeeRolePlaySessions(
+    employeeId: string,
+    limit = 20
+) {
+    try {
+        const response = await fetchWithAuth(
+            `${API_BASE_URL}/api/roleplay/sessions/employee/${employeeId}?limit=${limit}`
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            return {
+                data: null,
+                error: result.detail
+            };
+        }
+
+        return {
+            data: result.data,
+            error: null
+        };
+    } catch (error) {
+        return {
+            data: null,
+            error
+        };
+    }
+}
+
+export async function getEmployeeRolePlayStats(
+    employeeId: string
+) {
+    try {
+
+        const response = await fetchWithAuth(
+            `${API_BASE_URL}/api/roleplay/stats/${employeeId}`
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            return {
+                data:null,
+                error:result.detail
+            };
+        }
+
+        return {
+            data:result.data,
+            error:null
+        };
+
+    } catch(error){
+
+        return{
+            data:null,
+            error
+        }
+
+    }
+}
+
+export async function createRolePlayAssessment(
+  sessionId: string,
+  employeeId: string,
+  assessmentData: {
+    overallScore: number;
+    summary: string;
+    parameters: Array<{ name: string; score: number; feedback: string }>;
+    recommendations: string[];
+  }
+): Promise<{ data: any; error: any }> {
+  // console.log('[createRolePlayAssessment] Saving assessment:', {
+  //   sessionId,
+  //   employeeId,
+  //   overallScore: assessmentData.overallScore,
+  //   parametersCount: assessmentData.parameters.length
+  // });
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/assessments/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        employee_id: employeeId,
+        overallScore: assessmentData.overallScore,
+        summary: assessmentData.summary,
+        parameters: assessmentData.parameters,
+        recommendations: assessmentData.recommendations
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[createRolePlayAssessment] Error:', errorData.detail);
+      return { data: null, error: errorData };
+    }
+
+    const result = await response.json();
+    const data = result.data;
+    console.log('[createRolePlayAssessment] Success:', { id: data?.id, score: data?.overall_score });
+    return { data, error: null };
+  } catch (error) {
+    console.error('[createRolePlayAssessment] Network Error:', error);
+    return { data: null, error };
+  }
+}
+
+export async function updateRolePlaySession(
+  sessionId: string,
+  messages: Message[],
+  isCompleted: boolean = false
+): Promise<{ data: any; error: any }> {
+  console.log('[updateRolePlaySession] Saving session:', {
+    sessionId,
+    messagesCount: messages.length,
+    isCompleted,
+    messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
+  });
+
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: messages,
+        is_completed: isCompleted
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('[updateRolePlaySession] ❌ Error:', errorData.detail);
+      return { data: null, error: errorData };
+    }
+
+    const result = await response.json();
+    const data = result.data;
+    console.log('[updateRolePlaySession] ✅ Success:', { 
+      id: data?.id,
+      savedMessageCount: data?.message_count,
+      hasTranscript: !!data?.conversation_transcript
+    });
+    return { data, error: null };
+  } catch (error) {
+    console.error('[updateRolePlaySession] ❌ Network Error:', error);
+    return { data: null, error };
+  }
+}
+
+export async function fetchScenariosForUserAPI(
+  userId: string,
+  isAdmin: boolean
+): Promise<{ data: Scenario[] | null; error: any }> {
+  try {
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/scenarios?is_admin=${isAdmin}`, {
+      method: 'GET',
+      headers: {
+        'X-User-ID': userId,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        data: null,
+        error: {
+          code: 'API_ERROR',
+          status: response.status,
+          message: errorData.detail || 'Failed to fetch scenarios',
+        },
+      };
+    }
+
+    const result: FetchScenariosResponse = await response.json();
+    
+    if (!result.success) {
+      return {
+        data: null,
+        error: {
+          code: 'API_ERROR',
+          message: result.error || 'Failed to fetch scenarios',
+        },
+      };
+    }
+
+    // console.log('API fetchScenariosForUserAPI result:', result.data);
+    // console.log('API fetchScenariosForUserAPI raw response:', response);
+    return {
+      data: result.data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Error fetching scenarios:', error);
+    return {
+      data: null,
+      error: {
+        code: 'FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+export async function assignScenarioAPI(
+  scenarioId: string,
+  assignmentType: 'function' | 'sub_function' | 'user',
+  targetIds: string[],
+  companyId: string,
+  userId: string
+): Promise<{ data: any; error: any }> {
+  try {
+    if (!targetIds || targetIds.length === 0) {
+      return {
+        data: null,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'No targets provided',
+        },
+      };
+    }
+
+    const response = await fetchWithAuth(`${API_BASE_URL}/api/roleplay/scenarios/${scenarioId}/assignments`, {
+      method: 'POST',
+      headers: {
+        'X-User-ID': userId,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        assignment_type: assignmentType,
+        target_ids: targetIds,
+      }),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        data: null,
+        error: {
+          code: 'API_ERROR',
+          status: response.status,
+          message: errorData.detail || 'Failed to assign scenario',
+        },
+      };
+    }
+
+    const result: AssignScenarioResponse = await response.json();
+    
+    if (!result.success) {
+      return {
+        data: null,
+        error: {
+          code: 'API_ERROR',
+          message: result.error || 'Failed to assign scenario',
+        },
+      };
+    }
+
+    return {
+      data: result.data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Error assigning scenario:', error);
+    return {
+      data: null,
+      error: {
+        code: 'FETCH_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      },
+    };
+  }
 }

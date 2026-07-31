@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI, getScenarioAssignmentsAPI } from '@/lib/roleplayPageApi';
+import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI } from '@/lib/roleplayApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -30,7 +30,7 @@ interface AssessmentReport {
 
 function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, moduleTitle: string, custom: string }> }) {
   const unwrappedParams = use(params);
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, userId, employeeData, isAdmin, rolesLoaded } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const moduleId = unwrappedParams.module_id;
@@ -43,7 +43,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
   const [assessmentReport, setAssessmentReport] = useState<AssessmentReport | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  // const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [isGeneratingAssessment, setIsGeneratingAssessment] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -58,7 +58,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   });
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  // const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
   const [assignmentType, setAssignmentType] = useState<'function' | 'sub_function' | 'user'>('user');
@@ -66,13 +66,15 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [functions, setFunctions] = useState<any[]>([]);
   const [subFunctions, setSubFunctions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [companyId, setCompanyId] = useState<string>('');
-  const [userId, setUserId] = useState<string>('');
+  // const [companyId, setCompanyId] = useState<string>('');
+  // const [userId, setUserId] = useState<string>('');
+  const employeeId = userId;
+  const companyId = employeeData?.company_id || '';
   
   // Fetch all scenarios from the database on mount
   useEffect(() => {
     const fetchScenarios = async () => {
-      if (!userId) return;
+      if (!userId || !rolesLoaded) return;
       
       setLoadingScenarios(true);
       // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
@@ -91,7 +93,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     if (userId) {
       fetchScenarios();
     }
-  }, [isAdmin, searchParams]); // Depend on both userId and isAdmin
+  }, [userId, isAdmin, rolesLoaded, searchParams]); // Depend on both userId and isAdmin
 
   useEffect(() => {
     if (!authLoading) {
@@ -99,20 +101,20 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     }
   }, [user, authLoading, router]);
 
-  const fetchAppUserByEmail = async (email?: string | null) => {
-    if (!email) return null;
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
-      if (!res.ok) return null;
-      const payload = await res.json();
-      let appUser = payload?.user ?? payload;
-      if (Array.isArray(appUser)) appUser = appUser[0];
-      return appUser?.user_id ? appUser : null;
-    } catch (error) {
-      console.error("Error fetching app user by email:", error);
-      return null;
-    }
-  };
+  // const fetchAppUserByEmail = async (email?: string | null) => {
+  //   if (!email) return null;
+  //   try {
+  //     const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+  //     if (!res.ok) return null;
+  //     const payload = await res.json();
+  //     let appUser = payload?.user ?? payload;
+  //     if (Array.isArray(appUser)) appUser = appUser[0];
+  //     return appUser?.user_id ? appUser : null;
+  //   } catch (error) {
+  //     console.error("Error fetching app user by email:", error);
+  //     return null;
+  //   }
+  // };
 
   // Load custom scenario from sessionStorage if custom=true
   useEffect(() => {
@@ -144,81 +146,81 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   }, [isCustom]);
 
   // Fetch employee profile via backend auth-aware endpoint
-  useEffect(() => {
-    const fetchEmployeeId = async () => {
-      if (user?.email) {
-        try {
-          const appUser = await fetchAppUserByEmail(user.email);
-          if (!appUser) {
-            console.error("Error fetching employee ID: user not found");
-            return;
-          }
-          setEmployeeId(appUser.user_id);
-          setUserId(appUser.user_id);
-          setCompanyId(appUser.company_id);
-        } catch (error) {
-          console.error('Exception fetching employee ID:', error);
-        }
-      }
-    };
-    fetchEmployeeId();
-  }, [user]);
+  // useEffect(() => {
+  //   const fetchEmployeeId = async () => {
+  //     if (user?.email) {
+  //       try {
+  //         const appUser = await fetchAppUserByEmail(user.email);
+  //         if (!appUser) {
+  //           console.error("Error fetching employee ID: user not found");
+  //           return;
+  //         }
+  //         setEmployeeId(appUser.user_id);
+  //         setUserId(appUser.user_id);
+  //         setCompanyId(appUser.company_id);
+  //       } catch (error) {
+  //         console.error('Exception fetching employee ID:', error);
+  //       }
+  //     }
+  //   };
+  //   fetchEmployeeId();
+  // }, [user]);
 
   // Check if user has admin role
-  useEffect(() => {
-    const fetchUserDataAndCheckAdmin = async () => {
-      if (user?.email) {
-        try {
-          const userData = await fetchAppUserByEmail(user.email);
-          if (!userData) {
-            console.error('Error fetching user data: user not found');
-            setIsAdmin(false);
-            return;
-          }
+  // useEffect(() => {
+  //   const fetchUserDataAndCheckAdmin = async () => {
+  //     if (user?.email) {
+  //       try {
+  //         const userData = await fetchAppUserByEmail(user.email);
+  //         if (!userData) {
+  //           console.error('Error fetching user data: user not found');
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          setEmployeeId(userData.user_id);
-          setUserId(userData.user_id);
-          setCompanyId(userData.company_id);
+  //         setEmployeeId(userData.user_id);
+  //         setUserId(userData.user_id);
+  //         setCompanyId(userData.company_id);
 
-          // Check user role assignments
-          const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`, {
-            headers: { 'X-User-ID': userData.user_id }
-          });
+  //         // Check user role assignments
+  //         const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`, {
+  //           headers: { 'X-User-ID': userData.user_id }
+  //         });
 
-          if (!roleRes.ok) {
-            console.error('Failed to fetch role assignments:', roleRes.status);
-            setIsAdmin(false);
-            return;
-          }
+  //         if (!roleRes.ok) {
+  //           console.error('Failed to fetch role assignments:', roleRes.status);
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          const rolePayload = await roleRes.json().catch(() => null);
-          const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
-          if (!Array.isArray(roleData) || roleData.length === 0) {
-            // console.log('No admin role found');
-            setIsAdmin(false);
-            return;
-          }
+  //         const rolePayload = await roleRes.json().catch(() => null);
+  //         const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
+  //         if (!Array.isArray(roleData) || roleData.length === 0) {
+  //           // console.log('No admin role found');
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          // Check if user has Admin role
-          const hasAdminRole = roleData.some((assignment: any) => {
-            const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
-            const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
-            const roleName = String(roleNode?.name || '').toLowerCase().replace(/[-_\s]/g, '');
-            const roleLevel = Number(roleNode?.level ?? assignment?.level ?? -1);
-            return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
-          });
+  //         // Check if user has Admin role
+  //         const hasAdminRole = roleData.some((assignment: any) => {
+  //           const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
+  //           const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
+  //           const roleName = String(roleNode?.name || '').toLowerCase().replace(/[-_\s]/g, '');
+  //           const roleLevel = Number(roleNode?.level ?? assignment?.level ?? -1);
+  //           return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
+  //         });
 
-          //console.log('User is admin:', hasAdminRole);
-          setIsAdmin(hasAdminRole);
-        } catch (error) {
-          console.error('Error in fetchUserDataAndCheckAdmin:', error);
-          setIsAdmin(false);
-        }
-      }
-    };
+  //         //console.log('User is admin:', hasAdminRole);
+  //         setIsAdmin(hasAdminRole);
+  //       } catch (error) {
+  //         console.error('Error in fetchUserDataAndCheckAdmin:', error);
+  //         setIsAdmin(false);
+  //       }
+  //     }
+  //   };
 
-    fetchUserDataAndCheckAdmin();
-  }, [user]);
+  //   fetchUserDataAndCheckAdmin();
+  // }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
           //console.log('Loaded custom scenario from sessionStorage:', scenario);

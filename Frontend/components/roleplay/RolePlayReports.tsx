@@ -13,7 +13,7 @@ import {
   Target,
   Lightbulb
 } from 'lucide-react';
-import { getEmployeeRolePlaySessions, getEmployeeRolePlayStats } from '@/lib/roleplayDatabase';
+import { getEmployeeRolePlaySessions, getEmployeeRolePlayStats } from '@/lib/roleplayApi';
 import { Message } from '@/lib/roleplay/types';
 
 interface RolePlaySession {

@@ -714,6 +714,47 @@ async def update_roleplay_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/sessions/employee/{employee_id}")
+async def get_employee_roleplay_sessions(
+    employee_id: str,
+    limit: int = Query(10),
+    ctx: RoleplayContext = Depends(get_roleplay_context),
+):
+    if employee_id != ctx.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized"
+        )
+
+    result = roleplay_db.get_employee_roleplay_sessions(
+        employee_id,
+        limit
+    )
+
+    return {
+        "success": True,
+        "data": result.data or []
+    }
+    
+@router.get("/stats/{employee_id}")
+async def get_employee_roleplay_stats(
+    employee_id: str,
+    ctx: RoleplayContext = Depends(get_roleplay_context),
+):
+    if employee_id != ctx.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized"
+        )
+
+    stats = roleplay_db.get_employee_roleplay_stats(
+        employee_id
+    )
+
+    return {
+        "success": True,
+        "data": stats
+    }
 # @router.post("/assessments/create")
 # async def create_roleplay_assessment(
 #     payload: CreateAssessmentRequest,
@@ -780,7 +821,8 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
                 status_code=500
             )
 
-        messages = session["messages"]
+        print(session)
+        messages = session.get("conversation_transcript",[])
         scenario_title = scenario["title"]
         scenario_role = scenario["role"]
         user_role = scenario["userRole"]
@@ -792,8 +834,8 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
         logging.info("Assessment request received with %d messages", len(messages))
         
         # Filter messages
-        user_messages = [m for m in messages if m.get("sender") == "user"]
-        ai_messages = [m for m in messages if m.get("sender") == "avatar"]
+        user_messages = [m for m in messages if m.get("role") == "user"]
+        ai_messages = [m for m in messages if m.get("role") == "avatar"]
         
         logging.info("Filtered messages - users: %d, ai: %d, total: %d", len(user_messages), len(ai_messages), len(messages))
 
@@ -848,7 +890,7 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
         ai_role = scenario_role or "AI Coach"
 
         transcript = "\n\n".join(
-            f"{learner_role if m.get('sender') == 'user' else ai_role}: {m.get('text')}"
+            f"{learner_role if m.get('role') == 'user' else ai_role}: {m.get('text')}"
             for m in messages
         )
 
@@ -1032,11 +1074,11 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         
         # ✅ Return a graceful fallback assessment on error
         logging.info("Returning fallback assessment due to error")
-        return fallback_assessment(
-            "Assessment could not be generated at this moment. Please try again in a few minutes. "
-            "Your conversation has been saved and you can review it in your reports."
-        )
-
+        # return fallback_assessment(
+        #     "Assessment could not be generated at this moment. Please try again in a few minutes. "
+        #     "Your conversation has been saved and you can review it in your reports."
+        # )
+        raise
 # ============================================================
 # Reports
 # ============================================================

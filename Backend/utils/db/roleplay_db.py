@@ -116,6 +116,25 @@ def get_company_roleplay_limits(company_id: str) -> tuple[dict, dict | None]:
     except Exception as e:
         return {}, {'code': 'DB_ERROR', 'message': str(e)}
 
+def get_bootstrap_data(company_id: str):
+    scenarios, _ = fetch_all_scenarios(company_id)
+
+    functions = get_functions(company_id)
+    sub_functions = get_sub_functions(company_id)
+    users = get_active_company_users(company_id)
+
+    company_limits, _ = get_company_roleplay_limits(company_id)
+
+    return {
+        "scenarios": scenarios or [],
+        "assignmentTargets": {
+            "functions": functions.data or [],
+            "sub_functions": sub_functions.data or [],
+            "users": users.data or [],
+        },
+        "companyLimits": company_limits,
+    }
+    
 def get_user_company_and_functions(user_id: str) -> tuple[dict, dict | None]:
     """Get user's company and functions"""
     try:
@@ -356,8 +375,7 @@ def get_roleplay_session(session_id: str):
             employee_id,
             scenario_id,
             conversation_transcript,
-            message_count,
-            is_completed
+            message_count
         """)
         .eq("id", session_id)
         .single()
@@ -503,13 +521,17 @@ def get_functions(company_id: str):
 
 def get_sub_functions(company_id: str):
     return (
-        supabase
-        .table("sub_function")
-        .select(
-            "sub_function_id,function_id,sub_function_name"
-        )
-        .eq("company_id", company_id)
-        .order("sub_function_name")
+        supabase.table("sub_function")
+        .select("""
+            sub_function_id,function_id,sub_function_name,
+            function!inner(
+                function_id,
+                function_name,
+                company_id
+            )
+        """)
+        .eq("function.company_id", company_id)
+        .eq("is_active", True)
         .execute()
     )
     
@@ -597,5 +619,82 @@ def get_scenario_assignments(
         )
         .eq("company_id", company_id)
         .eq("scenario_id", scenario_id)
+        .execute()
+    )
+    
+def get_employee_roleplay_stats(
+    employee_id: str,
+):
+
+    sessions = (
+        supabase
+        .table("roleplay_sessions")
+        .select("id,scenario_id,completed_at")
+        .eq("employee_id", employee_id)
+        .not_.is_("completed_at", None)
+        .execute()
+    )
+
+    assessments = (
+        supabase
+        .table("roleplay_assessments")
+        .select("overall_score,created_at")
+        .eq("employee_id", employee_id)
+        .execute()
+    )
+
+    session_rows = sessions.data or []
+    assessment_rows = assessments.data or []
+
+    stats = {
+        "total_sessions": len(session_rows),
+        "completed_sessions": len(
+            [s for s in session_rows if s.get("completed_at")]
+        ),
+        "average_score": round(
+            sum(a["overall_score"] for a in assessment_rows) / len(assessment_rows)
+        ) if assessment_rows else 0,
+        "best_score": max(
+            (a["overall_score"] for a in assessment_rows),
+            default=0,
+        ),
+        "recent_sessions": session_rows[:5],
+    }
+
+    return stats
+    
+def get_employee_roleplay_sessions(
+    employee_id: str,
+    limit: int,
+):
+    return (
+        supabase
+        .table("roleplay_sessions")
+        .select("""
+            id,
+            employee_id,
+            module_id,
+            scenario_id,
+            scenario_title,
+            scenario_role,
+            scenario_difficulty,
+            conversation_transcript,
+            started_at,
+            completed_at,
+            duration_seconds,
+            message_count,
+            roleplay_assessments(
+                id,
+                overall_score,
+                summary,
+                parameters,
+                recommendations,
+                created_at
+            )
+        """)
+        .eq("employee_id", employee_id)
+        .not_.is_("completed_at", None)
+        .order("completed_at", desc=True)
+        .limit(limit)
         .execute()
     )
