@@ -243,13 +243,76 @@ export async function createRolePlaySessionAPI(
   };
 }
 
-export async function getEmployeeRolePlaySessions(
+// export async function getEmployeeRolePlaySessions(
+//     employeeId: string,
+//     limit = 20
+// ) {
+//     try {
+//         const response = await fetchWithAuth(
+//             `${API_BASE_URL}/api/roleplay/sessions/employee/${employeeId}?limit=${limit}`
+//         );
+
+//         const result = await response.json();
+
+//         if (!response.ok) {
+//             return {
+//                 data: null,
+//                 error: result.detail
+//             };
+//         }
+
+//         return {
+//             data: result.data,
+//             error: null
+//         };
+//     } catch (error) {
+//         return {
+//             data: null,
+//             error
+//         };
+//     }
+// }
+
+// export async function getEmployeeRolePlayStats(
+//     employeeId: string
+// ) {
+//     try {
+
+//         const response = await fetchWithAuth(
+//             `${API_BASE_URL}/api/roleplay/stats/${employeeId}`
+//         );
+
+//         const result = await response.json();
+
+//         if (!response.ok) {
+//             return {
+//                 data:null,
+//                 error:result.detail
+//             };
+//         }
+
+//         return {
+//             data:result.data,
+//             error:null
+//         };
+
+//     } catch(error){
+
+//         return{
+//             data:null,
+//             error
+//         }
+
+//     }
+// }
+
+export async function getEmployeeRoleplayReports(
     employeeId: string,
     limit = 20
 ) {
     try {
         const response = await fetchWithAuth(
-            `${API_BASE_URL}/api/roleplay/sessions/employee/${employeeId}?limit=${limit}`
+            `${API_BASE_URL}/api/roleplay/reports/${employeeId}?limit=${limit}`
         );
 
         const result = await response.json();
@@ -257,52 +320,19 @@ export async function getEmployeeRolePlaySessions(
         if (!response.ok) {
             return {
                 data: null,
-                error: result.detail
+                error: result.detail,
             };
         }
 
         return {
             data: result.data,
-            error: null
+            error: null,
         };
     } catch (error) {
         return {
             data: null,
-            error
+            error,
         };
-    }
-}
-
-export async function getEmployeeRolePlayStats(
-    employeeId: string
-) {
-    try {
-
-        const response = await fetchWithAuth(
-            `${API_BASE_URL}/api/roleplay/stats/${employeeId}`
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-            return {
-                data:null,
-                error:result.detail
-            };
-        }
-
-        return {
-            data:result.data,
-            error:null
-        };
-
-    } catch(error){
-
-        return{
-            data:null,
-            error
-        }
-
     }
 }
 
@@ -524,4 +554,56 @@ export async function assignScenarioAPI(
       },
     };
   }
+}
+
+export async function fetchRoleplayBootstrap() {
+    const response = await fetchWithAuth(
+        `${API_BASE_URL}/api/roleplay/bootstrap`
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+        return {
+            data: null,
+            error: result.detail,
+        };
+    }
+
+    return {
+        data: result.data,
+        error: null,
+    };
+}
+
+export async function finishRoleplaySession(
+    sessionId: string
+) {
+
+    const response = await fetchWithAuth(
+        `${API_BASE_URL}/api/roleplay/finish`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+            }),
+        }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+        return {
+            data: null,
+            error: result.detail,
+        };
+    }
+
+    return {
+        data: result.data,
+        error: null,
+    };
 }

@@ -135,6 +135,17 @@ def get_bootstrap_data(company_id: str):
         "companyLimits": company_limits,
     }
     
+def finish_roleplay_session(session_id: str):
+    return (
+        supabase
+        .table("roleplay_sessions")
+        .update({
+            "completed_at": datetime.utcnow().isoformat()
+        })
+        .eq("id", session_id)
+        .execute()
+    )
+    
 def get_user_company_and_functions(user_id: str) -> tuple[dict, dict | None]:
     """Get user's company and functions"""
     try:
@@ -698,3 +709,21 @@ def get_employee_roleplay_sessions(
         .limit(limit)
         .execute()
     )
+    
+def get_employee_roleplay_reports(
+    employee_id: str,
+    limit: int = 20
+):
+    sessions = get_employee_roleplay_sessions(
+        employee_id,
+        limit
+    )
+
+    stats = get_employee_roleplay_stats(
+        employee_id
+    )
+
+    return {
+        "sessions": sessions.data or [],
+        "stats": stats or {}
+    }

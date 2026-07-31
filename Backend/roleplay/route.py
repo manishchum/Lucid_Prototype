@@ -117,7 +117,9 @@ class UpdateSessionRequest(BaseModel):
     messages: List[Dict[str, Any]]
     is_completed: bool = False
 
-
+class FinishSessionRequest(BaseModel):
+    session_id: str
+    
 class AssessmentParameter(BaseModel):
     name: str
     score: int
@@ -646,6 +648,60 @@ async def get_assignment_targets(
 # SESSIONS
 # ==================================================
 
+@router.get("/bootstrap")
+async def get_roleplay_bootstrap(
+    ctx: RoleplayContext = Depends(get_roleplay_context)
+):
+    try:
+
+        is_admin = await check_user_permission(ctx.user_id, "admin")
+        is_super_admin = await check_user_permission(ctx.user_id, "super_admin")
+        is_developer = await check_user_permission(ctx.user_id, "developer")
+
+        permissions = {
+            "isAdmin": is_admin,
+            "isSuperAdmin": is_super_admin,
+            "isDeveloper": is_developer,
+        }
+
+        company_data = roleplay_db.get_bootstrap_data(ctx.company_id)
+
+        retry_limits = company_data["companyLimits"].get("retryLimit", 3)
+
+        if permissions["isAdmin"] or permissions["isSuperAdmin"] or permissions["isDeveloper"]:
+            scenarios = [
+                roleplay_db.normalize_scenario(s)
+                for s in company_data["scenarios"]
+            ]
+        else:
+            assigned_ids, _ = roleplay_db.get_assigned_scenario_ids_for_user(ctx.user_id)
+
+            result = roleplay_db.get_scenarios_by_ids(assigned_ids)
+
+            scenarios = [
+                roleplay_db.normalize_scenario(s)
+                for s in (result.data or [])
+            ]
+
+        return {
+            "success": True,
+            "data": {
+                "scenarios": scenarios,
+                "assignmentTargets": company_data["assignmentTargets"],
+                "permissions": permissions,
+                "retryLimits": {
+                    "maxRetries": retry_limits
+                },
+                "companyLimits": company_data["companyLimits"]
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+        
 @router.post("/sessions")
 async def create_roleplay_session(
     payload: CreateSessionRequest,
@@ -754,6 +810,28 @@ async def get_employee_roleplay_stats(
     return {
         "success": True,
         "data": stats
+    }
+    
+@router.get("/reports/{employee_id}")
+async def get_employee_roleplay_reports(
+    employee_id: str,
+    limit: int = Query(20),
+    ctx: RoleplayContext = Depends(get_roleplay_context),
+):
+    if employee_id != ctx.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized"
+        )
+
+    report = roleplay_db.get_employee_roleplay_reports(
+        employee_id,
+        limit
+    )
+
+    return {
+        "success": True,
+        "data": report
     }
 # @router.post("/assessments/create")
 # async def create_roleplay_assessment(
@@ -1079,6 +1157,44 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
         #     "Your conversation has been saved and you can review it in your reports."
         # )
         raise
+
+@router.post("/finish")
+async def finish_roleplay(
+    payload: FinishSessionRequest,
+    ctx: RoleplayContext = Depends(get_roleplay_context)
+):
+
+    assessment_response = await generate_assessment(
+        payload.session_id,
+        ctx
+    )
+
+    if isinstance(assessment_response, JSONResponse):
+        assessment_json = json.loads(
+            assessment_response.body.decode()
+        )
+    else:
+        assessment_json = assessment_response
+
+    assessment = assessment_json["data"]
+
+    roleplay_db.save_roleplay_assessment({
+        "session_id": payload.session_id,
+        "employee_id": ctx.user_id,
+        "overall_score": assessment["overallScore"],
+        "summary": assessment["summary"],
+        "parameters": assessment["parameters"],
+        "recommendations": assessment["recommendations"],
+    })
+
+    roleplay_db.finish_roleplay_session(
+        payload.session_id
+    )
+
+    return {
+        "success": True,
+        "data": assessment
+    }
 # ============================================================
 # Reports
 # ============================================================

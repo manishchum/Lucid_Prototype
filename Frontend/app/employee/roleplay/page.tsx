@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI } from '@/lib/roleplayApi';
+import { fetchRoleplayBootstrap, deleteCustomScenarioAPI, assignScenarioAPI, finishRoleplaySession } from '@/lib/roleplayApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
@@ -72,28 +72,66 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const companyId = employeeData?.company_id || '';
   
   // Fetch all scenarios from the database on mount
+  // useEffect(() => {
+  //   const fetchScenarios = async () => {
+  //     if (!userId || !rolesLoaded) return;
+      
+  //     setLoadingScenarios(true);
+  //     // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
+      
+  //     const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+
+  //     // console.log('Fetched scenarios:', data);
+  //     if (data) {
+  //       setAllScenarios(data);
+  //     }
+  //     if (error) setError('Failed to load scenarios');
+  //     setLoadingScenarios(false);
+  //   };
+
+  //   // Only fetch scenarios after we have userId (which means admin check is done)
+  //   if (userId) {
+  //     fetchScenarios();
+  //   }
+  // }, [userId, isAdmin, rolesLoaded, searchParams]); // Depend on both userId and isAdmin
+
   useEffect(() => {
-    const fetchScenarios = async () => {
-      if (!userId || !rolesLoaded) return;
-      
-      setLoadingScenarios(true);
-      // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
-      
-      const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+  const fetchBootstrap = async () => {
+    if (!userId || !rolesLoaded) return;
 
-      // console.log('Fetched scenarios:', data);
-      if (data) {
-        setAllScenarios(data);
-      }
-      if (error) setError('Failed to load scenarios');
+    setLoadingScenarios(true);
+
+    const { data, error } =
+      await fetchRoleplayBootstrap();
+
+    if (error) {
+      setError("Failed to load roleplay data");
       setLoadingScenarios(false);
-    };
-
-    // Only fetch scenarios after we have userId (which means admin check is done)
-    if (userId) {
-      fetchScenarios();
+      return;
     }
-  }, [userId, isAdmin, rolesLoaded, searchParams]); // Depend on both userId and isAdmin
+
+    if (data) {
+      setAllScenarios(data.scenarios);
+
+      setFunctions(
+        data.assignmentTargets.functions || []
+      );
+
+      setSubFunctions(
+        data.assignmentTargets.sub_functions || []
+      );
+
+      setUsers(
+        data.assignmentTargets.users || []
+      );
+    }
+
+    setLoadingScenarios(false);
+  };
+
+  fetchBootstrap();
+
+}, [userId, rolesLoaded]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -274,35 +312,43 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     }
   };
 
-  const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
+  // const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
+  //   e.stopPropagation(); // Prevent card click
 
 
-    //console.log('Assigning scenario:', scenario);
-    setAssigningScenario(scenario);
-    setShowAssignModal(true);
+  //   //console.log('Assigning scenario:', scenario);
+  //   setAssigningScenario(scenario);
+  //   setShowAssignModal(true);
     
-    // Fetch functions and sub-functions and users for the dropdown
-    try {
-      const response = await fetchWithAuth(
-        `${API_URL}/api/roleplay/assignment-targets`
-      );
+  //   // Fetch functions and sub-functions and users for the dropdown
+  //   try {
+  //     const response = await fetchWithAuth(
+  //       `${API_URL}/api/roleplay/assignment-targets`
+  //     );
 
-      if (!response.ok) {
-        throw new Error("Failed to load assignment targets");
-      }
+  //     if (!response.ok) {
+  //       throw new Error("Failed to load assignment targets");
+  //     }
 
-      const result = await response.json();
-      const targets = result.data || {};
+  //     const result = await response.json();
+  //     const targets = result.data || {};
 
-      setFunctions(targets.functions || []);
-      setSubFunctions(targets.sub_functions || []);
-      setUsers(targets.users || []);
-      } catch (error) {
-      console.error("Error fetching assignment targets:", error);
-    }
+  //     setFunctions(targets.functions || []);
+  //     setSubFunctions(targets.sub_functions || []);
+  //     setUsers(targets.users || []);
+  //     } catch (error) {
+  //     console.error("Error fetching assignment targets:", error);
+  //   }
+  // };
+
+  const handleAssignScenario = async (
+      scenario: Scenario,
+      e: React.MouseEvent
+  ) => {
+      e.stopPropagation();
+      setAssigningScenario(scenario);
+      setShowAssignModal(true);
   };
-
   const handleSaveAssignment = async () => {
     if (!assigningScenario || selectedTargets.length === 0) {
       alert('Please select at least one target');
@@ -397,36 +443,47 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         throw new Error('Scenario information not available');
       }
 
-      const response = await fetchWithAuth(`${API_URL}/api/roleplay/sessions/${sessionId}/assessment`, {
-        method: 'POST',
-        cache: 'no-store',
-        // headers: {
-        //   'Content-Type': 'application/json',
-        //   'Cache-Control': 'no-cache, no-store, must-revalidate',
-        //   'Pragma': 'no-cache',
-        // },
+      // const response = await fetchWithAuth(`${API_URL}/api/roleplay/sessions/${sessionId}/assessment`, {
+      //   method: 'POST',
+      //   cache: 'no-store',
+      //   // headers: {
+      //   //   'Content-Type': 'application/json',
+      //   //   'Cache-Control': 'no-cache, no-store, must-revalidate',
+      //   //   'Pragma': 'no-cache',
+      //   // },
         
-        // body: JSON.stringify({
-        //   messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
-        //   scenarioTitle: selectedScenario?.title,
-        //   scenarioRole: selectedScenario?.role,
-        //   userRole: selectedScenario?.userRole
-        });
-      // console.log('[Assessment] Response status:', response.status);
+      //   // body: JSON.stringify({
+      //   //   messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
+      //   //   scenarioTitle: selectedScenario?.title,
+      //   //   scenarioRole: selectedScenario?.role,
+      //   //   userRole: selectedScenario?.userRole
+      //   });
+      // // console.log('[Assessment] Response status:', response.status);
 
-      if (!response.ok) {
-        let errorData: any = {};
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = { error: `HTTP ${response.status}` };
-        }
-        console.error('[Assessment] Error response:', errorData);
-        throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
+      // if (!response.ok) {
+      //   let errorData: any = {};
+      //   try {
+      //     errorData = await response.json();
+      //   } catch {
+      //     errorData = { error: `HTTP ${response.status}` };
+      //   }
+      //   console.error('[Assessment] Error response:', errorData);
+      //   throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
+      // }
+
+      // const assessmentResult = await response.json();
+      // const assessment = assessmentResult?.data ?? assessmentResult;
+
+      const {
+          data: assessment,
+          error,
+      } = await finishRoleplaySession(
+          sessionId!
+      );
+
+      if (error) {
+          throw new Error(error);
       }
-
-      const assessmentResult = await response.json();
-      const assessment = assessmentResult?.data ?? assessmentResult;
       // console.log('[Assessment] Success, score:', assessment?.overallScore);
       
       // ✅ Validate assessment structure - zero score is valid!
