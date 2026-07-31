@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { CustomPagination } from '@/components/ui/custom-pagination';
 import { Switch } from '@/components/ui/switch';
 import { 
   Users, 
@@ -138,12 +139,18 @@ export default function EmployeesPage() {
   const [selectedFunction, setSelectedFunction] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('name-asc');
   const [showFilters, setShowFilters] = useState(false);
   // Add new function filtering states
   const [selectedFunctions, setSelectedFunctions] = useState<string[]>([]);
   const [selectedSubFunctions, setSelectedSubFunctions] = useState<string[]>([]);
   const [showFunctionDropdown, setShowFunctionDropdown] = useState(false);
   const [showSubFunctionDropdown, setShowSubFunctionDropdown] = useState(false);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  
   const currentUserId = admin?.user_id || null;
   
   const bootstrapStarted = useRef(false);
@@ -170,7 +177,7 @@ export default function EmployeesPage() {
   // Filter users when filters change
   useEffect(() => {
     filterUsers();
-  }, [users, searchTerm, selectedFunction, selectedStatus, selectedRole, selectedFunctions, selectedSubFunctions]);
+  }, [users, searchTerm, selectedFunction, selectedStatus, selectedRole, selectedFunctions, selectedSubFunctions, sortBy]);
 
   const checkAdminAccess = async () => {
     if (!user?.email) return;
@@ -444,7 +451,17 @@ export default function EmployeesPage() {
       filtered = filtered.filter(user => user.role?.name === selectedRole);
     }
 
-    setFilteredUsers(filtered);
+    let sorted = [...filtered];
+    if (sortBy === 'name-asc') {
+      sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } else if (sortBy === 'name-desc') {
+      sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+    } else if (sortBy === 'recent') {
+      sorted.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    }
+
+    setFilteredUsers(sorted);
+    setCurrentPage(1);
   };
 
   // Function selection handlers
@@ -547,6 +564,7 @@ export default function EmployeesPage() {
     setSelectedRole('all');
     setSelectedFunctions([]);
     setSelectedSubFunctions([]);
+    setSortBy('name-asc');
   };
 
   const handleEditUser = (user: User) => {
@@ -674,6 +692,12 @@ export default function EmployeesPage() {
       </Alert>
     );
   }
+
+  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <div className="space-y-6">
@@ -909,7 +933,7 @@ export default function EmployeesPage() {
 
                     {/* Subfunction Selection */}
                     <div className="space-y-2">
-                      <Label>Subfunctions</Label>
+                      <Label>Sub-functions</Label>
                       <div className="relative">
                         <Button
                           type="button"
@@ -920,7 +944,7 @@ export default function EmployeesPage() {
                         >
                           <span>
                             {selectedSubFunctions.length === 0
-                              ? "Select Subfunctions"
+                              ? "Select Sub-functions"
                               : `${selectedSubFunctions.length} subfunction${selectedSubFunctions.length === 1 ? '' : 's'} selected`}
                           </span>
                           <span className="ml-2">▼</span>
@@ -979,7 +1003,7 @@ export default function EmployeesPage() {
                   </div>
 
                   {/* Other filters in a separate row */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Role Filter */}
                     <div>
                       <Label htmlFor="role-filter">Role</Label>
@@ -1003,14 +1027,29 @@ export default function EmployeesPage() {
                       <Label htmlFor="status-filter">Employment Status</Label>
                       <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                         <SelectTrigger>
-                          <SelectValue placeholder="All Statuses" />
+                          <SelectValue placeholder="All Status" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Statuses</SelectItem>
+                          <SelectItem value="all">All Status</SelectItem>
                           <SelectItem value="ACTIVE">Active</SelectItem>
                           <SelectItem value="INACTIVE">Inactive</SelectItem>
                           <SelectItem value="TERMINATED">Terminated</SelectItem>
                           <SelectItem value="ON_LEAVE">On Leave</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Sort Filter */}
+                    <div>
+                      <Label htmlFor="sort-filter">Sort By</Label>
+                      <Select value={sortBy} onValueChange={setSortBy}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sort By" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="name-asc">Name (A-Z)</SelectItem>
+                          <SelectItem value="name-desc">Name (Z-A)</SelectItem>
+                          <SelectItem value="recent">Recently Added</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1132,7 +1171,7 @@ export default function EmployeesPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredUsers.map((user, index) => (
+                        {paginatedUsers.map((user, index) => (
                           <tr key={user.user_id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                             <td className="text-center p-3">
                               <input
@@ -1227,7 +1266,7 @@ export default function EmployeesPage() {
 
                   {/* Mobile Card View */}
                   <div className="grid grid-cols-1 gap-4 md:hidden">
-                    {filteredUsers.map(user => (
+                    {paginatedUsers.map(user => (
                       <div key={user.user_id} className="bg-white rounded-lg border p-4 space-y-3">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3">
@@ -1308,6 +1347,15 @@ export default function EmployeesPage() {
                 </>
               )}
             </CardContent>
+            {/* Pagination Controls */}
+            <CustomPagination
+              className="border-t"
+              currentPage={currentPage}
+              totalPages={totalPages}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              setCurrentPage={setCurrentPage}
+            />
           </Card>
           </Card>
         </>
