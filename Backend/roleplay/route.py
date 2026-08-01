@@ -475,10 +475,10 @@ async def fetch_scenarios_for_user(
         result = roleplay_db.get_scenarios_by_ids(assigned_ids)
         
 
-        print(result)
+        # print(result)
         assigned_scenarios = result.data or []
         normalized = [roleplay_db.normalize_scenario(s) for s in assigned_scenarios]
-        print("These are the assigned_scenarios:", assigned_scenarios)
+        # print("These are the assigned_scenarios:", assigned_scenarios)
         return {
             'success': True,
             'data': normalized,
@@ -553,7 +553,7 @@ async def assign_scenario_to_targets(
                     )
             
             # Check for duplicate assignments
-            existing_result = roleplay_db.get_existing_assignments(scenario_id, assignment_type, effective_target_ids)
+            existing_result = roleplay_db.get_existing_assignments(scenario_id, company_id, assignment_type, effective_target_ids)
             
             existing_user_ids = set(a.get('user_id') for a in (existing_result.data or []))
             effective_target_ids = [id for id in target_ids if id not in existing_user_ids]
@@ -674,7 +674,9 @@ async def get_roleplay_bootstrap(
                 for s in company_data["scenarios"]
             ]
         else:
-            assigned_ids, _ = roleplay_db.get_assigned_scenario_ids_for_user(ctx.user_id)
+            assigned_ids, error = roleplay_db.get_assigned_scenario_ids_for_user(ctx.user_id)
+            if error:
+                assigned_ids = []
 
             result = roleplay_db.get_scenarios_by_ids(assigned_ids)
 
@@ -770,47 +772,47 @@ async def update_roleplay_session(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/sessions/employee/{employee_id}")
-async def get_employee_roleplay_sessions(
-    employee_id: str,
-    limit: int = Query(10),
-    ctx: RoleplayContext = Depends(get_roleplay_context),
-):
-    if employee_id != ctx.user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Not authorized"
-        )
+# @router.get("/sessions/employee/{employee_id}")
+# async def get_employee_roleplay_sessions(
+#     employee_id: str,
+#     limit: int = Query(10),
+#     ctx: RoleplayContext = Depends(get_roleplay_context),
+# ):
+#     if employee_id != ctx.user_id:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Not authorized"
+#         )
 
-    result = roleplay_db.get_employee_roleplay_sessions(
-        employee_id,
-        limit
-    )
+#     result = roleplay_db.get_employee_roleplay_sessions(
+#         employee_id,
+#         limit
+#     )
 
-    return {
-        "success": True,
-        "data": result.data or []
-    }
+#     return {
+#         "success": True,
+#         "data": result.data or []
+#     }
     
-@router.get("/stats/{employee_id}")
-async def get_employee_roleplay_stats(
-    employee_id: str,
-    ctx: RoleplayContext = Depends(get_roleplay_context),
-):
-    if employee_id != ctx.user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Not authorized"
-        )
+# @router.get("/stats/{employee_id}")
+# async def get_employee_roleplay_stats(
+#     employee_id: str,
+#     ctx: RoleplayContext = Depends(get_roleplay_context),
+# ):
+#     if employee_id != ctx.user_id:
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Not authorized"
+#         )
 
-    stats = roleplay_db.get_employee_roleplay_stats(
-        employee_id
-    )
+#     stats = roleplay_db.get_employee_roleplay_stats(
+#         employee_id
+#     )
 
-    return {
-        "success": True,
-        "data": stats
-    }
+#     return {
+#         "success": True,
+#         "data": stats
+#     }
     
 @router.get("/reports/{employee_id}")
 async def get_employee_roleplay_reports(
@@ -899,7 +901,7 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
                 status_code=500
             )
 
-        print(session)
+        # print(session)
         messages = session.get("conversation_transcript",[])
         scenario_title = scenario["title"]
         scenario_role = scenario["role"]
@@ -1178,17 +1180,20 @@ async def finish_roleplay(
 
     assessment = assessment_json["data"]
 
-    roleplay_db.save_roleplay_assessment({
-        "session_id": payload.session_id,
-        "employee_id": ctx.user_id,
-        "overall_score": assessment["overallScore"],
-        "summary": assessment["summary"],
-        "parameters": assessment["parameters"],
-        "recommendations": assessment["recommendations"],
-    })
+    # roleplay_db.save_roleplay_assessment({
+    #     "session_id": payload.session_id,
+    #     "employee_id": ctx.user_id,
+    #     "overall_score": assessment["overallScore"],
+    #     "summary": assessment["summary"],
+    #     "parameters": assessment["parameters"],
+    #     "recommendations": assessment["recommendations"],
+    # })
 
-    roleplay_db.finish_roleplay_session(
-        payload.session_id
+    roleplay_db.update_roleplay_session(
+        payload.session_id,
+        {
+            "completed_at": datetime.utcnow().isoformat()
+        }
     )
 
     return {

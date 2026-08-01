@@ -135,16 +135,16 @@ def get_bootstrap_data(company_id: str):
         "companyLimits": company_limits,
     }
     
-def finish_roleplay_session(session_id: str):
-    return (
-        supabase
-        .table("roleplay_sessions")
-        .update({
-            "completed_at": datetime.utcnow().isoformat()
-        })
-        .eq("id", session_id)
-        .execute()
-    )
+# def finish_roleplay_session(session_id: str):
+#     return (
+#         supabase
+#         .table("roleplay_sessions")
+#         .update({
+#             "completed_at": datetime.utcnow().isoformat()
+#         })
+#         .eq("id", session_id)
+#         .execute()
+#     )
     
 def get_user_company_and_functions(user_id: str) -> tuple[dict, dict | None]:
     """Get user's company and functions"""
@@ -252,27 +252,27 @@ def delete_scenario(
 # Session CRUD
 # ============================================================
 
-def get_user(
-    user_id: str
-):
-    return (
-        supabase
-        .table("users")
-        .select("company_id, department_id")
-        .eq("user_id", user_id)
-        .execute()
-    )
+# def get_user(
+#     user_id: str
+# ):
+#     return (
+#         supabase
+#         .table("users")
+#         .select("company_id, department_id")
+#         .eq("user_id", user_id)
+#         .execute()
+#     )
     
-def get_company(
-    company_id: str
-):
-    return (
-        supabase
-        .table("companies")
-        .select("rate_limit_role_play_retries")
-        .eq("company_id", company_id)
-        .execute()
-    )
+# def get_company(
+#     company_id: str
+# ):
+#     return (
+#         supabase
+#         .table("companies")
+#         .select("rate_limit_role_play_retries")
+#         .eq("company_id", company_id)
+#         .execute()
+#     )
     
 def get_roleplay_sessions(
     employee_id: str,
@@ -343,21 +343,31 @@ def save_roleplay_assessment(
 
 
 def check_retry_limit(employee_id: str, scenario_id: str):
-    user_res = get_user(employee_id)
-    if not user_res.data:
-        raise HTTPException(status_code=400, detail="User not found")
+    user_meta, error = get_user_company_and_functions(employee_id)
 
-    company_id = user_res.data[0].get("company_id")
-    comp_res = get_company(company_id)
-    if not comp_res.data:
-        raise HTTPException(status_code=400, detail="Company not found")
+    if error:
+        raise HTTPException(
+            status_code=400,
+            detail=error["message"]
+        )
 
-    retry_limit = comp_res.data[0].get("rate_limit_role_play_retries")
-    retry_limit = int(retry_limit) if retry_limit is not None else 3
+    company_id = user_meta["company_id"]
+
+    company_limits, error = get_company_roleplay_limits(company_id)
+
+    if error:
+        raise HTTPException(
+            status_code=400,
+            detail=error["message"]
+        )
+
+    retry_limit = company_limits.get("retryLimit", 3)
 
     if retry_limit <= 0:
-        raise HTTPException(status_code=403, detail="Roleplay retries are disabled for your company.")
-
+        raise HTTPException(
+            status_code=403,
+            detail="Roleplay retries are disabled for your company."
+        )
     sessions_res = get_roleplay_sessions(employee_id, scenario_id)
     session_ids = [s.get("id") for s in (sessions_res.data or []) if s.get("id")]
 
@@ -415,44 +425,44 @@ def get_roleplay_scenario(scenario_id: str):
         .execute()
     )
     
-def get_existing_user_assignments(
-    scenario_id: str, 
-    company_id: str,
-    target_ids: list[str]
-):
-    return(
-        supabase
-        .table("scenario_assignments")
-        .select("user_id")
-        .eq("scenario_id", scenario_id)
-        .eq("company_id", company_id)
-        .eq("assignment_type", "user")
-        .in_("user_id", target_ids)
-        .execute()
-    )
+# def get_existing_user_assignments(
+#     scenario_id: str, 
+#     company_id: str,
+#     target_ids: list[str]
+# ):
+#     return(
+#         supabase
+#         .table("scenario_assignments")
+#         .select("user_id")
+#         .eq("scenario_id", scenario_id)
+#         .eq("company_id", company_id)
+#         .eq("assignment_type", "user")
+#         .in_("user_id", target_ids)
+#         .execute()
+#     )
     
-def insert_assignments(assignment: list):
-    return(
-        supabase
-        .table("scenario_assignments")
-        .insert(assignment)
-        .execute()
-    )
+# def insert_assignments(assignment: list):
+#     return(
+#         supabase
+#         .table("scenario_assignments")
+#         .insert(assignment)
+#         .execute()
+#     )
     
-def get_assignments(
-    scenario_id:str,
-    company_id: str
-):
-    return(
-        supabase
-        .table("scenario_assignments")
-        .select(
-            "assignment_id, scenario_id, assignment_type, target_id, company_id, assigned_at, user_id"
-        )
-        .eq("company_id", company_id)
-        .eq("scenario_id", scenario_id)
-        .execute()
-    )
+# def get_assignments(
+#     scenario_id:str,
+#     company_id: str
+# ):
+#     return(
+#         supabase
+#         .table("scenario_assignments")
+#         .select(
+#             "assignment_id, scenario_id, assignment_type, target_id, company_id, assigned_at, user_id"
+#         )
+#         .eq("company_id", company_id)
+#         .eq("scenario_id", scenario_id)
+#         .execute()
+#     )
     
 def get_scenarios_by_ids(
     scenario_ids: list[str]
@@ -485,33 +495,33 @@ def get_scenarios_by_ids(
         .execute()
     )
     
-def verify_scenario_company(
-    scenario_id:str,
-    company_id:str
-):
-    return(
-        supabase
-        .table("scenarios")
-        .select("scenario_id")
-        .eq("scenario_id", scenario_id)
-        .eq("company_id", company_id)
-        .execute()
-    )
+# def verify_scenario_company(
+#     scenario_id:str,
+#     company_id:str
+# ):
+#     return(
+#         supabase
+#         .table("scenarios")
+#         .select("scenario_id")
+#         .eq("scenario_id", scenario_id)
+#         .eq("company_id", company_id)
+#         .execute()
+#     )
 
-def save_transcript(
-    session_id: str,
-    transcript: list
-):
-    return (
-        supabase
-        .table("roleplay_sessions")
-        .update({
-            "conversation_transcript": transcript,
-            "message_count": len(transcript)
-        })
-        .eq("id", session_id)
-        .execute()
-    )
+# def save_transcript(
+#     session_id: str,
+#     transcript: list
+# ):
+#     return (
+#         supabase
+#         .table("roleplay_sessions")
+#         .update({
+#             "conversation_transcript": transcript,
+#             "message_count": len(transcript)
+#         })
+#         .eq("id", session_id)
+#         .execute()
+#     )
     
 # ============================================================
 # Assignment CRUD
@@ -560,6 +570,7 @@ def get_active_company_users(company_id: str):
     
 def get_existing_assignments(
     scenario_id: str,
+    company_id:str,
     assignment_type: str,
     target_ids: list
 ):
@@ -569,6 +580,7 @@ def get_existing_assignments(
         .select("*")
         .eq("scenario_id", scenario_id)
         .eq("assignment_type", assignment_type)
+        .eq("company_id", company_id)
     )
 
     if assignment_type == "user":
@@ -607,16 +619,16 @@ def get_user_by_email(email: str):
         .execute()
     )
     
-def get_scenarios_by_ids(
-    scenario_ids: list
-):
-    return(
-        supabase.table("scenarios").select(
-            "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
-        ).in_(
-            "scenario_id", scenario_ids
-        ).order('created_at', desc=True).execute()
-    )
+# def get_scenarios_by_ids(
+#     scenario_ids: list
+# ):
+#     return(
+#         supabase.table("scenarios").select(
+#             "scenario_id, title, description, role, difficulty, initialPrompt, userRole, tone, learnerBrief, aiObjective, maxDuration, minTurns, endConditions, evaluationParams, passingScore, created_at"
+#         ).in_(
+#             "scenario_id", scenario_ids
+#         ).order('created_at', desc=True).execute()
+#     )
     
 def get_scenario_assignments(
     scenario_id: str,
