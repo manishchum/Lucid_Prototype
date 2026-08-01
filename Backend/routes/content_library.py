@@ -21,7 +21,7 @@ async def get_categories(
         result = (
             supabase_admin
             .table("content_categories")
-            .select("*")
+            .select("id,company_id,name,created_at,updated_at")
             .eq("company_id", effective_company_id)
             .order("name", desc=False)
             .execute()
@@ -41,7 +41,7 @@ async def get_content_items(
     Get uploaded content items for the company, optionally filtered by category.
     """
     try:
-        query = supabase_admin.table("content_library_items").select("*").eq("company_id", effective_company_id)
+        query = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at").eq("company_id", effective_company_id)
         if category_id:
             query = query.eq("category_id", category_id)
             
@@ -138,7 +138,7 @@ async def delete_content(
     """
     try:
         # Get the item
-        item_res = supabase_admin.table("content_library_items").select("*").eq("id", item_id).eq("company_id", effective_company_id).execute()
+        item_res = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
         if not item_res.data:
             raise HTTPException(status_code=404, detail="Content item not found")
         

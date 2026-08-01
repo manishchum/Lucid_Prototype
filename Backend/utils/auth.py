@@ -15,7 +15,8 @@ from utils.auth_bridge import (
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 import uuid as _uuid
-
+from httpx import RemoteProtocolError, TransportError
+from utils.redis_client import redis_client
 
 @dataclass
 class RequestAuth:
@@ -184,46 +185,63 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 		company_id=str(company_id) if company_id else None,
 	)
 
-def validate_device_session(user_id: str, device_id: str):
-	try:
-		session = (
-			supabase
-			.table("user_sessions")
-			.select("*")
-			.eq("user_id", user_id)
-			.maybe_single()
-			.execute()
-		)
+def validate_device_session(
+    user_id: str,
+    device_id: str,
+):
+    try:
+        existing_device = redis_client.get(
+            f"session:{user_id}"
+        )
 
-		print("SESSION RESPONSE:", session)
+    except Exception as e:
+        print("REDIS VALIDATION FAILED:", e)
 
-	except Exception as e:
-		print("SESSION QUERY FAILED:", e)
-		return
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to validate session"
+        )
 
-	existing = getattr(session, "data", None)
- 
-	if not existing:
-		supabase.table("user_sessions").insert({
-			"user_id": user_id,
-			"device_id": device_id,
-			"active": True
-		}).execute()
-		return
+    #
+    # First login
+    #
+    if existing_device is None:
 
-	if existing["device_id"] == device_id:
-		supabase.table("user_sessions") \
-			.update({
-				"last_seen_at": datetime.utcnow().isoformat()
-			}) \
-			.eq("session_id", existing["session_id"]) \
-			.execute()
-		return
+        try:
+            redis_client.set(
+                f"session:{user_id}",
+                device_id,
+                ex=60 * 60 * 24 * 30,
+            )
+        except Exception as e:
+            print("REDIS INSERT FAILED:", e)
 
-	raise HTTPException(
-		status_code = 401,
-		detail="Session_Replaced"
-	)
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to create session"
+            )
+
+        return
+
+    #
+    # Same device
+    #
+    if existing_device == device_id:
+
+        redis_client.expire(
+            f"session:{user_id}",
+            60 * 60 * 24 * 30,
+        )
+
+        return
+
+    #
+    # Different device
+    #
+    raise HTTPException(
+        status_code=401,
+        detail="Session_Replaced",
+    )
 
 def get_request_auth_optional(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
@@ -242,10 +260,14 @@ def get_request_auth_optional(
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
+			if x_device_id:
+				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
+			if exc.detail == "Session_Replaced":
+				raise exc
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
-				raise
+				raise exc
 			if isinstance(exc.detail, str) and exc.detail.startswith("Bridge"):
 				raise
 			cause = exc.__cause__
@@ -318,13 +340,18 @@ def get_request_auth_optional(
 
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
+ 	x_device_id=Header(None, alias="X-Device-ID"),
 ) -> RequestAuth:
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")
 
 	claims = _verify_firebase_token(token)
-	return _build_request_auth_from_verified_claims(claims, None)
+	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
+	if x_device_id:
+		validate_device_session(auth_ctx.user_id, x_device_id)
+
+	return auth_ctx
      
 
 def get_request_auth_jwt_required(
@@ -356,6 +383,9 @@ def get_request_auth_jwt_required(
 		token_exp=claims.get("exp"),
 		source="firebase",
 	)
+
+	if (x_device_id and x_register_session != "true"):
+		validate_device_session(str(user_id), str(x_device_id))
 
 	return RequestAuth(
 		user_id=str(user_id),
@@ -435,17 +465,15 @@ def register_device_session(
     user_id: str,
     device_id: str
 ):
-    (
-        supabase
-        .table("user_sessions")
-        .upsert(
-            {
-                "user_id": user_id,
-                "device_id": device_id,
-                "last_seen_at": datetime.utcnow().isoformat(),
-                "active": True,
-            },
-            on_conflict="user_id",
+    try:
+        redis_client.set(
+            f"session:{user_id}",
+            device_id,
+            ex=60 * 60 * 24 * 30,   # 30 days
         )
-        .execute()
-    )
+    except Exception as e:
+        print("REDIS REGISTER FAILED:", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to register session"
+        )

@@ -216,7 +216,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
       setLoadingCompanies(true)
       try {
-        const res = await fetchWithAuth(`${API_BASE}/api/companies`)
+        const res = await fetchWithAuth(`${API_BASE}/api/companies/`)
         const payload = res.ok ? await res.json() : null
         // console.log(payload)
         const companies = (payload?.companies || payload?.data?.companies || []).filter((c: Company) => c?.company_id)

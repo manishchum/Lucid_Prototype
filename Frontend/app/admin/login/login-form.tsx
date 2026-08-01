@@ -88,7 +88,7 @@ export default function AdminLoginForm() {
     setError("")
 
     try {
-      const compRes = await fetch(`${API_BASE}/api/companies`, {
+      const compRes = await fetch(`${API_BASE}/api/companies/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: companyName, domain: companyDomain }),
