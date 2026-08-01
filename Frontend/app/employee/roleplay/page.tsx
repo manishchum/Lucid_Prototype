@@ -293,10 +293,13 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
       }
 
       // Refresh scenarios list
-      const { data, error: fetchError } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+      const { data, error: fetchError } = await fetchRoleplayBootstrap();
       // console.log('scenarios for the admins',data);
-      if (data) {
-        setAllScenarios(data);
+      if (!fetchError && data){
+        setAllScenarios(data.scenarios);
+        setFunctions(data.assignmentTargets.functions);
+        setSubFunctions(data.assignmentTargets.sub_functions);
+        setUsers(data.assignmentTargets.users);
       }
       if (fetchError) {
         console.error('Error refreshing scenarios:', fetchError);
