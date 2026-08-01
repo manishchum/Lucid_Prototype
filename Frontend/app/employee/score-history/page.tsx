@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -289,7 +289,7 @@ export default function ScoreHistoryPage() {
   const [learningStyleData, setLearningStyleData] = useState<any>(null);
   const [companyUsesLearningStyle, setCompanyUsesLearningStyle] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay'>('assessments');
+  const [activeTab, setActiveTab] = useState<'assessments' | 'roleplay' | 'combined'>('assessments');
   // State to track which items are expanded (must be declared at the top level)
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
@@ -694,6 +694,16 @@ return {
                   Role-Play Sessions
                 </button>
               )}
+              <button
+                onClick={() => setActiveTab("combined")}
+                className={`rounded-xl px-6 py-3 text-sm font-bold transition-all ${
+                  activeTab === "combined"
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Comprehensive Report
+              </button>
             </div>
 
             {activeTab === "assessments" && (
