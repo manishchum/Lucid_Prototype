@@ -6,7 +6,7 @@ import {
   Loader2, Phone, Camera, CameraOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Scenario, Message } from "@/lib/roleplay/types";
+import { Scenario, Message } from "@/lib/roleplayApi";
 // import { createRolePlaySession } from "@/lib/roleplayDatabase";
 import { createRolePlaySessionAPI } from "@/lib/roleplayApi";
 import { getFirebaseIdToken } from "@/lib/fetch-with-auth";

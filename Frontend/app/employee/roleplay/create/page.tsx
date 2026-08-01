@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Scenario } from '@/lib/roleplay/types';
+import { Scenario } from '@/lib/roleplayApi';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;

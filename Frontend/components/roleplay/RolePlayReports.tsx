@@ -14,7 +14,7 @@ import {
   Lightbulb
 } from 'lucide-react';
 import { getEmployeeRoleplayReports } from '@/lib/roleplayApi';
-import { Message } from '@/lib/roleplay/types';
+import { Message } from '@/lib/roleplayApi';
 
 interface RolePlaySession {
   id: string;

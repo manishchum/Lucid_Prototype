@@ -6,7 +6,55 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
-import { Message } from '@/lib/roleplay/types';
+//INTERFACES MOVED FROM ROLEPLAY/TYPES.TS TO HERE FOR API PURPOSES
+
+// export interface EvaluationParameter {
+//   name: string;
+//   description: string;
+//   weight: number;
+// }
+
+export interface Scenario {
+  scenario_id: string;
+  title: string;
+  description: string;
+  initialPrompt: string;
+  role: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  userRole?: string;
+  tone?: 'Friendly' | 'Neutral' | 'Aggressive';
+  learnerBrief?: string;
+  aiPersonality?: string;
+  aiObjectives?: string;
+  maxDuration?: number;
+  minTurns?: number;
+  endConditions?: string;
+  evaluationParams?: EvaluationParameter[];
+  passingScore?: number;
+  isCustom?: boolean; // Flag to indicate if this is a custom scenario from DB
+}
+
+export interface AssessmentParameter {
+  name: string;
+  score: number;
+  feedback: string;
+}
+
+export interface AssessmentReport {
+  overallScore: number;
+  summary: string;
+  parameters: AssessmentParameter[];
+  recommendations: string[];
+}
+
+export interface Message {
+  text: string;
+  sender: 'user' | 'avatar';
+  timestamp: string;
+}
+
+export type AppScreen = 'scenarioSelection' | 'config' | 'rolePlay' | 'assessmentReport';
+
 
 interface EvaluationParameter {
   name: string;

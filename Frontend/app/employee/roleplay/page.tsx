@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
-import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
+import { Scenario, AppScreen, Message } from '@/lib/roleplayApi';
 import { fetchRoleplayBootstrap, deleteCustomScenarioAPI, assignScenarioAPI, finishRoleplaySession } from '@/lib/roleplayApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
