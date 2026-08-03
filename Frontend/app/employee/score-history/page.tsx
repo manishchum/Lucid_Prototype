@@ -294,6 +294,8 @@ export default function ScoreHistoryPage() {
   const [expanded, setExpanded] = useState<{ [key: string]: boolean }>({});
   const [learningStyleExpanded, setLearningStyleExpanded] = useState<boolean>(false);
   const [reportOpenSections, setReportOpenSections] = useState<string[]>([]);
+  const [combinedReportExpanded, setCombinedReportExpanded] = useState<boolean>(false);
+  const [combinedReportOpenSections, setCombinedReportOpenSections] = useState<string[]>([]);
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
   const router = useRouter();
 
@@ -981,6 +983,206 @@ return {
               <div className="grid grid-cols-1 gap-10">
                 <RolePlayReports employeeId={employeeId} />
               </div>
+            )}
+
+            {activeTab === "combined" && (
+              <Card className="overflow-hidden rounded-2xl border-none bg-white shadow-sm">
+                <CardHeader className="cursor-pointer" onClick={() => setCombinedReportExpanded((prev) => !prev)}>
+                  <CardTitle className="flex items-center justify-between text-2xl font-bold text-slate-900">
+                    <span>Comprehensive Task Feedback Report</span>
+                    <ChevronDown className={`h-6 w-6 transition-transform ${combinedReportExpanded ? "rotate-180" : ""}`} />
+                  </CardTitle>
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-6">
+                    <div className="flex items-center justify-between gap-6">
+                      <div>
+                        <p className="text-sm text-gray-600">Task</p>
+                        <h3 className="text-xl font-bold">Daily Call Upload: Star Enterprise Module Application</h3>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-3xl font-bold text-blue-600">60/100</div>
+                        <div className="text-sm text-gray-500">Needs Review</div>
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {combinedReportExpanded && (
+                  <CardContent className="p-8 pt-0">
+                    <div className="space-y-5">
+                    {[
+                      {
+                        id: "opening",
+                        title: "1. A Brief Congratulatory or Encouraging Opening",
+                        content: (
+                          <p>
+                            Thank you for submitting your practical call recording transcript for the Daily Call Upload: Star
+                            Enterprise Module Application task! Putting module concepts into action during live customer
+                            interactions is where true learning happens. Managing difficult customer conversations is one of the
+                            most demanding skills in call center operations, and submitting this transcript demonstrates a strong
+                            commitment to refining your call handling. Use this feedback to polish your workflow-you are already
+                            laying a solid foundation!
+                          </p>
+                        ),
+                      },
+                      {
+                        id: "summary",
+                        title: "2. Overall Performance Summary",
+                        content: (
+                          <p>
+                            You scored <strong>60 out of 100 (60%)</strong> on this task evaluation. Your submission shows an
+                            impressive command of de-escalation phrasing, active listening, and the core components of the
+                            <strong>HEARD</strong> framework. You successfully avoided forbidden phrases and maintained a calm,
+                            professional posture under pressure. However, the evaluation highlighted critical compliance lapses
+                            regarding <strong>mandatory escalation protocols</strong> and <strong>handover procedures</strong>.
+                            While your intent to resolve the issue personally was clear, missing required immediate transfer
+                            triggers resulted in a score reduction.
+                          </p>
+                        ),
+                      },
+                      {
+                        id: "strengths",
+                        title: "3. Strengths Identified (Areas Where You Performed Well)",
+                        content: (
+                          <ul className="list-disc space-y-3 pl-6">
+                            <li>
+                              <strong>Approved De-escalation Scripting</strong>
+                              <br />
+                              You opened the interaction using the exact approved de-escalation script ({'"'}Mr. Sharma, I hear
+                              you - and I want you to know I am taking this seriously. Please tell me everything that has happened...{'")'},
+                              setting a professional tone right from the start.
+                            </li>
+                            <li>
+                              <strong>HEARD Framework Execution</strong>
+                              <br />
+                              You successfully applied the Hear, Empathize, and Apologize stages. You validated the customer's
+                              emotions effectively ({'"'}I completely understand why you feel upset and let down by this situation...{'")'}
+                              without getting defensive or making excuses for the company.
+                            </li>
+                            <li>
+                              <strong>Avoidance of Forbidden Phrases</strong>
+                              <br />
+                              You maintained exemplary verbal discipline by avoiding prohibited high-risk phrases such as
+                              {` "Calm down," `} {`"That is not our policy," `} or {`"I cannot help you with that."`}
+                            </li>
+                            <li>
+                              <strong>Ownership &amp; Proactive Problem Solving</strong>
+                              <br />
+                              You attempted to take personal ownership of the problem by offering to pull the original sales
+                              recording and initiate an immediate claim review with underwriting.
+                            </li>
+                          </ul>
+                        ),
+                      },
+                      {
+                        id: "improvement",
+                        title: "4. Areas for Improvement (Specific Topics to Focus On)",
+                        content: (
+                          <ul className="list-disc space-y-3 pl-6">
+                            <li>
+                              <strong>Mandatory Escalation Triggers</strong>
+                              <br />
+                              You attempted to handle the call yourself even after the customer explicitly demanded a manager and
+                              mentioned an <strong>IRDAI complaint</strong> and <strong>fraud/mis-selling allegations</strong>.
+                              Star Enterprises protocol strictly dictates that legal threats, IRDAI mentions, fraud allegations,
+                              and explicit supervisor requests require an immediate handover without exception.
+                            </li>
+                            <li>
+                              <strong>Escalation Handover Script</strong>
+                              <br />
+                              When you finally agreed to transfer the call, you used a blunt closing ({'"'}Fine, Mr. Sharma, I am
+                              transferring you now. Please hold.{'"'}) instead of the mandatory Escalation Handover Script
+                              ({'"'}[CUSTOMER NAME], I want to make sure you get the best possible resolution. I am going to connect
+                              you with [SUPERVISOR NAME]...{'")'}.
+                            </li>
+                            <li>
+                              <strong>Warm Transfer &amp; Supervisor Briefing Protocol</strong>
+                              <br />
+                              The transcript indicates a cold transfer without explaining the handover process to the customer or
+                              briefing the incoming supervisor on the customer's name, emotional state, and prior interventions.
+                            </li>
+                          </ul>
+                        ),
+                      },
+                      {
+                        id: "recommendations",
+                        title: "5. Actionable Study Recommendations",
+                        content: (
+                          <ol className="list-decimal space-y-5 pl-6">
+                            <li>
+                              <strong>Memorize the Non-Negotiable Escalation Triggers</strong>
+                              <p className="mt-2">
+                                Create a quick-reference card for your workstation listing the mandatory handover triggers:
+                              </p>
+                              <ul className="mt-3 list-disc space-y-2 pl-6">
+                                <li>Customer explicitly asks for a supervisor/manager.</li>
+                                <li>Mention of legal action, consumer court, or <strong>IRDAI</strong>.</li>
+                                <li>Allegations of <strong>fraud</strong> or <strong>mis-selling</strong>.</li>
+                                <li>Customer on hold more than twice for the same issue.</li>
+                              </ul>
+                            </li>
+                            <li>
+                              <strong>Master the Mandatory Handover Script</strong>
+                              <p className="mt-2">
+                                Practice reciting the standard transfer script out loud until it becomes muscle memory:
+                              </p>
+                              <blockquote className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-700">
+                                Mr. Sharma, I want to make sure you get the best possible resolution. I am going to connect you with
+                                our Operations Manager who has the authority to address this directly. I will brief them on
+                                everything you have told me so you do not have to repeat yourself. Please hold for just one moment.
+                              </blockquote>
+                            </li>
+                            <li>
+                              <strong>Practice Warm Handover Briefings</strong>
+                              <p className="mt-2">
+                                Before completing any escalation transfer, ensure you summarize the 4 core points for the receiving
+                                supervisor: <strong>Customer Name</strong>, <strong>Key Issue</strong>, <strong>Current Emotional State</strong>,
+                                and <strong>Actions Already Attempted</strong>.
+                              </p>
+                            </li>
+                          </ol>
+                        ),
+                      },
+                      {
+                        id: "closing",
+                        title: "6. Encouraging Closing Remarks",
+                        content: (
+                          <p>
+                            Balancing customer de-escalation with strict regulatory compliance can be a delicate wire to walk, but
+                            your execution of empathy and structure shows you have the soft skills required to excel. By ensuring
+                            that legal, regulatory, and supervisor escalation triggers are acted upon immediately, you will protect
+                            both the customer experience and company policy. Review Section 3 of your training materials, refine
+                            your transfer scripting, and you'll easily achieve a top score on your next upload. Keep up the great
+                            effort!
+                          </p>
+                        ),
+                      },
+                    ].map((section) => {
+                      const isOpen = combinedReportOpenSections.includes(section.id);
+                      const toggleSection = () => {
+                        setCombinedReportOpenSections((prev) =>
+                          prev.includes(section.id)
+                            ? prev.filter((id) => id !== section.id)
+                            : [...prev, section.id],
+                        );
+                      };
+
+                      return (
+                        <Card key={section.id} className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                          <CardHeader className="cursor-pointer" onClick={toggleSection}>
+                            <CardTitle className="flex items-center justify-between text-lg font-semibold text-slate-900">
+                              <span>{section.title}</span>
+                              <ChevronDown className={`h-5 w-5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                            </CardTitle>
+                          </CardHeader>
+                          {isOpen && <CardContent>{section.content}</CardContent>}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                  </CardContent>
+                )}
+              </Card>
             )}
           </main>
         </div>
