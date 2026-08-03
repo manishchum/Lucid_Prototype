@@ -25,7 +25,10 @@ import ffmpeg  # ffmpeg-python
 import subprocess
 import shutil
 # from diffusers import FluxPipeline
-from diffusers import AutoPipelineForText2Image as FluxPipeline
+try:
+    from diffusers import AutoPipelineForText2Image as FluxPipeline
+except ImportError:
+    FluxPipeline = None
 from playwright.sync_api import sync_playwright
 
 # ------------------------------------------------------------------
