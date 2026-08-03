@@ -418,6 +418,8 @@ Review the questions you missed and study the related concepts to improve your u
             # Don't fail the assessment if module update fails
 
     delete_cache_pattern(f"dashboard_summary:{user_id}*")
+    delete_cache_pattern(f"module_progress:{user_id}*")
+    delete_cache_pattern(f"user_module_progress:{user_id}*")
     # Return the complete result
     return JSONResponse(content={
         "success": True,
