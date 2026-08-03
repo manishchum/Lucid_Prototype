@@ -282,7 +282,10 @@ Review the questions you missed and study the related concepts to improve your u
     upsertRes = (
         user_supabase
         .table("employee_assessments")
-        .upsert(rowToSave)
+        .upsert(
+            rowToSave,
+            on_conflict="user_id, assessment_id"
+        )
         .execute()
     )
     savedResult = getattr(upsertRes, "data", None)
@@ -298,7 +301,7 @@ Review the questions you missed and study the related concepts to improve your u
             .select("employee_assessment_id")
             .eq("user_id", user_id)
             .eq("assessment_id", assessment_id)
-            .order("completed_at", desc=True)
+            # .order("completed_at", desc=True)
             .limit(1)
             .maybe_single()
             .execute()

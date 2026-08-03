@@ -12,7 +12,7 @@ LIMITS = {
         "window": 3600,        # 20/hour
     },
     "gpt-feedback": {
-        "limit": 5,
+        "limit": 10,
         "window": 3600,
     },
     "training-plan": {

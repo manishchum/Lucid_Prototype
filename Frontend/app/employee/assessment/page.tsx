@@ -17,7 +17,6 @@ interface TrainingModule {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
-
 const AssessmentContent = () => {
   const { user } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
@@ -31,6 +30,7 @@ const AssessmentContent = () => {
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [correctAnswers, setCorrectAnswers] = useState<any[]>([]);
   const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({
     learningStyle: false,
@@ -291,6 +291,10 @@ const AssessmentContent = () => {
 
   const handleMCQSubmit = async (result: { score: number; answers: number[]; feedback: string[] }, moduleId: string) => {
     // console.log("handleMCQSubmit called with result successfully.");
+    if (submitting) {
+      return;
+    }
+    setSubmitting(true);
     setScore(result.score);
     setLoading(true);
     try {
@@ -490,6 +494,7 @@ const AssessmentContent = () => {
       setFeedback("Could not generate feedback.");
     } finally {
       setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -519,6 +524,7 @@ const AssessmentContent = () => {
           {!loading && score === null && mcqQuestionsByModule.length > 0 && (
             <MCQQuiz
               questions={mcqQuestionsByModule[0]?.questions || []}
+              disabled={submitting}
               onSubmit={(res) => handleMCQSubmit(res, mcqQuestionsByModule[0].moduleId)}
             />
           )}
