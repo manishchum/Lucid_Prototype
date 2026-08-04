@@ -21,7 +21,7 @@ from utils.db.companies_db import (
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
 from utils.redis_client import redis_client, set_cache, get_cache
 from utils.db.permissions import check_user_permission
-from utils.auth import get_request_auth_required, RequestAuth
+from utils.auth import get_request_auth_required, get_request_auth_optional, RequestAuth
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -116,12 +116,12 @@ async def get_org_templates_route(
 @router.get("/{company_id}")
 async def get_company(
     company_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """
     Get company by ID.
-    Permission: Any authenticated user.
+    Permission: Any authenticated user or public pre-login check.
     """
     cache_key = f"company:{company_id}"
 
@@ -155,7 +155,7 @@ async def get_company(
 @router.get("/by-name/{company_name}")
 async def get_company_by_name_route(
     company_name: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """
@@ -177,7 +177,7 @@ async def get_company_by_name_route(
 @router.get("/by-domain/{domain}")
 async def get_company_by_domain_route(
     domain: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """

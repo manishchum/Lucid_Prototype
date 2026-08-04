@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -531,7 +531,7 @@ export default function ScoreHistoryPage() {
     const mods = modulesPayload?.data?.modules ?? modulesPayload?.data ?? modulesPayload?.modules ?? modulesPayload ?? [];
     const moduleMap = new Map();
 
-    mods.forEach((m) => {
+    mods.forEach((m: any) => {
         moduleMap.set(m.processed_module_id, {
             module_title: m.title,
             original_module_id: m.original_module_id,

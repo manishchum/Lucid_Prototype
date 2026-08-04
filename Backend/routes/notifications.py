@@ -7,8 +7,16 @@ from utils.assignment_notifications import send_bulk_assignment_notification_ema
 from utils.supabase_client import supabase
 from utils.websocket_manager import manager
 from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional, _ensure_firebase_admin_initialized
+from utils.notification_dispatcher import (
+    dispatch_hybrid_notification,
+    get_redis_unread_count,
+    set_redis_unread_count,
+    invalidate_redis_unread_count,
+    ANDROID_CHANNEL_ID,
+)
 import firebase_admin
 from firebase_admin import messaging
+
 
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -38,6 +46,30 @@ async def register_token(
         if not resp.data:
             raise HTTPException(status_code=404, detail="User not found")
         return {"success": True, "message": "FCM token registered successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/unread-count")
+async def get_unread_count(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    cached_count = get_redis_unread_count(user_id)
+    if cached_count is not None:
+        return {"success": True, "unread_count": cached_count, "source": "redis"}
+
+    try:
+        resp = (
+            supabase.table("notifications")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("read", False)
+            .execute()
+        )
+        count = resp.count if resp.count is not None else len(resp.data or [])
+        set_redis_unread_count(user_id, count)
+        return {"success": True, "unread_count": count, "source": "db"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -79,6 +111,7 @@ async def mark_notification_read(
         )
         if not resp.data:
             raise HTTPException(status_code=404, detail="Notification not found or access denied")
+        invalidate_redis_unread_count(user_id)
         return {"success": True, "notification": resp.data[0]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -97,6 +130,7 @@ async def mark_all_notifications_read(
             .eq("read", False)
             .execute()
         )
+        invalidate_redis_unread_count(user_id)
         return {"success": True, "updated_count": len(resp.data or [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -105,11 +139,10 @@ async def mark_all_notifications_read(
 @router.websocket("/ws")
 async def websocket_notifications(
     websocket: WebSocket,
-    token: Optional[str] = None,
     user_id: Optional[str] = None
 ):
-    auth_token = token or websocket.query_params.get("token")
     auth_user_id = user_id or websocket.query_params.get("user_id")
+    auth_token = websocket.query_params.get("token")
 
     if not auth_user_id and auth_token:
         try:
@@ -118,8 +151,20 @@ async def websocket_notifications(
         except Exception:
             pass
 
+    await websocket.accept()
+
     if not auth_user_id:
-        await websocket.accept()
+        try:
+            import asyncio, json
+            init_text = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            payload = json.loads(init_text)
+            if payload.get("type") == "auth" and payload.get("token"):
+                auth_ctx = get_request_auth_optional(authorization=f"Bearer {payload['token']}")
+                auth_user_id = auth_ctx.user_id
+        except Exception:
+            pass
+
+    if not auth_user_id:
         await websocket.send_json({"error": "Unauthorized: Missing user identity"})
         await websocket.close(code=1008)
         return
