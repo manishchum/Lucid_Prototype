@@ -365,7 +365,7 @@ function LoginContent() {
 
         <div className="text-center mt-8">
           <p className="text-sm text-gray-500">
-            Secure login powered by Lucid Learning Platform
+            Secure login powered by Lucid Platform
           </p>
         </div>
       </div>
