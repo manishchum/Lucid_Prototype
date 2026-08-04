@@ -181,9 +181,28 @@ async def websocket_notifications(
 
 
 @router.post("/assignment")
-async def send_assignment_notification(request: AssignmentNotificationRequest):
+async def send_assignment_notification(
+    request: AssignmentNotificationRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """Send assignment notifications. Caller must be authenticated and belong to the target company."""
     if not request.target_ids:
         raise HTTPException(status_code=400, detail="target_ids is required")
+
+    # Validate caller belongs to the same company they are targeting,
+    # unless they have an explicit super-admin / developer override.
+    if auth_ctx.company_id and auth_ctx.company_id != request.company_id:
+        from utils.db.permissions import check_user_permission
+        try:
+            is_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+            is_dev = await check_user_permission(auth_ctx.user_id, "developer")
+        except Exception:
+            is_admin, is_dev = False, False
+        if not (is_admin or is_dev):
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to send notifications for this company"
+            )
 
     try:
         query = (
@@ -323,6 +342,8 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
             sent_emails = email_result.get("sent_count", 0)
 
         # Send WebSockets & FCM Push Notifications
+        fcm_failed_user_ids = []
+
         for user in realtime_recipients:
             user_id = user["user_id"]
             notification = notification_by_user.get(user_id)
@@ -354,15 +375,19 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                     )
                     messaging.send(fcm_message)
                 except Exception as fcm_err:
-                    print(f"[FCM] Error sending push notification to user {user_id}: {fcm_err}")
-            
+                    # LOG-03: Record each failed FCM delivery for visibility
+                    print(f"[FCM] Push failed for user {user_id}: {fcm_err}")
+                    fcm_failed_user_ids.append(user_id)
+
             sent_realtime += 1
 
         return {
             "success": True,
             "message": f"Sent assignment notifications to {sent_emails} email(s) and {sent_realtime} mobile device(s)",
             "sent_emails": sent_emails,
-            "sent_realtime": sent_realtime
+            "sent_realtime": sent_realtime,
+            "fcm_failed_count": len(fcm_failed_user_ids),
+            "fcm_failed_user_ids": fcm_failed_user_ids,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

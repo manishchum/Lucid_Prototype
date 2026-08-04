@@ -269,3 +269,53 @@ async def register_session(
 
     return {"success": True}
 
+
+@router.post("/refresh")
+async def refresh_token(
+    auth: RequestAuth = Depends(get_request_auth_jwt_required),
+):
+    """
+    Silent token refresh — verifies the current JWT and issues a fresh 30-day token.
+    Called automatically by the mobile app when it detects a 401 response.
+    The user never sees a re-login prompt unless this endpoint itself returns 401.
+    """
+    if not auth.user_id:
+        raise HTTPException(status_code=401, detail="Unable to resolve user identity")
+
+    # Ensure the user is still active before issuing a new token
+    try:
+        user_res = (
+            supabase
+            .table("users")
+            .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
+            .eq("user_id", auth.user_id)
+            .eq("is_active", True)
+            .maybe_single()
+            .execute()
+        )
+        user_data = getattr(user_res, "data", None)
+        if not user_data:
+            raise HTTPException(status_code=403, detail="User account not found or deactivated")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[refresh-token] DB user query failed: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to verify user status")
+
+    # Mint a fresh token
+    user_context = BridgeUserContext(
+        user_id=str(user_data["user_id"]),
+        email=str(user_data.get("email") or ""),
+        company_id=str(user_data.get("company_id")) if user_data.get("company_id") else None,
+        firebase_uid=str(user_data.get("firebase_uid")) if user_data.get("firebase_uid") else None,
+    )
+
+    token, expires_at = mint_supabase_access_token(user_context, ttl_seconds=30 * 24 * 3600)
+
+    return {
+        "success": True,
+        "token": token,
+        "expires_at": expires_at.isoformat(),
+    }
+
+

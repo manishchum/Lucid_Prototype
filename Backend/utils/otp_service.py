@@ -175,17 +175,9 @@ async def send_dovesoft_sms(phone: str, otp_code: str) -> Tuple[bool, str]:
         "key": api_key
     }
 
-    print("\n==================== [OTP GENERATED] ====================")
-    print(f"📱 Phone: {normalized_phone}")
-    print(f"🔑 OTP Code: {otp_code}")
-    print(f"⚙️  DoveSoft SenderID: {sender_id!r} | EntityID: {entity_id!r} | TempID: {temp_id!r}")
-    print("=========================================================\n")
-
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            print(f"[DOVESOFT REQUEST] Posting to {api_url} with headers={headers}: {payload}")
             response = await client.post(api_url, json=payload, headers=headers)
-            print(f"[DOVESOFT RESPONSE] Status={response.status_code} Body={response.text}")
             logger.info(f"DoveSoft API response status={response.status_code} body={response.text}")
             if response.status_code == 200:
                 return True, f"SMS status {response.status_code}: {response.text}"
