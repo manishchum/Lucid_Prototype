@@ -98,13 +98,13 @@ async def search_companies_route(
 
 @router.get("/org-templates")
 async def get_org_templates_route(
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Get default function/sub-function templates from function.
     Permission: Super admin/developer.
     """
-    result = await get_org_templates(user_id)
+    result = await get_org_templates(auth_ctx.user_id)
 
     return {
         "success": True,
@@ -270,7 +270,7 @@ async def create_company_route(
 async def provision_company_functions_route(
     company_id: str,
     request: ProvisionCompanyFunctionsRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Provision function/sub_function rows for a company based on selected
@@ -278,7 +278,7 @@ async def provision_company_functions_route(
     Permission: Super admin/developer.
     """
     result = await provision_company_functions(
-        user_id,
+        auth_ctx.user_id,
         company_id,
         selected_function_ids=request.selected_function_ids,
         custom_entries=[entry.dict() for entry in request.custom_entries],
