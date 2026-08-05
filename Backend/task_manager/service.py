@@ -1127,6 +1127,35 @@ async def get_audience_functions(company_id: str, requesting_user_id: str) -> li
         )
         funcs.extend(additional_funcs_res.data or [])
 
+    # Fetch all sub-functions for the collected functions in a single batch query
+    func_ids = [f["function_id"] for f in funcs if f.get("function_id")]
+    if func_ids:
+        try:
+            sub_funcs_res = (
+                db.table("sub_function")
+                .select("sub_function_id, sub_function_name, function_id")
+                .in_("function_id", func_ids)
+                .eq("is_active", True)
+                .execute()
+            )
+            sub_funcs_by_func = {}
+            for sf in (sub_funcs_res.data or []):
+                fid = sf.get("function_id")
+                if fid:
+                    sub_funcs_by_func.setdefault(fid, []).append({
+                        "sub_function_id": sf.get("sub_function_id"),
+                        "sub_function_name": sf.get("sub_function_name"),
+                    })
+            for f in funcs:
+                f["sub_functions"] = sub_funcs_by_func.get(f.get("function_id"), [])
+        except Exception as exc:
+            print("[task-manager] Batch fetch sub_functions failed:", exc)
+            for f in funcs:
+                f["sub_functions"] = []
+    else:
+        for f in funcs:
+            f["sub_functions"] = []
+
     return funcs
 
 
