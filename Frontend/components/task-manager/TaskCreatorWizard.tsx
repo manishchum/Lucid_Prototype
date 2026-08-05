@@ -88,7 +88,6 @@ export default function TaskCreatorWizard({
   });
   const [dueTime, setDueTime] = useState<string>('23:59');
   const [strictDeadline, setStrictDeadline] = useState<boolean>(true);
-  const [consolidateReports, setConsolidateReports] = useState<boolean>(false);
 
   const [recurrence, setRecurrence] = useState<'none' | 'every_2_days' | 'weekly' | 'monthly'>(
     initialTask ? (initialTask.recurrence as any) || 'none' : 'none'
@@ -871,22 +870,6 @@ const toggleCorrectAnswer = (
                             </button>
                           );
                         })}
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-between border border-gray-100 rounded-xl p-4 bg-slate-50/20">
-                        <div>
-                          <p className="text-sm font-semibold text-[#0F172A]">Consolidate sprint associated reports results with the task results</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setConsolidateReports(!consolidateReports)}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none transition-colors duration-200 ease-in-out ${consolidateReports ? 'bg-indigo-600' : 'bg-gray-200'}`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${consolidateReports ? 'translate-x-5' : 'translate-x-1'}`}
-                          />
-                        </button>
                       </div>
                     </div>
                   )}

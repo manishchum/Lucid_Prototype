@@ -168,7 +168,7 @@ export default function RolePlayConversation({
   };
 
   const connectToRealtime = async (stream: MediaStream) => {
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsProtocol = window.location.protocol === "https:" ? "ws:" : "ws:";
     const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
     
     // Grab the token and put it in the URL

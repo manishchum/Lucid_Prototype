@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import os
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -53,13 +54,17 @@ from roleplay.page.route import router as roleplay_page_router
 from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
 from routes import functions
-
+from config import IS_PRODUCTION
 
 # Create FastAPI app
 app = FastAPI(
     title="Lucid Backend API",
     description="Backend API for Lucid Learning Platform",
-    version="1.0.0"
+    version="1.0.0",
+    
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
 
 

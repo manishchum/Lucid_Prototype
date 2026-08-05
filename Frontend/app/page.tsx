@@ -189,12 +189,12 @@ export default function LandingPage() {
             <a href="#features" className="text-lg font-black text-[#0F172A]">Features</a>
             <a href="#pricing" className="text-lg font-black text-[#0F172A]">Pricing</a>
             <Link href="/login" className="text-lg font-black text-[#0F172A]">Log In</Link>
-            <Link
+            {/* <Link
               href="/signup"
               className="w-full max-w-xs block px-6 py-3 bg-[#2563EB] text-white rounded-full font-black text-base shadow-lg text-center"
             >
               Sign up
-            </Link>
+            </Link> */}
           </nav>
         </div>
       )}

@@ -4,9 +4,10 @@ import bcrypt
 from ..supabase_client import supabase
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
+import os
 
 # Default password for new users
-DEFAULT_PASSWORD = "workfloww@2025"
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
