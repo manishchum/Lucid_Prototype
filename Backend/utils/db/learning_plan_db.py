@@ -1005,7 +1005,11 @@ async def refresh_learning_plan_status(
 
     update_data: Dict[str, Any] = {}
 
-    if assigned > 0 and completed == assigned:
+    current_status = str(plan.get("status") or "").upper()
+    if current_status in ("COMPLETED", "BASELINE_COMPLETED") or plan.get("overall_status") is True:
+        update_data["status"] = "COMPLETED"
+        update_data["overall_status"] = True
+    elif assigned > 0 and completed == assigned:
         update_data["status"] = "COMPLETED"
         update_data["overall_status"] = True
         if not plan.get("started_at"):
