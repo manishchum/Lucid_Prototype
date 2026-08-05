@@ -970,7 +970,16 @@ const handleGenerateCertificate = (sprintId: string) => {
         
         // ]);
         
-        const dashboard_summary = await fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r)=> r.ok ? r.json() : ({} as any));
+        const res = await fetchWithAuth(
+            `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
+            { headers }
+        );
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        const dashboard_summary = await res.json();
         
         // console.log("Fetched dashboard data:", {
         //   plans: plansRes,

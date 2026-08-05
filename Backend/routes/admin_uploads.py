@@ -103,7 +103,7 @@ async def get_company_modules(
         modules_result = (
             supabase_admin
             .table("training_modules")
-            .select("*")
+            .select("module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks")
             .eq("company_id", company_id)
             .order("created_at", desc=True)
             .execute()
@@ -114,7 +114,7 @@ async def get_company_modules(
         jobs_result = (
             supabase_admin
             .table("content_jobs")
-            .select("*")
+            .select("id, module_id, status, created_at, updated_at")
             .limit(1000)
             .execute()
         )

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArrowLeft, Video, Mic, Clock, Target, MessageSquare, User, Briefcase, Play } from 'lucide-react';
-import { Scenario } from '@/lib/roleplay/types';
+import { Scenario } from '@/lib/roleplayApi';
 
 interface RoleplayConfigPageProps {
   scenario: Scenario;

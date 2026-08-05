@@ -13,8 +13,8 @@ import {
   Target,
   Lightbulb
 } from 'lucide-react';
-import { getEmployeeRolePlaySessions, getEmployeeRolePlayStats } from '@/lib/roleplayDatabase';
-import { Message } from '@/lib/roleplay/types';
+import { getEmployeeRoleplayReports } from '@/lib/roleplayApi';
+import { Message } from '@/lib/roleplayApi';
 
 interface RolePlaySession {
   id: string;
@@ -54,36 +54,35 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
   }, [employeeId]);
 
   const loadData = async () => {
-    setLoading(true);
-    // console.log('📊 Loading role-play reports for employeeId:', employeeId);
-    try {
-      const [sessionsResult, statsResult] = await Promise.all([
-        getEmployeeRolePlaySessions(employeeId, 20),
-        getEmployeeRolePlayStats(employeeId)
-      ]);
+  setLoading(true);
 
-      // console.log('📊 Sessions result:', sessionsResult);
-      // console.log('📊 Stats result:', statsResult);
+  try {
+    const { data, error } =
+      await getEmployeeRoleplayReports(
+        employeeId,
+        20
+      );
 
-      if (sessionsResult.error) {
-        console.error('Error loading sessions:', sessionsResult.error);
-      } else {
-        setSessions(sessionsResult.data || []);
-        // console.log('✅ Loaded sessions:', sessionsResult.data?.length || 0);
-      }
-
-      if (statsResult.error) {
-        console.error('Error loading stats:', statsResult.error);
-      } else {
-        setStats(statsResult.data);
-      }
-    } catch (error) {
-      console.error('Exception loading role-play data:', error);
-    } finally {
-      setLoading(false);
+    if (error) {
+      console.error(
+        "Error loading reports:",
+        error
+      );
+      return;
     }
-  };
 
+    setSessions(data.sessions || []);
+    setStats(data.stats || null);
+
+  } catch (error) {
+    console.error(
+      "Exception loading role-play reports:",
+      error
+    );
+  } finally {
+    setLoading(false);
+  }
+};
   const getScoreColor = (score: number, passingScore: number) => {
     return score >= passingScore
       ? 'text-green-600 bg-green-50 border-green-200'

@@ -131,7 +131,9 @@ async def POST(request: Request):
 
         # Return response in the format expected by legacy clients
         
-        delete_cache_pattern(f"dashboard_summar:{user_id}*")
+        delete_cache_pattern(f"dashboard_summary:{user_id}*")
+        delete_cache_pattern(f"module_progress:{user_id}*")
+        delete_cache_pattern(f"user_module_progress:{user_id}*")
         return JSONResponse(content={
             "success": True,
             "score": assessmentResult.get("score"),

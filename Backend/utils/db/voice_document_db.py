@@ -73,7 +73,7 @@ async def get_voice_document_by_id(requesting_user_id: str, voice_document_id: s
         db = get_service_supabase_client()
         resp = (
             db.table("voice_documents")
-            .select("*")
+            .select("voice_document_id, user_id, company_id, title, output_format, audio_bucket, audio_storage_path, audio_url, audio_file_name, audio_mime_type, transcript, document_type, suggested_title, structured_json, renderable_content, status, processing_error, approved_at, exported_at, export_file_name, export_storage_path, export_url")
             .eq("voice_document_id", voice_document_id)
             .maybe_single()
             .execute()
@@ -100,7 +100,7 @@ async def list_voice_documents(
         requesting_company_id = await _resolve_user_company_id(requesting_user_id)
         has_manager_access = await check_user_permission(requesting_user_id, "manager")
 
-        query = db.table("voice_documents").select("*")
+        query = db.table("voice_documents").select("voice_document_id, user_id, company_id, title, output_format, audio_bucket, audio_storage_path, audio_url, audio_file_name, audio_mime_type, transcript, document_type, suggested_title, structured_json, renderable_content, model_used, status, processing_error, approved_at, exported_at, export_file_name, export_storage_path, export_url, created_at, updated_at")
 
         if user_id:
             query = query.eq("user_id", user_id)

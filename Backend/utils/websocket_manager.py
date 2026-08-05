@@ -7,10 +7,16 @@ class NotificationConnectionManager:
         self.active_connections: Dict[str, List[WebSocket]] = {}
 
     async def connect(self, user_id: str, websocket: WebSocket):
-        await websocket.accept()
+        try:
+            from starlette.websockets import WebSocketState
+            if websocket.client_state != WebSocketState.CONNECTED:
+                await websocket.accept()
+        except Exception:
+            pass
         if user_id not in self.active_connections:
             self.active_connections[user_id] = []
-        self.active_connections[user_id].append(websocket)
+        if websocket not in self.active_connections[user_id]:
+            self.active_connections[user_id].append(websocket)
         print(f"[WebSocket] User {user_id} connected. Total connections for user: {len(self.active_connections[user_id])}")
 
     def disconnect(self, user_id: str, websocket: WebSocket):
