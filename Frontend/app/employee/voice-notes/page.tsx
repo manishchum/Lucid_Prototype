@@ -629,7 +629,7 @@ export default function VoiceNotesPage() {
               </p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-600">
-              {activeTab === 'notes' ? `${transcripts.length} notes` : activeTab === 'reports' ? `${reports.length} reports` : `${teamReports.length} team reports`}
+              {activeTab === 'notes' ? `${transcripts.length} notes` : activeTab === 'reports'}
             </span>
           </div>
 
