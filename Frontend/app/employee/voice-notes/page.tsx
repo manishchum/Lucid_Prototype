@@ -175,6 +175,7 @@ export default function VoiceNotesPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingTeamReport, setGeneratingTeamReport] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -183,6 +184,9 @@ export default function VoiceNotesPage() {
   const [reportSummary, setReportSummary] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const [teamReportDate, setTeamReportDate] = useState<string>(today);
+  const [displayedReportDate, setDisplayedReportDate] = useState<string>(today);
+  const [loadingTeamReports, setLoadingTeamReports] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -194,11 +198,14 @@ export default function VoiceNotesPage() {
     if (user) {
       fetchTranscripts();
       fetchReports();
-      if (isManagerofUsers) {
-        fetchTeamReports();
-      }
     }
-  }, [user, isManagerofUsers]);
+  }, [user]);
+
+  useEffect(() => {
+    if (user && isManagerofUsers) {
+      fetchTeamReports();
+    }
+  }, [user, isManagerofUsers, teamReportDate]);
 
   const fetchTranscripts = async () => {
     setLoading(true);
@@ -393,9 +400,11 @@ export default function VoiceNotesPage() {
   const fetchTeamReports = async () => {
     if (!isManagerofUsers) return;
     setError(null);
+    setLoadingTeamReports(true);
     try {
-      const res = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/manager/team-reports?report_date=${today}`);
+      const res = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/manager/team-reports?report_date=${teamReportDate}`);
       const data = await res.json();
+      setDisplayedReportDate(teamReportDate);
       if (!res.ok) {
         setError(data?.detail || "Unable to load team reports.");
         setTeamReports([]);
@@ -408,6 +417,43 @@ export default function VoiceNotesPage() {
       }
     } catch (err) {
       setError("Unable to fetch team reports.");
+    } finally {
+      setLoadingTeamReports(false);
+    }
+  };
+
+  const handleGenerateTeamReport = async () => {
+    setError(null);
+    setMessage(null);
+    setGeneratingTeamReport(true);
+    toast({
+      title: "Generating team report",
+      description: "Aggregating team reports and sending email...",
+    });
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/manager/team-reports/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          report_date: teamReportDate,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.detail || "Unable to generate team report.");
+      } else {
+        toast({
+          title: "Team report generated",
+          description: "Team report is generated and emailed successfully.",
+        });
+        fetchTeamReports();
+      }
+    } catch (err) {
+      setError("Unable to generate team report.");
+    } finally {
+      setGeneratingTeamReport(false);
     }
   };
 
@@ -579,7 +625,7 @@ export default function VoiceNotesPage() {
                 )}
               </div>
               <p className="text-sm text-slate-500 mt-2">
-                {activeTab === 'notes' ? `Saved voice notes for ${today}.` : activeTab === 'reports' ? `Daily reports for ${today}.` : `Team reports for ${today}.`}
+                {/* {activeTab === 'notes' ? `Saved voice notes for ${today}.` : activeTab === 'reports' ? `Daily reports for ${today}.` : `Team reports for ${today}.`} */}
               </p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-600">
@@ -705,10 +751,36 @@ export default function VoiceNotesPage() {
               </div>
             ) : (
               // Manager tab
-              <div>
-                {teamInsights ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 mb-4">
-                    <h3 className="text-base font-semibold text-slate-900 mb-3">Team Insights for {today}</h3>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <h2 className="text-lg font-semibold text-slate-900">Team Insights & Reports</h2>
+                    {loadingTeamReports && <span className="text-sm text-black-600 animate-pulse font-medium">Loading...</span>}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleGenerateTeamReport}
+                      disabled={generatingTeamReport || loadingTeamReports}
+                    >
+                      {generatingTeamReport ? "Generating..." : "Generate Report and send over mail"}
+                    </Button>
+                    <label htmlFor="team-report-date" className="text-sm text-slate-600 font-medium ml-4">Select Date:</label>
+                    <input 
+                      type="date" 
+                      id="team-report-date"
+                      value={teamReportDate} 
+                      onChange={(e) => setTeamReportDate(e.target.value)} 
+                      max={today}
+                      className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className={`transition-opacity duration-300 ${loadingTeamReports ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                  {teamInsights ? (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 mb-4">
+                      <h3 className="text-base font-semibold text-slate-900 mb-3">{displayedReportDate.split('-').reverse().join('-')}</h3>
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                       <div className="rounded-lg bg-white p-3 shadow-sm">
                         <div className="text-xs text-slate-500 uppercase tracking-wider">Team Members</div>
@@ -798,10 +870,14 @@ export default function VoiceNotesPage() {
                       </div>
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500 mb-4">
+                    No aggregated insights available for {displayedReportDate}. Click "Generate Report" to create them.
+                  </div>
+                )}
 
                 {teamReports.length === 0 ? (
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No team reports for today.</div>
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">No team reports found for {displayedReportDate}.</div>
                 ) : (
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900 mb-3">Team Member Reports</h3>
@@ -819,6 +895,7 @@ export default function VoiceNotesPage() {
                     ))}
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>
