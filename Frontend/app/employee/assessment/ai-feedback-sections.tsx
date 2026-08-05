@@ -134,7 +134,7 @@ const AIFeedbackSections: React.FC<AIFeedbackSectionsProps> = ({ feedback }) => 
         
         // Start new section
         currentSection = {
-          title: line.replace(/(?:###?\s*)?(?:\d+\.\s*)?/, ''), // Remove numbering and markdown
+          title: line.replace(/(?:###?\s*)?(?:\d+\.\s*)?/, '').replace(/\*/g, ''), // Remove numbering and markdown
           content: [],
           icon: matchedPattern.icon,
           type: matchedPattern.type
