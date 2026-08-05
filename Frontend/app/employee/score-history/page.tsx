@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronDown, BookOpen } from "lucide-react";
+import { ChevronDown, BookOpen, CheckCircle, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 // import { supabase } from "@/lib/supabase";
 import { sharedDataClient, createCacheKey } from "@/lib/data-client";
@@ -17,7 +17,8 @@ import RolePlayReports from "@/components/roleplay/RolePlayReports";
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 // Helper component to format question-specific feedback
 // Robust parsing of: JSON array, comma-separated quoted tokens, or free-form sections
-const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { feedback: string; employeeName: string; totalQuestions?: number }) => {
+const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions, questions, userAnswers }: { feedback: string; employeeName: string; totalQuestions?: number; questions?: any[]; userAnswers?: any }) => {
+  const [selectedQuestionIndex, setSelectedQuestionIndex] = useState<number | null>(null);
   const processedFeedback = feedback
     .replace('[Your Name]', 'Lucid')
     .replace('Dear Employee', `Dear ${employeeName || 'Employee'}`)
@@ -112,7 +113,7 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
                     ? 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
                     : 'bg-gray-100 text-gray-500 border-gray-300';
                 const box = (
-                  <div key={idx} className={`${baseClasses} ${palette}`}>
+                  <div key={idx} className={`${baseClasses} ${palette} ${selectedQuestionIndex === idx ? 'ring-2 ring-blue-500 ring-offset-1 scale-105 shadow-sm' : ''}`} onClick={() => setSelectedQuestionIndex(idx)}>
                     <div className="text-center leading-tight">
                       <div className="text-[10px] text-gray-600">Q{idx + 1}</div>
                       <div className="font-semibold text-base">{isCorrect ? 'OK' : isIncorrect ? 'X' : '?'}</div>
@@ -143,6 +144,135 @@ const QuestionFeedbackDisplay = ({ feedback, employeeName, totalQuestions }: { f
                 <span className="text-red-700 font-medium">Incorrect: {incorrectCount}</span>
               </div>
             </div>
+
+            {selectedQuestionIndex !== null && (
+              <div className="mt-6 bg-white border border-blue-200 rounded-lg p-6 shadow-sm">
+                {(() => {
+                  let parsedQuestions = questions;
+                  if (typeof questions === 'string') {
+                    try { parsedQuestions = JSON.parse(questions); } catch (e) { parsedQuestions = []; }
+                  } else if (!Array.isArray(questions)) {
+                    parsedQuestions = [];
+                  }
+
+                  let parsedUserAnswers = userAnswers;
+                  if (typeof userAnswers === 'string') {
+                    try { parsedUserAnswers = JSON.parse(userAnswers); } catch (e) { parsedUserAnswers = []; }
+                  } else if (!Array.isArray(userAnswers) && typeof userAnswers !== 'object') {
+                    parsedUserAnswers = [];
+                  }
+
+                  const q = parsedQuestions[selectedQuestionIndex];
+                  if (!q) return <div className="text-gray-500">Question data unavailable</div>;
+
+                  const userAnswerValue = Array.isArray(parsedUserAnswers) 
+                    ? parsedUserAnswers[selectedQuestionIndex] 
+                    : parsedUserAnswers?.[selectedQuestionIndex];
+                  
+                  let userAnswerText = 'No answer selected';
+                  if (userAnswerValue !== undefined && userAnswerValue !== null) {
+                    if (typeof userAnswerValue === 'number' && q.options) {
+                      userAnswerText = q.options[userAnswerValue] || 'Unknown option';
+                    } else if (typeof userAnswerValue === 'string') {
+                      // some quizzes save the text of the option instead of the index
+                      // Try to strip quotes if it got double encoded
+                      userAnswerText = userAnswerValue.replace(/^"|"$/g, '');
+                    }
+                  }
+
+                  const isCorrect = answers[selectedQuestionIndex]?.status === 'Correct';
+                  const correctAnswerText = q.options && q.correctIndex !== undefined ? q.options[q.correctIndex] : 'Unknown';
+
+                  return (
+                    <div className="flex items-start gap-4">
+                      {isCorrect ? (
+                        <CheckCircle className="h-6 w-6 text-green-500 flex-shrink-0 mt-1" />
+                      ) : (
+                        <XCircle className="h-6 w-6 text-red-500 flex-shrink-0 mt-1" />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold text-lg text-gray-900">Question {selectedQuestionIndex + 1}</h4>
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${isCorrect ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {isCorrect ? 'Correct' : 'Incorrect'}
+                          </span>
+                        </div>
+                        <p className="text-gray-800 text-base mb-5 font-medium leading-relaxed">{q.question || q.stem || 'Question text unavailable'}</p>
+                        
+                        {q.options && Array.isArray(q.options) ? (
+                          <div className="space-y-3 mt-4">
+                            {q.options.map((option: string, index: number) => {
+                              const isCorrectOption = index === q.correctIndex;
+                              const isUserSelectedOption = 
+                                (typeof userAnswerValue === 'number' && index === userAnswerValue) || 
+                                (typeof userAnswerValue === 'string' && option.trim() === userAnswerValue.replace(/^"|"$/g, '').trim());
+                              
+                              let optionClass = 'border-gray-200 bg-white text-gray-700';
+                              if (isCorrectOption) {
+                                optionClass = 'border-green-500 bg-green-50 text-green-900 ring-1 ring-green-500 shadow-sm';
+                              } else if (isUserSelectedOption && !isCorrectOption) {
+                                optionClass = 'border-red-500 bg-red-50 text-red-900 ring-1 ring-red-500 shadow-sm';
+                              }
+
+                              return (
+                                <div key={index} className={`p-4 border rounded-lg flex items-center gap-3 transition-colors ${optionClass}`}>
+                                  <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                    isCorrectOption ? 'border-green-500 bg-green-500' : 
+                                    (isUserSelectedOption ? 'border-red-500 bg-red-500' : 'border-gray-300')
+                                  }`}>
+                                    {isCorrectOption && <CheckCircle className="h-4 w-4 text-white" />}
+                                    {isUserSelectedOption && !isCorrectOption && <XCircle className="h-4 w-4 text-white" />}
+                                  </div>
+                                  <span className="font-medium text-sm leading-relaxed">{option}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                            <div className="flex items-start gap-3">
+                              <span className="text-sm font-semibold text-gray-500 w-32 pt-1">Your answer:</span>
+                              <div className={`flex-1 p-2.5 rounded-lg text-sm border ${
+                                isCorrect ? 'bg-green-50 border-green-200 text-green-900' : 'bg-red-50 border-red-200 text-red-900'
+                              }`}>
+                                {userAnswerText}
+                              </div>
+                            </div>
+                            
+                            {!isCorrect && (
+                              <div className="flex items-start gap-3">
+                                <span className="text-sm font-semibold text-gray-500 w-32 pt-1">Correct answer:</span>
+                                <div className="flex-1 p-2.5 rounded-lg text-sm bg-green-50 border border-green-200 text-green-900">
+                                  {correctAnswerText}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {(q.explanation || answers[selectedQuestionIndex]?.explanation) && (
+                          <div className="mt-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100">
+                            <h5 className="text-sm font-semibold text-blue-900 mb-1">Explanation</h5>
+                            <p className="text-sm text-blue-800/80 leading-relaxed">
+                              {q.explanation || answers[selectedQuestionIndex]?.explanation}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {q.bloomLevel && (
+                          <div className="mt-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                              {q.bloomLevel}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {answers.some(a => a.status === 'Incorrect' && a.explanation) && (
               <div className="mt-6 bg-white/60 rounded-lg p-4 border border-blue-200">
                 <h5 className="font-semibold text-blue-800 mb-3">Incorrect Answer Explanations</h5>
@@ -919,6 +1049,8 @@ return {
                                               feedback={item.question_feedback}
                                               employeeName={employeeName}
                                               totalQuestions={item.max_score}
+                                              questions={item.assessments?.questions}
+                                              userAnswers={item.answers}
                                             />
                                           </div>
                                         )}
