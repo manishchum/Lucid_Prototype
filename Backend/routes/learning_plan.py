@@ -276,11 +276,11 @@ async def delete_learning_plan(
     Permission: Manager+ role required.
     """
     result = await learning_plan_db.delete_learning_plan(auth_ctx.user_id, learning_plan_id)
-    delete_cache_pattern(f"learning plans:*")
-    delete_cache_pattern(f"employee_assessments:*")
-    delete_cache_pattern(f"dashboard_summary:*")
-    delete_cache_pattern(f"module_progress:*")
-    delete_cache_pattern(f"user_module_progress:*")
+    delete_cache_pattern(f"learning plans:{user_id}:*")
+    delete_cache_pattern(f"employee_assessments:{user_id}:*")
+    delete_cache_pattern(f"dashboard_summary:{user_id}:*")
+    delete_cache_pattern(f"module_progress:{user_id}:*")
+    delete_cache_pattern(f"user_module_progress:{user_id}:*")
     if result.get("error"):
         status_code = 404 if "not found" in result["error"].lower() else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
