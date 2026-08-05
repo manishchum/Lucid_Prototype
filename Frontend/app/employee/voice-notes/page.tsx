@@ -9,6 +9,7 @@ import VoiceInput from "@/components/VoiceInput";
 import { useAuth } from "@/contexts/auth-context";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { CheckCircle2, Edit, RefreshCcw, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -154,6 +155,7 @@ function renderRenderableContent(renderableContent: any) {
 export default function VoiceNotesPage() {
   const router = useRouter();
   const { user, loading: authLoading, isManagerofUsers } = useAuth();
+  const { toast } = useToast();
   
   // Debug logging
   useEffect(() => {
@@ -246,7 +248,11 @@ export default function VoiceNotesPage() {
       if (!res.ok) {
         setError(data?.detail || "Unable to save transcript.");
       } else {
-        setMessage("Transcript saved successfully.");
+        // setMessage("Transcript saved successfully.");
+        toast({
+          title: "Transcript saved",
+          description: "Your voice note has been saved successfully.",
+        });
         setTitle("");
         setLiveTranscript("");
         fetchTranscripts();
@@ -282,7 +288,11 @@ export default function VoiceNotesPage() {
       if (!res.ok) {
         setError(data?.detail || "Unable to update transcript.");
       } else {
-        setMessage("Transcript updated.");
+        // setMessage("Transcript updated.");
+        toast({
+          title: "Transcript updated",
+          description: `Transcript - ${editTitle.trim()} is updated successfully.`,
+        });
         setEditingId(null);
         setEditTitle("");
         setEditTranscript("");
@@ -307,7 +317,11 @@ export default function VoiceNotesPage() {
       if (!res.ok) {
         setError(data?.detail || "Unable to delete transcript.");
       } else {
-        setMessage("Transcript deleted.");
+        // setMessage("Transcript deleted.");
+        toast({
+          title: "Transcript deleted",
+          description: "The voice note has been removed.",
+        });
         if (editingId === transcriptId) {
           setEditingId(null);
         }
@@ -325,6 +339,10 @@ export default function VoiceNotesPage() {
     setMessage(null);
     setGenerating(true);
     setReportSummary(null);
+    toast({
+      title: "Generating report",
+      description: "Daily report is getting generated...",
+    });
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/daily-reports/generate`, {
         method: "POST",
@@ -340,7 +358,11 @@ export default function VoiceNotesPage() {
       if (!res.ok) {
         setError(data?.detail || "Unable to generate daily report.");
       } else {
-        setMessage("Daily report generated successfully.");
+        // setMessage("Daily report generated successfully.");
+        toast({
+          title: "Report generated",
+          description: "Daily report is generated successfully.",
+        });
         setReportSummary(data.report?.summary_text || "Report generated.");
         fetchTranscripts();
         fetchReports();
@@ -415,7 +437,11 @@ export default function VoiceNotesPage() {
       if (!res.ok) {
         setError(data?.detail || 'Unable to save report edits.');
       } else {
-        setMessage('Report saved.');
+        // setMessage('Report saved.');
+        toast({
+          title: "Report updated",
+          description: "Your report edits have been saved.",
+        });
         fetchReports();
         closeReportEditor();
       }
@@ -452,7 +478,7 @@ export default function VoiceNotesPage() {
             <RefreshCcw className="h-4 w-4" /> Refresh
           </Button>
           <Button variant="secondary" onClick={handleGenerateReport} disabled={generating || loading || saving}>
-            Generate Daily Report
+            {generating ? "Generating Daily Report..." : "Generate Daily Report"}
           </Button>
         </div>
       </div>
@@ -619,7 +645,7 @@ export default function VoiceNotesPage() {
 
                       {isEditing ? (
                         <div className="mt-4 flex flex-wrap gap-2">
-                          <Button size="sm" onClick={() => handleSaveEdit(transcript.transcript_id)} disabled={saving}>
+                          <Button variant="secondary" size="sm" onClick={() => handleSaveEdit(transcript.transcript_id)} disabled={saving}>
                             Save
                           </Button>
                           <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>

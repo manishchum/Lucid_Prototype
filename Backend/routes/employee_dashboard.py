@@ -6,6 +6,7 @@ from utils.auth_bridge import get_service_supabase_client
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.db.permissions import check_user_permission
+from utils.db.leaderboard_db import get_user_rank
 from utils.redis_client import get_cache, set_cache, redis_client
 import traceback
 
@@ -67,7 +68,7 @@ async def get_dashboard_summary(
             .execute()
         )
         company_data = _get_data(company_res) or {}
-        print(f"Company Data: {company_data}")
+        
         # 2. Fetch User details & Count total users in company
         users_res = service_supabase.table("users").select("user_id").eq("company_id", x_company_id).execute()
         users_data = _get_data(users_res)
@@ -175,20 +176,16 @@ async def get_dashboard_summary(
         )
         task_submissions = task_submissions_res.data if task_submissions_res.data else []
 
-        # 10. Fake or real user rank for now. Usually needs a separate leaderboard query, doing basic for now
-        # Fetch completed modules for user_id to compute rank
-        completed_modules_res = service_supabase.table("learning_plan").select("learning_plan_id").eq("user_id", user_id).in_("status", ["COMPLETED"]).execute()
-        completed_modules_data = _get_data(completed_modules_res)
-        modules_completed = len(completed_modules_data) if completed_modules_data else 0
-        
-        user_rank_data = {
-            "rank": 1, # Placeholder, true rank calculation usually heavier
-            "top_percentile": 10,
-            "modules_completed": modules_completed,
-            "total_score": 0
-        }
+        # 10. True user rank calculation from leaderboard service
+        rank_res = await get_user_rank(user_id, x_company_id)
+        rank_info = rank_res.get("data") if (rank_res and not rank_res.get("error")) else None
 
-        print(f"[Dashboard Summary] User {user_id} has completed {modules_completed} modules.")
+        user_rank_data = {
+            "rank": rank_info.get("rank", 1) if rank_info else 1,
+            "top_percentile": rank_info.get("percentile", 10) if rank_info else 10,
+            "modules_completed": rank_info.get("modules_completed", 0) if rank_info else 0,
+            "total_score": rank_info.get("total_points", 0) if rank_info else 0,
+        }
 
         # Build response payload
         response_payload = {

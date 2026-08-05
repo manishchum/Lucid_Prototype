@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 from datetime import datetime
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from utils.auth_bridge import (
 	BridgeConfigurationError,
 	BridgeResolutionError,
@@ -103,6 +103,16 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 		raise HTTPException(status_code=401, detail="Invalid or expired bearer token") from exc
 
 
+def _verify_token(token: str) -> Dict[str, Any]:
+	try:
+		from utils.auth_bridge import decode_supabase_access_token
+		return decode_supabase_access_token(token, verify=True)
+	except Exception:
+		pass
+	return _verify_firebase_token(token)
+
+
+
 def _resolve_internal_user_context(
 	email: Optional[str],
 	fallback_user_id: str,
@@ -153,6 +163,14 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 	return user_id
 
 
+def _is_valid_uuid(val: str) -> bool:
+	try:
+		_uuid.UUID(str(val))
+		return True
+	except Exception:
+		return False
+
+
 def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: Optional[str] = None,) -> RequestAuth:
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
@@ -165,8 +183,9 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 	
 	# print("AUTH RESOLVED",{"user_id": user_id, "company_id": company_id})
 
-	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
+
 
 	log_bridge_event(
 		"auth_context_resolved",
@@ -253,7 +272,7 @@ def get_request_auth_optional(
 
 	if token:
 		try:
-			claims = _verify_firebase_token(token)
+			claims = _verify_token(token)
 			auth_ctx = _build_request_auth_from_verified_claims(claims,x_device_id)
 			print(
 				f"[auth optional] Bearer verified successfully; "
@@ -346,7 +365,7 @@ def get_request_auth_required(
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")
 
-	claims = _verify_firebase_token(token)
+	claims = _verify_token(token)
 	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
 	if x_device_id:
 		validate_device_session(auth_ctx.user_id, x_device_id)
@@ -362,7 +381,7 @@ def get_request_auth_jwt_required(
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")  
-	claims = _verify_firebase_token(token)
+	claims = _verify_token(token)
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
 	user_id, company_id = _resolve_internal_user_context(
@@ -372,7 +391,7 @@ def get_request_auth_jwt_required(
 	)
 
 
-	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
 
 	log_bridge_event(
@@ -406,8 +425,6 @@ def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
 	x_device_id = request.headers.get("X-Device-ID")
 	return get_request_auth_required(authorization=authorization, x_device_id=x_device_id)
-
-from fastapi import Depends
 
 async def get_effective_company_id(
 	request: Request,
@@ -461,6 +478,23 @@ async def get_effective_company_id(
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
 
+
+@dataclass
+class RoleplayContext:
+	user_id: str
+	company_id: str
+	auth_ctx: RequestAuth
+
+
+async def get_roleplay_context(
+	auth_ctx: RequestAuth = Depends(get_request_auth_required),
+	company_id: str = Depends(get_effective_company_id),
+) -> RoleplayContext:
+	return RoleplayContext(
+		user_id=auth_ctx.user_id,
+		company_id=company_id,
+		auth_ctx=auth_ctx,
+	)
 def register_device_session(
     user_id: str,
     device_id: str

@@ -8,8 +8,10 @@ import shutil
 import datetime
 import asyncio
 from typing import Any, Dict, List, Optional
-
+import torch
 import httpx
+# from huggingface_hub import InferenceClient
+from PIL import Image
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
@@ -22,7 +24,11 @@ from google.cloud import texttospeech
 import ffmpeg  # ffmpeg-python
 import subprocess
 import shutil
-
+# from diffusers import FluxPipeline
+try:
+    from diffusers import AutoPipelineForText2Image as FluxPipeline
+except ImportError:
+    FluxPipeline = None
 from playwright.sync_api import sync_playwright
 
 # ------------------------------------------------------------------
@@ -85,6 +91,13 @@ if base64Key:
         print("[VIDEO API] Failed to decode/write GOOGLE_TTS_JSON:", e)
 else:
     print("[VIDEO API] GOOGLE_TTS_JSON not set.")
+    
+# HF_CLIENT = InferenceClient(
+#     provider="hf-inference",
+#     api_key=os.environ.get("HF_TOKEN")
+# )
+if not os.environ.get("HF_TOKEN"):
+    print("[FLUX] Warning: hf token not configured")
 
 # ------------------------------------------------------------------
 # FFmpeg PATH RESOLUTION (best effort mimic)
@@ -98,6 +111,26 @@ else:
 # ------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------
+IMAGE_PIPE = None
+
+def get_image_pipeline():
+    global IMAGE_PIPE
+
+    if IMAGE_PIPE is None:
+
+        print("Loading SDXL Turbo...")
+
+        IMAGE_PIPE = AutoPipelineForText2Image.from_pretrained(
+            "stabilityai/sdxl-turbo",
+            torch_dtype=torch.float32
+        )
+
+        IMAGE_PIPE.enable_attention_slicing()
+
+        print("SDXL Loaded.")
+
+    return IMAGE_PIPE
+
 async def ensureBucketExists():
     try:
         # listBuckets equivalent
@@ -555,42 +588,66 @@ CONTENT:
 # ------------------------------------------------------------------
 # 2. IMAGEN (Fallback to placeholder on failure)
 # ------------------------------------------------------------------
-async def generateImagenImage(prompt: str, outFile: str):
-    try:
-        key = os.environ.get("GEMINI_API_KEY")
-        print(f"[IMAGEN] Generating with prompt: {prompt}")
+# async def generateImagenImage(prompt: str, outFile: str):
+#     try:
+#         key = os.environ.get("GEMINI_API_KEY")
+#         print(f"[IMAGEN] Generating with prompt: {prompt}")
 
-        # Try Gemini API first
-        async with httpx.AsyncClient(timeout=300) as client:
-            res = await client.post(
-                f"https://generativelanguage.googleapis.com/v1/models/gemini-3.1-pro-preview:generateContent?key={key}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [{
-                        "parts": [{
-                            "text": f"Generate image: {prompt}. Respond with: IMAGE_GENERATION_NOT_AVAILABLE"
-                        }]
-                    }]
-                }
-            )
+#         # Try Gemini API first
+#         async with httpx.AsyncClient(timeout=300) as client:
+#             res = await client.post(
+#                 f"https://generativelanguage.googleapis.com/v1/models/gemini-3.1-pro-preview:generateContent?key={key}",
+#                 headers={"Content-Type": "application/json"},
+#                 json={
+#                     "contents": [{
+#                         "parts": [{
+#                             "text": f"Generate image: {prompt}. Respond with: IMAGE_GENERATION_NOT_AVAILABLE"
+#                         }]
+#                     }]
+#                 }
+#             )
 
-        if res.status_code >= 200 and res.status_code < 300:
-            # Since Gemini text models can't generate images, we'll create a placeholder
-            print("[IMAGEN] API not available, using placeholder")
-        else:
-            print(f"[IMAGEN] API call failed: {res.status_code}")
+#         if res.status_code >= 200 and res.status_code < 300:
+#             # Since Gemini text models can't generate images, we'll create a placeholder
+#             print("[IMAGEN] API not available, using placeholder")
+#         else:
+#             print(f"[IMAGEN] API call failed: {res.status_code}")
         
-        # Create placeholder image instead of failing
-        print(f"[IMAGEN] Creating placeholder for: {outFile}")
-        # Don't create file - let fallback system handle it
-        return
+#         # Create placeholder image instead of failing
+#         print(f"[IMAGEN] Creating placeholder for: {outFile}")
+#         # Don't create file - let fallback system handle it
+#         return
 
-    except Exception as e:
-        print(f"[IMAGEN] generation error: {e}")
-        # Don't create file - let fallback system handle it
-        return
+#     except Exception as e:
+#         print(f"[IMAGEN] generation error: {e}")
+#         # Don't create file - let fallback system handle it
+#         return
 
 
+async def generateImagenImage(prompt, outFile):
+
+    pipe = get_image_pipeline()
+
+    image = await run_in_threadpool(
+        lambda: pipe(
+                prompt=(
+                    prompt
+                    + ", ultra realistic"
+                    + ", corporate training"
+                    + ", highly detailed"
+                    + ", cinematic lighting"
+                    + ", no text"
+                    + ", 16:9"
+                ),
+                guidance_scale=0.0,
+                num_inference_steps=2,
+            ).images[0]
+    )
+
+    image = image.resize((1280,720))
+
+    image.save(outFile)
+    
 # ------------------------------------------------------------------
 # FALLBACK ASSETS
 # ------------------------------------------------------------------
@@ -692,30 +749,171 @@ def renderSlide_sync(scene: Scene, index: int, dir: str) -> str:
             page.set_viewport_size({"width": 1280, "height": 720})
 
             html = f"""
-    <html>
-      <head>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
-        <style>
-          body {{ margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: transparent; width: 1280px; height: 720px; display: flex; align-items: center; overflow: hidden; }}
-          .content {{ padding: 80px 120px; max-width: 800px; }}
-          .glass-card {{ background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 32px; padding: 60px; color: white; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }}
-          h1 {{ font-family: 'Outfit', sans-serif; font-size: 48px; font-weight: 800; margin: 0 0 24px 0; background: linear-gradient(to right, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
-          ul {{ list-style: none; padding: 0; margin: 0; }}
-          li {{ font-size: 24px; line-height: 1.4; margin-bottom: 16px; display: flex; align-items: flex-start; }}
-          li::before {{ content: "→"; color: #38bdf8; font-weight: bold; width: 30px; flex-shrink: 0; }}
-        </style>
-      </head>
-      <body>
-        <div class="content">
-          <div class="glass-card">
-            <h1>{scene.get("title","")}</h1>
-            <ul> {"".join([f"<li>{b}</li>" for b in (scene.get("slide_bullets") or [])])} </ul>
-          </div>
-        </div>
-      </body>
-    </html>
-            """
+                <html>
 
+                <head>
+
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=Outfit:wght@700;800&display=swap" rel="stylesheet">
+
+                <style>
+
+                *{{
+                box-sizing:border-box;
+                }}
+
+                body{{
+                margin:0;
+                width:1280px;
+                height:720px;
+                font-family:Inter,sans-serif;
+                background:transparent;
+                overflow:hidden;
+                }}
+
+                .container{{
+                position:relative;
+                width:100%;
+                height:100%;
+                padding:70px;
+                display:flex;
+                flex-direction:column;
+                justify-content:space-between;
+                }}
+
+                .title{{
+                font-family:Outfit,sans-serif;
+                font-size:60px;
+                font-weight:800;
+                line-height:1.1;
+                color:white;
+                text-shadow:0 4px 20px rgba(0,0,0,.5);
+                margin-bottom:52px;
+                max-width:1000px;
+                }}
+
+                .cards{{
+                display:flex;
+                flex-direction:column;
+                gap:28px;
+                width:100%;
+                }}
+
+                .card{{
+                display:flex;
+                align-items:center;
+
+                padding:24px 32px;
+
+                border-radius:24px;
+
+                background:rgba(15,23,42,.45);
+
+                backdrop-filter:blur(20px);
+                -webkit-backdrop-filter:blur(20px);
+
+                border:1px solid rgba(255,255,255,.25);
+
+                box-shadow:
+                0 20px 50px rgba(0,0,0,.40);
+
+                color:white;
+
+                font-size:27px;
+                font-weight:600;
+
+                overflow:hidden;
+                position:relative;
+                }}
+                
+                .card::before{{
+                content:";
+                position:absolute;
+                left:0;
+                top:0;
+                width:100%
+                height:1px;
+                background:rgba(255,255,255,.35);
+                opcity:.8;
+                }}
+                
+                .icon{{
+                width:16px;
+                height:16px;
+                border-radius:50%;
+                background:linear-gradient(
+                135deg,
+                #60a5fa,
+                #22d3ee
+                );
+                box-shadow:
+                0 0 16px rgba(34,211,238,.55);
+                margin-right:22px;
+                flex-shrink:0;
+                }}
+
+                .progress{{
+                width:100%;
+                height:6px;
+                border-radius:999px;
+                background:rgba(255,255,255,.18);
+                overflow:hidden;
+                margin-top:40px;
+                }}
+
+                .progress-fill{{
+                height:100%;
+                width = ((index + 1) / totalScenes) * 100
+                background:linear-gradient(
+                90deg,
+                #38bdf8,
+                #6366f1
+                );
+                }}
+
+                </style>
+
+                </head>
+
+                <body>
+
+                <div class="container">
+
+                <div>
+
+                <div class="title">
+                {scene.get("title","")}
+                </div>
+
+                <div class="cards">
+
+                {
+                "".join([
+                f'''
+                <div class="card">
+                <div class="icon"></div>
+                <div>{b}</div>
+                </div>
+                '''
+                for b in scene.get("slide_bullets",[])
+                ])
+                }
+
+                </div>
+
+                </div>
+
+                <div class="progress">
+
+                <div class="progress-fill"></div>
+
+                </div>
+
+                </div>
+
+                </body>
+
+                </html>
+                """
             page.set_content(html)
             img = os.path.join(dir, f"slide-{index}.png")
             page.screenshot(path=img, omit_background=True)
@@ -734,7 +932,7 @@ async def renderSlide(scene: Scene, index: int, dir: str) -> str:
 async def composeScene(
     background: str,
     overlay: str,
-    avatar: str,
+    # avatar: str,
     audio: str,
     out: str,
     fallbacks: Dict[str, str],
@@ -747,30 +945,50 @@ async def composeScene(
     except Exception:
         pass
 
-    avatarExists = False
-    try:
-        if avatar and os.path.exists(avatar) and os.path.getsize(avatar) > 500:
-            avatarExists = True
-    except Exception:
-        pass
+    # avatarExists = False
+    # try:
+    #     if avatar and os.path.exists(avatar) and os.path.getsize(avatar) > 500:
+    #         avatarExists = True
+    # except Exception:
+    #     pass
 
     bgInput = background if bgExists else fallbacks["bgPath"]
-    avInput = avatar if avatarExists else fallbacks["fallbackAvatar"]
+    # avInput = avatar if avatarExists else fallbacks["fallbackAvatar"]
     
-    print(f"[Compose] Using bg: {bgInput}, avatar: {avInput}")
+    # print(f"[Compose] Using bg: {bgInput}, avatar: {avInput}")
 
     if not FFMPEG_PATH:
         raise Exception("ffmpeg not found in PATH. Please install ffmpeg.")
     
     # Build exact ffmpeg filter graph
     filter_complex = [
-        "[0:v]scale=1280:720[bgv]",
-        "[1:v]scale=1280:720[overv]",
-        "[bgv][overv]overlay=0:0[combined]",
-        "[2:v]scale=350:350[av_scaled]" if avatarExists else "[2:v]scale=1:1[av_scaled]",
-        "[av_scaled]pad=iw+10:ih+10:5:5:color='#38bdf8'[av]" if avatarExists else "[av_scaled]copy[av]",
-        "[combined][av]overlay=W-w-40:H-h-40[outv]",
-        "[3:a]apad[a1]"
+        "[0:v]"
+        "scale=1400:788,"
+        "zoompan="
+        "z='min(zoom+0.0005,1.15)':"
+        "x='iw/2-(iw/zoom/2)+sin(on/30)*15':"
+        "y='ih/2-(ih/zoom/2)+cos(on/40)*10':"
+        "d=125:s=1280x720,"
+        "eq="
+        "contrast=1.08:"
+        "brightness=0.02:"
+        "saturation=1.15,"
+        "vignette=PI/5"
+        "[bgv]",
+
+        "[1:v]"
+        "scale=1280:720,"
+        "format=rgba,"
+        "fade=t=in:st=0:d=0.6:alpha=1"
+        "[overv]",
+
+        "[bgv][overv]"
+        "overlay="
+        "x=0:"
+        "y='if(lt(t,0.6),20*(1-t/0.6),0)'"
+        "[outv]",
+
+        "[2:a]apad[a1]"
     ]
 
     cmd = [
@@ -780,8 +998,8 @@ async def composeScene(
         "-i", bgInput,
         "-loop", "1",
         "-i", overlay,
-        "-loop", "1",
-        "-i", avInput,
+        # "-loop", "1",
+        # "-i", avInput,
         "-i", audio,
         "-filter_complex", ";".join(filter_complex),
         "-map", "[outv]",
@@ -885,8 +1103,8 @@ async def generateVideo(processedModuleId: str) -> dict:
     print("[VIDEO] Preparing fallback assets...")
     fallbacks = await renderFallbackAssets(tmpDir)
 
-    print("[VIDEO] Generating AI instructor avatar...")
-    avatar = await generateAvatarImage(tmpDir)
+    # print("[VIDEO] Generating AI instructor avatar...")
+    # avatar = await generateAvatarImage(tmpDir)
 
     subscription_addons = await getCompanySubscriptionAddonsForProcessedModule(actualId)
     allowed_languages = sorted(getCompanyAllowedLanguageCodes(subscription_addons))
@@ -901,6 +1119,7 @@ async def generateVideo(processedModuleId: str) -> dict:
         slide = await renderSlide(scene, i, tmpDir)
 
         print(f"[VIDEO] Generating visual and audio for scene {i + 1}/{len(scenes)}")
+        print(f"Generating image {i}")
         await generateImagenImage(scene["visual_prompt"], bg)
 
         scene_max_duration = 0

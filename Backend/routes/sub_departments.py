@@ -13,7 +13,7 @@ async def get_all_sub_departments(
 ):
     try:
         query_client = get_service_supabase_client()
-        res = query_client.table("sub_department").select("*").eq("company_id", company_id).order("department_name").order("sub_department_name").execute()
+        res = query_client.table("sub_department").select("department_id, department_name,sub_department_name, created_at,company_id").eq("company_id", company_id).order("department_name").order("sub_department_name").execute()
         return JSONResponse(content={"data": res.data})
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)

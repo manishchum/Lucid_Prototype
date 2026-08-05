@@ -340,6 +340,13 @@ Review the questions you missed and study the related concepts to improve your u
     # completion marker row so the UI can disable Baseline after first use.
     if is_baseline_assessment and module_id_for_plan:
         try:
+            # Mark original baseline plan as overall_status=True and status="COMPLETED"
+            supabase.table("learning_plan").update({
+                "overall_status": True,
+                "status": "COMPLETED",
+                "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
+            }).eq("user_id", user_id).eq("module_id", module_id_for_plan).execute()
+
             existingBaselinePlanRes = (
                 supabase
                 .table("learning_plan")
@@ -362,6 +369,7 @@ Review the questions you missed and study the related concepts to improve your u
                     "user_id": user_id,
                     "module_id": module_id_for_plan,
                     "status": "BASELINE_COMPLETED",
+                    "overall_status": True,
                     "baseline_assessment": False,
                     "reasoning": {
                         "source": "baseline_assessment",
@@ -418,6 +426,8 @@ Review the questions you missed and study the related concepts to improve your u
             # Don't fail the assessment if module update fails
 
     delete_cache_pattern(f"dashboard_summary:{user_id}*")
+    delete_cache_pattern(f"module_progress:{user_id}*")
+    delete_cache_pattern(f"user_module_progress:{user_id}*")
     # Return the complete result
     return JSONResponse(content={
         "success": True,
