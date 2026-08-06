@@ -6,8 +6,9 @@ import {
   Loader2, Phone, Camera, CameraOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Scenario, Message } from "@/lib/roleplay/types";
-import { createRolePlaySession, updateRolePlaySession } from "@/lib/roleplayDatabase";
+import { Scenario, Message } from "@/lib/roleplayApi";
+// import { createRolePlaySession } from "@/lib/roleplayDatabase";
+import { createRolePlaySessionAPI } from "@/lib/roleplayApi";
 import { getFirebaseIdToken } from "@/lib/fetch-with-auth";
 
 interface RolePlayConversationProps {
@@ -168,12 +169,12 @@ export default function RolePlayConversation({
   };
 
   const connectToRealtime = async (stream: MediaStream) => {
-    const wsProtocol = window.location.protocol === "https:" ? "ws:" : "ws:";
-    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "") || "localhost:8000";
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "");
     
     // Grab the token and put it in the URL
     const token = await getFirebaseIdToken();
-    const wsUrl = `${wsProtocol}//${apiHost}/roleplay/realtime?token=${token}`;
+    const wsUrl = `${wsProtocol}//${apiHost}/api/roleplay/realtime?token=${token}`;
 
     // console.log("[RolePlay] Connecting to WebSocket:", wsUrl);
 
@@ -367,9 +368,13 @@ export default function RolePlayConversation({
     conversationTranscriptRef.current = [];
     if (employeeId) {
       try {
-        const { data, error } = await createRolePlaySession(
-          employeeId, scenario.scenario_id, scenario.title,
-          scenario.role, scenario.difficulty, moduleId
+        const { data, error } = await createRolePlaySessionAPI(
+            employeeId,
+            scenario.scenario_id,
+            scenario.title,
+            scenario.role,
+            scenario.difficulty,
+            moduleId
         );
         if (data && !error) {
           sessionIdRef.current = data.id;
@@ -508,21 +513,21 @@ export default function RolePlayConversation({
     // });
 
     // ✅ SAVE TRANSCRIPT FIRST - before generating assessment
-    if (sessionIdRef.current && messages.length > 0) {
-      try {
-        // console.log("[handleEndSession] 💾 Saving transcript to DB...");
-        await updateRolePlaySession(sessionIdRef.current, messages, true);
-        // console.log("[handleEndSession] ✅ Transcript saved to DB");
-      } catch (e) {
-        console.error("[handleEndSession] ❌ Failed to save transcript:", e);
-        // Continue anyway - assessment generation is still important
-      }
-    } else {
-      console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
-        hasSessionId: !!sessionIdRef.current,
-        messagesCount: messages.length
-      });
-    }
+    // if (sessionIdRef.current && messages.length > 0) {
+    //   try {
+    //     // console.log("[handleEndSession] 💾 Saving transcript to DB...");
+    //     await updateRolePlaySession(sessionIdRef.current, messages, true);
+    //     // console.log("[handleEndSession] ✅ Transcript saved to DB");
+    //   } catch (e) {
+    //     console.error("[handleEndSession] ❌ Failed to save transcript:", e);
+    //     // Continue anyway - assessment generation is still important
+    //   }
+    // } else {
+    //   console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
+    //     hasSessionId: !!sessionIdRef.current,
+    //     messagesCount: messages.length
+    //   });
+    // }
 
     onEndSession(messages, sessionIdRef.current || undefined);
   };

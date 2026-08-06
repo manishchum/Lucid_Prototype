@@ -183,7 +183,7 @@ async def list_reports_for_user_ids(
             return {"data": [], "error": None}
 
         db = get_service_supabase_client()
-        query = _get_table(db, "voice_daily_reports").select("*")
+        query = _get_table(db, "voice_daily_reports").select("report_id, user_id, company_id, report_date, report_title, combined_transcript, summary_text, structured_json, model_used, status, source_transcript_ids, created_at, updated_at, renderable_content")
 
         # Filter by user_ids using the 'in' operator (if available)
         query = query.in_("user_id", user_ids)
@@ -256,7 +256,7 @@ async def get_voice_transcript_by_id(requesting_user_id: str, transcript_id: str
     try:
         db = get_service_supabase_client()
         resp = _safe_execute(
-            _get_table(db, "voice_transcripts").select("*").eq("transcript_id", transcript_id).maybe_single(),
+            _get_table(db, "voice_transcripts").select("transcript_id, user_id, company_id, title, raw_transcript, edited_transcript, final_transcript, audio_url, audio_storage_path, is_deleted, transcript_date, created_at, updated_at").eq("transcript_id", transcript_id).maybe_single(),
             single=True,
         )
         if not resp.data:
@@ -283,7 +283,7 @@ async def list_voice_transcripts(
         requesting_company_id = await _resolve_user_company_id(requesting_user_id)
         has_manager_access = await check_user_permission(requesting_user_id, "manager")
 
-        query = _get_table(db, "voice_transcripts").select("*")
+        query = _get_table(db, "voice_transcripts").select("transcript_id, user_id, company_id, title, raw_transcript, edited_transcript, final_transcript, audio_url, audio_storage_path, is_deleted, transcript_date, created_at, updated_at")
 
         # Default behavior: return only the requesting user's transcripts.
         # Allow querying another user's transcripts only when an explicit
@@ -347,7 +347,7 @@ async def get_voice_daily_report_by_id(requesting_user_id: str, report_id: str) 
     try:
         db = get_service_supabase_client()
         resp = _safe_execute(
-            _get_table(db, "voice_daily_reports").select("*").eq("report_id", report_id).maybe_single(),
+            _get_table(db, "voice_daily_reports").select("report_id, user_id, company_id, report_date, report_title, combined_transcript, summary_text, structured_json, model_used, status, source_transcript_ids, created_at, updated_at, renderable_content").eq("report_id", report_id).maybe_single(),
             single=True,
         )
         if not resp.data:
@@ -370,7 +370,7 @@ async def get_voice_daily_report_by_user_date(
     try:
         db = get_service_supabase_client()
         resp = _safe_execute(
-            _get_table(db, "voice_daily_reports").select("*").eq("user_id", user_id).eq("report_date", report_date).maybe_single(),
+            _get_table(db, "voice_daily_reports").select("report_id, user_id, company_id, report_date, report_title, combined_transcript, summary_text, structured_json, model_used, status, source_transcript_ids, created_at, updated_at, renderable_content").eq("user_id", user_id).eq("report_date", report_date).maybe_single(),
             single=True,
         )
         if not resp.data:
@@ -446,7 +446,7 @@ async def list_voice_daily_reports(
         requesting_company_id = await _resolve_user_company_id(requesting_user_id)
         has_manager_access = await check_user_permission(requesting_user_id, "manager")
 
-        query = _get_table(db, "voice_daily_reports").select("*")
+        query = _get_table(db, "voice_daily_reports").select("report_id, user_id, company_id, report_date, report_title, combined_transcript, summary_text, structured_json, model_used, status, source_transcript_ids, created_at, updated_at, renderable_content")
 
         # Default: only return reports belonging to the requesting user.
         # Allow requesting another user's reports only for managers.

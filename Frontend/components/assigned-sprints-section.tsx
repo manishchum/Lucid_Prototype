@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 import { LayoutGrid, List, ChevronDown, Search } from "lucide-react";
 import { callGemini } from "@/lib/gemini-helper";
-
+// import CustomPagination from "@/components/ui/custom-pagination";
+import { CustomPagination } from '@/components/ui/custom-pagination';
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 interface Sprint {
@@ -52,7 +53,8 @@ export function AssignedSprintsSection({
   const [viewType, setViewType] = useState<"grid" | "table">("grid");
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAllModules, setShowAllModules] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"title" | "due_date" | "progress">("title");
   const router = useRouter();
@@ -233,10 +235,15 @@ export function AssignedSprintsSection({
       sorted.sort((a, b) => b.completionPercentage - a.completionPercentage);
     }
 
-    return showAllModules ? sorted : sorted.slice(0, 3);
+    return sorted;
   };
 
-  const filteredSprints = getFilteredAndSortedSprints();
+  const allFiltered = getFilteredAndSortedSprints();
+  const totalPages = Math.ceil(allFiltered.length / itemsPerPage);
+  const filteredSprints = allFiltered.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   if (loading) {
     return (
@@ -340,13 +347,13 @@ export function AssignedSprintsSection({
               type="text"
               placeholder="Search Sprints..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as "title" | "due_date" | "progress")}
+            onChange={(e) => { setSortBy(e.target.value as "title" | "due_date" | "progress"); setCurrentPage(1); }}
             className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="title">Sort by Title</option>
@@ -508,27 +515,14 @@ export function AssignedSprintsSection({
               ))}
             </div>
 
-            {/* Show More / Show Less button */}
-            {sprints.length > 3 && (
-              <div className="flex justify-center mt-6">
-                <button
-                  onClick={() => setShowAllModules(!showAllModules)}
-                  className="px-6 py-2 rounded-lg bg-blue-500 text-white text-xs sm:text-sm font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5"
-                >
-                  {showAllModules ? (
-                    <>
-                      Show Less
-                      <ChevronDown size={14} className="rotate-180" />
-                    </>
-                  ) : (
-                    <>
-                      Show More
-                      <ChevronDown size={14} />
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+            <CustomPagination
+              className="mt-6 border-t border-slate-100 pt-4"
+              currentPage={currentPage}
+              totalPages={totalPages}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              setCurrentPage={setCurrentPage}
+            />
 
             {/* No results message */}
             {filteredSprints.length === 0 && searchQuery && (
@@ -659,27 +653,14 @@ export function AssignedSprintsSection({
               </tbody>
             </table>
 
-            {/* Show More / Show Less button for table */}
-            {sprints.length > 3 && (
-              <div className="p-4 bg-slate-50/50 flex justify-center sm:justify-end border-t border-slate-200">
-                <button
-                  onClick={() => setShowAllModules(!showAllModules)}
-                  className="px-4 py-2 rounded-lg bg-blue-500 text-white text-xs sm:text-sm font-semibold hover:bg-blue-600 transition-all flex items-center gap-1.5 h-9"
-                >
-                  {showAllModules ? (
-                    <>
-                      Show Less
-                      <ChevronDown size={14} className="rotate-180" />
-                    </>
-                  ) : (
-                    <>
-                      Show More
-                      <ChevronDown size={14} />
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+            <CustomPagination
+              className="bg-slate-50/50 border-t border-slate-200"
+              currentPage={currentPage}
+              totalPages={totalPages}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              setCurrentPage={setCurrentPage}
+            />
 
             {/* No results message for table */}
             {filteredSprints.length === 0 && searchQuery && (

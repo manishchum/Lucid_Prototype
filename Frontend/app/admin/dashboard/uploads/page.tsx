@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { Upload, FileText, BarChart3, Plus, Trash2, Eye, Download, ExternalLink, X, Paperclip } from "lucide-react";
 import { formatContentType } from '@/lib/contentType';
 import { useRouter } from "next/navigation";
+import { CustomPagination } from "@/components/ui/custom-pagination";
 import {
   Dialog,
   DialogContent,
@@ -738,7 +739,8 @@ function TrainingContentManagement({ companyId, adminId }: { companyId: string; 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1.25);
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [sortBy, setSortBy] = useState('newest');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [moduleToDelete, setModuleToDelete] = useState<any | null>(null);
   const [assignedUserCount, setAssignedUserCount] = useState(0);
@@ -909,12 +911,20 @@ const fetchAssignmentCount = async (moduleId: string) => {
     }
   };
 
-  const paginatedModules = trainingModules.slice(
+  const sortedModules = [...trainingModules].sort((a, b) => {
+    if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    if (sortBy === 'oldest') return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    if (sortBy === 'name-asc') return (a.title || '').localeCompare(b.title || '');
+    if (sortBy === 'name-desc') return (b.title || '').localeCompare(a.title || '');
+    return 0;
+  });
+
+  const paginatedModules = sortedModules.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
 
-  const totalPages = Math.ceil(trainingModules.length / itemsPerPage);
+  const totalPages = Math.ceil(sortedModules.length / itemsPerPage);
 
   const getStatusBadge = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -1322,7 +1332,19 @@ const fetchAssignmentCount = async (moduleId: string) => {
 
       {/* Training Modules List */}
       <div>
-        <h3 className="text-lg font-semibold mb-4">Sprints({trainingModules.length})</h3>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
+          <h3 className="text-lg font-semibold">Sprints({trainingModules.length})</h3>
+          <select
+            value={sortBy}
+            onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+            className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 outline-none w-full sm:w-auto cursor-pointer focus:ring-2 focus:ring-[#3B66F5]"
+          >
+            <option value="newest">Sort by: Newest</option>
+            <option value="oldest">Sort by: Oldest</option>
+            <option value="name-asc">Sort by: Name (A-Z)</option>
+            <option value="name-desc">Sort by: Name (Z-A)</option>
+          </select>
+        </div>
 
         {trainingModules.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
@@ -1462,49 +1484,15 @@ const fetchAssignmentCount = async (moduleId: string) => {
             ))}
           </div>
         )}
-         {totalPages > 1 && (
-          <div className="flex justify-between items-center mt-4">
-            <div>
-              <span className="text-sm text-gray-600">
-                Page {currentPage} of {totalPages}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-                }
-                disabled={currentPage === totalPages}
-              >
-                Next
-              </Button>
-            </div>
-            <div>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="border-gray-300 rounded-md shadow-sm"
-              >
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-              </select>
-            </div>
-          </div>
-        )}
+        <CustomPagination
+          className="mt-4"
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          setItemsPerPage={setItemsPerPage}
+          setCurrentPage={setCurrentPage}
+          itemsPerPageOptions={[10, 50, 100]}
+        />
       </div>
     </div>
   );

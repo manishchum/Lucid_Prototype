@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { CustomPagination } from '@/components/ui/custom-pagination';
 
 interface TrainingModule {
   module_id: string;
@@ -100,6 +101,9 @@ export default function HumanInTheLoopPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [reviewFilter, setReviewFilter] = useState('All');
   const [roleFilter, setRoleFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('newest');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     pending: 0,
@@ -126,7 +130,7 @@ export default function HumanInTheLoopPage() {
 
   useEffect(() => {
     filterModules();
-  }, [searchQuery, reviewFilter, roleFilter, modules]);
+  }, [searchQuery, reviewFilter, roleFilter, modules, sortBy]);
   
   
   useEffect(() => {
@@ -255,7 +259,18 @@ export default function HumanInTheLoopPage() {
       }
     }
 
+    if (sortBy === 'newest') {
+      filtered.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    } else if (sortBy === 'oldest') {
+      filtered.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+    } else if (sortBy === 'name-asc') {
+      filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    } else if (sortBy === 'name-desc') {
+      filtered.sort((a, b) => (b.title || '').localeCompare(a.title || ''));
+    }
+
     setFilteredModules(filtered);
+    setCurrentPage(1);
   };
 
   const getReviewStageColor = (stage?: string) => {
@@ -370,6 +385,12 @@ export default function HumanInTheLoopPage() {
     );
   }
 
+  const totalPages = Math.ceil(filteredModules.length / itemsPerPage);
+  const paginatedModules = filteredModules.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
   return (
     <div className="min-h-screen bg-[#FAFBFC]">
       <main className="p-8">
@@ -453,8 +474,21 @@ export default function HumanInTheLoopPage() {
                 <option value="Reviewer">Reviewer</option>
               </select>
             </div>
+            
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="pl-4 pr-8 h-11 border border-slate-200 rounded-lg bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#3B66F5] focus:border-[#3B66F5] appearance-none cursor-pointer"
+              >
+                <option value="newest">Sort by: Newest</option>
+                <option value="oldest">Sort by: Oldest</option>
+                <option value="name-asc">Sort by: Name (A-Z)</option>
+                <option value="name-desc">Sort by: Name (Z-A)</option>
+              </select>
+            </div>
 
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-slate-500 ml-auto">
               <Clock size={16} />
               <span>Last updated: Just now</span>
             </div>
@@ -491,7 +525,7 @@ export default function HumanInTheLoopPage() {
                           </td>
                         </tr>
                       ) : (
-                        filteredModules.map((module) => (
+                        paginatedModules.map((module) => (
                           <tr
                             key={module.module_id}
                             className="hover:bg-slate-50 transition-colors cursor-pointer"
@@ -555,7 +589,7 @@ export default function HumanInTheLoopPage() {
                         <p className="text-sm text-slate-400">Modules you uploaded or are assigned to review will appear here</p>
                       </div>
                   ) : (
-                    filteredModules.map((module) => (
+                    paginatedModules.map((module) => (
                       <div
                         key={module.module_id}
                         className="bg-white rounded-lg border border-slate-200 p-4 space-y-4"
@@ -601,6 +635,15 @@ export default function HumanInTheLoopPage() {
                     ))
                   )}
                 </div>
+
+                <CustomPagination
+                  className="border-t border-slate-100"
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  itemsPerPage={itemsPerPage}
+                  setItemsPerPage={setItemsPerPage}
+                  setCurrentPage={setCurrentPage}
+                />
               </>
             )}
           </Card>

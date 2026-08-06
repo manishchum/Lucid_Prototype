@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger("lucid.auth_bridge")
 DEFAULT_BRIDGE_TOKEN_TTL_SECONDS = 300
 DEFAULT_BRIDGE_REFRESH_WINDOW_SECONDS = 60
 MIN_BRIDGE_TOKEN_TTL_SECONDS = 60
-MAX_BRIDGE_TOKEN_TTL_SECONDS = 3600
+MAX_BRIDGE_TOKEN_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 MIN_BRIDGE_REFRESH_WINDOW_SECONDS = 15
 
 
@@ -197,6 +197,9 @@ def _resolve_user_context_by_identity(
     token_exp: Optional[Any],
 ) -> Optional[BridgeUserContext]:
     search_order = []
+    app_user_id_claim = claims.get("app_user_id") or claims.get("sub")
+    if app_user_id_claim and str(app_user_id_claim).strip():
+        search_order.append(("user_id", str(app_user_id_claim).strip()))
     if firebase_uid:
         search_order.append(("firebase_uid", firebase_uid))
     if email:
@@ -208,11 +211,16 @@ def _resolve_user_context_by_identity(
 
     for column, value in search_order:
         try:
+            if column == "user_id":
+                response = (
+                    _build_user_lookup_query(client)
+                    .eq("user_id", value)
+                    .eq("is_active", True)
+                    .limit(1)
+                    .execute()
+                )
+            elif column == "firebase_uid":
 
-            # -------------------------------
-            # NEW Firebase UID Mapping Logic
-            # -------------------------------
-            if column == "firebase_uid":
 
                 mapping_response = (
                     client

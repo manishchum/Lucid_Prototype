@@ -8,59 +8,74 @@ from ..supabase_client import supabase
 from .permissions import check_company_access
 
 
+def is_plan_completed(p: dict, completed_proc_ids: Optional[set] = None) -> bool:
+    if not isinstance(p, dict):
+        return False
+    overall = p.get('overall_status')
+    status = str(p.get('status') or '').strip().upper()
+    if overall is True or overall == 1 or str(overall).upper() in ('TRUE', '1', 'COMPLETED'):
+        return True
+    if status in ('COMPLETED', 'PASSED', 'FINISHED'):
+        return True
+    if p.get('completed_at') is not None:
+        return True
+    if completed_proc_ids and p.get('processed_module_ids'):
+        p_ids = [str(x) for x in p.get('processed_module_ids') if x]
+        if p_ids and all(x in completed_proc_ids for x in p_ids):
+            return True
+    return False
+
+def is_valid_plan(p: dict, completed_proc_ids: Optional[set] = None) -> bool:
+    if not isinstance(p, dict):
+        return False
+    status = str(p.get('status') or '').strip().upper()
+    if status in ('DELETED', 'ARCHIVED', 'DISABLED', 'REMOVED'):
+        return False
+    # If baseline_assessment is True and not completed yet, exclude from active sprints (matches HomeScreen/Web)
+    is_baseline = p.get('baseline_assessment') in (True, 1, 'true', '1')
+    if is_baseline and not is_plan_completed(p, completed_proc_ids):
+        return False
+    return True
+
+
 async def get_user_total_points(user_id: str, company_id: str) -> int:
     """
     Calculate total points earned by a user in a company.
     Points are awarded for completed learning plans.
-    
-    Algorithm:
-    1. Find all completed learning_plans for the user (overall_status = true)
-    2. For each module, fetch points from training_modules
-    3. Sum all points
-    
-    Returns: Total points (int), or 0 if no completed modules
     """
     try:
-        # Get all learning plans for this user (no filter on overall_status yet)
+        # Get all learning plans for this user
         all_plans_resp = supabase.table('learning_plan').select(
-            'learning_plan_id, module_id, overall_status'
+            'learning_plan_id, module_id, processed_module_ids, overall_status, status, completed_at'
         ).eq('user_id', user_id).execute()
         
-        # print(f"[get_user_total_points] user_id={user_id}; all_plans_count={len(all_plans_resp.data or [])}")
-        if all_plans_resp.data:
-            # print(f"[get_user_total_points] all_plans_resp.data={all_plans_resp.data}")
-            pass
+        # Get progress records for quiz completion check
+        progress_resp = supabase.table('module_progress').select(
+            'processed_module_id, quiz_score'
+        ).eq('user_id', user_id).execute()
+
+        completed_proc_ids = set(
+            str(pr.get('processed_module_id'))
+            for pr in (progress_resp.data or [])
+            if pr.get('processed_module_id') and pr.get('quiz_score') is not None
+        )
         
-        # Filter for completed plans in Python (overall_status = True)
-        completed_plans = [p for p in (all_plans_resp.data or []) if p.get('overall_status') is True]
-        
+        plans = [p for p in (all_plans_resp.data or []) if is_valid_plan(p)]
+        completed_plans = [p for p in plans if is_plan_completed(p, completed_proc_ids)]
         
         if not completed_plans:
-            
             return 0
         
-        # Extract module_ids and fetch their points in batch
         module_ids = [plan.get('module_id') for plan in completed_plans if plan.get('module_id')]
-        
-        
         if not module_ids:
-            
             return 0
         
-        # Fetch points for all modules
         modules_resp = supabase.table('training_modules').select(
             'module_id, points'
         ).in_('module_id', module_ids).execute()
         
-        
-        
-        # Create lookup map of module_id -> points
         module_points = {m['module_id']: m.get('points', 0) for m in (modules_resp.data or [])}
-        
-        
-        # Sum points from all completed modules
         total_points = sum(module_points.get(mid, 0) for mid in module_ids)
-        
         
         return total_points
     except Exception as e:
@@ -76,12 +91,6 @@ async def get_company_leaderboard(
 ) -> Dict[str, Any]:
     """
     Get leaderboard for a company, ranking users by completion percentage.
-    
-    Returns list of users with:
-    - user_id, name, avatar_url
-    - completion_percentage: (completed / assigned) * 100
-    - modules_completed: Count of completed learning_plans
-    - rank
     """
     try:
         # Get all active users in the company
@@ -96,33 +105,47 @@ async def get_company_leaderboard(
         
         # Get all learning plans for these users
         all_plans_resp = supabase.table('learning_plan').select(
-            'user_id, overall_status'
+            'user_id, learning_plan_id, module_id, processed_module_ids, overall_status, status, completed_at, baseline_assessment'
+        ).in_('user_id', company_user_ids).execute()
+
+        # Get all completed module progress for these users
+        all_progress_resp = supabase.table('module_progress').select(
+            'user_id, processed_module_id, quiz_score'
         ).in_('user_id', company_user_ids).execute()
         
-        # Group plans by user
+        # Group plans and progress by user
         user_plans = {}
         for plan in (all_plans_resp.data or []):
-            user_id = plan.get('user_id')
-            if user_id:
-                if user_id not in user_plans:
-                    user_plans[user_id] = []
-                user_plans[user_id].append(plan)
+            u_id = plan.get('user_id')
+            if u_id:
+                user_plans.setdefault(u_id, []).append(plan)
+
+        user_progress = {}
+        for pr in (all_progress_resp.data or []):
+            u_id = pr.get('user_id')
+            if u_id:
+                user_progress.setdefault(u_id, []).append(pr)
 
         leaderboard_data = []
-        # For each user, calculate their completion percentage
         for user in users_resp.data:
-            user_id = user.get('user_id')
+            u_id = user.get('user_id')
             
-            plans = user_plans.get(user_id, [])
+            completed_proc_ids = set(
+                str(pr.get('processed_module_id'))
+                for pr in user_progress.get(u_id, [])
+                if pr.get('processed_module_id') and pr.get('quiz_score') is not None
+            )
+            plans = [p for p in user_plans.get(u_id, []) if is_valid_plan(p, completed_proc_ids)]
+
             total_assigned = len(plans)
-            total_completed = sum(1 for p in plans if p.get('overall_status') is True)
+            total_completed = sum(1 for p in plans if is_plan_completed(p, completed_proc_ids))
             
             completion_percentage = 0
             if total_assigned > 0:
                 completion_percentage = round((total_completed / total_assigned) * 100)
 
             leaderboard_data.append({
-                'user_id': user_id,
+                'user_id': u_id,
                 'name': user.get('name', 'Unknown User'),
                 'email': user.get('email'),
                 'avatar_url': user.get('avatar_url'),
@@ -131,7 +154,6 @@ async def get_company_leaderboard(
                 'modules_assigned': total_assigned
             })
         
-        # Sort by percentage (desc), then by modules completed (desc)
         leaderboard_data.sort(
             key=lambda x: (x['completion_percentage'], x['modules_completed']),
             reverse=True

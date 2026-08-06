@@ -1,251 +1,280 @@
-from fastapi import APIRouter, Header, HTTPException, Depends
-from pydantic import BaseModel
-from typing import Optional, List
-from utils.supabase_client import supabase
-from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+# from fastapi import APIRouter, Header, HTTPException, Depends
+# from pydantic import BaseModel
+# from typing import Optional, List
+# from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+# from utils.db.permissions import check_user_permission
+# from utils.db import roleplay_db
 
-router = APIRouter(prefix="/roleplay/scenarios", tags=["roleplay-scenarios"])
-
-
-class EvaluationParameter(BaseModel):
-    name: str
-    description: str
-    weight: float
+# router = APIRouter(prefix="/roleplay/scenarios", tags=["roleplay-scenarios"])
 
 
-class CreateScenarioRequest(BaseModel):
-    title: str
-    description: Optional[str] = None
-    learnerBrief: str
-    aiRole: str
-    aiPersonality: Optional[str] = None
-    aiObjectives: Optional[str] = None
-    endConditions: Optional[str] = None
-    maxDuration: Optional[int] = 15
-    minTurns: Optional[int] = 5
-    evaluationParameters: List[EvaluationParameter]
-    cutoffScore: Optional[int] = 60
-    difficulty: Optional[str] = "Medium"
-    tone: Optional[str] = "Neutral"
-    userRole: str
-    initialPrompt: str
+# # class EvaluationParameter(BaseModel):
+# #     name: str
+# #     description: str
+# #     weight: float
 
 
-class UpdateScenarioRequest(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    learnerBrief: Optional[str] = None
-    aiRole: Optional[str] = None
-    aiPersonality: Optional[str] = None
-    aiObjectives: Optional[str] = None
-    endConditions: Optional[str] = None
-    maxDuration: Optional[int] = None
-    minTurns: Optional[int] = None
-    evaluationParameters: Optional[List[EvaluationParameter]] = None
-    cutoffScore: Optional[int] = None
-    difficulty: Optional[str] = None
-    tone: Optional[str] = None
-    userRole: Optional[str] = None
-    initialPrompt: Optional[str] = None
+# # class CreateScenarioRequest(BaseModel):
+# #     title: str
+# #     description: Optional[str] = None
+# #     learnerBrief: str
+# #     aiRole: str
+# #     aiPersonality: Optional[str] = None
+# #     aiObjectives: Optional[str] = None
+# #     endConditions: Optional[str] = None
+# #     maxDuration: Optional[int] = 15
+# #     minTurns: Optional[int] = 5
+# #     evaluationParameters: List[EvaluationParameter]
+# #     cutoffScore: Optional[int] = 60
+# #     difficulty: Optional[str] = "Medium"
+# #     tone: Optional[str] = "Neutral"
+# #     userRole: str
+# #     initialPrompt: str
 
 
-@router.post("/create")
-async def create_scenario(
-    request_data: CreateScenarioRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
-):
-    """
-    Create a new custom roleplay scenario
-    """
-    try:
-        company_id = effective_company_id
-
-        # Convert Pydantic models to dictionaries
-        evaluation_params = [
-            {
-                "name": param.name,
-                "description": param.description,
-                "weight": param.weight
-            }
-            for param in request_data.evaluationParameters
-        ]
-
-        # Prepare payload for Supabase
-        payload = {
-            "title": request_data.title,
-            "description": request_data.description,
-            "learnerBrief": request_data.learnerBrief,
-            "role": request_data.aiRole,
-            "aiPersonality": request_data.aiPersonality,
-            "aiObjective": [request_data.aiObjectives] if request_data.aiObjectives else None,
-            "endConditions": [request_data.endConditions] if request_data.endConditions else None,
-            "maxDuration": [request_data.maxDuration] if request_data.maxDuration else None,
-            "minTurns": [request_data.minTurns] if request_data.minTurns else None,
-            "evaluationParams": evaluation_params,  # Use cleaned dictionary list
-            "passingScore": [request_data.cutoffScore] if request_data.cutoffScore else None,
-            "difficulty": request_data.difficulty,
-            "tone": request_data.tone,
-            "userRole": request_data.userRole,
-            "initialPrompt": request_data.initialPrompt,
-            "company_id": company_id,
-        }
-
-        # Insert into Supabase
-        result = supabase.table("scenarios").insert(payload).execute()
-
-        if result.data:
-            return {
-                "success": True,
-                "data": result.data[0] if isinstance(result.data, list) else result.data,
-                "message": "Scenario created successfully"
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to create scenario")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating scenario: {str(e)}")
+# # class UpdateScenarioRequest(BaseModel):
+# #     title: Optional[str] = None
+# #     description: Optional[str] = None
+# #     learnerBrief: Optional[str] = None
+# #     aiRole: Optional[str] = None
+# #     aiPersonality: Optional[str] = None
+# #     aiObjectives: Optional[str] = None
+# #     endConditions: Optional[str] = None
+# #     maxDuration: Optional[int] = None
+# #     minTurns: Optional[int] = None
+# #     evaluationParameters: Optional[List[EvaluationParameter]] = None
+# #     cutoffScore: Optional[int] = None
+# #     difficulty: Optional[str] = None
+# #     tone: Optional[str] = None
+# #     userRole: Optional[str] = None
+# #     initialPrompt: Optional[str] = None
 
 
-@router.put("/{scenario_id}")
-async def update_scenario(
-    scenario_id: str,
-    request_data: UpdateScenarioRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
-):
-    """
-    Update an existing custom roleplay scenario
-    """
-    try:
-        company_id = effective_company_id
+# # @router.post("/create")
+# # async def create_scenario(
+# #     request_data: CreateScenarioRequest,
+# #     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+# #     effective_company_id: str = Depends(get_effective_company_id)
+# # ):
+# #     """
+# #     Create a new custom roleplay scenario
+# #     """
+# #     try:
+# #         company_id = effective_company_id
 
-        # Verify ownership
-        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+# #         is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+# #         is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+# #         is_developer = await check_user_permission(auth_ctx.user_id, "developer")
+
+# #         if not (is_admin or is_super_admin or is_developer):
+# #             raise HTTPException(
+# #                 status_code=403,
+# #                 detail="Only administrators can create roleplay scenarios."
+# #             )
+            
+# #         # Convert Pydantic models to dictionaries
+# #         evaluation_params = [
+# #             {
+# #                 "name": param.name,
+# #                 "description": param.description,
+# #                 "weight": param.weight
+# #             }
+# #             for param in request_data.evaluationParameters
+# #         ]
+
+# #         # Prepare payload for Supabase
+# #         payload = {
+# #             "title": request_data.title,
+# #             "description": request_data.description,
+# #             "learnerBrief": request_data.learnerBrief,
+# #             "role": request_data.aiRole,
+# #             "aiPersonality": request_data.aiPersonality,
+# #             "aiObjective": [request_data.aiObjectives] if request_data.aiObjectives else None,
+# #             "endConditions": [request_data.endConditions] if request_data.endConditions else None,
+# #             "maxDuration": [request_data.maxDuration] if request_data.maxDuration else None,
+# #             "minTurns": [request_data.minTurns] if request_data.minTurns else None,
+# #             "evaluationParams": evaluation_params,  # Use cleaned dictionary list
+# #             "passingScore": [request_data.cutoffScore] if request_data.cutoffScore else None,
+# #             "difficulty": request_data.difficulty,
+# #             "tone": request_data.tone,
+# #             "userRole": request_data.userRole,
+# #             "initialPrompt": request_data.initialPrompt,
+# #             "company_id": company_id,
+# #         }
+
+# #         # Insert into Supabase
+# #         result = roleplay_db.create_scenario(payload)
+# #         if result.data:
+# #             return {
+# #                 "success": True,
+# #                 "data": result.data[0] if isinstance(result.data, list) else result.data,
+# #                 "message": "Scenario created successfully"
+# #             }
+# #         else:
+# #             raise HTTPException(status_code=500, detail="Failed to create scenario")
+
+# #     except HTTPException:
+# #         raise
+# #     except Exception as e:
+# #         raise HTTPException(status_code=500, detail=f"Error creating scenario: {str(e)}")
+
+
+# # @router.put("/{scenario_id}")
+# # async def update_scenario(
+# #     scenario_id: str,
+# #     request_data: UpdateScenarioRequest,
+# #     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+# #     effective_company_id: str = Depends(get_effective_company_id)
+# # ):
+# #     """
+# #     Update an existing custom roleplay scenario
+# #     """
+# #     try:
+# #         company_id = effective_company_id
         
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Scenario not found or access denied")
+# #         is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+# #         is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+# #         is_developer = await check_user_permission(auth_ctx.user_id, "developer")
 
-        # Prepare update payload (only include non-None fields)
-        payload = {}
+# #         if not (is_admin or is_super_admin or is_developer):
+# #             raise HTTPException(
+# #                 status_code=403,
+# #                 detail="Only administrators can update roleplay scenarios."
+# #             )
+# #         # Verify ownership
+# #         existing = roleplay_db.get_scenario(scenario_id, company_id)
         
-        if request_data.title is not None:
-            payload["title"] = request_data.title
-        if request_data.description is not None:
-            payload["description"] = request_data.description
-        if request_data.learnerBrief is not None:
-            payload["learnerBrief"] = request_data.learnerBrief
-        if request_data.aiRole is not None:
-            payload["role"] = request_data.aiRole
-        if request_data.aiPersonality is not None:
-            payload["aiPersonality"] = request_data.aiPersonality
-        if request_data.aiObjectives is not None:
-            payload["aiObjective"] = [request_data.aiObjectives]
-        if request_data.endConditions is not None:
-            payload["endConditions"] = [request_data.endConditions]
-        if request_data.maxDuration is not None:
-            payload["maxDuration"] = [request_data.maxDuration]
-        if request_data.minTurns is not None:
-            payload["minTurns"] = [request_data.minTurns]
-        if request_data.evaluationParameters is not None:
-            # Convert Pydantic models to dictionaries
-            evaluation_params = [
-                {
-                    "name": param.name,
-                    "description": param.description,
-                    "weight": param.weight
-                }
-                for param in request_data.evaluationParameters
-            ]
-            payload["evaluationParams"] = evaluation_params
-        if request_data.cutoffScore is not None:
-            payload["passingScore"] = [request_data.cutoffScore]
-        if request_data.difficulty is not None:
-            payload["difficulty"] = request_data.difficulty
-        if request_data.tone is not None:
-            payload["tone"] = request_data.tone
-        if request_data.userRole is not None:
-            payload["userRole"] = request_data.userRole
-        if request_data.initialPrompt is not None:
-            payload["initialPrompt"] = request_data.initialPrompt
+# #         if not existing.data:
+# #             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
 
-        # Update in Supabase
-        result = supabase.table("scenarios").update(payload).eq("scenario_id", scenario_id).execute()
-
-        if result.data:
-            return {
-                "success": True,
-                "data": result.data[0] if isinstance(result.data, list) else result.data,
-                "message": "Scenario updated successfully"
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to update scenario")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating scenario: {str(e)}")
-
-
-@router.delete("/{scenario_id}")
-async def delete_scenario(
-    scenario_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    effective_company_id: str = Depends(get_effective_company_id)
-):
-    """
-    Delete a custom roleplay scenario
-    """
-    try:
-        company_id = effective_company_id
-
-        # Verify ownership
-        existing = supabase.table("scenarios").select("scenario_id").eq("scenario_id", scenario_id).eq("company_id", company_id).execute()
+# #         # Prepare update payload (only include non-None fields)
+# #         payload = {}
         
-        if not existing.data:
-            raise HTTPException(status_code=404, detail="Scenario not found or access denied")
+# #         if request_data.title is not None:
+# #             payload["title"] = request_data.title
+# #         if request_data.description is not None:
+# #             payload["description"] = request_data.description
+# #         if request_data.learnerBrief is not None:
+# #             payload["learnerBrief"] = request_data.learnerBrief
+# #         if request_data.aiRole is not None:
+# #             payload["role"] = request_data.aiRole
+# #         if request_data.aiPersonality is not None:
+# #             payload["aiPersonality"] = request_data.aiPersonality
+# #         if request_data.aiObjectives is not None:
+# #             payload["aiObjective"] = [request_data.aiObjectives]
+# #         if request_data.endConditions is not None:
+# #             payload["endConditions"] = [request_data.endConditions]
+# #         if request_data.maxDuration is not None:
+# #             payload["maxDuration"] = [request_data.maxDuration]
+# #         if request_data.minTurns is not None:
+# #             payload["minTurns"] = [request_data.minTurns]
+# #         if request_data.evaluationParameters is not None:
+# #             # Convert Pydantic models to dictionaries
+# #             evaluation_params = [
+# #                 {
+# #                     "name": param.name,
+# #                     "description": param.description,
+# #                     "weight": param.weight
+# #                 }
+# #                 for param in request_data.evaluationParameters
+# #             ]
+# #             payload["evaluationParams"] = evaluation_params
+# #         if request_data.cutoffScore is not None:
+# #             payload["passingScore"] = [request_data.cutoffScore]
+# #         if request_data.difficulty is not None:
+# #             payload["difficulty"] = request_data.difficulty
+# #         if request_data.tone is not None:
+# #             payload["tone"] = request_data.tone
+# #         if request_data.userRole is not None:
+# #             payload["userRole"] = request_data.userRole
+# #         if request_data.initialPrompt is not None:
+# #             payload["initialPrompt"] = request_data.initialPrompt
 
-        # Delete from Supabase
-        result = supabase.table("scenarios").delete().eq("scenario_id", scenario_id).execute()
+# #         # Update in Supabase
+# #         result = roleplay_db.update_scenario(scenario_id, payload)
 
-        return {
-            "success": True,
-            "message": "Scenario deleted successfully"
-        }
+# #         if result.data:
+# #             return {
+# #                 "success": True,
+# #                 "data": result.data[0] if isinstance(result.data, list) else result.data,
+# #                 "message": "Scenario updated successfully"
+# #             }
+# #         else:
+# #             raise HTTPException(status_code=500, detail="Failed to update scenario")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting scenario: {str(e)}")
+# #     except HTTPException:
+# #         raise
+# #     except Exception as e:
+# #         raise HTTPException(status_code=500, detail=f"Error updating scenario: {str(e)}")
 
 
-@router.get("/user-data/{user_email}")
-async def fetch_user_data(
-    user_email: str,
-    user_id: Optional[str] = Header(None, alias="X-User-ID")
-):
-    """
-    Fetch user data (user_id and company_id) by email
-    """
-    try:
-        if not user_email:
-            raise HTTPException(status_code=400, detail="User email required")
+# # @router.delete("/{scenario_id}")
+# # async def delete_scenario(
+# #     scenario_id: str,
+# #     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+# #     effective_company_id: str = Depends(get_effective_company_id)
+# # ):
+# #     """
+# #     Delete a custom roleplay scenario
+# #     """
+# #     try:
+# #         company_id = effective_company_id
+        
+# #         is_admin = await check_user_permission(auth_ctx.user_id, "admin")
+# #         is_super_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+# #         is_developer = await check_user_permission(auth_ctx.user_id, "developer")
 
-        # Fetch user data from Supabase
-        result = supabase.table("users").select("user_id, company_id").eq("email", user_email).execute()
+# #         if not (is_admin or is_super_admin or is_developer):
+# #             raise HTTPException(
+# #                 status_code=403,
+# #                 detail="Only administrators can delete roleplay scenarios."
+# #             )
 
-        if result.data and len(result.data) > 0:
-            return {
-                "success": True,
-                "data": result.data[0],
-                "message": "User data fetched successfully"
-            }
-        else:
-            raise HTTPException(status_code=404, detail="User not found")
+# #         # Verify ownership
+# #         existing = roleplay_db.get_scenario(scenario_id, company_id)
+        
+# #         if not existing.data:
+# #             raise HTTPException(status_code=404, detail="Scenario not found or access denied")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching user data: {str(e)}")
+# #         # Delete from Supabase
+# #         result = roleplay_db.delete_scenario(scenario_id)
+        
+# #         return {
+# #             "success": True,
+# #             "message": "Scenario deleted successfully"
+# #         }
+
+# #     except HTTPException:
+# #         raise
+# #     except Exception as e:
+# #         raise HTTPException(status_code=500, detail=f"Error deleting scenario: {str(e)}")
+
+
+# # @router.get("/user-data/{user_email}")
+# # async def fetch_user_data(
+# #     user_email: str,
+# #     user_id: Optional[str] = Header(None, alias="X-User-ID")
+# # ):
+# #     """
+# #     Fetch user data (user_id and company_id) by email
+# #     """
+# #     try:
+# #         if not user_email:
+# #             raise HTTPException(status_code=400, detail="User email required")
+
+# #         # Fetch user data from Supabase
+# #         result = roleplay_db.get_user_by_email(user_email)
+
+# #         if result.data and len(result.data) > 0:
+# #             return {
+# #                 "success": True,
+# #                 "data": result.data[0],
+# #                 "message": "User data fetched successfully"
+# #             }
+# #         else:
+# #             raise HTTPException(status_code=404, detail="User not found")
+
+# #     except HTTPException:
+# #         raise
+# #     except Exception as e:
+# #         raise HTTPException(status_code=500, detail=f"Error fetching user data: {str(e)}")
