@@ -10,6 +10,7 @@ from utils.auth import (
     _verify_firebase_token,
     get_request_auth_jwt_required,
     _build_request_auth_from_verified_claims,
+    _ensure_firebase_admin_initialized,
 )
 
 AUTH_SOCKET_REGISTRY: Dict[str, Dict[str, WebSocket]] = {}
@@ -239,20 +240,46 @@ async def verify_otp(body: VerifyOTPRequest):
         print(f"[verify-otp] DB user query failed: {exc}")
         raise HTTPException(status_code=500, detail="Failed to fetch user context")
 
-    # Build BridgeUserContext and mint JWT token
-    user_context = BridgeUserContext(
-        user_id=str(user_data["user_id"]),
-        email=str(user_data.get("email") or ""),
-        company_id=str(user_data.get("company_id")) if user_data.get("company_id") else None,
-        firebase_uid=str(user_data.get("firebase_uid")) if user_data.get("firebase_uid") else None,
-    )
+    # Ensure Firebase Admin SDK is initialized
+    _ensure_firebase_admin_initialized()
+    from firebase_admin import auth as firebase_auth
 
-    token, expires_at = mint_supabase_access_token(user_context, ttl_seconds=30 * 24 * 3600)
+    firebase_uid = user_data.get("firebase_uid")
+    if not firebase_uid:
+        try:
+            # Check if user already exists in Firebase Auth by phone
+            fb_user = firebase_auth.get_user_by_phone_number(normalized_phone)
+            firebase_uid = fb_user.uid
+            print(f"[verify-otp] Resolved existing Firebase user by phone: {firebase_uid}")
+            
+            # Update the local database users table with this firebase_uid
+            try:
+                supabase.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_data["user_id"]).execute()
+                user_data["firebase_uid"] = firebase_uid
+            except Exception as db_err:
+                print(f"[verify-otp] Database update for firebase_uid failed: {db_err}")
+                raise HTTPException(status_code=500, detail="Failed to link authentication account")
+        except HTTPException:
+            raise
+        except Exception:
+            # User does not exist in Firebase, and we are not allowed to create one via mobile app.
+            # User creation is handled on the web portal by admins.
+            print(f"[verify-otp] User not found in Firebase Auth: {normalized_phone}")
+            raise HTTPException(
+                status_code=403, 
+                detail="User account is not fully configured for mobile access. Please contact your administrator."
+            )
+
+    # Generate Firebase Custom Token
+    try:
+        custom_token = firebase_auth.create_custom_token(firebase_uid).decode("utf-8")
+    except Exception as token_err:
+        print(f"[verify-otp] Custom token generation failed: {token_err}")
+        raise HTTPException(status_code=500, detail="Failed to generate custom authentication token")
 
     return {
         "success": True,
-        "token": token,
-        "expires_at": expires_at.isoformat(),
+        "custom_token": custom_token,
         "user": user_data
     }
 
@@ -310,7 +337,7 @@ async def refresh_token(
         firebase_uid=str(user_data.get("firebase_uid")) if user_data.get("firebase_uid") else None,
     )
 
-    token, expires_at = mint_supabase_access_token(user_context, ttl_seconds=30 * 24 * 3600)
+    token, expires_at = mint_supabase_access_token(user_context, ttl_seconds=3600)
 
     return {
         "success": True,
