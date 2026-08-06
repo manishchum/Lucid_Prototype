@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import os
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -28,7 +29,7 @@ from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
 from module_chat.route import router as module_chat
 from assistant.route import router as assistant_router
-from assistant.chat.route import router as assistant_chat_router
+# from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
 from text_analysis.route import router as text_analysis_router
@@ -54,13 +55,17 @@ from roleplay.route import router as roleplay_router
 # from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
 from routes import functions
-
+from config import IS_PRODUCTION
 
 # Create FastAPI app
 app = FastAPI(
     title="Lucid Backend API",
     description="Backend API for Lucid Learning Platform",
-    version="1.0.0"
+    version="1.0.0",
+    
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
 
 
@@ -135,56 +140,56 @@ async def favicon():
     from fastapi import Response
     return Response(status_code=204)
 
-@app.get("/debug/user/{user_id}")
-async def debug_user(user_id: str):
-    """Debug endpoint to check user permissions"""
-    from utils.db.permissions import check_user_permission, check_company_access
-    from utils.supabase_client import supabase
+# @app.get("/debug/user/{user_id}")
+# async def debug_user(user_id: str):
+#     """Debug endpoint to check user permissions"""
+#     from utils.db.permissions import check_user_permission, check_company_access
+#     from utils.supabase_client import supabase
     
-    # Get user info
-    user = supabase.table('users').select('company_id, name').eq('user_id', user_id).single().execute()
+#     # Get user info
+#     user = supabase.table('users').select('company_id, name').eq('user_id', user_id).single().execute()
     
-    # Get role assignments
-    roles = supabase.table('user_role_assignments').select(', role:roles()').eq('user_id', user_id).eq('is_active', True).execute()
+#     # Get role assignments
+#     roles = supabase.table('user_role_assignments').select(', role:roles()').eq('user_id', user_id).eq('is_active', True).execute()
     
-    # Check permissions
-    has_manager = await check_user_permission(user_id, 'manager')
-    company_id = user.data.get('company_id') if user.data else None
-    has_company = await check_company_access(user_id, company_id) if company_id else False
+#     # Check permissions
+#     has_manager = await check_user_permission(user_id, 'manager')
+#     company_id = user.data.get('company_id') if user.data else None
+#     has_company = await check_company_access(user_id, company_id) if company_id else False
     
-    return {
-        "user": user.data,
-        "roles": roles.data,
-        "has_manager_permission": has_manager,
-        "has_company_access": has_company
-    }
+#     return {
+#         "user": user.data,
+#         "roles": roles.data,
+#         "has_manager_permission": has_manager,
+#         "has_company_access": has_company
+#     }
 
 
-@app.get("/api/debug/whoami")
-async def debug_whoami(request: Request):
-    """Return the raw request headers and a resolved RequestAuth using the optional auth helper.
+# @app.get("/api/debug/whoami")
+# async def debug_whoami(request: Request):
+#     """Return the raw request headers and a resolved RequestAuth using the optional auth helper.
 
-    Useful for debugging what the backend actually receives from the browser (headers,
-    resolved user id via X-User-ID or Authorization bearer token, etc.).
-    """
-    try:
-        from utils.auth import get_request_auth_optional
+#     Useful for debugging what the backend actually receives from the browser (headers,
+#     resolved user id via X-User-ID or Authorization bearer token, etc.).
+#     """
+#     try:
+#         from utils.auth import get_request_auth_optional
 
-        auth_ctx = get_request_auth_optional(
-            authorization=request.headers.get("Authorization"),
-            x_user_id=request.headers.get("X-User-ID"),
-        )
-        auth_data = {
-            "user_id": getattr(auth_ctx, "user_id", None),
-            "email": getattr(auth_ctx, "email", None),
-            "source": getattr(auth_ctx, "source", None),
-        }
-    except Exception as exc:  # pragma: no cover - debugging helper
-        auth_data = {"error": str(exc)}
+#         auth_ctx = get_request_auth_optional(
+#             authorization=request.headers.get("Authorization"),
+#             x_user_id=request.headers.get("X-User-ID"),
+#         )
+#         auth_data = {
+#             "user_id": getattr(auth_ctx, "user_id", None),
+#             "email": getattr(auth_ctx, "email", None),
+#             "source": getattr(auth_ctx, "source", None),
+#         }
+#     except Exception as exc:  # pragma: no cover - debugging helper
+#         auth_data = {"error": str(exc)}
 
-    # Return a subset of headers for readability
-    hdrs = {k: v for k, v in request.headers.items()}
-    return {"headers": hdrs, "auth": auth_data}
+#     # Return a subset of headers for readability
+#     hdrs = {k: v for k, v in request.headers.items()}
+#     return {"headers": hdrs, "auth": auth_data}
 
 # Include routers
 app.include_router(openai_upload_router, prefix="/api", tags=["openai-upload"])
@@ -210,7 +215,7 @@ app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 app.include_router(assistant_router, prefix="/api", tags=["assistant"])
-app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
+# app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 app.include_router(task_manager_router, prefix="/api", tags=["task-manager"])
 app.include_router(career_journeys_router, prefix="/api", tags=["career-journeys"])

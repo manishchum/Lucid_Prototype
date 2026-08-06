@@ -16,24 +16,38 @@ const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   const { activeCompany } = useTenant();
 
   // Pages where we don't show the navigation
-  const excludedPaths = [
-    '/',
-    '/onboarding',
-    '/career-progression',
-    '/mobile-learning',
-    '/communication',
-    '/privacy-policy',
-    '/login',
-    '/signup',
-    '/auth/login',
-    '/auth/signup',
-    '/auth/reset-password',
-    '/auth/forgot-password',
-    '/unsubscribe-success',
-    '/unsubscribe-error'
-  ];
+  // Pages where navigation SHOULD be shown
+const includedPathPrefixes = [
+  "/employee/welcome",
+  "/employee/training-plan",
+  "/employee/module",
+  "/employee/quiz",
+  "/employee/score-history",
+  "/admin/content-library",
+  "/employee/skill-upgrade",
+  "/employee/roleplay",
+  "/admin/dashboard/analytics",
+  "/admin/dashboard/company-access",
+  "/task-manager",
+  "/admin/dashboard/employees",
+  "/admin/dashboard/uploads",
+  "/admin/dashboard/human-in-the-loop",
+  "/admin/career-journeys",
+  "/admin/dashboard/dispatch-center",
+  "/kpi/intelligence",
+  "/kpi/configuration",
+  "/kpi/turbocharge",
+  "/kpi/workforce-overview",
+  "/employee/account"
+];
 
-  const shouldShowNavigation = !excludedPaths.includes(pathname || '');
+// Only show navigation for these route groups
+const shouldShowNavigation =
+  !!pathname &&
+  includedPathPrefixes.some(
+    (prefix) =>
+      pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 
   // Update sidebar width from CSS variable
   useEffect(() => {
