@@ -231,28 +231,28 @@ async def get_user(
 
 
 
-@router.post("/signup")
-async def signup_endpoint(
-    request: CreateUserRequest
-):
-    """Create a new user via signup endpoint (no auth required)."""
-    user_data = request.dict()
-    # NOTE: hash password before storing in production
-    result = await create_user_signup(user_data)
-    if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
-    result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
-    if not result.get("reactivated", False):
-        await _send_welcome_email(result.get("data"))
-    reactivated = result.get("reactivated", False)
-    return {
-        "success": True,
-        "data": {
-            "user": result["data"],
-            "reactivated": reactivated
-        },
-        "error": None
-    }
+# @router.post("/signup")
+# async def signup_endpoint(
+#     request: CreateUserRequest
+# ):
+#     """Create a new user via signup endpoint (no auth required)."""
+#     user_data = request.dict()
+#     # NOTE: hash password before storing in production
+#     result = await create_user_signup(user_data)
+#     if result["error"]:
+#         raise HTTPException(status_code=403, detail=result["error"])
+#     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
+#     if not result.get("reactivated", False):
+#         await _send_welcome_email(result.get("data"))
+#     reactivated = result.get("reactivated", False)
+#     return {
+#         "success": True,
+#         "data": {
+#             "user": result["data"],
+#             "reactivated": reactivated
+#         },
+#         "error": None
+#     }
 
 
 @router.post("/")

@@ -15,6 +15,11 @@ def clean_env_value(name: str, default: str = "") -> str:
         value = value[7:].strip()
     return value
 
+APP_ENV = clean_env_value("ENV", "development").lower()
+
+IS_PRODUCTION = APP_ENV == "production"
+IS_DEVELOPMENT = APP_ENV == "development"
+
 # Server configuration
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
