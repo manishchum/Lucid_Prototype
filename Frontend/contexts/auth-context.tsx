@@ -322,19 +322,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [employeeData, setEmployeeData] = useState<any | null>(null)
 
   useEffect(() => {
-    if (typeof window === "undefined") return
+    if (typeof window === "undefined") return;
+
+    const pathname = window.location.pathname;
+
+    const isAuthPage =
+        pathname === "/login" ||
+        pathname === "/signup" ||
+        pathname === "/forgot-password";
+
+    if (isAuthPage) {
+        if (authSocketSingleton) {
+            try {
+                authSocketSingleton.close();
+            } catch {}
+
+            authSocketSingleton = null;
+            authSocketCurrentUserId = null;
+        }
+
+        return;
+    }
 
     if (!user?.uid || !API_BASE) {
-      if (authSocketSingleton) {
-        try {
-          authSocketSingleton.close()
-        } catch {
-          // no-op
+        if (authSocketSingleton) {
+            try {
+                authSocketSingleton.close();
+            } catch {}
+
+            authSocketSingleton = null;
+            authSocketCurrentUserId = null;
         }
-      }
-      authSocketSingleton = null
-      authSocketCurrentUserId = null
-      return
+
+        return;
     }
 
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -406,19 +426,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       const effectiveUser = firebaseUser ?? readManualAuthUser()
       setUser((effectiveUser as User) || null)
-      
-      if (effectiveUser?.email) {
+
+      const pathname =
+        typeof window !== "undefined"
+          ? window.location.pathname
+          : "";
+
+      const isAuthPage =
+        pathname === "/login" ||
+        pathname === "/signup" ||
+        pathname === "/forgot-password";
+
+      if (effectiveUser?.email && !isAuthPage) {
         setRolesLoaded(false)
         try{
-          await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-            method: "POST",
-            registerSession: true as any,
-          } as any
-        );
+          // await fetchWithAuth(`${API_BASE}/api/auth/session`, {
+          //   method: "POST",
+          //   registerSession: true as any,
+          // } as any
+        // );
         } catch(err){
           console.error("[auth-context] Failed to register session:", err)
         } 
-        const profile = await loadCachedFullProfile(effectiveUser)
+        let profile = readCachedProfile();
+
+        if (!profile) {
+            profile = await loadCachedFullProfile(effectiveUser);
+
+            if (profile) {
+                writeCachedProfile(profile);
+            }
+        }
 
         if (profile !== undefined) {
           if (profile) {
@@ -508,12 +546,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: userData.name ?? userData.displayName ?? null,
         })
 
-        const profile = await loadCachedFullProfile({
-          uid: userData.uid,
-          email: userData.email,
-          displayName: userData.displayName ?? userData.name ?? null,
-          name: userData.name ?? userData.displayName ?? null,
-        })
+        let profile = readCachedProfile();
+
+        if (!profile) {
+            profile = await loadCachedFullProfile({
+                  uid: userData.uid,
+                  email: userData.email,
+                  displayName: userData.displayName ?? userData.name ?? null,
+                  name: userData.name ?? userData.displayName ?? null,
+                })
+
+            if (profile) {
+                writeCachedProfile(profile);
+            }
+        }
 
         if (profile !== undefined) {
           if (profile) {
