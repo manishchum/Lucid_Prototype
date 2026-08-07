@@ -1,13 +1,27 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from typing import List, Optional
+import re
 import uuid
 from utils.supabase_client import supabase_admin
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.redis_client import get_cache, set_cache, delete_cache_pattern
 
 router = APIRouter(
     prefix="/api/content-library",
     tags=["Content Library"]
 )
+
+
+def _safe_storage_file_name(filename: str) -> str:
+    raw_name = (filename or "upload").strip()
+    if not raw_name:
+        return "upload"
+
+    name_part, ext_part = raw_name.rsplit(".", 1) if "." in raw_name else (raw_name, "")
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", name_part).strip("._-") or "upload"
+    safe_ext = re.sub(r"[^A-Za-z0-9]+", "", ext_part).strip("._-")
+    return f"{safe_name}.{safe_ext}" if safe_ext else safe_name
+
 
 @router.get("/categories")
 async def get_categories(
@@ -17,16 +31,23 @@ async def get_categories(
     """
     Get predefined categories for the company.
     """
+    cache_key = f"content_library:{effective_company_id}:categories"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
     try:
         result = (
             supabase_admin
             .table("content_categories")
-            .select("*")
+            .select("id,company_id,name,created_at,updated_at")
             .eq("company_id", effective_company_id)
             .order("name", desc=False)
             .execute()
         )
-        return {"success": True, "data": result.data or []}
+        response_payload = {"success": True, "data": result.data or []}
+        set_cache(cache_key, response_payload, ttl=300)
+        return response_payload
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -40,13 +61,20 @@ async def get_content_items(
     """
     Get uploaded content items for the company, optionally filtered by category.
     """
+    cache_key = f"content_library:{effective_company_id}:items:{category_id or 'all'}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
     try:
-        query = supabase_admin.table("content_library_items").select("*").eq("company_id", effective_company_id)
+        query = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("company_id", effective_company_id)
         if category_id:
             query = query.eq("category_id", category_id)
             
         result = query.order("created_at", desc=True).execute()
-        return {"success": True, "data": result.data or []}
+        response_payload = {"success": True, "data": result.data or []}
+        set_cache(cache_key, response_payload, ttl=300)
+        return response_payload
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -74,8 +102,7 @@ async def upload_content(
         
         # Unique file path to avoid collisions
         file_name = getattr(file, "filename", None) or "upload"
-        file_ext = file_name.split('.')[-1] if '.' in file_name else ''
-        file_name_clean = file_name.replace(' ', '_')
+        file_name_clean = _safe_storage_file_name(file_name)
         storage_path = f"raw_content/{effective_company_id}/{uuid.uuid4()}_{file_name_clean}"
         
         # Upload to Supabase Storage Bucket
@@ -119,6 +146,7 @@ async def upload_content(
         if not db_insert.data:
             raise Exception("Failed to insert record into content_library_items")
 
+        delete_cache_pattern(f"content_library:{effective_company_id}:*")
         return {"success": True, "data": db_insert.data[0]}
 
     except Exception as e:
@@ -138,7 +166,7 @@ async def delete_content(
     """
     try:
         # Get the item
-        item_res = supabase_admin.table("content_library_items").select("*").eq("id", item_id).eq("company_id", effective_company_id).execute()
+        item_res = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
         if not item_res.data:
             raise HTTPException(status_code=404, detail="Content item not found")
         
@@ -158,6 +186,7 @@ async def delete_content(
             path = item["file_url"].split(f"/public/content%20library/")[-1]
             supabase_admin.storage.from_(bucket_name).remove([path])
             
+        delete_cache_pattern(f"content_library:{effective_company_id}:*")
         return {"success": True, "message": "Content deleted successfully"}
         
     except Exception as e:

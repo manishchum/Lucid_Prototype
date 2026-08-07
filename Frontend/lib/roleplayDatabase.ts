@@ -1,1021 +1,1041 @@
-// --- Custom Scenario DB Functions ---
-import { Scenario } from './roleplay/types';
-import { SCENARIOS } from './roleplay/constants';
-import { supabase } from './supabase';
-import { fetchWithAuth } from './fetch-with-auth';
+// // --- Custom Scenario DB Functions ---
+// import { Scenario } from './roleplay/types';
+// import { SCENARIOS } from './roleplay/constants';
+// import { supabase } from './supabase';
+// import { fetchWithAuth } from './fetch-with-auth';
 
-interface CompanyRoleplayLimits {
-  roleplayLimit: number;
-  retryLimit: number;
-}
+// interface CompanyRoleplayLimits {
+//   roleplayLimit: number;
+//   retryLimit: number;
+// }
 
-const SCENARIO_SELECT_COLUMNS = [
-  'scenario_id',
-  'title',
-  'description',
-  'role',
-  'difficulty',
-  'initialPrompt',
-  'userRole',
-  'tone',
-  'learnerBrief',
-  'aiObjective',
-  'maxDuration',
-  'minTurns',
-  'endConditions',
-  'evaluationParams',
-  'passingScore',
-  'created_at',
-].join(', ');
+// const SCENARIO_SELECT_COLUMNS = [
+//   'scenario_id',
+//   'title',
+//   'description',
+//   'role',
+//   'difficulty',
+//   'initialPrompt',
+//   'userRole',
+//   'tone',
+//   'learnerBrief',
+//   'aiObjective',
+//   'maxDuration',
+//   'minTurns',
+//   'endConditions',
+//   'evaluationParams',
+//   'passingScore',
+//   'created_at',
+// ].join(', ');
 
-const ASSIGNMENT_SELECT_COLUMNS = [
-  'assignment_id',
-  'scenario_id',
-  'assignment_type',
-  'user_id',
-  'department_id',
-  'company_id',
-  'assigned_at',
-].join(', ');
+// const ASSIGNMENT_SELECT_COLUMNS = [
+//   'assignment_id',
+//   'scenario_id',
+//   'assignment_type',
+//   'user_id',
+//   'target_id',
+//   'company_id',
+//   'assigned_at',
+// ].join(', ');
 
-function normalizeLimit(value: any, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
+// function normalizeLimit(value: any, fallback: number): number {
+//   const parsed = Number(value);
+//   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+// }
 
-async function getCompanyRoleplayLimits(companyId: string): Promise<{ data: CompanyRoleplayLimits | null; error: any }> {
-  try {
-    const { data, error } = await supabase
-      .from('companies')
-      .select('rate_limit_role_play, rate_limit_role_play_retries')
-      .eq('company_id', companyId)
-      .single();
+// async function getCompanyRoleplayLimits(companyId: string): Promise<{ data: CompanyRoleplayLimits | null; error: any }> {
+//   try {
+//     const { data, error } = await supabase
+//       .from('companies')
+//       .select('rate_limit_role_play, rate_limit_role_play_retries')
+//       .eq('company_id', companyId)
+//       .single();
 
-    if (error || !data) {
-      return { data: null, error: error || new Error('Company not found') };
-    }
+//     if (error || !data) {
+//       return { data: null, error: error || new Error('Company not found') };
+//     }
 
-    return {
-      data: {
-        roleplayLimit: normalizeLimit(data.rate_limit_role_play, 5),
-        retryLimit: normalizeLimit(data.rate_limit_role_play_retries, 3),
-      },
-      error: null,
-    };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return {
+//       data: {
+//         roleplayLimit: normalizeLimit(data.rate_limit_role_play, 5),
+//         retryLimit: normalizeLimit(data.rate_limit_role_play_retries, 3),
+//       },
+//       error: null,
+//     };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-async function getUserCompanyAndDepartment(userId: string): Promise<{ data: { company_id: string; department_id: string | null } | null; error: any }> {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('company_id, department_id')
-      .eq('user_id', userId)
-      .single();
+// async function getUserCompanyAndFunctions(userId: string): Promise<{ data: { company_id: string; function_id: string | null; sub_function_id: string | null } | null; error: any }> {
+//   try {
+//     const { data, error } = await supabase
+//       .from('users')
+//       .select('company_id, function_id, sub_function_id')
+//       .eq('user_id', userId)
+//       .single();
 
-    if (error || !data) {
-      return { data: null, error: error || new Error('User not found') };
-    }
+//     if (error || !data) {
+//       return { data: null, error: error || new Error('User not found') };
+//     }
 
-    return { data, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data, error: null };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-async function getDistinctAssignedScenarioIdsForUser(
-  userId: string,
-  companyId: string,
-  departmentId: string | null
-): Promise<{ data: string[] | null; error: any }> {
-  try {
-    const { data: userAssignments, error: userAssignError } = await supabase
-      .from('scenario_assignments')
-      .select('scenario_id')
-      .eq('company_id', companyId)
-      .eq('assignment_type', 'user')
-      .eq('user_id', userId);
+// async function getDistinctAssignedScenarioIdsForUser(
+//   userId: string,
+//   companyId: string,
+//   functionId: string | null,
+//   subFunctionId: string | null
+// ): Promise<{ data: string[] | null; error: any }> {
+//   try {
+//     const { data: userAssignments, error: userAssignError } = await supabase
+//       .from('scenario_assignments')
+//       .select('scenario_id')
+//       .eq('company_id', companyId)
+//       .eq('assignment_type', 'user')
+//       .eq('user_id', userId);
 
-    if (userAssignError) {
-      return { data: null, error: userAssignError };
-    }
+//     if (userAssignError) {
+//       return { data: null, error: userAssignError };
+//     }
 
-    let deptScenarioIds: string[] = [];
-    if (departmentId) {
-      const { data: deptAssignments, error: deptAssignError } = await supabase
-        .from('scenario_assignments')
-        .select('scenario_id')
-        .eq('company_id', companyId)
-        .eq('assignment_type', 'department')
-        .eq('department_id', departmentId);
+//     let funcScenarioIds: string[] = [];
+//     if (functionId) {
+//       const { data: funcAssignments, error: funcAssignError } = await supabase
+//         .from('scenario_assignments')
+//         .select('scenario_id')
+//         .eq('company_id', companyId)
+//         .eq('assignment_type', 'function')
+//         .eq('target_id', functionId);
 
-      if (deptAssignError) {
-        return { data: null, error: deptAssignError };
-      }
+//       if (funcAssignError) {
+//         return { data: null, error: funcAssignError };
+//       }
+//       funcScenarioIds = (funcAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+//     }
+    
+//     let subFuncScenarioIds: string[] = [];
+//     if (subFunctionId) {
+//       const { data: subFuncAssignments, error: subFuncAssignError } = await supabase
+//         .from('scenario_assignments')
+//         .select('scenario_id')
+//         .eq('company_id', companyId)
+//         .eq('assignment_type', 'sub_function')
+//         .eq('target_id', subFunctionId);
 
-      deptScenarioIds = (deptAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
-    }
+//       if (subFuncAssignError) {
+//         return { data: null, error: subFuncAssignError };
+//       }
+//       subFuncScenarioIds = (subFuncAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+//     }
 
-    const userScenarioIds = (userAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
-    const distinctIds = [...new Set([...userScenarioIds, ...deptScenarioIds])];
+//     const userScenarioIds = (userAssignments || []).map((row: any) => row.scenario_id).filter(Boolean);
+//     const distinctIds = [...new Set([...userScenarioIds, ...funcScenarioIds, ...subFuncScenarioIds])];
 
-    return { data: distinctIds, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data: distinctIds, error: null };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-async function checkUserCanAttemptScenario(
-  employeeId: string,
-  scenarioId: string
-): Promise<{ allowed: boolean; message?: string; error?: any }> {
-  const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(employeeId);
-  if (userMetaError || !userMeta) {
-    return {
-      allowed: false,
-      error: userMetaError,
-      message: 'Unable to verify company details for this user.',
-    };
-  }
+// async function checkUserCanAttemptScenario(
+//   employeeId: string,
+//   scenarioId: string
+// ): Promise<{ allowed: boolean; message?: string; error?: any }> {
+//   const { data: userMeta, error: userMetaError } = await getUserCompanyAndFunctions(employeeId);
+//   if (userMetaError || !userMeta) {
+//     return {
+//       allowed: false,
+//       error: userMetaError,
+//       message: 'Unable to verify company details for this user.',
+//     };
+//   }
 
-  const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(userMeta.company_id);
-  if (companyLimitError || !companyLimits) {
-    return {
-      allowed: false,
-      error: companyLimitError,
-      message: 'Unable to fetch roleplay retry limit for this company.',
-    };
-  }
+//   const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(userMeta.company_id);
+//   if (companyLimitError || !companyLimits) {
+//     return {
+//       allowed: false,
+//       error: companyLimitError,
+//       message: 'Unable to fetch roleplay retry limit for this company.',
+//     };
+//   }
 
-  const retryLimit = companyLimits.retryLimit;
+//   const retryLimit = companyLimits.retryLimit;
 
-  if (retryLimit <= 0) {
-    return {
-      allowed: false,
-      message: 'Roleplay retries are disabled for your company.',
-    };
-  }
+//   if (retryLimit <= 0) {
+//     return {
+//       allowed: false,
+//       message: 'Roleplay retries are disabled for your company.',
+//     };
+//   }
 
-  const { data: sessions, error: sessionsError } = await supabase
-    .from('roleplay_sessions')
-    .select('id')
-    .eq('employee_id', employeeId)
-    .eq('scenario_id', scenarioId);
+//   const { data: sessions, error: sessionsError } = await supabase
+//     .from('roleplay_sessions')
+//     .select('id')
+//     .eq('employee_id', employeeId)
+//     .eq('scenario_id', scenarioId);
 
-  if (sessionsError) {
-    return {
-      allowed: false,
-      error: sessionsError,
-      message: 'Unable to verify previous roleplay attempts.',
-    };
-  }
+//   if (sessionsError) {
+//     return {
+//       allowed: false,
+//       error: sessionsError,
+//       message: 'Unable to verify previous roleplay attempts.',
+//     };
+//   }
 
-  const sessionIds = (sessions || []).map((row: any) => row.id).filter(Boolean);
-  if (sessionIds.length === 0) {
-    return { allowed: true };
-  }
+//   const sessionIds = (sessions || []).map((row: any) => row.id).filter(Boolean);
+//   if (sessionIds.length === 0) {
+//     return { allowed: true };
+//   }
 
-  const { count: attemptCount, error: attemptsError } = await supabase
-    .from('roleplay_assessments')
-    .select('id', { count: 'exact', head: true })
-    .eq('employee_id', employeeId)
-    .in('session_id', sessionIds);
+//   const { count: attemptCount, error: attemptsError } = await supabase
+//     .from('roleplay_assessments')
+//     .select('id', { count: 'exact', head: true })
+//     .eq('employee_id', employeeId)
+//     .in('session_id', sessionIds);
 
-  if (attemptsError) {
-    return {
-      allowed: false,
-      error: attemptsError,
-      message: 'Unable to verify roleplay retry count.',
-    };
-  }
+//   if (attemptsError) {
+//     return {
+//       allowed: false,
+//       error: attemptsError,
+//       message: 'Unable to verify roleplay retry count.',
+//     };
+//   }
 
-  if ((attemptCount || 0) >= retryLimit) {
-    return {
-      allowed: false,
-      message: `Roleplay retry limit reached. You can attempt this scenario up to ${retryLimit} time(s).`,
-    };
-  }
+//   if ((attemptCount || 0) >= retryLimit) {
+//     return {
+//       allowed: false,
+//       message: `Roleplay retry limit reached. You can attempt this scenario up to ${retryLimit} time(s).`,
+//     };
+//   }
 
-  return { allowed: true };
-}
+//   return { allowed: true };
+// }
 
-/**
- * Insert a new scenario into the public scenario table
- */
-export async function insertCustomScenario(scenario: Scenario, companyId:string) {
-  // Persist the custom scenario into Supabase `scenarios` table.
-  // Map the in-memory Scenario shape to the DB schema. The DB schema uses array columns for
-  // several fields (text[] / jsonb[] / bigint[]). For compatibility we wrap scalar values
-  // into single-element arrays where appropriate.
-  try {
-    console.log('Inserting scenario for company ID:', companyId);
-    const payload: any = {
-      title: scenario.title || null,
-      description: scenario.description || null,
-      userRole: scenario.userRole || null,
-      difficulty: scenario.difficulty || null,
-      role: scenario.role || null,
-      initialPrompt: scenario.initialPrompt || null,
-      tone: scenario.tone || null,
-      learnerBrief: scenario.learnerBrief || null,
-      // instructionsForLearner not present on the UI model yet
-      // instructionsForLearner: scenario.learnerBrief || null,
-      company_id: companyId || null,
-      // normalize optional fields into arrays expected by the DB schema
-      // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
-      aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
-      maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
-      minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
-      endConditions: scenario.endConditions ? [scenario.endConditions] : null,
-      evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
-      passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
-    };
+// /**
+//  * Insert a new scenario into the public scenario table
+//  */
+// export async function insertCustomScenario(scenario: Scenario, companyId:string) {
+//   // Persist the custom scenario into Supabase `scenarios` table.
+//   // Map the in-memory Scenario shape to the DB schema. The DB schema uses array columns for
+//   // several fields (text[] / jsonb[] / bigint[]). For compatibility we wrap scalar values
+//   // into single-element arrays where appropriate.
+//   try {
+//     console.log('Inserting scenario for company ID:', companyId);
+//     const payload: any = {
+//       title: scenario.title || null,
+//       description: scenario.description || null,
+//       userRole: scenario.userRole || null,
+//       difficulty: scenario.difficulty || null,
+//       role: scenario.role || null,
+//       initialPrompt: scenario.initialPrompt || null,
+//       tone: scenario.tone || null,
+//       learnerBrief: scenario.learnerBrief || null,
+//       // instructionsForLearner not present on the UI model yet
+//       // instructionsForLearner: scenario.learnerBrief || null,
+//       company_id: companyId || null,
+//       // normalize optional fields into arrays expected by the DB schema
+//       // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
+//       aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
+//       maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
+//       minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
+//       endConditions: scenario.endConditions ? [scenario.endConditions] : null,
+//       evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
+//       passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
+//     };
 
-    console.log('Inserting custom scenario:', payload);
-    const { data, error } = await supabase
-      .from('scenarios')
-      .insert(payload)
-      .select(SCENARIO_SELECT_COLUMNS)
-      .single();
+//     console.log('Inserting custom scenario:', payload);
+//     const { data, error } = await supabase
+//       .from('scenarios')
+//       .insert(payload)
+//       .select(SCENARIO_SELECT_COLUMNS)
+//       .single();
 
-    return { data, error };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data, error };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-export async function fetchAssignedScenarioIdsForUser(userId: string): Promise<{ data: string[] | null; error: any }> 
-{
-  try {
-    const { data, error } = await supabase
-      .from('scenario_assignments')
-      .select('scenario_id')
-      .eq('user_id', userId)
+// export async function fetchAssignedScenarioIdsForUser(userId: string): Promise<{ data: string[] | null; error: any }> 
+// {
+//   try {
+//     const { data, error } = await supabase
+//       .from('scenario_assignments')
+//       .select('scenario_id')
+//       .eq('user_id', userId)
 
-    if (error) {
-      return { data: null, error };
-    }
-    const scenarioIds = data ? data.map((item: any) => item.scenario_id) : [];
-    return { data: scenarioIds, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     if (error) {
+//       return { data: null, error };
+//     }
+//     const scenarioIds = data ? data.map((item: any) => item.scenario_id) : [];
+//     return { data: scenarioIds, error: null };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Fetch all scenarios (default + custom from database)
- */
-export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; error: any }> {
-  try {
-    // Fetch custom scenarios from database
-    const { data: dbScenarios, error: dbError } = await supabase
-      .from('scenarios')
-      .select(SCENARIO_SELECT_COLUMNS)
-      .order('created_at', { ascending: false });
+// /**
+//  * Fetch all scenarios (default + custom from database)
+//  */
+// export async function fetchAllScenarios(): Promise<{ data: Scenario[] | null; error: any }> {
+//   try {
+//     // Fetch custom scenarios from database
+//     const { data: dbScenarios, error: dbError } = await supabase
+//       .from('scenarios')
+//       .select(SCENARIO_SELECT_COLUMNS)
+//       .order('created_at', { ascending: false });
 
-    if (dbError) {
-      console.error('Error fetching custom scenarios:', dbError);
-      // Return default scenarios even if DB fetch fails
-      return { data: SCENARIOS, error: null };
-    }
+//     if (dbError) {
+//       console.error('Error fetching custom scenarios:', dbError);
+//       // Return default scenarios even if DB fetch fails
+//       return { data: SCENARIOS, error: null };
+//     }
 
-    // Map database scenarios to Scenario type
-    const customScenarios: Scenario[] = (dbScenarios || []).map((dbScenario: any) => {
-      // Normalize difficulty to ensure proper capitalization
-      let difficulty = dbScenario.difficulty || 'Medium';
-      const difficultyLower = difficulty.toLowerCase();
-      if (difficultyLower === 'easy') difficulty = 'Easy';
-      else if (difficultyLower === 'medium') difficulty = 'Medium';
-      else if (difficultyLower === 'hard') difficulty = 'Hard';
+//     // Map database scenarios to Scenario type
+//     const customScenarios: Scenario[] = (dbScenarios || []).map((dbScenario: any) => {
+//       // Normalize difficulty to ensure proper capitalization
+//       let difficulty = dbScenario.difficulty || 'Medium';
+//       const difficultyLower = difficulty.toLowerCase();
+//       if (difficultyLower === 'easy') difficulty = 'Easy';
+//       else if (difficultyLower === 'medium') difficulty = 'Medium';
+//       else if (difficultyLower === 'hard') difficulty = 'Hard';
       
-      return {
-        scenario_id: dbScenario.scenario_id,
-        title: dbScenario.title || '',
-        description: dbScenario.description || '',
-        role: dbScenario.role || '',
-        difficulty: difficulty,
-        initialPrompt: dbScenario.initialPrompt || '',
-        userRole: dbScenario.userRole || '',
-        tone: dbScenario.tone || 'Neutral',
-        learnerBrief: dbScenario.learnerBrief || '',
-        // aiPersonality: Array.isArray(dbScenario.aiPersonality) ? dbScenario.aiPersonality[0] : dbScenario.aiPersonality,
-        aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
-        maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
-        minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
-        endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
-        evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
-        passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
-        isCustom: true, // Mark as custom so we know it can be edited
-      };
-    });
+//       return {
+//         scenario_id: dbScenario.scenario_id,
+//         title: dbScenario.title || '',
+//         description: dbScenario.description || '',
+//         role: dbScenario.role || '',
+//         difficulty: difficulty,
+//         initialPrompt: dbScenario.initialPrompt || '',
+//         userRole: dbScenario.userRole || '',
+//         tone: dbScenario.tone || 'Neutral',
+//         learnerBrief: dbScenario.learnerBrief || '',
+//         // aiPersonality: Array.isArray(dbScenario.aiPersonality) ? dbScenario.aiPersonality[0] : dbScenario.aiPersonality,
+//         aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
+//         maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
+//         minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
+//         endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
+//         evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
+//         passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
+//         isCustom: true, // Mark as custom so we know it can be edited
+//       };
+//     });
 
-    // Remove duplicates from customScenarios based on title (case-insensitive)
-    const seenTitles = new Map<string, Scenario>();
-    const uniqueCustomScenarios: Scenario[] = [];
+//     // Remove duplicates from customScenarios based on title (case-insensitive)
+//     const seenTitles = new Map<string, Scenario>();
+//     const uniqueCustomScenarios: Scenario[] = [];
     
-    for (const scenario of customScenarios) {
-      const normalizedTitle = scenario.title.toLowerCase().trim();
-      if (!seenTitles.has(normalizedTitle)) {
-        seenTitles.set(normalizedTitle, scenario);
-        uniqueCustomScenarios.push(scenario);
-      }
-    }
+//     for (const scenario of customScenarios) {
+//       const normalizedTitle = scenario.title.toLowerCase().trim();
+//       if (!seenTitles.has(normalizedTitle)) {
+//         seenTitles.set(normalizedTitle, scenario);
+//         uniqueCustomScenarios.push(scenario);
+//       }
+//     }
 
-    // Create a Set of custom scenario titles to check for duplicates with default scenarios
-    const customTitles = new Set(uniqueCustomScenarios.map(s => s.title.toLowerCase().trim()));
+//     // Create a Set of custom scenario titles to check for duplicates with default scenarios
+//     const customTitles = new Set(uniqueCustomScenarios.map(s => s.title.toLowerCase().trim()));
     
-    console.log('🔍 Custom Titles:', Array.from(customTitles));
-    console.log('🔍 Default Scenarios Before Filter:', SCENARIOS.map(s => s.title));
+//     console.log('🔍 Custom Titles:', Array.from(customTitles));
+//     console.log('🔍 Default Scenarios Before Filter:', SCENARIOS.map(s => s.title));
     
-    // Filter out default scenarios that have the same title as custom ones
-    const uniqueDefaultScenarios = SCENARIOS.filter(
-      defaultScenario => !customTitles.has(defaultScenario.title.toLowerCase().trim())
-    );
+//     // Filter out default scenarios that have the same title as custom ones
+//     const uniqueDefaultScenarios = SCENARIOS.filter(
+//       defaultScenario => !customTitles.has(defaultScenario.title.toLowerCase().trim())
+//     );
     
-    console.log('🔍 Default Scenarios After Filter:', uniqueDefaultScenarios.map(s => s.title));
+//     console.log('🔍 Default Scenarios After Filter:', uniqueDefaultScenarios.map(s => s.title));
 
-    // Combine filtered default scenarios with unique custom ones (custom first so they appear at top)
-    const allScenarios = [...uniqueCustomScenarios, ...uniqueDefaultScenarios];
+//     // Combine filtered default scenarios with unique custom ones (custom first so they appear at top)
+//     const allScenarios = [...uniqueCustomScenarios, ...uniqueDefaultScenarios];
     
-    // Sort scenarios by difficulty: Easy -> Medium -> Hard
-    const difficultyOrder: { [key: string]: number } = { 'Easy': 1, 'Medium': 2, 'Hard': 3 };
-    allScenarios.sort((a, b) => {
-      const orderA = difficultyOrder[a.difficulty] || 2;
-      const orderB = difficultyOrder[b.difficulty] || 2;
-      return orderA - orderB;
-    });
+//     // Sort scenarios by difficulty: Easy -> Medium -> Hard
+//     const difficultyOrder: { [key: string]: number } = { 'Easy': 1, 'Medium': 2, 'Hard': 3 };
+//     allScenarios.sort((a, b) => {
+//       const orderA = difficultyOrder[a.difficulty] || 2;
+//       const orderB = difficultyOrder[b.difficulty] || 2;
+//       return orderA - orderB;
+//     });
     
-    // Debug: Log sorted scenarios
-    console.log('🎭 Sorted Scenarios:', allScenarios.map(s => ({ 
-      title: s.title, 
-      difficulty: s.difficulty,
-      order: difficultyOrder[s.difficulty] || 2
-    })));
+//     // Debug: Log sorted scenarios
+//     console.log('🎭 Sorted Scenarios:', allScenarios.map(s => ({ 
+//       title: s.title, 
+//       difficulty: s.difficulty,
+//       order: difficultyOrder[s.difficulty] || 2
+//     })));
     
-    return { data: allScenarios, error: null };
-  } catch (error) {
-    console.error('Exception fetching scenarios:', error);
-    return { data: SCENARIOS, error };
-  }
-}
+//     return { data: allScenarios, error: null };
+//   } catch (error) {
+//     console.error('Exception fetching scenarios:', error);
+//     return { data: SCENARIOS, error };
+//   }
+// }
 
-/**
- * Fetch scenarios for a specific user (filtered by assignments)
- * Admins see all scenarios, regular users only see assigned scenarios
- */
-export async function fetchScenariosForUser(userId: string, isAdmin: boolean): Promise<{ data: Scenario[] | null; error: any }> {
-  try {
-    // Admin users see all scenarios
-    if (isAdmin) {
-      console.log("He is admin");
-      return await fetchAllScenarios();
-    }
+// /**
+//  * Fetch scenarios for a specific user (filtered by assignments)
+//  * Admins see all scenarios, regular users only see assigned scenarios
+//  */
+// export async function fetchScenariosForUser(userId: string, isAdmin: boolean): Promise<{ data: Scenario[] | null; error: any }> {
+//   try {
+//     // Admin users see all scenarios
+//     if (isAdmin) {
+//       console.log("He is admin");
+//       return await fetchAllScenarios();
+//     }
 
-    // Get scenarios assigned to this user
-    const { data: assignedScenarioIds, error: assignError } = await getAssignedScenariosForUser(userId);
-    console.log("Scenarios Ids",assignedScenarioIds);
-    console.log(userId);
-    if (assignError) {
-      console.error('Error fetching assigned scenarios:', assignError);
-      return { data: SCENARIOS, error: null };
-    }else if(assignedScenarioIds){
+//     // Get scenarios assigned to this user
+//     const { data: assignedScenarioIds, error: assignError } = await getAssignedScenariosForUser(userId);
+//     console.log("Scenarios Ids",assignedScenarioIds);
+//     console.log(userId);
+//     if (assignError) {
+//       console.error('Error fetching assigned scenarios:', assignError);
+//       return { data: SCENARIOS, error: null };
+//     }else if(assignedScenarioIds){
 
 
-      const { data: assignedScenarios, error: scenError } = await supabase
-      .from('scenarios')
-      .select(SCENARIO_SELECT_COLUMNS)
-      .in('scenario_id', assignedScenarioIds)
-      .order('created_at', { ascending: false });
-      if (scenError) {
-        console.error('Error fetching assigned scenarios details:', scenError);
-        return { data: SCENARIOS, error: null };
-      }
+//       const { data: assignedScenarios, error: scenError } = await supabase
+//       .from('scenarios')
+//       .select(SCENARIO_SELECT_COLUMNS)
+//       .in('scenario_id', assignedScenarioIds)
+//       .order('created_at', { ascending: false });
+//       if (scenError) {
+//         console.error('Error fetching assigned scenarios details:', scenError);
+//         return { data: SCENARIOS, error: null };
+//       }
 
-      // Map database scenarios to proper Scenario type with scenario_id
-      const mappedScenarios: Scenario[] = (assignedScenarios || []).map((dbScenario: any) => {
-        let difficulty = dbScenario.difficulty || 'Medium';
-        const difficultyLower = difficulty.toLowerCase();
-        if (difficultyLower === 'easy') difficulty = 'Easy';
-        else if (difficultyLower === 'medium') difficulty = 'Medium';
-        else if (difficultyLower === 'hard') difficulty = 'Hard';
+//       // Map database scenarios to proper Scenario type with scenario_id
+//       const mappedScenarios: Scenario[] = (assignedScenarios || []).map((dbScenario: any) => {
+//         let difficulty = dbScenario.difficulty || 'Medium';
+//         const difficultyLower = difficulty.toLowerCase();
+//         if (difficultyLower === 'easy') difficulty = 'Easy';
+//         else if (difficultyLower === 'medium') difficulty = 'Medium';
+//         else if (difficultyLower === 'hard') difficulty = 'Hard';
         
-        return {
-          scenario_id: dbScenario.scenario_id,
-          title: dbScenario.title || '',
-          description: dbScenario.description || '',
-          role: dbScenario.role || '',
-          difficulty: difficulty,
-          initialPrompt: dbScenario.initialPrompt || '',
-          userRole: dbScenario.userRole || '',
-          tone: dbScenario.tone || 'Neutral',
-          learnerBrief: dbScenario.learnerBrief || '',
-          aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
-          maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
-          minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
-          endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
-          evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
-          passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
-          isCustom: true,
-        };
-      });
+//         return {
+//           scenario_id: dbScenario.scenario_id,
+//           title: dbScenario.title || '',
+//           description: dbScenario.description || '',
+//           role: dbScenario.role || '',
+//           difficulty: difficulty,
+//           initialPrompt: dbScenario.initialPrompt || '',
+//           userRole: dbScenario.userRole || '',
+//           tone: dbScenario.tone || 'Neutral',
+//           learnerBrief: dbScenario.learnerBrief || '',
+//           aiObjectives: Array.isArray(dbScenario.aiObjective) ? dbScenario.aiObjective[0] : dbScenario.aiObjective,
+//           maxDuration: Array.isArray(dbScenario.maxDuration) ? dbScenario.maxDuration[0] : dbScenario.maxDuration,
+//           minTurns: Array.isArray(dbScenario.minTurns) ? dbScenario.minTurns[0] : dbScenario.minTurns,
+//           endConditions: Array.isArray(dbScenario.endConditions) ? dbScenario.endConditions[0] : dbScenario.endConditions,
+//           evaluationParams: Array.isArray(dbScenario.evaluationParams) ? dbScenario.evaluationParams : dbScenario.evaluationParams,
+//           passingScore: Array.isArray(dbScenario.passingScore) ? dbScenario.passingScore[0] : dbScenario.passingScore,
+//           isCustom: true,
+//         };
+//       });
 
-      console.log("Assigned Scenarios for the user are ",mappedScenarios);
-      console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
-      return { data: mappedScenarios, error: null };
+//       console.log("Assigned Scenarios for the user are ",mappedScenarios);
+//       console.log("Assigned Scenario Ids for the user are ",assignedScenarioIds);
+//       return { data: mappedScenarios, error: null };
     
-    }
+//     }
 
-    // Fetch all scenarios first
-    const { data: allScenarios, error: scenError } = await fetchAllScenarios();
+//     // Fetch all scenarios first
+//     const { data: allScenarios, error: scenError } = await fetchAllScenarios();
     
-    if (scenError || !allScenarios) {
-      return { data: SCENARIOS, error: scenError };
-    }
+//     if (scenError || !allScenarios) {
+//       return { data: SCENARIOS, error: scenError };
+//     }
 
-    // If no assignments, show only default scenarios
-    if (!assignedScenarioIds || assignedScenarioIds.length === 0) {
-      return { data: SCENARIOS, error: null };
-    }
+//     // If no assignments, show only default scenarios
+//     if (!assignedScenarioIds || assignedScenarioIds.length === 0) {
+//       return { data: SCENARIOS, error: null };
+//     }
 
-    // Filter scenarios to only show assigned ones + default scenarios
-    const filteredScenarios = allScenarios.filter(scenario => {
-      // Always show default scenarios (no isCustom flag)
-      if (!scenario.isCustom) return true;
-      // Show custom scenarios only if assigned
-      return (assignedScenarioIds as string[]).includes(scenario.scenario_id);
-    });
+//     // Filter scenarios to only show assigned ones + default scenarios
+//     const filteredScenarios = allScenarios.filter(scenario => {
+//       // Always show default scenarios (no isCustom flag)
+//       if (!scenario.isCustom) return true;
+//       // Show custom scenarios only if assigned
+//       return (assignedScenarioIds as string[]).includes(scenario.scenario_id);
+//     });
 
-    return { data: filteredScenarios, error: null };
-  } catch (error) {
-    console.error('Exception fetching scenarios for user:', error);
-    return { data: SCENARIOS, error };
-  }
-}
+//     return { data: filteredScenarios, error: null };
+//   } catch (error) {
+//     console.error('Exception fetching scenarios for user:', error);
+//     return { data: SCENARIOS, error };
+//   }
+// }
 
-/**
- * Update an existing custom scenario in the database
- */
-export async function updateCustomScenario(scenarioId: string, scenario: Scenario) {
-  try {
-    const payload: any = {
-      title: scenario.title || null,
-      description: scenario.description || null,
-      userRole: scenario.userRole || null,
-      difficulty: scenario.difficulty || null,
-      role: scenario.role || null,
-      initialPrompt: scenario.initialPrompt || null,
-      // tone: scenario.tone || null,
-      learnerBrief: scenario.learnerBrief || null,
-      // instructionsForLearner: null,
-      // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
-      aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
-      maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
-      minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
-      endConditions: scenario.endConditions ? [scenario.endConditions] : null,
-      evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
-      passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
-    };
+// /**
+//  * Update an existing custom scenario in the database
+//  */
+// export async function updateCustomScenario(scenarioId: string, scenario: Scenario) {
+//   try {
+//     const payload: any = {
+//       title: scenario.title || null,
+//       description: scenario.description || null,
+//       userRole: scenario.userRole || null,
+//       difficulty: scenario.difficulty || null,
+//       role: scenario.role || null,
+//       initialPrompt: scenario.initialPrompt || null,
+//       // tone: scenario.tone || null,
+//       learnerBrief: scenario.learnerBrief || null,
+//       // instructionsForLearner: null,
+//       // aiPersonality: scenario.aiPersonality ? [scenario.aiPersonality] : null,
+//       aiObjective: scenario.aiObjectives ? [scenario.aiObjectives] : null,
+//       maxDuration: typeof scenario.maxDuration === 'number' ? [scenario.maxDuration] : null,
+//       minTurns: typeof scenario.minTurns === 'number' ? [scenario.minTurns] : null,
+//       endConditions: scenario.endConditions ? [scenario.endConditions] : null,
+//       evaluationParams: scenario.evaluationParams && scenario.evaluationParams.length ? scenario.evaluationParams : null,
+//       passingScore: typeof scenario.passingScore === 'number' ? [scenario.passingScore] : null,
+//     };
 
-    console.log('Updating scenario:', scenarioId, payload);
-    const { data, error } = await supabase
-      .from('scenarios')
-      .update(payload)
-      .eq('scenario_id', scenarioId)
-      .select(SCENARIO_SELECT_COLUMNS)
-      .single();
+//     console.log('Updating scenario:', scenarioId, payload);
+//     const { data, error } = await supabase
+//       .from('scenarios')
+//       .update(payload)
+//       .eq('scenario_id', scenarioId)
+//       .select(SCENARIO_SELECT_COLUMNS)
+//       .single();
 
-    return { data, error };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data, error };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Delete a custom scenario from the database
- */
-export async function deleteCustomScenario(scenarioId: string) {
-  try {
-    console.log('Deleting scenario:', scenarioId);
-    const { error } = await supabase
-      .from('scenarios')
-      .delete()
-      .eq('scenario_id', scenarioId);
+// /**
+//  * Delete a custom scenario from the database
+//  */
+// export async function deleteCustomScenario(scenarioId: string) {
+//   try {
+//     console.log('Deleting scenario:', scenarioId);
+//     const { error } = await supabase
+//       .from('scenarios')
+//       .delete()
+//       .eq('scenario_id', scenarioId);
 
-    return { error };
-  } catch (error) {
-    return { error };
-  }
-}
+//     return { error };
+//   } catch (error) {
+//     return { error };
+//   }
+// }
 
-/**
- * Assign a scenario to departments, sub-departments, or users
- */
-export async function assignScenario(
-  scenarioId: string,
-  assignmentType: 'department' | 'sub_department' | 'user',
-  targetIds: string[],
-  companyId: string
-) {
-  try {
-    let effectiveTargetIds = [...targetIds];
+// /**
+//  * Assign a scenario to departments, sub-departments, or users
+//  */
+// export async function assignScenario(
+//   scenarioId: string,
+//   assignmentType: 'function' | 'sub_function' | 'user',
+//   targetIds: string[],
+//   companyId: string
+// ) {
+//   try {
+//     let effectiveTargetIds = [...targetIds];
 
-    if (assignmentType === 'user') {
-      for (const targetUserId of targetIds) {
-        const { data: userMeta, error: userMetaError } = await getUserCompanyAndDepartment(targetUserId);
-        if (userMetaError || !userMeta) {
-          return {
-            data: null,
-            error: {
-              code: 'USER_LOOKUP_FAILED',
-              message: 'Unable to fetch target user details for assignment.',
-              details: userMetaError,
-            },
-          };
-        }
+//     if (assignmentType === 'user') {
+//       for (const targetUserId of targetIds) {
+//         const { data: userMeta, error: userMetaError } = await getUserCompanyAndFunctions(targetUserId);
+//         if (userMetaError || !userMeta) {
+//           return {
+//             data: null,
+//             error: {
+//               code: 'USER_LOOKUP_FAILED',
+//               message: 'Unable to fetch target user details for assignment.',
+//               details: userMetaError,
+//             },
+//           };
+//         }
 
-        const targetCompanyId = userMeta.company_id;
-        const targetDepartmentId = userMeta.department_id;
+//         const targetCompanyId = userMeta.company_id;
+//         const targetFunctionId = userMeta.function_id;
+//         const targetSubFunctionId = userMeta.sub_function_id;
 
-        const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(targetCompanyId);
-        if (companyLimitError || !companyLimits) {
-          return {
-            data: null,
-            error: {
-              code: 'COMPANY_LIMIT_LOOKUP_FAILED',
-              message: 'Unable to fetch company roleplay limits.',
-              details: companyLimitError,
-            },
-          };
-        }
+//         const { data: companyLimits, error: companyLimitError } = await getCompanyRoleplayLimits(targetCompanyId);
+//         if (companyLimitError || !companyLimits) {
+//           return {
+//             data: null,
+//             error: {
+//               code: 'COMPANY_LIMIT_LOOKUP_FAILED',
+//               message: 'Unable to fetch company roleplay limits.',
+//               details: companyLimitError,
+//             },
+//           };
+//         }
 
-        const roleplayLimit = companyLimits.roleplayLimit;
+//         const roleplayLimit = companyLimits.roleplayLimit;
 
-        if (roleplayLimit <= 0) {
-          return {
-            data: null,
-            error: {
-              code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
-              message: 'Roleplay assignment limit is set to 0 for this company.',
-            },
-          };
-        }
+//         if (roleplayLimit <= 0) {
+//           return {
+//             data: null,
+//             error: {
+//               code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
+//               message: 'Roleplay assignment limit is set to 0 for this company.',
+//             },
+//           };
+//         }
 
-        const { data: assignedScenarioIds, error: assignedScenarioError } = await getDistinctAssignedScenarioIdsForUser(
-          targetUserId,
-          targetCompanyId,
-          targetDepartmentId
-        );
+//         const { data: assignedScenarioIds, error: assignedScenarioError } = await getDistinctAssignedScenarioIdsForUser(
+//           targetUserId,
+//           targetCompanyId,
+//           targetFunctionId,
+//           targetSubFunctionId
+//         );
 
-        if (assignedScenarioError || !assignedScenarioIds) {
-          return {
-            data: null,
-            error: {
-              code: 'ASSIGNMENT_LOOKUP_FAILED',
-              message: 'Unable to verify existing roleplay assignments.',
-              details: assignedScenarioError,
-            },
-          };
-        }
+//         if (assignedScenarioError || !assignedScenarioIds) {
+//           return {
+//             data: null,
+//             error: {
+//               code: 'ASSIGNMENT_LOOKUP_FAILED',
+//               message: 'Unable to verify existing roleplay assignments.',
+//               details: assignedScenarioError,
+//             },
+//           };
+//         }
 
-        const isAlreadyAssigned = assignedScenarioIds.includes(scenarioId);
-        if (!isAlreadyAssigned && assignedScenarioIds.length >= roleplayLimit) {
-          return {
-            data: null,
-            error: {
-              code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
-              message: `Cannot assign more roleplays. This user has reached the company limit of ${roleplayLimit} roleplay type(s).`,
-            },
-          };
-        }
-      }
+//         const isAlreadyAssigned = assignedScenarioIds.includes(scenarioId);
+//         if (!isAlreadyAssigned && assignedScenarioIds.length >= roleplayLimit) {
+//           return {
+//             data: null,
+//             error: {
+//               code: 'ROLEPLAY_ASSIGNMENT_LIMIT_REACHED',
+//               message: `Cannot assign more roleplays. This user has reached the company limit of ${roleplayLimit} roleplay type(s).`,
+//             },
+//           };
+//         }
+//       }
 
-      const { data: existingAssignments, error: existingAssignmentsError } = await supabase
-        .from('scenario_assignments')
-        .select('user_id')
-        .eq('scenario_id', scenarioId)
-        .eq('company_id', companyId)
-        .eq('assignment_type', 'user')
-        .in('user_id', targetIds);
+//       const { data: existingAssignments, error: existingAssignmentsError } = await supabase
+//         .from('scenario_assignments')
+//         .select('user_id')
+//         .eq('scenario_id', scenarioId)
+//         .eq('company_id', companyId)
+//         .eq('assignment_type', 'user')
+//         .in('user_id', targetIds);
 
-      if (existingAssignmentsError) {
-        return {
-          data: null,
-          error: {
-            code: 'ASSIGNMENT_LOOKUP_FAILED',
-            message: 'Unable to verify existing user assignments.',
-            details: existingAssignmentsError,
-          },
-        };
-      }
+//       if (existingAssignmentsError) {
+//         return {
+//           data: null,
+//           error: {
+//             code: 'ASSIGNMENT_LOOKUP_FAILED',
+//             message: 'Unable to verify existing user assignments.',
+//             details: existingAssignmentsError,
+//           },
+//         };
+//       }
 
-      const existingUserIds = new Set((existingAssignments || []).map((row: any) => row.user_id));
-      effectiveTargetIds = targetIds.filter((id) => !existingUserIds.has(id));
+//       const existingUserIds = new Set((existingAssignments || []).map((row: any) => row.user_id));
+//       effectiveTargetIds = targetIds.filter((id) => !existingUserIds.has(id));
 
-      if (effectiveTargetIds.length === 0) {
-        return { data: [], error: null };
-      }
-    }
+//       if (effectiveTargetIds.length === 0) {
+//         return { data: [], error: null };
+//       }
+//     }
 
-    const assignments = effectiveTargetIds.map(targetId => ({
-      scenario_id: scenarioId,
-      assignment_type: assignmentType,
-      user_id: assignmentType === 'user' ? targetId : null,
-      department_id: assignmentType !== 'user' ? targetId : null,
-      company_id: companyId,
-      assigned_at: new Date().toISOString(),
-    }));
+//     const assignments = effectiveTargetIds.map(targetId => ({
+//       scenario_id: scenarioId,
+//       assignment_type: assignmentType,
+//       user_id: assignmentType === 'user' ? targetId : null,
+//       target_id: assignmentType !== 'user' ? targetId : null,
+//       company_id: companyId,
+//       assigned_at: new Date().toISOString(),
+//     }));
 
-    const { data, error } = await supabase
-      .from('scenario_assignments')
-      .insert(assignments)
-      .select(ASSIGNMENT_SELECT_COLUMNS);
+//     const { data, error } = await supabase
+//       .from('scenario_assignments')
+//       .insert(assignments)
+//       .select(ASSIGNMENT_SELECT_COLUMNS);
 
-    return { data, error };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data, error };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Get assignments for a specific scenario
- */
-export async function getScenarioAssignments(scenarioId: string) {
-  try {
-    const { data, error } = await supabase
-      .from('scenario_assignments')
-      .select(ASSIGNMENT_SELECT_COLUMNS)
-      .eq('scenario_id', scenarioId);
+// /**
+//  * Get assignments for a specific scenario
+//  */
+// export async function getScenarioAssignments(scenarioId: string) {
+//   try {
+//     const { data, error } = await supabase
+//       .from('scenario_assignments')
+//       .select(ASSIGNMENT_SELECT_COLUMNS)
+//       .eq('scenario_id', scenarioId);
 
-    return { data, error };
-  } catch (error) {
-    return { data: null, error };
-  }
-}
+//     return { data, error };
+//   } catch (error) {
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Remove scenario assignments
- */
-export async function removeScenarioAssignments(assignmentIds: string[]) {
-  try {
-    const { error } = await supabase
-      .from('scenario_assignments')
-      .delete()
-      .in('assignment_id', assignmentIds);
+// /**
+//  * Remove scenario assignments
+//  */
+// export async function removeScenarioAssignments(assignmentIds: string[]) {
+//   try {
+//     const { error } = await supabase
+//       .from('scenario_assignments')
+//       .delete()
+//       .in('assignment_id', assignmentIds);
 
-    return { error };
-  } catch (error) {
-    return { error };
-  }
-}
+//     return { error };
+//   } catch (error) {
+//     return { error };
+//   }
+// }
 
-/**
- * Get scenarios assigned to a specific user
- * Checks user's direct assignments and department assignments
- */
-export async function getAssignedScenariosForUser(userId: string) {
-  try {
-    // Get user's department_id
-    console.log("Inside fetching scenarios id for the user",userId);
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('department_id')
-      .eq('user_id', userId)
-      .single();
+// /**
+//  * Get scenarios assigned to a specific user
+//  * Checks user's direct assignments and department assignments
+//  */
+// export async function getAssignedScenariosForUser(userId: string) {
+//   try {
+//     // Get user's function_id and sub_function_id
+//     console.log("Inside fetching scenarios id for the user",userId);
+//     const { data: userData, error: userError } = await supabase
+//       .from('users')
+//       .select('function_id, sub_function_id')
+//       .eq('user_id', userId)
+//       .single();
 
 
-      const {data:role_ids, error: roleErrors} = await supabase
-      .from('user_role_assignments')
-      .select('role_id')
-      .eq('user_id', userId)
+//       const {data:role_ids, error: roleErrors} = await supabase
+//       .from('user_role_assignments')
+//       .select('role_id')
+//       .eq('user_id', userId)
       
-      if(roleErrors){
-        console.error('Error fetching user roles:', roleErrors);
-        return { data: [], error: roleErrors };
-      }
-      if(role_ids && role_ids.length >1){
-        console.log("User has multiple roles assigned");
-        console.log("He is admin");
-        const {data:allScenarios, error: scenError} = await supabase  
-        .from('scenarios')
-        .select('scenario_id')
-        .order('created_at', { ascending: false })
-        ;
-        return allScenarios;
+//       if(roleErrors){
+//         console.error('Error fetching user roles:', roleErrors);
+//         return { data: [], error: roleErrors };
+//       }
+//       if(role_ids && role_ids.length >1){
+//         console.log("User has multiple roles assigned");
+//         console.log("He is admin");
+//         const {data:allScenarios, error: scenError} = await supabase  
+//         .from('scenarios')
+//         .select('scenario_id')
+//         .order('created_at', { ascending: false })
+//         ;
+//         return allScenarios;
       
-      }
+//       }
 
 
-    if (userError) {
-      console.error('Error fetching user data:', userError);
-      return { data: [], error: userError };
-    }
+//     if (userError) {
+//       console.error('Error fetching user data:', userError);
+//       return { data: [], error: userError };
+//     }
 
-    // Build OR condition for assignments
-    let orCondition = `user_id.eq.${userId}`;
-    if (userData.department_id) {
-      orCondition += `,department_id.eq.${userData.department_id}`;
-    }
+//     // Build OR condition for assignments
+//     let orCondition = `user_id.eq.${userId}`;
+//     if (userData.function_id) {
+//       orCondition += `,target_id.eq.${userData.function_id}`;
+//     }
+//     if (userData.sub_function_id) {
+//       orCondition += `,target_id.eq.${userData.sub_function_id}`;
+//     }
 
-    // Get all assignments for this user (direct or department)
-    const { data: assignments, error: assignError } = await supabase
-      .from('scenario_assignments')
-      .select('scenario_id')
-      .eq('user_id', userId)
-      // .or(orCondition);
+//     // Get all assignments for this user (direct or function)
+//     const { data: assignments, error: assignError } = await supabase
+//       .from('scenario_assignments')
+//       .select('scenario_id')
+//       .eq('user_id', userId)
+//       // .or(orCondition);
 
-      // if()
-    if (assignError) {
-      const {data:assignments, error: assignError} = await supabase
-      .from('scenario_assignments')
-      .select('scenario_id')
-      .eq('department_id', userData.department_id);
+//       // if()
+//     if (assignError) {
+//       const {data:assignments, error: assignError} = await supabase
+//       .from('scenario_assignments')
+//       .select('scenario_id')
+//       .eq('target_id', userData.function_id);
       
       
       
-      if (assignError) {
-        console.log("No Modules found for the user");
-      return { data: [], error: assignError };}
+//       if (assignError) {
+//         console.log("No Modules found for the user");
+//       return { data: [], error: assignError };}
 
 
 
-    const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
-    return { data: scenarioIds, error: null };
-    }
+//     const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
+//     return { data: scenarioIds, error: null };
+//     }
 
-    // Extract unique scenario IDs
-    const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
+//     // Extract unique scenario IDs
+//     const scenarioIds = [...new Set(assignments?.map((a: any) => a.scenario_id) || [])];
     
-    return { data: scenarioIds, error: null };
-  } catch (error) {
-    console.error('Exception in getAssignedScenariosForUser:', error);
-    return { data: [], error };
-  }
-}
+//     return { data: scenarioIds, error: null };
+//   } catch (error) {
+//     console.error('Exception in getAssignedScenariosForUser:', error);
+//     return { data: [], error };
+//   }
+// }
 
-// Helper functions for role-play session database operations
-import { Message } from './roleplay/types';
-import { callGemini } from './gemini-helper';
+// // Helper functions for role-play session database operations
+// import { Message } from './roleplay/types';
+// import { callGemini } from './gemini-helper';
 
-export interface RolePlaySession {
-  id?: string;
-  employee_id: string;
-  module_id?: string;
-  scenario_id: string;
-  scenario_title: string;
-  scenario_role: string;
-  scenario_difficulty: string;
-  conversation_transcript: Message[];
-  started_at?: string;
-  completed_at?: string;
-  duration_seconds?: number;
-  message_count?: number;
-}
+// export interface RolePlaySession {
+//   id?: string;
+//   employee_id: string;
+//   module_id?: string;
+//   scenario_id: string;
+//   scenario_title: string;
+//   scenario_role: string;
+//   scenario_difficulty: string;
+//   conversation_transcript: Message[];
+//   started_at?: string;
+//   completed_at?: string;
+//   duration_seconds?: number;
+//   message_count?: number;
+// }
 
-export interface RolePlayAssessment {
-  id?: string;
-  session_id: string;
-  employee_id: string;
-  overall_score: number;
-  summary: string;
-  parameters: Array<{
-    name: string;
-    score: number;
-    feedback: string;
-  }>;
-  recommendations: string[];
-}
+// export interface RolePlayAssessment {
+//   id?: string;
+//   session_id: string;
+//   employee_id: string;
+//   overall_score: number;
+//   summary: string;
+//   parameters: Array<{
+//     name: string;
+//     score: number;
+//     feedback: string;
+//   }>;
+//   recommendations: string[];
+// }
 
-/**
- * Create a new role-play session
- */
-export async function createRolePlaySession(
-  employeeId: string,
-  scenarioId: string,
-  scenarioTitle: string,
-  scenarioRole: string,
-  scenarioDifficulty: string,
-  moduleId?: string
-): Promise<{ data: any; error: any }> {
+// /**
+//  * Create a new role-play session
+//  */
+// export async function createRolePlaySession(
+//   employeeId: string,
+//   scenarioId: string,
+//   scenarioTitle: string,
+//   scenarioRole: string,
+//   scenarioDifficulty: string,
+//   moduleId?: string
+// ): Promise<{ data: any; error: any }> {
 
 
-  try {
-    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions/create`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        employee_id: employeeId,
-        scenario_id: scenarioId,
-        scenario_title: scenarioTitle,
-        scenario_role: scenarioRole,
-        scenario_difficulty: scenarioDifficulty,
-        module_id: moduleId
-      })
-    });
+//   try {
+//     const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions`, {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: JSON.stringify({
+//         employee_id: employeeId,
+//         scenario_id: scenarioId,
+//         scenario_title: scenarioTitle,
+//         scenario_role: scenarioRole,
+//         scenario_difficulty: scenarioDifficulty,
+//         module_id: moduleId
+//       })
+//     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      return { data: null, error: { message: errorData.detail || "Unable to start session." } };
-    }
+//     if (!response.ok) {
+//       const errorData = await response.json();
+//       return { data: null, error: { message: errorData.detail || "Unable to start session." } };
+//     }
 
-    const result = await response.json();
-    return { data: result.data, error: null };
-  } catch (error) {
-    console.error("Error creating roleplay session:", error);
-    return { data: null, error: { message: "Network error. Unable to start session." } };
-  }
-}
+//     const result = await response.json();
+//     return { data: result.data, error: null };
+//   } catch (error) {
+//     console.error("Error creating roleplay session:", error);
+//     return { data: null, error: { message: "Network error. Unable to start session." } };
+//   }
+// }
 
-/**
- * Update role-play session with conversation transcript
- */
-export async function updateRolePlaySession(
-  sessionId: string,
-  messages: Message[],
-  isCompleted: boolean = false
-): Promise<{ data: any; error: any }> {
-  console.log('[updateRolePlaySession] Saving session:', {
-    sessionId,
-    messagesCount: messages.length,
-    isCompleted,
-    messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
-  });
+// /**
+//  * Update role-play session with conversation transcript
+//  */
+// export async function updateRolePlaySession(
+//   sessionId: string,
+//   messages: Message[],
+//   isCompleted: boolean = false
+// ): Promise<{ data: any; error: any }> {
+//   console.log('[updateRolePlaySession] Saving session:', {
+//     sessionId,
+//     messagesCount: messages.length,
+//     isCompleted,
+//     messagePreview: messages.slice(0, 2).map(m => `${m.sender}: ${m.text.substring(0, 30)}...`)
+//   });
 
-  try {
-    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions/${sessionId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: messages,
-        is_completed: isCompleted
-      })
-    });
+//   try {
+//     const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/sessions/${sessionId}`, {
+//       method: 'PUT',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: JSON.stringify({
+//         messages: messages,
+//         is_completed: isCompleted
+//       })
+//     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('[updateRolePlaySession] ❌ Error:', errorData.detail);
-      return { data: null, error: errorData };
-    }
+//     if (!response.ok) {
+//       const errorData = await response.json();
+//       console.error('[updateRolePlaySession] ❌ Error:', errorData.detail);
+//       return { data: null, error: errorData };
+//     }
 
-    const result = await response.json();
-    const data = result.data;
-    console.log('[updateRolePlaySession] ✅ Success:', { 
-      id: data?.id,
-      savedMessageCount: data?.message_count,
-      hasTranscript: !!data?.conversation_transcript
-    });
-    return { data, error: null };
-  } catch (error) {
-    console.error('[updateRolePlaySession] ❌ Network Error:', error);
-    return { data: null, error };
-  }
-}
+//     const result = await response.json();
+//     const data = result.data;
+//     console.log('[updateRolePlaySession] ✅ Success:', { 
+//       id: data?.id,
+//       savedMessageCount: data?.message_count,
+//       hasTranscript: !!data?.conversation_transcript
+//     });
+//     return { data, error: null };
+//   } catch (error) {
+//     console.error('[updateRolePlaySession] ❌ Network Error:', error);
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Create a role-play assessment
- */
-export async function createRolePlayAssessment(
-  sessionId: string,
-  employeeId: string,
-  assessmentData: {
-    overallScore: number;
-    summary: string;
-    parameters: Array<{ name: string; score: number; feedback: string }>;
-    recommendations: string[];
-  }
-): Promise<{ data: any; error: any }> {
-  console.log('[createRolePlayAssessment] Saving assessment:', {
-    sessionId,
-    employeeId,
-    overallScore: assessmentData.overallScore,
-    parametersCount: assessmentData.parameters.length
-  });
+// /**
+//  * Create a role-play assessment
+//  */
+// export async function createRolePlayAssessment(
+//   sessionId: string,
+//   employeeId: string,
+//   assessmentData: {
+//     overallScore: number;
+//     summary: string;
+//     parameters: Array<{ name: string; score: number; feedback: string }>;
+//     recommendations: string[];
+//   }
+// ): Promise<{ data: any; error: any }> {
+//   console.log('[createRolePlayAssessment] Saving assessment:', {
+//     sessionId,
+//     employeeId,
+//     overallScore: assessmentData.overallScore,
+//     parametersCount: assessmentData.parameters.length
+//   });
 
-  try {
-    const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/assessments/create`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-        employee_id: employeeId,
-        overallScore: assessmentData.overallScore,
-        summary: assessmentData.summary,
-        parameters: assessmentData.parameters,
-        recommendations: assessmentData.recommendations
-      })
-    });
+//   try {
+//     const response = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'}/api/roleplay/assessments/create`, {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: JSON.stringify({
+//         session_id: sessionId,
+//         employee_id: employeeId,
+//         overallScore: assessmentData.overallScore,
+//         summary: assessmentData.summary,
+//         parameters: assessmentData.parameters,
+//         recommendations: assessmentData.recommendations
+//       })
+//     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('[createRolePlayAssessment] Error:', errorData.detail);
-      return { data: null, error: errorData };
-    }
+//     if (!response.ok) {
+//       const errorData = await response.json();
+//       console.error('[createRolePlayAssessment] Error:', errorData.detail);
+//       return { data: null, error: errorData };
+//     }
 
-    const result = await response.json();
-    const data = result.data;
-    console.log('[createRolePlayAssessment] Success:', { id: data?.id, score: data?.overall_score });
-    return { data, error: null };
-  } catch (error) {
-    console.error('[createRolePlayAssessment] Network Error:', error);
-    return { data: null, error };
-  }
-}
+//     const result = await response.json();
+//     const data = result.data;
+//     console.log('[createRolePlayAssessment] Success:', { id: data?.id, score: data?.overall_score });
+//     return { data, error: null };
+//   } catch (error) {
+//     console.error('[createRolePlayAssessment] Network Error:', error);
+//     return { data: null, error };
+//   }
+// }
 
-/**
- * Get all role-play sessions for an employee
- */
-export async function getEmployeeRolePlaySessions(
-  employeeId: string,
-  limit: number = 10
-): Promise<{ data: any[] | null; error: any }> {
-  const { data, error } = await supabase
-    .from('roleplay_sessions')
-    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
-    .eq('employee_id', employeeId)
-    .order('completed_at', { ascending: false, nullsFirst: false })
-    .limit(limit);
+// /**
+//  * Get all role-play sessions for an employee
+//  */
+// export async function getEmployeeRolePlaySessions(
+//   employeeId: string,
+//   limit: number = 10
+// ): Promise<{ data: any[] | null; error: any }> {
+//   const { data, error } = await supabase
+//     .from('roleplay_sessions')
+//     .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
+//     .eq('employee_id', employeeId)
+//     .order('completed_at', { ascending: false, nullsFirst: false })
+//     .limit(limit);
 
-  if (data && Array.isArray(data)) {
-    console.log(`[getEmployeeRolePlaySessions] Fetched ${data.length} sessions:`, data.map(s => ({
-      id: s.id,
-      hasTranscript: !!s.conversation_transcript,
-      messageCount: s.message_count,
-      transcriptLength: Array.isArray(s.conversation_transcript) ? s.conversation_transcript.length : 'N/A'
-    })));
-  }
+//   if (data && Array.isArray(data)) {
+//     console.log(`[getEmployeeRolePlaySessions] Fetched ${data.length} sessions:`, data.map(s => ({
+//       id: s.id,
+//       hasTranscript: !!s.conversation_transcript,
+//       messageCount: s.message_count,
+//       transcriptLength: Array.isArray(s.conversation_transcript) ? s.conversation_transcript.length : 'N/A'
+//     })));
+//   }
 
-  return { data, error };
-}
+//   return { data, error };
+// }
 
-/**
- * Get a specific session with its assessment
- */
-export async function getRolePlaySessionWithAssessment(
-  sessionId: string
-): Promise<{ data: any; error: any }> {
-  const { data, error } = await supabase
-    .from('roleplay_sessions')
-    .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
-    .eq('id', sessionId)
-    .single();
+// /**
+//  * Get a specific session with its assessment
+//  */
+// export async function getRolePlaySessionWithAssessment(
+//   sessionId: string
+// ): Promise<{ data: any; error: any }> {
+//   const { data, error } = await supabase
+//     .from('roleplay_sessions')
+//     .select('id, employee_id, module_id, scenario_id, scenario_title, scenario_role, scenario_difficulty, conversation_transcript, started_at, completed_at, duration_seconds, message_count, roleplay_assessments(id, overall_score, summary, parameters, recommendations, created_at)')
+//     .eq('id', sessionId)
+//     .single();
 
-  return { data, error };
-}
+//   return { data, error };
+// }
 
-/**
- * Get employee's role-play statistics
- */
-export async function getEmployeeRolePlayStats(
-  employeeId: string
-): Promise<{ data: any; error: any }> {
-  const { data: sessions, error: sessionsError } = await supabase
-    .from('roleplay_sessions')
-    .select('id, scenario_id, completed_at')
-    .eq('employee_id', employeeId)
-    .not('completed_at', 'is', null);
+// /**
+//  * Get employee's role-play statistics
+//  */
+// export async function getEmployeeRolePlayStats(
+//   employeeId: string
+// ): Promise<{ data: any; error: any }> {
+//   const { data: sessions, error: sessionsError } = await supabase
+//     .from('roleplay_sessions')
+//     .select('id, scenario_id, completed_at')
+//     .eq('employee_id', employeeId)
+//     .not('completed_at', 'is', null);
 
-  if (sessionsError) return { data: null, error: sessionsError };
+//   if (sessionsError) return { data: null, error: sessionsError };
 
-  const { data: assessments, error: assessmentsError } = await supabase
-    .from('roleplay_assessments')
-    .select('overall_score, created_at')
-    .eq('employee_id', employeeId);
+//   const { data: assessments, error: assessmentsError } = await supabase
+//     .from('roleplay_assessments')
+//     .select('overall_score, created_at')
+//     .eq('employee_id', employeeId);
 
-  if (assessmentsError) return { data: null, error: assessmentsError };
+//   if (assessmentsError) return { data: null, error: assessmentsError };
 
-  // Calculate statistics
-  const stats = {
-    total_sessions: sessions?.length || 0,
-    completed_sessions: sessions?.filter((s: any) => s.completed_at).length || 0,
-    average_score: assessments?.length 
-      ? Math.round(assessments.reduce((sum: number, a: any) => sum + a.overall_score, 0) / assessments.length)
-      : 0,
-    best_score: assessments?.length 
-      ? Math.max(...assessments.map((a: any) => a.overall_score))
-      : 0,
-    recent_sessions: sessions?.slice(0, 5) || [],
-  };
+//   // Calculate statistics
+//   const stats = {
+//     total_sessions: sessions?.length || 0,
+//     completed_sessions: sessions?.filter((s: any) => s.completed_at).length || 0,
+//     average_score: assessments?.length 
+//       ? Math.round(assessments.reduce((sum: number, a: any) => sum + a.overall_score, 0) / assessments.length)
+//       : 0,
+//     best_score: assessments?.length 
+//       ? Math.max(...assessments.map((a: any) => a.overall_score))
+//       : 0,
+//     recent_sessions: sessions?.slice(0, 5) || [],
+//   };
 
-  return { data: stats, error: null };
-}
+//   return { data: stats, error: null };
+// }
 
-/**
- * Delete a role-play session (cascade deletes assessment)
- */
-export async function deleteRolePlaySession(
-  sessionId: string
-): Promise<{ error: any }> {
-  const { error } = await supabase
-    .from('roleplay_sessions')
-    .delete()
-    .eq('id', sessionId);
+// /**
+//  * Delete a role-play session (cascade deletes assessment)
+//  */
+// export async function deleteRolePlaySession(
+//   sessionId: string
+// ): Promise<{ error: any }> {
+//   const { error } = await supabase
+//     .from('roleplay_sessions')
+//     .delete()
+//     .eq('id', sessionId);
 
-  return { error };
-}
+//   return { error };
+// }

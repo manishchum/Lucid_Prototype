@@ -18,7 +18,6 @@ import {
   submitTaskResponse,
   reassignTask,
   fetchAudienceFunctions,
-  fetchAudienceSubFunctions,
   type CreateTaskPayload,
   type SubmitTaskPayload,
   type Task,
@@ -204,27 +203,10 @@ function TaskManagerContent() {
 
       const subFunctionsMap: Record<string, string[]> = {};
       if (apiFunctions && apiFunctions.length > 0) {
-        const subFuncsResults = await Promise.all(
-          apiFunctions.map(async (f) => {
-            try {
-              const subFuncs = await fetchAudienceSubFunctions(f.function_id, {
-                userId: effectiveUserId,
-                companyId,
-              });
-              return {
-                functionName: f.function_name,
-                subFunctionNames: subFuncs.map((sf) => sf.sub_function_name),
-              };
-            } catch (err) {
-              return {
-                functionName: f.function_name,
-                subFunctionNames: [],
-              };
-            }
-          })
-        );
-        subFuncsResults.forEach((res) => {
-          subFunctionsMap[res.functionName] = res.subFunctionNames;
+        apiFunctions.forEach((f) => {
+          subFunctionsMap[f.function_name] = (f.sub_functions || []).map(
+            (sf) => sf.sub_function_name
+          );
         });
       }
 

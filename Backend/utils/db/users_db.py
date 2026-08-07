@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 import bcrypt
 from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
+import os
 
 # Default password for new users
-DEFAULT_PASSWORD = "workfloww@2025"
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
@@ -138,7 +139,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
         resp = (
             query_client
             .table("users")
-            .select("*")
+            .select("user_id, email, name, company_id, department_id, manager_id, position, phone, avatar_url, employment_status, hire_date, last_login, login_count, is_active, created_at, updated_at, password, title_id, function_id, sub_function_id, ready_status, email_unsubscribed, unsubscribed_at, firebase_uid, fcm_token")
             .in_("phone", possible_formats)
             .limit(1)
             .execute()
@@ -253,7 +254,8 @@ async def get_users_by_company(
             position,
             hire_date,
             employment_status,
-            department_id,
+            function_id,
+            sub_function_id,
             is_active,
             created_at
             '''

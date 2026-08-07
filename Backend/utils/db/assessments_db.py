@@ -90,7 +90,7 @@ async def get_assessments_batch(
         resp = (
             supabase
             .table("assessments")
-            .select("*")
+            .select("assessment_id, processed_module_id, type, questions, created_at, company_id, modules_snapshot, learning_style, original_module_id")
             .in_("assessment_id", assessment_ids)
             .execute()
         )

@@ -14,14 +14,14 @@ from utils.db.companies_db import (
     update_company,
     delete_company,
     search_companies,
-    get_org_templates_from_sub_department,
+    get_org_templates,
     provision_company_functions,
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
 from utils.redis_client import redis_client, set_cache, get_cache
 from utils.db.permissions import check_user_permission
-from utils.auth import get_request_auth_required, RequestAuth
+from utils.auth import get_request_auth_required, get_request_auth_optional, RequestAuth
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 
@@ -48,7 +48,7 @@ class CustomFunctionEntry(BaseModel):
 
 
 class ProvisionCompanyFunctionsRequest(BaseModel):
-    selected_department_ids: List[str] = []
+    selected_function_ids: List[str] = []
     custom_entries: List[CustomFunctionEntry] = []
 
 
@@ -98,13 +98,13 @@ async def search_companies_route(
 
 @router.get("/org-templates")
 async def get_org_templates_route(
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Get default department/sub-department templates from sub_department.
+    Get default function/sub-function templates from function.
     Permission: Super admin/developer.
     """
-    result = await get_org_templates_from_sub_department(user_id)
+    result = await get_org_templates(auth_ctx.user_id)
 
     return {
         "success": True,
@@ -116,12 +116,12 @@ async def get_org_templates_route(
 @router.get("/{company_id}")
 async def get_company(
     company_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """
     Get company by ID.
-    Permission: Any authenticated user.
+    Permission: Any authenticated user or public pre-login check.
     """
     cache_key = f"company:{company_id}"
 
@@ -155,7 +155,7 @@ async def get_company(
 @router.get("/by-name/{company_name}")
 async def get_company_by_name_route(
     company_name: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """
@@ -177,7 +177,7 @@ async def get_company_by_name_route(
 @router.get("/by-domain/{domain}")
 async def get_company_by_domain_route(
     domain: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_optional)
 ):
     user_id = auth_ctx.user_id
     """
@@ -270,18 +270,18 @@ async def create_company_route(
 async def provision_company_functions_route(
     company_id: str,
     request: ProvisionCompanyFunctionsRequest,
-    user_id: str = Header(..., alias="X-User-ID")
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Provision function/sub_function rows for a company based on selected
-    sub_department templates and optional custom entries.
+    function templates and optional custom entries.
     Permission: Super admin/developer.
     """
     result = await provision_company_functions(
-        user_id,
+        auth_ctx.user_id,
         company_id,
-        request.selected_department_ids,
-        [entry.dict() for entry in request.custom_entries],
+        selected_function_ids=request.selected_function_ids,
+        custom_entries=[entry.dict() for entry in request.custom_entries],
     )
 
     return {

@@ -4,15 +4,15 @@ import { useEffect, useState, Suspense, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
-import { Scenario, AppScreen, Message } from '@/lib/roleplay/types';
-import { fetchScenariosForUserAPI, deleteCustomScenarioAPI, assignScenarioAPI, getScenarioAssignmentsAPI } from '@/lib/roleplayPageApi';
+import { Scenario, AppScreen, Message } from '@/lib/roleplayApi';
+import { fetchRoleplayBootstrap, deleteCustomScenarioAPI, assignScenarioAPI, finishRoleplaySession } from '@/lib/roleplayApi';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import RolePlayConversation from '@/components/roleplay/RolePlayConversation';
 import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/RoleplayConfigPage';
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
-import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
-import { supabase } from '@/lib/supabase';
+// import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
+// import { supabase } from '@/lib/supabase';
 import { callGemini } from '@/lib/gemini-helper';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
@@ -30,7 +30,7 @@ interface AssessmentReport {
 
 function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, moduleTitle: string, custom: string }> }) {
   const unwrappedParams = use(params);
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, userId, employeeData, isAdmin, rolesLoaded } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const moduleId = unwrappedParams.module_id;
@@ -43,7 +43,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
   const [assessmentReport, setAssessmentReport] = useState<AssessmentReport | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  // const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [isGeneratingAssessment, setIsGeneratingAssessment] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCustomModal, setShowCustomModal] = useState(false);
@@ -58,40 +58,80 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   });
   const [allScenarios, setAllScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState<boolean>(true);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  // const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
   const [assigningScenario, setAssigningScenario] = useState<Scenario | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'department' | 'sub_department' | 'user'>('user');
+  const [assignmentType, setAssignmentType] = useState<'function' | 'sub_function' | 'user'>('user');
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [subDepartments, setSubDepartments] = useState<any[]>([]);
+  const [functions, setFunctions] = useState<any[]>([]);
+  const [subFunctions, setSubFunctions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [companyId, setCompanyId] = useState<string>('');
-  const [userId, setUserId] = useState<string>('');
+  // const [companyId, setCompanyId] = useState<string>('');
+  // const [userId, setUserId] = useState<string>('');
+  const employeeId = userId;
+  const companyId = employeeData?.company_id || '';
   
   // Fetch all scenarios from the database on mount
+  // useEffect(() => {
+  //   const fetchScenarios = async () => {
+  //     if (!userId || !rolesLoaded) return;
+      
+  //     setLoadingScenarios(true);
+  //     // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
+      
+  //     const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+
+  //     // console.log('Fetched scenarios:', data);
+  //     if (data) {
+  //       setAllScenarios(data);
+  //     }
+  //     if (error) setError('Failed to load scenarios');
+  //     setLoadingScenarios(false);
+  //   };
+
+  //   // Only fetch scenarios after we have userId (which means admin check is done)
+  //   if (userId) {
+  //     fetchScenarios();
+  //   }
+  // }, [userId, isAdmin, rolesLoaded, searchParams]); // Depend on both userId and isAdmin
+
   useEffect(() => {
-    const fetchScenarios = async () => {
-      if (!userId) return;
-      
-      setLoadingScenarios(true);
-      // console.log('Fetching Scenarios for user id:', userId, 'isAdmin:', isAdmin);
-      
-      const { data, error } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+  const fetchBootstrap = async () => {
+    if (!userId || !rolesLoaded) return;
 
-      // console.log('Fetched scenarios:', data);
-      if (data) {
-        setAllScenarios(data);
-      }
-      if (error) setError('Failed to load scenarios');
+    setLoadingScenarios(true);
+
+    const { data, error } =
+      await fetchRoleplayBootstrap();
+
+    if (error) {
+      setError("Failed to load roleplay data");
       setLoadingScenarios(false);
-    };
-
-    // Only fetch scenarios after we have userId (which means admin check is done)
-    if (userId) {
-      fetchScenarios();
+      return;
     }
-  }, [isAdmin, searchParams]); // Depend on both userId and isAdmin
+
+    if (data) {
+      setAllScenarios(data.scenarios);
+
+      setFunctions(
+        data.assignmentTargets.functions || []
+      );
+
+      setSubFunctions(
+        data.assignmentTargets.sub_functions || []
+      );
+
+      setUsers(
+        data.assignmentTargets.users || []
+      );
+    }
+
+    setLoadingScenarios(false);
+  };
+
+  fetchBootstrap();
+
+}, [userId, rolesLoaded]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -99,20 +139,20 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     }
   }, [user, authLoading, router]);
 
-  const fetchAppUserByEmail = async (email?: string | null) => {
-    if (!email) return null;
-    try {
-      const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
-      if (!res.ok) return null;
-      const payload = await res.json();
-      let appUser = payload?.user ?? payload;
-      if (Array.isArray(appUser)) appUser = appUser[0];
-      return appUser?.user_id ? appUser : null;
-    } catch (error) {
-      console.error("Error fetching app user by email:", error);
-      return null;
-    }
-  };
+  // const fetchAppUserByEmail = async (email?: string | null) => {
+  //   if (!email) return null;
+  //   try {
+  //     const res = await fetchWithAuth(`${API_URL}/api/users/by-email/${encodeURIComponent(email)}`);
+  //     if (!res.ok) return null;
+  //     const payload = await res.json();
+  //     let appUser = payload?.user ?? payload;
+  //     if (Array.isArray(appUser)) appUser = appUser[0];
+  //     return appUser?.user_id ? appUser : null;
+  //   } catch (error) {
+  //     console.error("Error fetching app user by email:", error);
+  //     return null;
+  //   }
+  // };
 
   // Load custom scenario from sessionStorage if custom=true
   useEffect(() => {
@@ -144,81 +184,81 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   }, [isCustom]);
 
   // Fetch employee profile via backend auth-aware endpoint
-  useEffect(() => {
-    const fetchEmployeeId = async () => {
-      if (user?.email) {
-        try {
-          const appUser = await fetchAppUserByEmail(user.email);
-          if (!appUser) {
-            console.error("Error fetching employee ID: user not found");
-            return;
-          }
-          setEmployeeId(appUser.user_id);
-          setUserId(appUser.user_id);
-          setCompanyId(appUser.company_id);
-        } catch (error) {
-          console.error('Exception fetching employee ID:', error);
-        }
-      }
-    };
-    fetchEmployeeId();
-  }, [user]);
+  // useEffect(() => {
+  //   const fetchEmployeeId = async () => {
+  //     if (user?.email) {
+  //       try {
+  //         const appUser = await fetchAppUserByEmail(user.email);
+  //         if (!appUser) {
+  //           console.error("Error fetching employee ID: user not found");
+  //           return;
+  //         }
+  //         setEmployeeId(appUser.user_id);
+  //         setUserId(appUser.user_id);
+  //         setCompanyId(appUser.company_id);
+  //       } catch (error) {
+  //         console.error('Exception fetching employee ID:', error);
+  //       }
+  //     }
+  //   };
+  //   fetchEmployeeId();
+  // }, [user]);
 
   // Check if user has admin role
-  useEffect(() => {
-    const fetchUserDataAndCheckAdmin = async () => {
-      if (user?.email) {
-        try {
-          const userData = await fetchAppUserByEmail(user.email);
-          if (!userData) {
-            console.error('Error fetching user data: user not found');
-            setIsAdmin(false);
-            return;
-          }
+  // useEffect(() => {
+  //   const fetchUserDataAndCheckAdmin = async () => {
+  //     if (user?.email) {
+  //       try {
+  //         const userData = await fetchAppUserByEmail(user.email);
+  //         if (!userData) {
+  //           console.error('Error fetching user data: user not found');
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          setEmployeeId(userData.user_id);
-          setUserId(userData.user_id);
-          setCompanyId(userData.company_id);
+  //         setEmployeeId(userData.user_id);
+  //         setUserId(userData.user_id);
+  //         setCompanyId(userData.company_id);
 
-          // Check user role assignments
-          const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`, {
-            headers: { 'X-User-ID': userData.user_id }
-          });
+  //         // Check user role assignments
+  //         const roleRes = await fetchWithAuth(`${API_URL}/api/roles/users/${encodeURIComponent(userData.user_id)}`, {
+  //           headers: { 'X-User-ID': userData.user_id }
+  //         });
 
-          if (!roleRes.ok) {
-            console.error('Failed to fetch role assignments:', roleRes.status);
-            setIsAdmin(false);
-            return;
-          }
+  //         if (!roleRes.ok) {
+  //           console.error('Failed to fetch role assignments:', roleRes.status);
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          const rolePayload = await roleRes.json().catch(() => null);
-          const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
-          if (!Array.isArray(roleData) || roleData.length === 0) {
-            // console.log('No admin role found');
-            setIsAdmin(false);
-            return;
-          }
+  //         const rolePayload = await roleRes.json().catch(() => null);
+  //         const roleData = rolePayload?.assignments ?? rolePayload?.data ?? rolePayload ?? [];
+  //         if (!Array.isArray(roleData) || roleData.length === 0) {
+  //           // console.log('No admin role found');
+  //           setIsAdmin(false);
+  //           return;
+  //         }
 
-          // Check if user has Admin role
-          const hasAdminRole = roleData.some((assignment: any) => {
-            const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
-            const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
-            const roleName = String(roleNode?.name || '').toLowerCase().replace(/[-_\s]/g, '');
-            const roleLevel = Number(roleNode?.level ?? assignment?.level ?? -1);
-            return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
-          });
+  //         // Check if user has Admin role
+  //         const hasAdminRole = roleData.some((assignment: any) => {
+  //           const roleObj = assignment?.role ?? assignment?.roles ?? assignment ?? {};
+  //           const roleNode = Array.isArray(roleObj) ? roleObj[0] : roleObj;
+  //           const roleName = String(roleNode?.name || '').toLowerCase().replace(/[-_\s]/g, '');
+  //           const roleLevel = Number(roleNode?.level ?? assignment?.level ?? -1);
+  //           return roleLevel >= 3 || ['admin', 'companyadmin', 'superadmin', 'ceo'].includes(roleName);
+  //         });
 
-          //console.log('User is admin:', hasAdminRole);
-          setIsAdmin(hasAdminRole);
-        } catch (error) {
-          console.error('Error in fetchUserDataAndCheckAdmin:', error);
-          setIsAdmin(false);
-        }
-      }
-    };
+  //         //console.log('User is admin:', hasAdminRole);
+  //         setIsAdmin(hasAdminRole);
+  //       } catch (error) {
+  //         console.error('Error in fetchUserDataAndCheckAdmin:', error);
+  //         setIsAdmin(false);
+  //       }
+  //     }
+  //   };
 
-    fetchUserDataAndCheckAdmin();
-  }, [user]);
+  //   fetchUserDataAndCheckAdmin();
+  // }, [user]);
 
   const handleScenarioSelect = (scenario: Scenario) => {
           //console.log('Loaded custom scenario from sessionStorage:', scenario);
@@ -253,10 +293,13 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
       }
 
       // Refresh scenarios list
-      const { data, error: fetchError } = await fetchScenariosForUserAPI(userId, isAdmin || false);
+      const { data, error: fetchError } = await fetchRoleplayBootstrap();
       // console.log('scenarios for the admins',data);
-      if (data) {
-        setAllScenarios(data);
+      if (!fetchError && data){
+        setAllScenarios(data.scenarios);
+        setFunctions(data.assignmentTargets.functions);
+        setSubFunctions(data.assignmentTargets.sub_functions);
+        setUsers(data.assignmentTargets.users);
       }
       if (fetchError) {
         console.error('Error refreshing scenarios:', fetchError);
@@ -272,50 +315,43 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     }
   };
 
-  const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card click
+  // const handleAssignScenario = async (scenario: Scenario, e: React.MouseEvent) => {
+  //   e.stopPropagation(); // Prevent card click
 
 
-    //console.log('Assigning scenario:', scenario);
-    setAssigningScenario(scenario);
-    setShowAssignModal(true);
+  //   //console.log('Assigning scenario:', scenario);
+  //   setAssigningScenario(scenario);
+  //   setShowAssignModal(true);
     
-    // Fetch departments (where sub_department_name IS NULL) and users for the dropdown
-    try {
-      // Fetch departments (entries with department_name and no sub_department_name)
-      const { data: deptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name')
-        // .is('sub_department_name', null);
-      
-      // Remove duplicates based on department_name
-      const uniqueDepts = deptData?.reduce((acc: any[], curr: any) => {
-        if (!acc.find(d => d.department_name === curr.department_name)) {
-          acc.push(curr);
-        }
-        return acc;
-      }, []);
-      setDepartments(uniqueDepts || []);
+  //   // Fetch functions and sub-functions and users for the dropdown
+  //   try {
+  //     const response = await fetchWithAuth(
+  //       `${API_URL}/api/roleplay/assignment-targets`
+  //     );
 
-      // Fetch sub-departments (entries with both department_name and sub_department_name)
-      const { data: subDeptData } = await supabase
-        .from('sub_department')
-        .select('department_id, department_name, sub_department_name')
-        .not('sub_department_name', 'is', null);
-      setSubDepartments(subDeptData || []);
+  //     if (!response.ok) {
+  //       throw new Error("Failed to load assignment targets");
+  //     }
 
-      // Fetch users for this company
-      const { data: usersData } = await supabase
-        .from('users')
-        .select('user_id, name, email, department_id')
-        .eq('company_id', companyId)
-        .eq('is_active', true);
-      setUsers(usersData || []);
-    } catch (error) {
-      console.error('Error fetching assignment targets:', error);
-    }
+  //     const result = await response.json();
+  //     const targets = result.data || {};
+
+  //     setFunctions(targets.functions || []);
+  //     setSubFunctions(targets.sub_functions || []);
+  //     setUsers(targets.users || []);
+  //     } catch (error) {
+  //     console.error("Error fetching assignment targets:", error);
+  //   }
+  // };
+
+  const handleAssignScenario = async (
+      scenario: Scenario,
+      e: React.MouseEvent
+  ) => {
+      e.stopPropagation();
+      setAssigningScenario(scenario);
+      setShowAssignModal(true);
   };
-
   const handleSaveAssignment = async () => {
     if (!assigningScenario || selectedTargets.length === 0) {
       alert('Please select at least one target');
@@ -410,36 +446,47 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         throw new Error('Scenario information not available');
       }
 
-      const response = await fetchWithAuth(`${API_URL}/api/roleplay/assessment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-        },
-        cache: 'no-store',
-        body: JSON.stringify({
-          messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
-          scenarioTitle: selectedScenario?.title,
-          scenarioRole: selectedScenario?.role,
-          userRole: selectedScenario?.userRole
-        }),
-      });
+      // const response = await fetchWithAuth(`${API_URL}/api/roleplay/sessions/${sessionId}/assessment`, {
+      //   method: 'POST',
+      //   cache: 'no-store',
+      //   // headers: {
+      //   //   'Content-Type': 'application/json',
+      //   //   'Cache-Control': 'no-cache, no-store, must-revalidate',
+      //   //   'Pragma': 'no-cache',
+      //   // },
+        
+      //   // body: JSON.stringify({
+      //   //   messages: messages.length > 0 ? messages : [], // ✅ Send empty array if no messages
+      //   //   scenarioTitle: selectedScenario?.title,
+      //   //   scenarioRole: selectedScenario?.role,
+      //   //   userRole: selectedScenario?.userRole
+      //   });
+      // // console.log('[Assessment] Response status:', response.status);
 
-      // console.log('[Assessment] Response status:', response.status);
+      // if (!response.ok) {
+      //   let errorData: any = {};
+      //   try {
+      //     errorData = await response.json();
+      //   } catch {
+      //     errorData = { error: `HTTP ${response.status}` };
+      //   }
+      //   console.error('[Assessment] Error response:', errorData);
+      //   throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
+      // }
 
-      if (!response.ok) {
-        let errorData: any = {};
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = { error: `HTTP ${response.status}` };
-        }
-        console.error('[Assessment] Error response:', errorData);
-        throw new Error(errorData.error || `Failed to generate assessment (HTTP ${response.status})`);
+      // const assessmentResult = await response.json();
+      // const assessment = assessmentResult?.data ?? assessmentResult;
+
+      const {
+          data: assessment,
+          error,
+      } = await finishRoleplaySession(
+          sessionId!
+      );
+
+      if (error) {
+          throw new Error(error);
       }
-
-      const assessment = await response.json();
       // console.log('[Assessment] Success, score:', assessment?.overallScore);
       
       // ✅ Validate assessment structure - zero score is valid!
@@ -462,7 +509,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           // });
           
           // console.log('[Assessment] Saving to DB with sessionId:', sessionId);
-          await createRolePlayAssessment(sessionId, employeeId, assessment);
+          // await createRolePlayAssessment(sessionId, employeeId, assessment);
           // console.log('[Assessment] ✅ Saved to database');
         } catch (dbError) {
           console.error('❌ Error saving assessment to database:', dbError);
@@ -874,7 +921,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">
               <h2 className="text-2xl font-bold text-slate-900">Assign Roleplay Scenario</h2>
-              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to departments, sub-departments, or users</p>
+              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to functions, sub-functions, or users</p>
             </div>
 
             <div className="p-6 space-y-4">
@@ -892,8 +939,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 >
                   <option value="user">Individual Users</option>
-                  <option value="sub_department">Sub-Department</option>
-                  <option value="department">Department</option>
+                  <option value="sub_function">Sub-Function</option>
+                  <option value="function">Function</option>
                 </select>
               </div>
 
@@ -903,47 +950,50 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
                   Select Targets *
                 </label>
                 
-                {assignmentType === 'department' && (
+                {assignmentType === 'function' && (
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {departments.map((dept) => (
-                      <label key={dept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                    {functions.map((func) => (
+                      <label key={func.function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={selectedTargets.includes(dept.department_id)}
+                          checked={selectedTargets.includes(func.function_id)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, dept.department_id]);
+                              setSelectedTargets([...selectedTargets, func.function_id]);
                             } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== dept.department_id));
+                              setSelectedTargets(selectedTargets.filter(id => id !== func.function_id));
                             }
                           }}
                           className="w-4 h-4"
                         />
-                        <span className="text-sm">{dept.department_name}</span>
+                        <span className="text-sm">{func.function_name}</span>
                       </label>
                     ))}
                   </div>
                 )}
 
-                {assignmentType === 'sub_department' && (
+                {assignmentType === 'sub_function' && (
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {subDepartments.map((subDept) => (
-                      <label key={subDept.department_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedTargets.includes(subDept.department_id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, subDept.department_id]);
-                            } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== subDept.department_id));
-                            }
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <span className="text-sm">{subDept.department_name} - {subDept.sub_department_name}</span>
-                      </label>
-                    ))}
+                    {subFunctions.map((subFunc) => {
+                      const parentFunc = functions.find(f => f.function_id === subFunc.function_id);
+                      return (
+                        <label key={subFunc.sub_function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedTargets.includes(subFunc.sub_function_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedTargets([...selectedTargets, subFunc.sub_function_id]);
+                              } else {
+                                setSelectedTargets(selectedTargets.filter(id => id !== subFunc.sub_function_id));
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm">{parentFunc?.function_name} - {subFunc.sub_function_name}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
 

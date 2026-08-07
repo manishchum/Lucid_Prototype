@@ -9,6 +9,7 @@ import AIFeedbackModal from '../AIFeedbackModal';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { useToast } from "@/hooks/use-toast";
+import { CustomPagination } from '@/components/ui/custom-pagination';
 import { 
   Plus, 
   Search, 
@@ -79,7 +80,9 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed'>('active');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-  const [displayLimit, setDisplayLimit] = useState(3);
+  const [sortBy, setSortBy] = useState('title');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // Interactive submission tracking for employees
   const [activeSubmittingTaskId, setActiveSubmittingTaskId] = useState<string | null>(null);
@@ -221,6 +224,29 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
     return matchesStatus && matchesSearch;
   });
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    if (sortBy === 'title') {
+      const titleA = a.title || a.tasks.map(t => t.title).join(' ');
+      const titleB = b.title || b.tasks.map(t => t.title).join(' ');
+      return titleA.localeCompare(titleB);
+    }
+    if (sortBy === 'recent') {
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    }
+    if (sortBy === 'completion') {
+      const compA = a.totalTargetUsersCount > 0 ? (a.completionCount || 0) / a.totalTargetUsersCount : 0;
+      const compB = b.totalTargetUsersCount > 0 ? (b.completionCount || 0) / b.totalTargetUsersCount : 0;
+      return compB - compA;
+    }
+    return 0;
+  });
+
+  const totalPages = Math.ceil(sortedTasks.length / itemsPerPage);
+  const paginatedTasks = sortedTasks.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   // console.log("FILTERED TASKS:", filteredTasks);
 
@@ -791,7 +817,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
 
         <div className="flex flex-wrap gap-2 items-center">
           <button
-            onClick={() => { setStatusFilter('active'); setDisplayLimit(3); }}
+            onClick={() => { setStatusFilter('active'); setCurrentPage(1); }}
             className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
             }`}
@@ -799,7 +825,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
             Active
           </button>
           <button
-            onClick={() => { setStatusFilter('completed'); setDisplayLimit(3); }}
+            onClick={() => { setStatusFilter('completed'); setCurrentPage(1); }}
             className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
             }`}
@@ -807,7 +833,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
             Completed
           </button>
           <button
-            onClick={() => { setStatusFilter('all'); setDisplayLimit(3); }}
+            onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
             className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
               statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
             }`}
@@ -828,10 +854,14 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
             />
           </div>
-          <select className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 outline-none w-full sm:w-48 cursor-pointer">
-            <option>Sort by Title</option>
-            <option>Recently Added</option>
-            <option>Completion</option>
+          <select
+            value={sortBy}
+            onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
+            className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 outline-none w-full sm:w-48 cursor-pointer"
+          >
+            <option value="title">Sort by Title</option>
+            <option value="recent">Recently Added</option>
+            <option value="completion">Completion</option>
           </select>
         </div>
       </div>
@@ -867,7 +897,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               </div>
             )}
             <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "flex flex-col divide-y divide-gray-100 bg-white"}>
-              {filteredTasks.slice(0, displayLimit).map((task) => {
+              {paginatedTasks.map((task) => {
                 // treat backend-provided submission (attached to the assignment) as completed by this user
                 const isCompletedByMe =
                   task.status === 'Completed' ||
@@ -1702,16 +1732,14 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
             );
           })}
         </div>
-        {filteredTasks.length > displayLimit && (
-          <div className={viewMode === 'list' ? "p-4 border-t border-gray-100 bg-white flex justify-end" : "pt-2 flex justify-end"}>
-            <button 
-              onClick={() => setDisplayLimit(prev => prev + 3)}
-              className="bg-[#2F63FF] hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-            >
-              Show More <ChevronDown size={14} />
-            </button>
-          </div>
-        )}
+        <CustomPagination
+          className={viewMode === 'list' ? "border-t border-gray-100 bg-white" : "mt-4"}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          setItemsPerPage={setItemsPerPage}
+          setCurrentPage={setCurrentPage}
+        />
       </div>
     </div>
   )}

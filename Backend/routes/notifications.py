@@ -7,8 +7,16 @@ from utils.assignment_notifications import send_bulk_assignment_notification_ema
 from utils.supabase_client import supabase
 from utils.websocket_manager import manager
 from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional, _ensure_firebase_admin_initialized
+from utils.notification_dispatcher import (
+    dispatch_hybrid_notification,
+    get_redis_unread_count,
+    set_redis_unread_count,
+    invalidate_redis_unread_count,
+    ANDROID_CHANNEL_ID,
+)
 import firebase_admin
 from firebase_admin import messaging
+
 
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -18,7 +26,7 @@ class AssignmentNotificationRequest(BaseModel):
     assignment_type: Literal["sprint", "roleplay"]
     assignment_title: str
     company_id: str
-    target_type: Literal["user", "department", "sub_department"]
+    target_type: Literal["user", "function", "sub_function"]
     target_ids: List[str]
     frontend_url: str | None = None
 
@@ -42,6 +50,30 @@ async def register_token(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/unread-count")
+async def get_unread_count(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    cached_count = get_redis_unread_count(user_id)
+    if cached_count is not None:
+        return {"success": True, "unread_count": cached_count, "source": "redis"}
+
+    try:
+        resp = (
+            supabase.table("notifications")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("read", False)
+            .execute()
+        )
+        count = resp.count if resp.count is not None else len(resp.data or [])
+        set_redis_unread_count(user_id, count)
+        return {"success": True, "unread_count": count, "source": "db"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/")
 async def list_notifications(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
@@ -52,7 +84,7 @@ async def list_notifications(
     try:
         resp = (
             supabase.table("notifications")
-            .select("*")
+            .select("id,title,message,type,metadata,read,created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
@@ -79,6 +111,7 @@ async def mark_notification_read(
         )
         if not resp.data:
             raise HTTPException(status_code=404, detail="Notification not found or access denied")
+        invalidate_redis_unread_count(user_id)
         return {"success": True, "notification": resp.data[0]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -97,6 +130,7 @@ async def mark_all_notifications_read(
             .eq("read", False)
             .execute()
         )
+        invalidate_redis_unread_count(user_id)
         return {"success": True, "updated_count": len(resp.data or [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -105,11 +139,10 @@ async def mark_all_notifications_read(
 @router.websocket("/ws")
 async def websocket_notifications(
     websocket: WebSocket,
-    token: Optional[str] = None,
     user_id: Optional[str] = None
 ):
-    auth_token = token or websocket.query_params.get("token")
     auth_user_id = user_id or websocket.query_params.get("user_id")
+    auth_token = websocket.query_params.get("token")
 
     if not auth_user_id and auth_token:
         try:
@@ -118,8 +151,20 @@ async def websocket_notifications(
         except Exception:
             pass
 
+    await websocket.accept()
+
     if not auth_user_id:
-        await websocket.accept()
+        try:
+            import asyncio, json
+            init_text = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            payload = json.loads(init_text)
+            if payload.get("type") == "auth" and payload.get("token"):
+                auth_ctx = get_request_auth_optional(authorization=f"Bearer {payload['token']}")
+                auth_user_id = auth_ctx.user_id
+        except Exception:
+            pass
+
+    if not auth_user_id:
         await websocket.send_json({"error": "Unauthorized: Missing user identity"})
         await websocket.close(code=1008)
         return
@@ -136,9 +181,28 @@ async def websocket_notifications(
 
 
 @router.post("/assignment")
-async def send_assignment_notification(request: AssignmentNotificationRequest):
+async def send_assignment_notification(
+    request: AssignmentNotificationRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """Send assignment notifications. Caller must be authenticated and belong to the target company."""
     if not request.target_ids:
         raise HTTPException(status_code=400, detail="target_ids is required")
+
+    # Validate caller belongs to the same company they are targeting,
+    # unless they have an explicit super-admin / developer override.
+    if auth_ctx.company_id and auth_ctx.company_id != request.company_id:
+        from utils.db.permissions import check_user_permission
+        try:
+            is_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
+            is_dev = await check_user_permission(auth_ctx.user_id, "developer")
+        except Exception:
+            is_admin, is_dev = False, False
+        if not (is_admin or is_dev):
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to send notifications for this company"
+            )
 
     try:
         query = (
@@ -151,44 +215,46 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
 
         if request.target_type == "user":
             query = query.in_("user_id", request.target_ids)
-        elif request.target_type == "sub_department":
-            query = query.in_("department_id", request.target_ids)
+        elif request.target_type == "sub_function":
+            query = query.in_("sub_function_id", request.target_ids)
         else:
-            selected_departments = (
+            selected_functions = (
                 supabase
-                .table("sub_department")
-                .select("department_name")
-                .in_("department_id", request.target_ids)
+                .table("function")
+                .select("function_name")
+                .in_("function_id", request.target_ids)
+                .eq("company_id", request.company_id)
                 .execute()
             )
-            department_names = list({
-                row.get("department_name")
-                for row in (selected_departments.data or [])
-                if row.get("department_name")
+            function_names = list({
+                row.get("function_name")
+                for row in (selected_functions.data or [])
+                if row.get("function_name")
             })
 
-            if not department_names:
+            if not function_names:
                 return {
                     "success": True,
                     "sent_count": 0,
                     "failed_count": 0,
-                    "message": "No matching departments found",
+                    "message": "No matching functions found",
                 }
 
-            all_subdepartments = (
+            all_subfunctions = (
                 supabase
-                .table("sub_department")
-                .select("department_id")
-                .in_("department_name", department_names)
+                .table("function")
+                .select("function_id")
+                .in_("function_name", function_names)
+                .eq("company_id", request.company_id)
                 .execute()
             )
-            all_department_ids = [
-                row.get("department_id")
-                for row in (all_subdepartments.data or [])
-                if row.get("department_id")
+            all_function_ids = [
+                row.get("function_id")
+                for row in (all_subfunctions.data or [])
+                if row.get("function_id")
             ]
 
-            if not all_department_ids:
+            if not all_function_ids:
                 return {
                     "success": True,
                     "sent_count": 0,
@@ -196,7 +262,7 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                     "message": "No matching recipients found",
                 }
 
-            query = query.in_("department_id", all_department_ids)
+            query = query.in_("function_id", all_function_ids)
 
         result = query.execute()
         recipients = result.data or []
@@ -276,6 +342,8 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
             sent_emails = email_result.get("sent_count", 0)
 
         # Send WebSockets & FCM Push Notifications
+        fcm_failed_user_ids = []
+
         for user in realtime_recipients:
             user_id = user["user_id"]
             notification = notification_by_user.get(user_id)
@@ -307,15 +375,19 @@ async def send_assignment_notification(request: AssignmentNotificationRequest):
                     )
                     messaging.send(fcm_message)
                 except Exception as fcm_err:
-                    print(f"[FCM] Error sending push notification to user {user_id}: {fcm_err}")
-            
+                    # LOG-03: Record each failed FCM delivery for visibility
+                    print(f"[FCM] Push failed for user {user_id}: {fcm_err}")
+                    fcm_failed_user_ids.append(user_id)
+
             sent_realtime += 1
 
         return {
             "success": True,
             "message": f"Sent assignment notifications to {sent_emails} email(s) and {sent_realtime} mobile device(s)",
             "sent_emails": sent_emails,
-            "sent_realtime": sent_realtime
+            "sent_realtime": sent_realtime,
+            "fcm_failed_count": len(fcm_failed_user_ids),
+            "fcm_failed_user_ids": fcm_failed_user_ids,
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))

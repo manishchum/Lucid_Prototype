@@ -3,8 +3,9 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from datetime import datetime
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from utils.auth_bridge import (
 	BridgeConfigurationError,
 	BridgeResolutionError,
@@ -13,7 +14,8 @@ from utils.auth_bridge import (
 )
 from utils.auth_bridge import get_service_supabase_client
 import uuid as _uuid
-
+from httpx import RemoteProtocolError, TransportError
+from utils.redis_client import redis_client
 
 @dataclass
 class RequestAuth:
@@ -100,6 +102,16 @@ def _verify_firebase_token(token: str) -> Dict[str, Any]:
 		raise HTTPException(status_code=401, detail="Invalid or expired bearer token") from exc
 
 
+def _verify_token(token: str) -> Dict[str, Any]:
+	try:
+		from utils.auth_bridge import decode_supabase_access_token
+		return decode_supabase_access_token(token, verify=True)
+	except Exception:
+		pass
+	return _verify_firebase_token(token)
+
+
+
 def _resolve_internal_user_context(
 	email: Optional[str],
 	fallback_user_id: str,
@@ -151,7 +163,15 @@ def _resolve_internal_user_id(email: Optional[str], fallback_user_id: str) -> st
 	return user_id
 
 
-def _build_request_auth_from_verified_claims(claims: Dict[str, Any]) -> RequestAuth:
+def _is_valid_uuid(val: str) -> bool:
+	try:
+		_uuid.UUID(str(val))
+		return True
+	except Exception:
+		return False
+
+
+def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: Optional[str] = None,) -> RequestAuth:
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
 	# print("AUTH START",{"token_user_id": token_user_id, "email": email, "claims": claims})
@@ -160,10 +180,12 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any]) -> RequestA
 		str(token_user_id) if token_user_id else "",
 		claims,
 	)
+	
 	# print("AUTH RESOLVED",{"user_id": user_id, "company_id": company_id})
 
-	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
+
 
 	log_bridge_event(
 		"auth_context_resolved",
@@ -182,26 +204,89 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any]) -> RequestA
 		company_id=str(company_id) if company_id else None,
 	)
 
+def validate_device_session(
+    user_id: str,
+    device_id: str,
+):
+    try:
+        existing_device = redis_client.get(
+            f"session:{user_id}"
+        )
+
+    except Exception as e:
+        print("REDIS VALIDATION FAILED:", e)
+
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to validate session"
+        )
+
+    #
+    # First login
+    #
+    if existing_device is None:
+
+        try:
+            redis_client.set(
+                f"session:{user_id}",
+                device_id,
+                ex=60 * 60 * 24 * 30,
+            )
+        except Exception as e:
+            print("REDIS INSERT FAILED:", e)
+
+            raise HTTPException(
+                status_code=503,
+                detail="Unable to create session"
+            )
+
+        return
+
+    #
+    # Same device
+    #
+    if existing_device == device_id:
+
+        redis_client.expire(
+            f"session:{user_id}",
+            60 * 60 * 24 * 30,
+        )
+
+        return
+
+    #
+    # Different device
+    #
+    raise HTTPException(
+        status_code=401,
+        detail="Session_Replaced",
+    )
 
 def get_request_auth_optional(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
+	
 ) -> RequestAuth:
 	token = _extract_bearer_token(authorization)
 
 	if token:
 		try:
-			claims = _verify_firebase_token(token)
-			auth_ctx = _build_request_auth_from_verified_claims(claims)
+			claims = _verify_token(token)
+			auth_ctx = _build_request_auth_from_verified_claims(claims,x_device_id)
 			print(
 				f"[auth optional] Bearer verified successfully; "
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
+			if x_device_id:
+				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
+			if exc.detail == "Session_Replaced":
+				raise exc
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
-				raise
+				raise exc
 			if isinstance(exc.detail, str) and exc.detail.startswith("Bridge"):
 				raise
 			cause = exc.__cause__
@@ -274,23 +359,29 @@ def get_request_auth_optional(
 
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
+ 	x_device_id=Header(None, alias="X-Device-ID"),
 ) -> RequestAuth:
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")
 
-	claims = _verify_firebase_token(token)
-	return _build_request_auth_from_verified_claims(claims)
+	claims = _verify_token(token)
+	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
+	if x_device_id:
+		validate_device_session(auth_ctx.user_id, x_device_id)
 
+	return auth_ctx
+     
 
 def get_request_auth_jwt_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
+	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
+	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
 	token = _extract_bearer_token(authorization)
 	if not token:
-		raise HTTPException(status_code=401, detail="Missing bearer token")
-
-	claims = _verify_firebase_token(token)
+		raise HTTPException(status_code=401, detail="Missing bearer token")  
+	claims = _verify_token(token)
 	token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
 	email = claims.get("email")
 	user_id, company_id = _resolve_internal_user_context(
@@ -299,7 +390,8 @@ def get_request_auth_jwt_required(
 		claims,
 	)
 
-	if not user_id or (token_user_id and str(user_id) == str(token_user_id)):
+
+	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
 
 	log_bridge_event(
@@ -310,6 +402,9 @@ def get_request_auth_jwt_required(
 		token_exp=claims.get("exp"),
 		source="firebase",
 	)
+
+	if (x_device_id and x_register_session != "true"):
+		validate_device_session(str(user_id), str(x_device_id))
 
 	return RequestAuth(
 		user_id=str(user_id),
@@ -322,14 +417,14 @@ def get_request_auth_jwt_required(
 
 def get_request_auth_jwt_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
-	return get_request_auth_jwt_required(authorization=authorization)
+	x_device_id = request.headers.get("X-Device-ID")
+	return get_request_auth_jwt_required(authorization=authorization, x_device_id=x_device_id)
 
 
 def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
-	return get_request_auth_required(authorization=authorization)
-
-from fastapi import Depends
+	x_device_id = request.headers.get("X-Device-ID")
+	return get_request_auth_required(authorization=authorization, x_device_id=x_device_id)
 
 async def get_effective_company_id(
 	request: Request,
@@ -382,3 +477,37 @@ async def get_effective_company_id(
 		return home_company_id
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
+
+
+@dataclass
+class RoleplayContext:
+	user_id: str
+	company_id: str
+	auth_ctx: RequestAuth
+
+
+async def get_roleplay_context(
+	auth_ctx: RequestAuth = Depends(get_request_auth_required),
+	company_id: str = Depends(get_effective_company_id),
+) -> RoleplayContext:
+	return RoleplayContext(
+		user_id=auth_ctx.user_id,
+		company_id=company_id,
+		auth_ctx=auth_ctx,
+	)
+def register_device_session(
+    user_id: str,
+    device_id: str
+):
+    try:
+        redis_client.set(
+            f"session:{user_id}",
+            device_id,
+            ex=60 * 60 * 24 * 30,   # 30 days
+        )
+    except Exception as e:
+        print("REDIS REGISTER FAILED:", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to register session"
+        )
