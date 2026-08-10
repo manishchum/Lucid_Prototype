@@ -51,19 +51,15 @@ export default function AssessmentReportComponent({ report, scenarioTitle, passi
 
       {/* Overall Score */}
       <Card className="p-8 text-center">
-        <h3 className="text-lg font-semibold text-slate-700 mb-4">Overall Performance</h3>
-        <div className="flex items-center justify-center gap-6">
-          <div className="relative">
-            <div className={`w-32 h-32 rounded-full flex items-center justify-center ${getScoreColor(report.overallScore)}`}>
-              <span className="text-4xl font-bold">{report.overallScore}</span>
-            </div>
+        <h3 className="text-lg font-semibold text-slate-700 mb-6">Overall Performance</h3>
+        <div className="flex flex-col items-center justify-center space-y-4 max-w-xl mx-auto">
+          <div className={`w-32 h-32 rounded-full flex items-center justify-center ${getScoreColor(report.overallScore)}`}>
+            <span className="text-4xl font-bold">{report.overallScore}</span>
           </div>
-          <div className="text-left">
-            <div className={`inline-block px-4 py-2 rounded-full text-white font-semibold ${badge.color}`}>
-              {badge.label}
-            </div>
-            <p className="text-slate-600 mt-2 max-w-md">{report.summary}</p>
+          <div className={`inline-block px-4 py-2 rounded-full text-white font-semibold ${badge.color}`}>
+            {badge.label}
           </div>
+          <p className="text-slate-600 text-justify text-sm leading-relaxed w-full mt-2">{report.summary}</p>
         </div>
       </Card>
 
