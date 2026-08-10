@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus } from 'lucide-react';
+import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus, Search, X, CheckSquare, Square, Filter, Users, Layers, Building2, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplayApi';
 import { fetchRoleplayBootstrap, deleteCustomScenarioAPI, assignScenarioAPI, finishRoleplaySession } from '@/lib/roleplayApi';
@@ -66,6 +66,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [functions, setFunctions] = useState<any[]>([]);
   const [subFunctions, setSubFunctions] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [assignSearchQuery, setAssignSearchQuery] = useState<string>('');
+  const [selectedFunctionFilter, setSelectedFunctionFilter] = useState<string>('all');
   // const [companyId, setCompanyId] = useState<string>('');
   // const [userId, setUserId] = useState<string>('');
   const employeeId = userId;
@@ -350,6 +352,10 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   ) => {
       e.stopPropagation();
       setAssigningScenario(scenario);
+      setAssignmentType('function');
+      setSelectedTargets([]);
+      setAssignSearchQuery('');
+      setSelectedFunctionFilter('all');
       setShowAssignModal(true);
   };
   const handleSaveAssignment = async () => {
@@ -916,138 +922,450 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
       )}
 
       {/* Assignment Modal */}
-      {showAssignModal && assigningScenario && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Assign Roleplay Scenario</h2>
-              <p className="text-slate-600 mt-1">Assign "{assigningScenario.title}" to functions, sub-functions, or users</p>
-            </div>
+      {showAssignModal && assigningScenario && (() => {
+        const filteredFunctions = functions.filter((func) =>
+          (func.function_name || '').toLowerCase().includes(assignSearchQuery.toLowerCase())
+        );
 
-            <div className="p-6 space-y-4">
-              {/* Assignment Type */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Assignment Type *
-                </label>
-                <select
-                  value={assignmentType}
-                  onChange={(e) => {
-                    setAssignmentType(e.target.value as any);
+        const filteredSubFunctions = subFunctions.filter((subFunc) => {
+          const matchesFunction =
+            selectedFunctionFilter === 'all' || !selectedFunctionFilter
+              ? true
+              : subFunc.function_id === selectedFunctionFilter;
+
+          const parentFunc = functions.find((f) => f.function_id === subFunc.function_id);
+          const searchLower = assignSearchQuery.toLowerCase();
+          const matchesSearch =
+            (subFunc.sub_function_name || '').toLowerCase().includes(searchLower) ||
+            (parentFunc?.function_name || '').toLowerCase().includes(searchLower);
+
+          return matchesFunction && matchesSearch;
+        });
+
+        // Group sub-functions under their parent functions
+        const groupedSubFunctions = (() => {
+          const groups: { [funcId: string]: { funcName: string; items: typeof subFunctions } } = {};
+          
+          filteredSubFunctions.forEach((subFunc) => {
+            const parentFunc = functions.find((f) => f.function_id === subFunc.function_id);
+            const funcId = subFunc.function_id || 'other';
+            const funcName = parentFunc?.function_name || 'Unassigned / Other Functions';
+
+            if (!groups[funcId]) {
+              groups[funcId] = { funcName, items: [] };
+            }
+            groups[funcId].items.push(subFunc);
+          });
+
+          return groups;
+        })();
+
+        const filteredUsers = users.filter((u) => {
+          const matchesFunction =
+            selectedFunctionFilter === 'all' || !selectedFunctionFilter
+              ? true
+              : u.function_id === selectedFunctionFilter;
+
+          const searchLower = assignSearchQuery.toLowerCase();
+          const matchesSearch =
+            (u.name || '').toLowerCase().includes(searchLower) ||
+            (u.email || '').toLowerCase().includes(searchLower);
+
+          return matchesFunction && matchesSearch;
+        });
+
+        const getCurrentlyVisibleIds = () => {
+          if (assignmentType === 'function') return filteredFunctions.map((f) => f.function_id);
+          if (assignmentType === 'sub_function') return filteredSubFunctions.map((sf) => sf.sub_function_id);
+          return filteredUsers.map((u) => u.user_id);
+        };
+
+        const currentVisibleIds = getCurrentlyVisibleIds();
+        const allVisibleSelected =
+          currentVisibleIds.length > 0 &&
+          currentVisibleIds.every((id) => selectedTargets.includes(id));
+
+        const handleSelectAllVisible = () => {
+          if (allVisibleSelected) {
+            setSelectedTargets((prev) => prev.filter((id) => !currentVisibleIds.includes(id)));
+          } else {
+            setSelectedTargets((prev) => Array.from(new Set([...prev, ...currentVisibleIds])));
+          }
+        };
+
+        const handleClearAll = () => {
+          setSelectedTargets([]);
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+              
+              {/* Modal Header */}
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shrink-0">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Assign Roleplay Scenario</h2>
+                    <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                      Assign <span className="text-purple-600 font-semibold">"{assigningScenario.title}"</span> to target functions, sub-functions, or users
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowAssignModal(false);
+                    setAssigningScenario(null);
                     setSelectedTargets([]);
                   }}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
                 >
-                  <option value="user">Individual Users</option>
-                  <option value="sub_function">Sub-Function</option>
-                  <option value="function">Function</option>
-                </select>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Target Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Select Targets *
-                </label>
+              {/* Modal Body */}
+              <div className="p-6 space-y-4 overflow-y-auto flex-1">
                 
-                {assignmentType === 'function' && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {functions.map((func) => (
-                      <label key={func.function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedTargets.includes(func.function_id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, func.function_id]);
-                            } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== func.function_id));
-                            }
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <span className="text-sm">{func.function_name}</span>
+                {/* Assignment Type Selector (Tabs - Reordered: Function -> Sub-Function -> Individual Users) */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Assignment Type
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 bg-slate-100 p-1.5 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentType('function');
+                        setSelectedTargets([]);
+                        setAssignSearchQuery('');
+                      }}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                        assignmentType === 'function'
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                    >
+                      <Building2 className="w-4 h-4" />
+                      Function
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentType('sub_function');
+                        setSelectedTargets([]);
+                        setAssignSearchQuery('');
+                      }}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                        assignmentType === 'sub_function'
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                    >
+                      <Layers className="w-4 h-4" />
+                      Sub-Function
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentType('user');
+                        setSelectedTargets([]);
+                        setAssignSearchQuery('');
+                      }}
+                      className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${
+                        assignmentType === 'user'
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-200'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                      }`}
+                    >
+                      <Users className="w-4 h-4" />
+                      Individual Users
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filters & Search Row */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  
+                  {/* Function Filter Dropdown (for Sub-Function & Users) */}
+                  {(assignmentType === 'sub_function' || assignmentType === 'user') && functions.length > 0 && (
+                    <div className="sm:w-1/2">
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                        Filter by Function
                       </label>
-                    ))}
-                  </div>
-                )}
+                      <div className="relative">
+                        <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                        <select
+                          value={selectedFunctionFilter}
+                          onChange={(e) => setSelectedFunctionFilter(e.target.value)}
+                          className="w-full pl-9 pr-4 h-10 border border-slate-200 rounded-xl bg-slate-50/50 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent appearance-none cursor-pointer"
+                        >
+                          <option value="all">All Functions ({functions.length})</option>
+                          {functions.map((f) => (
+                            <option key={f.function_id} value={f.function_id}>
+                              {f.function_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
 
-                {assignmentType === 'sub_function' && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {subFunctions.map((subFunc) => {
-                      const parentFunc = functions.find(f => f.function_id === subFunc.function_id);
-                      return (
-                        <label key={subFunc.sub_function_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedTargets.includes(subFunc.sub_function_id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedTargets([...selectedTargets, subFunc.sub_function_id]);
-                              } else {
-                                setSelectedTargets(selectedTargets.filter(id => id !== subFunc.sub_function_id));
-                              }
-                            }}
-                            className="w-4 h-4"
-                          />
-                          <span className="text-sm">{parentFunc?.function_name} - {subFunc.sub_function_name}</span>
-                        </label>
-                      );
-                    })}
+                  {/* Search Input */}
+                  <div className="flex-1">
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                      Search
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder={
+                          assignmentType === 'function'
+                            ? 'Search functions...'
+                            : assignmentType === 'sub_function'
+                            ? 'Search sub-functions...'
+                            : 'Search by name or email...'
+                        }
+                        value={assignSearchQuery}
+                        onChange={(e) => setAssignSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-9 h-10 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      />
+                      {assignSearchQuery && (
+                        <button
+                          onClick={() => setAssignSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                )}
+                </div>
 
-                {assignmentType === 'user' && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-2">
-                    {users.map((user) => (
-                      <label key={user.user_id} className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedTargets.includes(user.user_id)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedTargets([...selectedTargets, user.user_id]);
-                            } else {
-                              setSelectedTargets(selectedTargets.filter(id => id !== user.user_id));
-                            }
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <span className="text-sm">{user.name} ({user.email})</span>
-                      </label>
-                    ))}
+                {/* Controls & Counts Bar */}
+                <div className="flex items-center justify-between pt-1 pb-1 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-100">
+                      {selectedTargets.length} selected
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      ({currentVisibleIds.length} visible)
+                    </span>
                   </div>
-                )}
 
-                <p className="text-xs text-slate-500 mt-2">
-                  {selectedTargets.length} target(s) selected
-                </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllVisible}
+                      className="text-xs font-semibold text-purple-600 hover:text-purple-700 px-3 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 border border-purple-200/60 transition-colors"
+                    >
+                      {allVisibleSelected ? 'Deselect Visible' : 'Select All'}
+                    </button>
+                    {selectedTargets.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearAll}
+                        className="text-xs font-semibold text-slate-500 hover:text-red-600 px-3 py-1 rounded-lg bg-slate-100 hover:bg-red-50 border border-slate-200 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Target List Container */}
+                <div className="space-y-3 max-h-64 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50/40">
+                  
+                  {/* FUNCTIONS LIST */}
+                  {assignmentType === 'function' && (
+                    filteredFunctions.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-sm">
+                        No functions found matching "{assignSearchQuery}"
+                      </div>
+                    ) : (
+                      filteredFunctions.map((func) => {
+                        const isChecked = selectedTargets.includes(func.function_id);
+                        return (
+                          <label
+                            key={func.function_id}
+                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                              isChecked
+                                ? 'bg-purple-50/70 border-purple-200 text-purple-950 font-medium shadow-xs'
+                                : 'bg-white border-slate-100 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isChecked ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                <Building2 className="w-4 h-4" />
+                              </div>
+                              <span className="text-sm font-semibold">{func.function_name}</span>
+                            </div>
+
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedTargets([...selectedTargets, func.function_id]);
+                                } else {
+                                  setSelectedTargets(selectedTargets.filter((id) => id !== func.function_id));
+                                }
+                              }}
+                              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 cursor-pointer accent-purple-600"
+                            />
+                          </label>
+                        );
+                      })
+                    )
+                  )}
+
+                  {/* SUB-FUNCTIONS LIST GROUPED UNDER FUNCTIONS */}
+                  {assignmentType === 'sub_function' && (
+                    filteredSubFunctions.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-sm">
+                        No sub-functions found matching your filter
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {Object.entries(groupedSubFunctions).map(([funcId, group]) => (
+                          <div key={funcId} className="space-y-1.5">
+                            {/* Function Header */}
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-100/90 rounded-lg text-xs font-bold text-slate-700 border border-slate-200/80 sticky top-0 z-10 backdrop-blur-xs">
+                              <div className="flex items-center gap-2">
+                                <Building2 className="w-3.5 h-3.5 text-purple-600" />
+                                <span className="uppercase tracking-wider">{group.funcName}</span>
+                              </div>
+                              <span className="text-slate-400 font-normal">
+                                ({group.items.length} sub-function{group.items.length > 1 ? 's' : ''})
+                              </span>
+                            </div>
+
+                            {/* Sub-functions under this Function */}
+                            <div className="space-y-1.5 pl-2">
+                              {group.items.map((subFunc) => {
+                                const isChecked = selectedTargets.includes(subFunc.sub_function_id);
+                                return (
+                                  <label
+                                    key={subFunc.sub_function_id}
+                                    className={`flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer ${
+                                      isChecked
+                                        ? 'bg-purple-50/70 border-purple-200 text-purple-950 font-medium shadow-xs'
+                                        : 'bg-white border-slate-100 hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5">
+                                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isChecked ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                        <Layers className="w-3.5 h-3.5" />
+                                      </div>
+                                      <span className="text-sm font-semibold text-slate-900">{subFunc.sub_function_name}</span>
+                                    </div>
+
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedTargets([...selectedTargets, subFunc.sub_function_id]);
+                                        } else {
+                                          setSelectedTargets(selectedTargets.filter((id) => id !== subFunc.sub_function_id));
+                                        }
+                                      }}
+                                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 cursor-pointer accent-purple-600"
+                                    />
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
+
+                  {/* USERS LIST */}
+                  {assignmentType === 'user' && (
+                    filteredUsers.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-sm">
+                        No users found matching "{assignSearchQuery}"
+                      </div>
+                    ) : (
+                      filteredUsers.map((u) => {
+                        const isChecked = selectedTargets.includes(u.user_id);
+                        const initial = (u.name || u.email || 'U')[0].toUpperCase();
+                        return (
+                          <label
+                            key={u.user_id}
+                            className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                              isChecked
+                                ? 'bg-purple-50/70 border-purple-200 text-purple-950 font-medium shadow-xs'
+                                : 'bg-white border-slate-100 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${isChecked ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'}`}>
+                                {initial}
+                              </div>
+                              <div className="overflow-hidden">
+                                <p className="text-sm font-semibold text-slate-900 truncate">{u.name || 'Unnamed User'}</p>
+                                <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                              </div>
+                            </div>
+
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedTargets([...selectedTargets, u.user_id]);
+                                } else {
+                                  setSelectedTargets(selectedTargets.filter((id) => id !== u.user_id));
+                                }
+                              }}
+                              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500 cursor-pointer accent-purple-600"
+                            />
+                          </label>
+                        );
+                      })
+                    )
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-6 border-t border-slate-200 flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowAssignModal(false);
-                  setAssigningScenario(null);
-                  setSelectedTargets([]);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSaveAssignment}
-                className="bg-green-600 hover:bg-green-700"
-                disabled={selectedTargets.length === 0}
-              >
-                Assign Scenario
-              </Button>
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <span className="text-xs font-semibold text-slate-500">
+                  {selectedTargets.length} item(s) selected
+                </span>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAssignModal(false);
+                      setAssigningScenario(null);
+                      setSelectedTargets([]);
+                    }}
+                    className="border-slate-200 text-slate-700 hover:bg-slate-100 font-medium"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSaveAssignment}
+                    className="bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-md shadow-purple-200"
+                    disabled={selectedTargets.length === 0}
+                  >
+                    Assign Scenario ({selectedTargets.length})
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
