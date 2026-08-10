@@ -19,7 +19,7 @@ class UsageTracker:
 
             "provider": usage.provider,
 
-            "model": usage.model,
+            "model_name": usage.model,
 
             "route": usage.route,
 

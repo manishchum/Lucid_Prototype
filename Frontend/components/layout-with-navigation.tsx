@@ -38,7 +38,8 @@ const includedPathPrefixes = [
   "/kpi/configuration",
   "/kpi/turbocharge",
   "/kpi/workforce-overview",
-  "/employee/account"
+  "/employee/account",
+  "/employee/assessment"
 ];
 
 // Only show navigation for these route groups

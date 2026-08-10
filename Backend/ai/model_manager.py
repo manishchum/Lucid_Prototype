@@ -56,7 +56,7 @@ class ModelManager:
 
         config = ModelConfig(
             provider=model["provider"],
-            model=model["model"],
+            model=model["model_name"],
             feature_id=model.get(
                 "feature_id",
                 feature_row["feature_id"]

@@ -6,15 +6,21 @@ from utils.supabase_client import supabase
 # ============================================================
 
 def get_feature(feature_key: str):
-    return (
+    response = (
         supabase
         .table("ai_features")
         .select("*")
         .eq("feature_key", feature_key)
         .eq("is_active", True)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
+    data = response.data
+    if not data:
+        return None
+    if isinstance(data,list):
+        return data[0]
+    return data
 
 
 def list_features():
@@ -33,7 +39,7 @@ def list_features():
 # ============================================================
 
 def get_model_config(feature_key: str):
-    return (
+    response = (
         supabase
         .table("ai_model_configs")
         .select("""
@@ -49,6 +55,12 @@ def get_model_config(feature_key: str):
         .maybe_single()
         .execute()
     )
+    data = response.data
+    if not data:
+        return None
+    if isinstance(data,list):
+        return data[0]
+    return data
 
 
 # ============================================================
@@ -64,7 +76,7 @@ def get_prompt(
     if not feature:
         return None
 
-    return (
+    response = (
         supabase
         .table("ai_prompts")
         .select("*")
@@ -76,6 +88,12 @@ def get_prompt(
         .maybe_single()
         .execute()
     )
+    data = response.data
+    if not data:
+        return None
+    if isinstance(data,list):
+        return data[0]
+    return data
 
 
 # ============================================================
