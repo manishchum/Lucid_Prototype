@@ -272,14 +272,14 @@ async def verify_otp(body: VerifyOTPRequest):
 
     # Generate Firebase Custom Token
     try:
-        custom_token = firebase_auth.create_custom_token(firebase_uid).decode("utf-8")
+        token = firebase_auth.create_token(firebase_uid).decode("utf-8")
     except Exception as token_err:
         print(f"[verify-otp] Custom token generation failed: {token_err}")
         raise HTTPException(status_code=500, detail="Failed to generate custom authentication token")
 
     return {
         "success": True,
-        "custom_token": custom_token,
+        "token": token,
         "user": user_data
     }
 
