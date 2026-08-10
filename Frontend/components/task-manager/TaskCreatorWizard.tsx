@@ -37,8 +37,8 @@ import {
   Sprint, 
   TeamMember,
   QuizQuestion,
-  WizardStep
 } from '@/types/task';
+import { useTenant } from '@/contexts/tenant-context';
 
 export type CorporateLevels = {
   orgs: string[];
@@ -67,6 +67,8 @@ export default function TaskCreatorWizard({
   onBackendCreate,
   initialTask
 }: TaskCreatorWizardProps) {
+  const { hasFeature } = useTenant();
+
   // Wizard flow step
   const [activeStep, setActiveStep] = useState<WizardStep>('level');
 
@@ -1048,6 +1050,7 @@ const toggleCorrectAnswer = (
                             
                             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                               {/* Submit Image */}
+                              {hasFeature('taskManagementImage') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'image')}
@@ -1060,8 +1063,10 @@ const toggleCorrectAnswer = (
                                 <ImageIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Image</span>
                               </button>
+                              )}
 
                               {/* Submit Text */}
+                              {hasFeature('taskManagementTextual') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'text')}
@@ -1074,8 +1079,10 @@ const toggleCorrectAnswer = (
                                 <TextIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Text Entry</span>
                               </button>
+                              )}
 
                               {/* Submit Quiz Form */}
+                              {hasFeature('taskManagementEvaluation') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'multiple_choice')}
@@ -1088,8 +1095,10 @@ const toggleCorrectAnswer = (
                                 <QuizIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Evaluation</span>
                               </button>
+                              )}
 
                               {/* Submit Audio */}
+                              {hasFeature('taskManagementAudio') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'audio')}
@@ -1102,8 +1111,23 @@ const toggleCorrectAnswer = (
                                 <MicIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Audio</span>
                               </button>
+                              )}
 
-
+                              {/* Submit Video */}
+                              {hasFeature('taskManagementVideo') && (
+                              <button
+                                type="button"
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
+                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
+                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
+                                }`}
+                              >
+                                <VideoIcon size={14} className="shrink-0" />
+                                <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Video</span>
+                              </button>
+                              )}
                             </div>
                           </div>
 

@@ -31,6 +31,12 @@ export type Addon =
   | 'chat_in_studio_textual'
   | 'chat_in_studio_speech'
   | 'task_management'
+  | 'task_management_textual'
+  | 'task_management_image'
+  | 'task_management_evaluation'
+  | 'task_management_audio'
+  | 'task_management_video'
+  | 'baseline_assessment'
   | 'kpi'
   | 'role_play'
   | 'sprintverse'
@@ -49,6 +55,12 @@ export const FEATURES = {
   CHAT_IN_STUDIO_TEXTUAL: "chatInStudioTextual",
   CHAT_IN_STUDIO_SPEECH: "chatInStudioSpeech",
   TASK_MANAGEMENT: "taskManagement",
+  TASK_MANAGEMENT_TEXTUAL: "taskManagementTextual",
+  TASK_MANAGEMENT_IMAGE: "taskManagementImage",
+  TASK_MANAGEMENT_EVALUATION: "taskManagementEvaluation",
+  TASK_MANAGEMENT_AUDIO: "taskManagementAudio",
+  TASK_MANAGEMENT_VIDEO: "taskManagementVideo",
+  BASELINE_ASSESSMENT: "baselineAssessment",
   KPI: "kpi",
   ROLE_PLAY: "rolePlay",
   REPORTS: "reports",
@@ -73,6 +85,12 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.CHAT_IN_STUDIO_TEXTUAL]: { requiredAddons: ["chat_in_studio_textual"] },
   [FEATURES.CHAT_IN_STUDIO_SPEECH]: { requiredAddons: ["chat_in_studio_speech"] },
   [FEATURES.TASK_MANAGEMENT]: { requiredAddons: ["task_management"] },
+  [FEATURES.TASK_MANAGEMENT_TEXTUAL]: { requiredAddons: ["task_management_textual"] },
+  [FEATURES.TASK_MANAGEMENT_IMAGE]: { requiredAddons: ["task_management_image"] },
+  [FEATURES.TASK_MANAGEMENT_EVALUATION]: { requiredAddons: ["task_management_evaluation"] },
+  [FEATURES.TASK_MANAGEMENT_AUDIO]: { requiredAddons: ["task_management_audio"] },
+  [FEATURES.TASK_MANAGEMENT_VIDEO]: { requiredAddons: ["task_management_video"] },
+  [FEATURES.BASELINE_ASSESSMENT]: { requiredAddons: ["baseline_assessment"] },
   [FEATURES.KPI]: { requiredAddons: ["kpi"] },
   [FEATURES.ROLE_PLAY]: { requiredAddons: ["role_play"] },
   [FEATURES.REPORTS]: { requiredAddons : ["reports"]},
@@ -155,6 +173,12 @@ const isAddon = (value: string): value is Addon => {
     "chat_in_studio_textual",
     "chat_in_studio_speech",
     "task_management",
+    "task_management_textual",
+    "task_management_image",
+    "task_management_evaluation",
+    "task_management_audio",
+    "task_management_video",
+    "baseline_assessment",
     "kpi",
     "role_play",
     "reports",
