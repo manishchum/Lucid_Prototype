@@ -1,9 +1,15 @@
 import base64
 import json
 import os
+import re
 import tempfile
 from typing import Optional
 from uuid import uuid4
+
+def is_valid_uuid(val: any) -> bool:
+    if not val or not isinstance(val, str):
+        return False
+    return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", val, re.I))
 # from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
@@ -704,7 +710,7 @@ async def resolve_audience_count(payload: TaskCreate, company_id: str, requestin
         .eq("employment_status", "ACTIVE")
     )
 
-    if payload.level == "cohort" and payload.target_module_id:
+    if payload.level == "cohort" and is_valid_uuid(payload.target_module_id):
         learning_plan = (
             db.table("learning_plan")
             .select("user_id")
@@ -712,20 +718,21 @@ async def resolve_audience_count(payload: TaskCreate, company_id: str, requestin
             .in_("status", ["ASSIGNED", "IN_PROGRESS"])
             .execute()
         ).data or []
-        ids = [row["user_id"] for row in learning_plan]
+        ids = [row["user_id"] for row in learning_plan if is_valid_uuid(row.get("user_id"))]
         if not ids:
             return 0
         res = base.in_("user_id", ids).execute()
         return res.count or 0
 
-    if payload.level == "function" and payload.target_function_id:
+    if payload.level == "function" and is_valid_uuid(payload.target_function_id):
         return base.eq("function_id", payload.target_function_id).execute().count or 0
 
-    if payload.level == "sub_function" and payload.target_sub_function_id:
+    if payload.level == "sub_function" and is_valid_uuid(payload.target_sub_function_id):
         return base.eq("sub_function_id", payload.target_sub_function_id).execute().count or 0
 
     if payload.level == "individual" and payload.target_user_ids:
-        return len(payload.target_user_ids)
+        valid_uids = [u for u in payload.target_user_ids if is_valid_uuid(u)]
+        return len(valid_uids)
 
     if payload.level == "org":
         return base.execute().count or 0
@@ -752,15 +759,20 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
 
     db = get_service_supabase_client()
 
+    target_module_id = payload.target_module_id if is_valid_uuid(payload.target_module_id) else None
+    target_function_id = payload.target_function_id if is_valid_uuid(payload.target_function_id) else None
+    target_sub_function_id = payload.target_sub_function_id if is_valid_uuid(payload.target_sub_function_id) else None
+    target_user_ids = [u for u in (payload.target_user_ids or []) if is_valid_uuid(u)]
+
     db.table("task_assignments").insert({
         "assignment_id": assignment_id,
         "company_id": company_id,
-        "created_by": payload.created_by,
+        "created_by": payload.created_by if is_valid_uuid(payload.created_by) else None,
         "level": payload.level,
-        "target_module_id": payload.target_module_id,
-        "target_function_id": payload.target_function_id,
-        "target_sub_function_id": payload.target_sub_function_id,
-        "target_user_ids": payload.target_user_ids or None,
+        "target_module_id": target_module_id,
+        "target_function_id": target_function_id,
+        "target_sub_function_id": target_sub_function_id,
+        "target_user_ids": target_user_ids if target_user_ids else None,
         "due_date": str(payload.due_date),
         "recurrence": payload.recurrence,
         "status": "active",
@@ -1410,48 +1422,64 @@ async def reassign_task_assignment(
     if level == "sprint":
         db_level = "cohort"
         if target_sprints:
-            modules = (
-                db.table("training_modules")
-                .select("module_id")
-                .eq("company_id", company_id)
-                .in_("title", target_sprints)
-                .execute()
-            ).data
-            if modules:
-                target_module_id = modules[0]["module_id"]
+            uuid_sprints = [s for s in target_sprints if is_valid_uuid(s)]
+            if uuid_sprints:
+                target_module_id = uuid_sprints[0]
+            else:
+                modules = (
+                    db.table("training_modules")
+                    .select("module_id")
+                    .eq("company_id", company_id)
+                    .in_("title", target_sprints)
+                    .execute()
+                ).data
+                if modules:
+                    target_module_id = modules[0]["module_id"]
     else:
         if target_individuals:
             db_level = "individual"
-            users = (
-                db.table("users")
-                .select("user_id")
-                .eq("company_id", company_id)
-                .in_("name", target_individuals)
-                .execute()
-            ).data
-            if users:
-                target_user_ids = [u["user_id"] for u in users]
+            uuid_users = [u for u in target_individuals if is_valid_uuid(u)]
+            if uuid_users:
+                target_user_ids = uuid_users
+            else:
+                users = (
+                    db.table("users")
+                    .select("user_id")
+                    .eq("company_id", company_id)
+                    .in_("name", target_individuals)
+                    .execute()
+                ).data
+                if users:
+                    target_user_ids = [u["user_id"] for u in users]
         elif target_sub_functions:
             db_level = "sub_function"
-            sub_funcs = (
-                db.table("sub_function")
-                .select("sub_function_id")
-                .in_("sub_function_name", target_sub_functions)
-                .execute()
-            ).data
-            if sub_funcs:
-                target_sub_function_id = sub_funcs[0]["sub_function_id"]
+            uuid_subfuncs = [sf for sf in target_sub_functions if is_valid_uuid(sf)]
+            if uuid_subfuncs:
+                target_sub_function_id = uuid_subfuncs[0]
+            else:
+                sub_funcs = (
+                    db.table("sub_function")
+                    .select("sub_function_id")
+                    .in_("sub_function_name", target_sub_functions)
+                    .execute()
+                ).data
+                if sub_funcs:
+                    target_sub_function_id = sub_funcs[0]["sub_function_id"]
         elif target_functions:
             db_level = "function"
-            funcs = (
-                db.table("function")
-                .select("function_id")
-                .eq("company_id", company_id)
-                .in_("function_name", target_functions)
-                .execute()
-            ).data
-            if funcs:
-                target_function_id = funcs[0]["function_id"]
+            uuid_funcs = [f for f in target_functions if is_valid_uuid(f)]
+            if uuid_funcs:
+                target_function_id = uuid_funcs[0]
+            else:
+                funcs = (
+                    db.table("function")
+                    .select("function_id")
+                    .eq("company_id", company_id)
+                    .in_("function_name", target_functions)
+                    .execute()
+                ).data
+                if funcs:
+                    target_function_id = funcs[0]["function_id"]
         elif target_orgs:
             db_level = "org"
 

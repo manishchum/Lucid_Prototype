@@ -37,6 +37,11 @@ function mapBackendLevel(level?: string): AssignmentLevel {
   return level as AssignmentLevel;
 }
 
+function isUuid(val?: string): boolean {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
 function parseUserIds(raw: any): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
@@ -125,11 +130,11 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       level,
       mode: isMultiple ? ("multiple" as const) : ("single" as const),
       tasks: subtasks,
-      targetSprints: Array.from(new Set([task.target_module_id, audienceName].filter(Boolean) as string[])),
+      targetSprints: task.target_module_id && isUuid(task.target_module_id) ? [task.target_module_id] : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
-      targetFunctions: level === "function" ? Array.from(new Set([task.target_function_id, audienceName].filter(Boolean) as string[])) : [],
-      targetSubFunctions: level === "sub_function" ? Array.from(new Set([task.target_sub_function_id, audienceName].filter(Boolean) as string[])) : [],
-      targetIndividuals: parseUserIds(task.target_user_ids),
+      targetFunctions: task.target_function_id && isUuid(task.target_function_id) ? [task.target_function_id] : (level === "function" ? [audienceName].filter(Boolean) : []),
+      targetSubFunctions: task.target_sub_function_id && isUuid(task.target_sub_function_id) ? [task.target_sub_function_id] : (level === "sub_function" ? [audienceName].filter(Boolean) : []),
+      targetIndividuals: parseUserIds(task.target_user_ids).filter(isUuid),
       dueDate: task.due_date,
       createdAt: task.created_at,
       status: hasSubmission ? "Completed" : "Active",
