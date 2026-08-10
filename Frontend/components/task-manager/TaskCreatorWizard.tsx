@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Layers, 
   Briefcase, 
@@ -145,6 +145,58 @@ export default function TaskCreatorWizard({
   // Bundle metadata (for multi-task)
   const [bundleTitle, setBundleTitle] = useState(initialTask ? initialTask.title || '' : '');
   const [bundleDescription, setBundleDescription] = useState(initialTask ? initialTask.description || '' : '');
+
+  // Synchronize wizard state whenever initialTask is provided/updated for reassignment
+  useEffect(() => {
+    if (initialTask) {
+      setAssociateWithSprint(
+        initialTask.level === 'sprint' ||
+        Boolean(initialTask.targetSprints && initialTask.targetSprints.length > 0)
+      );
+      setTaskMode(
+        (initialTask.bundle_tasks && initialTask.bundle_tasks.length > 1) ||
+        (initialTask.tasks && initialTask.tasks.length > 1)
+          ? 'multiple'
+          : 'single'
+      );
+      if (initialTask.dueDate) {
+        setDueDate(initialTask.dueDate.split('T')[0]);
+      }
+      setRecurrence((initialTask.recurrence as any) || 'none');
+
+      if (initialTask.bundle_tasks && initialTask.bundle_tasks.length > 0) {
+        setTasks(
+          initialTask.bundle_tasks.map((bt: any, idx: number) => ({
+            id: `task-${idx}`,
+            title: bt.title || '',
+            description: bt.description || '',
+            expectedAnswer: bt.expected_answer || bt.expectedAnswer || (initialTask.tasks?.[idx]?.expectedAnswer) || (initialTask as any).expected_answer || '',
+            submissionFormat: bt.submission_format || 'text',
+            questions: bt.questions || [],
+          }))
+        );
+      } else if (initialTask.tasks && initialTask.tasks.length > 0) {
+        setTasks(
+          initialTask.tasks.map((t, idx) => ({
+            id: t.id || `task-${idx}`,
+            title: t.title || initialTask.title || '',
+            description: t.description || initialTask.description || '',
+            expectedAnswer: t.expectedAnswer || (t as any).expected_answer || (initialTask as any).expected_answer || '',
+            submissionFormat: t.submissionFormat || 'text',
+            questions: t.questions || [],
+          }))
+        );
+      }
+
+      setSelectedSprintIds(initialTask.targetSprints || []);
+      setSelectedOrgs(initialTask.targetOrgs || []);
+      setSelectedFunctions(initialTask.targetFunctions || []);
+      setSelectedSubFunctions(initialTask.targetSubFunctions || []);
+      setSelectedIndividualIds(initialTask.targetIndividuals || []);
+      setBundleTitle(initialTask.title || '');
+      setBundleDescription(initialTask.description || '');
+    }
+  }, [initialTask]);
 
   // -------------------------
   // Helper State management
@@ -839,7 +891,7 @@ const toggleCorrectAnswer = (
                       <label className="text-xs font-bold text-[#334155] block">Select Sprints to Link (Multi-Select)</label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-slate-50/20">
                         {sprints.map((sprint) => {
-                          const isSelected = selectedSprintIds.includes(sprint.id);
+                          const isSelected = selectedSprintIds.includes(sprint.id) || selectedSprintIds.includes(sprint.title);
                           return (
                             <button
                               type="button"

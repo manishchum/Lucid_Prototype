@@ -20,18 +20,48 @@ async def validate_reviewer(
     """
     Validate reviewer email belongs to company
     """
+    cleaned_email = (email or "").strip().lower()
+    if not cleaned_email:
+        raise HTTPException(
+            status_code=400,
+            detail="Email is required"
+        )
 
     try:
+        # Try matching email case-insensitively for the company
         result = (
             supabase_admin
             .table("users")
-            .select("user_id,name,email,company_id")
-            .eq("email", email)
+            .select("user_id,name,email,company_id,is_active")
+            .ilike("email", cleaned_email)
             .eq("company_id", company_id)
-            .eq("is_active", True)
+            .neq("is_active", False)
             .limit(1)
             .execute()
         )
+
+        if not result.data:
+            # Fallback: check without is_active filter in company
+            result = (
+                supabase_admin
+                .table("users")
+                .select("user_id,name,email,company_id")
+                .ilike("email", cleaned_email)
+                .eq("company_id", company_id)
+                .limit(1)
+                .execute()
+            )
+
+        if not result.data:
+            # Fallback: system-wide lookup by email (e.g. superadmin/cross-company reviewer)
+            result = (
+                supabase_admin
+                .table("users")
+                .select("user_id,name,email,company_id")
+                .ilike("email", cleaned_email)
+                .limit(1)
+                .execute()
+            )
 
         if not result.data:
             raise HTTPException(
@@ -103,7 +133,11 @@ async def get_company_modules(
         modules_result = (
             supabase_admin
             .table("training_modules")
-            .select("module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks")
+            .select("""
+                module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks,
+                reviewer:users!training_modules_reviewer_id_fkey(user_id, name, email),
+                uploader:users!training_modules_uploaded_by_fkey(user_id, name, email)
+            """)
             .eq("company_id", company_id)
             .order("created_at", desc=True)
             .execute()

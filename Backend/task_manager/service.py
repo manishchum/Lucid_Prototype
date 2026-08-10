@@ -256,56 +256,36 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     db = get_service_supabase_client()
 
-    def _select_assignments(source_name: str, table_name: str) -> list:
-        try:
-            if table_name == "v_active_assignments":
-                cols = "assignment_id, company_id, level, status, due_date, recurrence, total_target_count, created_at, audience_display_name"
-            else:
-                cols = "assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at"
-            response = (
-                db.table(table_name)
-                .select(cols)
-                .eq("company_id", company_id)
-                .execute()
-            )
-            return response.data or []
-        except Exception as exc:
-            print(f"[task-manager] {source_name} query failed:", exc)
-            return []
-
     try:
-        assignments = _select_assignments("v_active_assignments", "v_active_assignments")
-        if assignments:
-            # Supplement missing target fields from task_assignments
-            assignment_ids = [a.get("assignment_id") for a in assignments if a.get("assignment_id")]
-            if assignment_ids:
-                try:
-                    ta_res = (
-                        db.table("task_assignments")
-                        .select("assignment_id, target_user_ids, target_function_id, target_sub_function_id, target_module_id")
-                        .in_("assignment_id", assignment_ids)
-                        .execute()
-                    )
-                    ta_data = ta_res.data or []
-                    ta_map = {row["assignment_id"]: row for row in ta_data if "assignment_id" in row}
-                    for a in assignments:
-                        aid = a.get("assignment_id")
-                        if aid in ta_map:
-                            a["target_user_ids"] = ta_map[aid].get("target_user_ids")
-                            a["target_function_id"] = ta_map[aid].get("target_function_id")
-                            a["target_sub_function_id"] = ta_map[aid].get("target_sub_function_id")
-                            a["target_module_id"] = ta_map[aid].get("target_module_id")
-                except Exception as ta_error:
-                    print("[task-manager] Supplementing target fields failed:", ta_error)
-    except Exception as view_error:
-        print("[task-manager] Falling back to task_assignments:", view_error)
+        assignments = (
+            db.table("task_assignments")
+            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at")
+            .eq("company_id", company_id)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        print("[task-manager] task_assignments query failed:", exc)
         assignments = []
 
     if not assignments:
-        assignments = _select_assignments("task_assignments", "task_assignments")
-
-    if not assignments:
         return []
+
+    # Map training module titles for target_module_id (Sprint)
+    module_ids = [str(a["target_module_id"]) for a in assignments if a.get("target_module_id")]
+    module_map = {}
+    if module_ids:
+        try:
+            m_res = db.table("training_modules").select("module_id, title").in_("module_id", module_ids).execute()
+            module_map = {str(row["module_id"]): row.get("title") for row in (m_res.data or []) if "module_id" in row}
+        except Exception as e:
+            print("[task-manager] Failed to fetch module titles:", e)
+
+    for a in assignments:
+        mod_id = str(a.get("target_module_id") or "")
+        if mod_id and mod_id in module_map:
+            a["audience_display_name"] = module_map[mod_id]
+        elif not a.get("audience_display_name"):
+            a["audience_display_name"] = a.get("level") or ""
 
     caller_is_admin = await is_user_admin(user_id) if user_id else False
 
@@ -494,7 +474,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "company_id": company_id,
                 "title": task.get("title", ""),
                 "description": task.get("description", ""),
-                "expected_answer": task.get("expected_answer") if caller_is_admin else None,
+                "expected_answer": task.get("expected_answer"),
                 "submission_format": submission_format_list,
                 "questions": task.get("questions") or [],
                 "bundle_tasks": task.get("bundle_tasks") or [],
@@ -503,6 +483,9 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "recurrence": assignment.get("recurrence", "none"),
                 "level": assignment.get("level", ""),
                 "target_user_ids": assignment.get("target_user_ids"),
+                "target_function_id": assignment.get("target_function_id"),
+                "target_sub_function_id": assignment.get("target_sub_function_id"),
+                "target_module_id": assignment.get("target_module_id"),
                 "audience_display_name": assignment.get("audience_display_name") or assignment.get("level", ""),
                 "total_target_count": assignment.get("total_target_count", 0),
                 "completion_count": comp_count,
@@ -692,7 +675,12 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             "status": "completed" if user_completed else assignment.get("status", "active"),
             "submitted": user_completed,
             "submission": user_sub_row,
-            "target_user_ids": assignment.get("target_user_ids")
+            "level": assignment.get("level", ""),
+            "target_user_ids": assignment.get("target_user_ids"),
+            "target_function_id": assignment.get("target_function_id"),
+            "target_sub_function_id": assignment.get("target_sub_function_id"),
+            "target_module_id": assignment.get("target_module_id"),
+            "expected_answer": task.get("expected_answer"),
         }
         
         if caller_is_admin and "expected_answer" in task:
@@ -1542,6 +1530,7 @@ async def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
+            "expected_answer": primary_task.get("expected_answer"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1549,6 +1538,10 @@ async def reassign_task_assignment(
             "due_date": due_date,
             "recurrence": recurrence,
             "level": db_level,
+            "target_user_ids": target_user_ids,
+            "target_function_id": target_function_id,
+            "target_sub_function_id": target_sub_function_id,
+            "target_module_id": target_module_id,
             "audience_display_name": audience_display_name,
             "total_target_count": audience_count,
             "completion_count": 0,
@@ -1586,6 +1579,7 @@ async def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
+            "expected_answer": primary_task.get("expected_answer"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1593,6 +1587,10 @@ async def reassign_task_assignment(
             "due_date": due_date,
             "recurrence": recurrence,
             "level": db_level,
+            "target_user_ids": target_user_ids,
+            "target_function_id": target_function_id,
+            "target_sub_function_id": target_sub_function_id,
+            "target_module_id": target_module_id,
             "audience_display_name": audience_display_name,
             "total_target_count": audience_count,
             "completion_count": 0,

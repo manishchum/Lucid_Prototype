@@ -19,6 +19,9 @@ export interface Task {
   completion_count: number;
   created_at: string;
   target_user_ids?: string[];
+  target_function_id?: string;
+  target_sub_function_id?: string;
+  target_module_id?: string;
   // optional fields attached by backend when returning user-specific tasks
   submitted?: boolean;
   submission?: any;
