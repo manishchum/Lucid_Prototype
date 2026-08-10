@@ -1,14 +1,14 @@
-// "use client"
+"use client"
 
-// import { useEffect } from "react"
-// import { useRouter } from "next/navigation"
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 
-// export default function AdminDashboardPage() {
-//   const router = useRouter()
+export default function AdminDashboardPage() {
+  const router = useRouter()
 
-//   useEffect(() => {
-//     router.replace("/admin/dashboard/analytics")
-//   }, [router])
+  useEffect(() => {
+    router.replace("/admin/dashboard/analytics")
+  }, [router])
 
-//   return null
-// }
+  return null
+}

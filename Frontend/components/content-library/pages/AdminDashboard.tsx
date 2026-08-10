@@ -1,4 +1,4 @@
-// import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 // import FolderList from "../components/folder/FolderList";
 // import UploadFile from "../components/folder/UploadFile";
 // import { Folder } from "../types/folder.types";
@@ -19,7 +19,7 @@
 //   'Customer Support'
 // ];
 
-// const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 'overview' }) => {
+const AdminDashboard: React.FC<{ activeSection?: string }> = ({ activeSection = 'overview' }) => {
 //   const [folders, setFolders] = useState<Folder[]>(initialFolders);
 //   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 //   const [descriptions, setDescriptions] = useState<Record<string,string>>({});
@@ -239,6 +239,6 @@
 //       </div>
 //     </main>
 //   );
-// };
+};
 
-// export default AdminDashboard;
+export default AdminDashboard;
