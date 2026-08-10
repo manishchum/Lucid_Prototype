@@ -9,6 +9,8 @@ export type Addon =
   | 'lucid_studio_mindmap'
   | 'lucid_studio_infographic'
   | 'chat_in_studio'
+  | 'chat_in_studio_textual'
+  | 'chat_in_studio_speech'
   | 'lucid_studio_flashcard'
   | 'lucid_studio_flashcards'
   | 'task_management'
@@ -54,7 +56,11 @@ export function useFeatureGating() {
   const deriveFrontendTier = (addons: Addon[]): Tier | null => {
     const current = new Set(addons);
     if (current.has('task_management')) return 'tier_3';
-    if (current.has('chat_in_studio')) return 'tier_2';
+    if (
+      current.has('chat_in_studio') ||
+      current.has('chat_in_studio_textual') ||
+      current.has('chat_in_studio_speech')
+    ) return 'tier_2';
     if (
       current.has('lucid_studio') ||
       current.has('lucid_studio_textual') ||
@@ -85,6 +91,8 @@ export function useFeatureGating() {
       'lucid_studio_flashcard',
       'lucid_studio_flashcards',
       'chat_in_studio',
+      'chat_in_studio_textual',
+      'chat_in_studio_speech',
       'task_management',
       'kpi',
       'role_play',
@@ -109,6 +117,11 @@ export function useFeatureGating() {
 
     if (hasLucidChild) {
       effectiveAddons.add('lucid_studio');
+    }
+
+    const hasChatChild = (['chat_in_studio_textual', 'chat_in_studio_speech'] as Addon[]).some((addon) => effectiveAddons.has(addon));
+    if (hasChatChild) {
+      effectiveAddons.add('chat_in_studio');
     }
 
     return Array.from(effectiveAddons);
@@ -167,6 +180,8 @@ export function useFeatureGating() {
         requiresAnyAddon: true,
       },
       'chatInStudio': { requiredAddons: ['chat_in_studio'] },
+      'chatInStudioTextual': { requiredAddons: ['chat_in_studio_textual'] },
+      'chatInStudioSpeech': { requiredAddons: ['chat_in_studio_speech'] },
       'taskManagement': { requiredAddons: ['task_management'] },
       'kpi': { requiredAddons: ['kpi'] },
       'rolePlay': { requiredAddons: ['role_play'] },

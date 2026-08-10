@@ -30,6 +30,8 @@ type AddonKey =
   | "lucid_studio_infographic"
   | "lucid_studio_flashcard"
   | "chat_in_studio"
+  | "chat_in_studio_textual"
+  | "chat_in_studio_speech"
   | "task_management"
   | "kpi"
   | "role_play"
@@ -109,6 +111,20 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     category: "core",
   },
   {
+    id: "chat_in_studio_textual",
+    label: "Textual Chat",
+    description: "Enable textual chat option in module.",
+    category: "core",
+    parentId: "chat_in_studio",
+  },
+  {
+    id: "chat_in_studio_speech",
+    label: "Speech to Speech Chat",
+    description: "Enable speech to speech option in module.",
+    category: "core",
+    parentId: "chat_in_studio",
+  },
+  {
     id: "task_management",
     label: "Task Management",
     description: "Expose task planning and management tools.",
@@ -154,6 +170,11 @@ const LUCID_STUDIO_CHILDREN: AddonKey[] = [
   "lucid_studio_mindmap",
   "lucid_studio_infographic",
   "lucid_studio_flashcard",
+]
+
+const CHAT_IN_STUDIO_CHILDREN: AddonKey[] = [
+  "chat_in_studio_textual",
+  "chat_in_studio_speech",
 ]
 
 function normalizeAddonKey(value: string): AddonKey | null {
@@ -237,13 +258,26 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
     effectiveAddons.add("lucid_studio")
   }
 
+  const hasChatChild = [
+    "chat_in_studio_textual",
+    "chat_in_studio_speech",
+  ].some((child) => effectiveAddons.has(child as AddonKey))
+
+  if (hasChatChild) {
+    effectiveAddons.add("chat_in_studio")
+  }
+
   return Array.from(effectiveAddons)
 }
 
 function deriveFrontendTier(addons: AddonKey[]): SubscriptionTier | null {
   const current = new Set(addons)
   if (current.has("task_management")) return "tier_3"
-  if (current.has("chat_in_studio")) return "tier_2"
+  if (
+    current.has("chat_in_studio") ||
+    current.has("chat_in_studio_textual") ||
+    current.has("chat_in_studio_speech")
+  ) return "tier_2"
   if (current.has("lucid_studio")) return "tier_1"
   return null
 }
@@ -338,10 +372,16 @@ export default function CompanyAccessPage() {
         if (LUCID_STUDIO_CHILDREN.includes(addon)) {
           next.add("lucid_studio")
         }
+        if (CHAT_IN_STUDIO_CHILDREN.includes(addon)) {
+          next.add("chat_in_studio")
+        }
       } else {
         next.delete(addon)
         if (addon === "lucid_studio") {
           LUCID_STUDIO_CHILDREN.forEach((child) => next.delete(child))
+        }
+        if (addon === "chat_in_studio") {
+          CHAT_IN_STUDIO_CHILDREN.forEach((child) => next.delete(child))
         }
       }
 
@@ -612,9 +652,14 @@ export default function CompanyAccessPage() {
                   {FEATURE_DEFINITIONS.map((feature) => {
                     const checked = draftAddons.includes(feature.id)
                     const isLucidChild = feature.parentId === "lucid_studio"
-                    const parentEnabled = draftAddons.includes("lucid_studio")
+                    const isChatChild = feature.parentId === "chat_in_studio"
+                    const parentEnabled = feature.parentId === "lucid_studio"
+                      ? draftAddons.includes("lucid_studio")
+                      : feature.parentId === "chat_in_studio"
+                      ? draftAddons.includes("chat_in_studio")
+                      : false
 
-                    if (isLucidChild && !parentEnabled) {
+                    if ((isLucidChild || isChatChild) && !parentEnabled) {
                       return null
                     }
 
@@ -654,11 +699,14 @@ export default function CompanyAccessPage() {
                                 handleToggleAddon(feature.id, Boolean(value))
                               }
                             }}
-                            disabled={isMandatory || (isLucidChild && !parentEnabled)}
+                            disabled={isMandatory || ((isLucidChild || isChatChild) && !parentEnabled)}
                           />
                         </div>
                         {isLucidChild && !parentEnabled && (
                           <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
+                        )}
+                        {isChatChild && !parentEnabled && (
+                          <p className="mt-2 text-xs text-slate-500">Enable Chat in Studio to unlock this feature.</p>
                         )}
                       </div>
                     )
