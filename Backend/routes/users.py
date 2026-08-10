@@ -346,12 +346,9 @@ async def get_user_roles_endpoint(
 @router.get("/by-email/{email}")
 async def get_user_by_email_route(
     email: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    requesting_user_id = auth_ctx.user_id
-    result = await get_user_by_email(requesting_user_id, email, auth_ctx.claims)
-    
-    # result is {"data": user, "error": ...} from the service layer
+    result = await get_user_by_email(auth_ctx.user_id, email, auth_ctx.claims)
     user_data = result.get("data")
     
     return {
@@ -370,7 +367,7 @@ async def get_user_by_email_route(
 @router.get("/by-phone/{phone}")
 async def get_user_by_phone_route(
     phone: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     requesting_user_id = auth_ctx.user_id
 
@@ -450,12 +447,11 @@ async def get_user_by_phone_route(
 
 @router.post("/record-login")
 async def record_user_login_route(
-    payload: dict,
-    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    user_id = payload.get("user_id") or auth_ctx.user_id
+    user_id = auth_ctx.user_id
     if not user_id:
-        raise HTTPException(status_code=400, detail="User ID is required")
+        raise HTTPException(status_code=401, detail="Authentication required")
         
     result = await record_login_in_db(user_id)
     if result.get("error"):
