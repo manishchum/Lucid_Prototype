@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Literal, Optional
 from datetime import datetime
 
+from utils.auth_bridge import get_service_supabase_client
 from utils.assignment_notifications import send_bulk_assignment_notification_emails
 from utils.supabase_client import supabase
 from utils.websocket_manager import manager
@@ -42,7 +43,8 @@ async def register_token(
 ):
     user_id = auth_ctx.user_id
     try:
-        resp = supabase.table("users").update({"fcm_token": request.fcm_token}).eq("user_id", user_id).execute()
+        service_client = get_service_supabase_client()
+        resp = service_client.table("users").update({"fcm_token": request.fcm_token}).eq("user_id", user_id).execute()
         if not resp.data:
             raise HTTPException(status_code=404, detail="User not found")
         return {"success": True, "message": "FCM token registered successfully"}
@@ -60,8 +62,9 @@ async def get_unread_count(
         return {"success": True, "unread_count": cached_count, "source": "redis"}
 
     try:
+        service_client = get_service_supabase_client()
         resp = (
-            supabase.table("notifications")
+            service_client.table("notifications")
             .select("id", count="exact")
             .eq("user_id", user_id)
             .eq("read", False)
@@ -82,8 +85,9 @@ async def list_notifications(
 ):
     user_id = auth_ctx.user_id
     try:
+        service_client = get_service_supabase_client()
         resp = (
-            supabase.table("notifications")
+            service_client.table("notifications")
             .select("id,title,message,type,metadata,read,created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
@@ -102,8 +106,9 @@ async def mark_notification_read(
 ):
     user_id = auth_ctx.user_id
     try:
+        service_client = get_service_supabase_client()
         resp = (
-            supabase.table("notifications")
+            service_client.table("notifications")
             .update({"read": True})
             .eq("id", notification_id)
             .eq("user_id", user_id)
@@ -123,8 +128,9 @@ async def mark_all_notifications_read(
 ):
     user_id = auth_ctx.user_id
     try:
+        service_client = get_service_supabase_client()
         resp = (
-            supabase.table("notifications")
+            service_client.table("notifications")
             .update({"read": True})
             .eq("user_id", user_id)
             .eq("read", False)
