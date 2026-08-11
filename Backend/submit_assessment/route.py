@@ -7,10 +7,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import get_request_auth_required_from_request
 from utils.auth_bridge import get_service_supabase_client
-
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
-import google.generativeai as genai
+# import google.generativeai as genai
 from utils.redis_limiter import check_rate_limit
 from utils.redis_client import delete_cache_pattern
 
@@ -28,10 +29,10 @@ router = APIRouter()
 # supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
-genAI = genai  # keep same naming intent
-genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
+# genAI = genai  # keep same naming intent
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
-baseUrl = os.getenv("NEXT_PUBLIC_APP_URL") or "http://localhost:3000"
+baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
 
 
 @router.post("/submit-assessment")
@@ -65,7 +66,7 @@ async def POST(request: Request):
         assessmentRes = (
             user_supabase
             .table("assessments")
-            .select("questions, type, processed_module_id")
+            .select("questions, type, processed_module_id, company_id")
             .eq("assessment_id", assessment_id)
             .single()
             .execute()
@@ -187,19 +188,88 @@ async def POST(request: Request):
     scorePercentage = round((score / maxScore) * 100) if maxScore > 0 else 0
 
     # Generate AI feedback using Gemini
+#     aiFeedback: Optional[str] = None
+#     try:
+#         if os.getenv("GEMINI_API_KEY"):
+#             feedbackPrompt = f"""You are an expert educational assessment analyst. Generate a structured quiz feedback report using EXACTLY this format:
+
+# ## Quiz Feedback Report
+
+# **Assessment:** {assessment.get("type") or "Module"} Quiz
+# **Score:** {score}/{maxScore} ({scorePercentage}%)
+
+# User Performance Summary:
+# {''.join([
+# f'''
+# Question {index + 1}: {answer.get("question")}
+# User Answer: {answer.get("userAnswer")}
+# Correct Answer: {answer.get("correctAnswer")}
+# Result: {'✓ Correct' if answer.get("isCorrect") else '✗ Incorrect'}
+# Bloom's Level: {answer.get("bloomLevel") or 'N/A'}
+# {('Explanation: ' + str(answer.get("explanation"))) if (answer.get("explanation") and (not answer.get("isCorrect"))) else ''}
+# '''
+# for index, answer in enumerate(correctAnswers)
+# ])}
+
+# Please provide:
+# 1. A brief congratulatory or encouraging opening
+# 2. Overall performance summary
+# 3. Strengths identified (areas where user performed well)
+# 4. Areas for improvement (specific topics to focus on)
+# 5. Actionable study recommendations
+# 6. Encouraging closing remarks
+
+# Keep the feedback constructive, specific, and encouraging. Format it as a structured report with clear sections.
+
+# IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure."""
+
+#             model = genai.GenerativeModel("gemini-3.1-pro-preview")
+#             result = model.generate_content(feedbackPrompt)
+#             rawFeedback = result.text if result else None
+
+#             # Standardize the response format
+#             if rawFeedback:
+#                 # Remove any markdown code blocks
+#                 import re
+#                 rawFeedback = re.sub(r"```[\s\S]*?```", "", rawFeedback)
+
+#                 # Ensure consistent header format
+#                 rawFeedback = re.sub(r"^#+\s*", "## ", rawFeedback, flags=re.MULTILINE)
+
+#                 # Clean up extra whitespace
+#                 rawFeedback = re.sub(r"\n{3,}", "\n\n", rawFeedback)
+
+#                 aiFeedback = rawFeedback.strip()
+
+#     except Exception as feedbackError:
+#         print("🤖 Error generating AI feedback:", feedbackError)
+
+#         incorrectLines = "\n".join([
+#             f"* Question {a.get('questionIndex') + 1}: {a.get('question')}"
+#             for a in correctAnswers
+#             if not a.get("isCorrect")
+#         ])
+
+#         aiFeedback = f"""## Quiz Feedback Report
+
+# **Assessment:** {assessment.get("type") or "Module"} Quiz
+# **Score:** {score}/{maxScore} ({scorePercentage}%)
+
+# ### Overall Performance Summary
+# You scored {scorePercentage}% on this assessment. {"Well done!" if scorePercentage >= 70 else "Keep studying to improve your understanding."}
+
+# ### Areas for Review
+# {incorrectLines}
+
+# ### Next Steps
+# Review the questions you missed and study the related concepts to improve your understanding."""
+
+        # Generate AI feedback through the centralized AI Gateway.
     aiFeedback: Optional[str] = None
+
     try:
-        if os.getenv("GEMINI_API_KEY"):
-            feedbackPrompt = f"""You are an expert educational assessment analyst. Generate a structured quiz feedback report using EXACTLY this format:
-
-## Quiz Feedback Report
-
-**Assessment:** {assessment.get("type") or "Module"} Quiz
-**Score:** {score}/{maxScore} ({scorePercentage}%)
-
-User Performance Summary:
-{''.join([
-f'''
+        performanceSummary = "".join([
+            f'''
 Question {index + 1}: {answer.get("question")}
 User Answer: {answer.get("userAnswer")}
 Correct Answer: {answer.get("correctAnswer")}
@@ -207,38 +277,55 @@ Result: {'✓ Correct' if answer.get("isCorrect") else '✗ Incorrect'}
 Bloom's Level: {answer.get("bloomLevel") or 'N/A'}
 {('Explanation: ' + str(answer.get("explanation"))) if (answer.get("explanation") and (not answer.get("isCorrect"))) else ''}
 '''
-for index, answer in enumerate(correctAnswers)
-])}
+            for index, answer in enumerate(correctAnswers)
+        ])
 
-Please provide:
-1. A brief congratulatory or encouraging opening
-2. Overall performance summary
-3. Strengths identified (areas where user performed well)
-4. Areas for improvement (specific topics to focus on)
-5. Actionable study recommendations
-6. Encouraging closing remarks
+        ai_response = await AI.execute(
+            AIRequest(
+                feature="assessment_feedback",
+                company_id=str(assessment.get("company_id") or ""),
+                user_id=str(user_id),
+                route="/submit-assessment",
+                variables={
+                    "assessmentType": assessment.get("type") or "Module",
+                    "score": score,
+                    "maxScore": maxScore,
+                    "scorePercentage": scorePercentage,
+                    "performanceSummary": performanceSummary,
+                },
+                response_format="text",
+            )
+        )
 
-Keep the feedback constructive, specific, and encouraging. Format it as a structured report with clear sections.
+        if ai_response and ai_response.content:
+            rawFeedback = ai_response.content
 
-IMPORTANT: Use this EXACT format with these headings. Do not add extra sections or change the structure."""
+            # Standardize the response format.
+            import re
 
-            model = genai.GenerativeModel("gemini-3.1-pro-preview")
-            result = model.generate_content(feedbackPrompt)
-            rawFeedback = result.text if result else None
+            # Remove markdown code blocks.
+            rawFeedback = re.sub(
+                r"```[\s\S]*?```",
+                "",
+                rawFeedback
+            )
 
-            # Standardize the response format
-            if rawFeedback:
-                # Remove any markdown code blocks
-                import re
-                rawFeedback = re.sub(r"```[\s\S]*?```", "", rawFeedback)
+            # Ensure consistent heading format.
+            rawFeedback = re.sub(
+                r"^#+\s*",
+                "## ",
+                rawFeedback,
+                flags=re.MULTILINE
+            )
 
-                # Ensure consistent header format
-                rawFeedback = re.sub(r"^#+\s*", "## ", rawFeedback, flags=re.MULTILINE)
+            # Clean up extra whitespace.
+            rawFeedback = re.sub(
+                r"\n{3,}",
+                "\n\n",
+                rawFeedback
+            )
 
-                # Clean up extra whitespace
-                rawFeedback = re.sub(r"\n{3,}", "\n\n", rawFeedback)
-
-                aiFeedback = rawFeedback.strip()
+            aiFeedback = rawFeedback.strip()
 
     except Exception as feedbackError:
         print("🤖 Error generating AI feedback:", feedbackError)
@@ -255,14 +342,16 @@ IMPORTANT: Use this EXACT format with these headings. Do not add extra sections 
 **Score:** {score}/{maxScore} ({scorePercentage}%)
 
 ### Overall Performance Summary
+
 You scored {scorePercentage}% on this assessment. {"Well done!" if scorePercentage >= 70 else "Keep studying to improve your understanding."}
 
 ### Areas for Review
+
 {incorrectLines}
 
 ### Next Steps
-Review the questions you missed and study the related concepts to improve your understanding."""
 
+Review the questions you missed and study the related concepts to improve your understanding."""
     # Save the assessment result
     rowToSave = {
         "user_id": user_id,
@@ -282,7 +371,7 @@ Review the questions you missed and study the related concepts to improve your u
     upsertRes = (
         user_supabase
         .table("employee_assessments")
-        .upsert(rowToSave)
+        .upsert(rowToSave, on_conflict="user_id, assessment_id")
         .execute()
     )
     savedResult = getattr(upsertRes, "data", None)
@@ -333,63 +422,53 @@ Review the questions you missed and study the related concepts to improve your u
         return JSONResponse(content={"error": "Failed to save assessment result"}, status_code=500)
 
     is_baseline_assessment = str(assessment.get("type") or "").lower() == "baseline"
-    module_id_for_plan = body.get("module_id") or assessment.get("processed_module_id")
 
-    # Record baseline completion in learning_plan once per user/module.
-    # We keep the original assigned plan row intact and add a dedicated
-    # completion marker row so the UI can disable Baseline after first use.
-    if is_baseline_assessment and module_id_for_plan:
+    module_id_for_plan = (
+        None
+        if is_baseline_assessment
+        else (body.get("module_id") or assessment.get("processed_module_id"))
+    )
+
+    ## Mark baseline assessment as completed on the existing learning plan row.
+    if is_baseline_assessment and assessment.get("processed_module_id"):
         try:
-            # Mark original baseline plan as overall_status=True and status="COMPLETED"
-            supabase.table("learning_plan").update({
-                "overall_status": True,
-                "status": "COMPLETED",
-                "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
-            }).eq("user_id", user_id).eq("module_id", module_id_for_plan).execute()
+            baseline_module_id = assessment.get("processed_module_id")
 
-            existingBaselinePlanRes = (
+            baseline_completion_res = (
                 supabase
                 .table("learning_plan")
-                .select("learning_plan_id")
+                .update({
+                    "overall_status": True,
+                    "status": "COMPLETED",
+                    "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
+                })
                 .eq("user_id", user_id)
-                .eq("module_id", module_id_for_plan)
-                .eq("status", "BASELINE_COMPLETED")
-                .order("assigned_on", desc=True)
-                .limit(1)
-                .maybe_single()
+                .eq("module_id", baseline_module_id)
                 .execute()
             )
-            existingBaselinePlan = getattr(existingBaselinePlanRes, "data", None)
-            existingBaselinePlanError = getattr(existingBaselinePlanRes, "error", None)
 
-            if existingBaselinePlanError:
-                print("⚠️ Error checking existing baseline completion plan:", existingBaselinePlanError)
-            elif not existingBaselinePlan:
-                baselinePlanRow = {
-                    "user_id": user_id,
-                    "module_id": module_id_for_plan,
-                    "status": "BASELINE_COMPLETED",
-                    "overall_status": True,
-                    "baseline_assessment": False,
-                    "reasoning": {
-                        "source": "baseline_assessment",
-                        "assessment_id": assessment_id,
-                        "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
-                    },
-                    "assigned_on": __import__("datetime").datetime.utcnow().isoformat(),
-                }
+            baseline_completion_error = getattr(
+                baseline_completion_res,
+                "error",
+                None
+            )
 
-                baselinePlanInsertRes = (
-                    supabase
-                    .table("learning_plan")
-                    .insert(baselinePlanRow)
-                    .execute()
+            if baseline_completion_error:
+                print(
+                    "⚠️ Failed to mark baseline learning_plan as completed:",
+                    baseline_completion_error
                 )
-                baselinePlanInsertError = getattr(baselinePlanInsertRes, "error", None)
-                if baselinePlanInsertError:
-                    print("⚠️ Failed to create baseline completion learning_plan row:", baselinePlanInsertError)
-        except Exception as baselinePlanError:
-            print("⚠️ Unexpected error while recording baseline completion in learning_plan:", baselinePlanError)
+            else:
+                print(
+                    f"✅ Baseline completed for user={user_id}, "
+                    f"module={baseline_module_id}"
+                )
+
+        except Exception as baseline_completion_error:
+            print(
+                "⚠️ Unexpected error while recording baseline completion:",
+                baseline_completion_error
+            )
 
     # Extract employee_assessment_id from savedResult (supabase-py returns list usually)
     employee_assessment_id = None
@@ -399,31 +478,31 @@ Review the questions you missed and study the related concepts to improve your u
         employee_assessment_id = savedResult.get("employee_assessment_id")
 
     # If this is a module assessment, update module progress
-    if assessment.get("type") == "module" and assessment.get("processed_module_id"):
-        try:
-            moduleCompletionUrl = f"{baseUrl}/api/complete-module"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                moduleCompletionResponse = await client.post(
-                    moduleCompletionUrl,
-                    headers={"Content-Type": "application/json"},
-                    content=json.dumps({
-                        "user_id": user_id,
-                        "processed_module_id": assessment.get("processed_module_id"),
-                        "quiz_score": score,
-                        "max_score": maxScore,
-                        "quiz_feedback": aiFeedback
-                    })
-                )
+    # if assessment.get("type") == "module" and assessment.get("processed_module_id"):
+    #     try:
+    #         moduleCompletionUrl = f"{baseUrl}/api/complete-module"
+    #         async with httpx.AsyncClient(timeout=30.0) as client:
+    #             moduleCompletionResponse = await client.post(
+    #                 moduleCompletionUrl,
+    #                 headers={"Content-Type": "application/json"},
+    #                 content=json.dumps({
+    #                     "user_id": user_id,
+    #                     "processed_module_id": assessment.get("processed_module_id"),
+    #                     "quiz_score": score,
+    #                     "max_score": maxScore,
+    #                     "quiz_feedback": aiFeedback
+    #                 })
+    #             )
 
-            if moduleCompletionResponse.status_code < 200 or moduleCompletionResponse.status_code >= 300:
-                errorText = moduleCompletionResponse.text
-                print("📚 Module completion failed:", errorText)
-            else:
-                _ = moduleCompletionResponse.json()
+    #         if moduleCompletionResponse.status_code < 200 or moduleCompletionResponse.status_code >= 300:
+    #             errorText = moduleCompletionResponse.text
+    #             print("📚 Module completion failed:", errorText)
+    #         else:
+    #             _ = moduleCompletionResponse.json()
 
-        except Exception as moduleError:
-            print("📚 Error updating module completion:", moduleError)
-            # Don't fail the assessment if module update fails
+    #     except Exception as moduleError:
+    #         print("📚 Error updating module completion:", moduleError)
+    #         # Don't fail the assessment if module update fails
 
     delete_cache_pattern(f"dashboard_summary:{user_id}*")
     delete_cache_pattern(f"module_progress:{user_id}*")

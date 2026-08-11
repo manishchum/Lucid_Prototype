@@ -29,7 +29,15 @@ class AI:
             request.feature,
             request.prompt_type
         )
-
+ 
+        print(
+            f"[AI GATEWAY] feature={request.feature} "
+            f"provider={model.provider} "
+            f"model={model.model} "
+            f"prompt_type={request.prompt_type} "
+            f"prompt_version={prompt.version}"
+        )
+ 
         final_prompt = PromptManager.render(
             prompt,
             request.variables
@@ -114,33 +122,19 @@ class AI:
             UsageLog(
 
                 company_id=request.company_id,
-
                 user_id=request.user_id,
-
                 feature_id=model.feature_id,
-
                 provider=response.provider,
-
                 model=response.model,
-
                 route=request.route,
-
                 prompt_version=prompt.version,
-
                 input_tokens=response.input_tokens,
-
                 output_tokens=response.output_tokens,
-
                 total_tokens=response.total_tokens,
-
                 cost_usd=cost_usd,
-
                 cost_inr=cost_inr,
-
                 latency_ms=response.latency_ms,
-
                 status="success"
-
             )
 
         )
