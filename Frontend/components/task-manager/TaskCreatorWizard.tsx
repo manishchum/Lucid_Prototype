@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Layers, 
   Briefcase, 
@@ -37,8 +37,8 @@ import {
   Sprint, 
   TeamMember,
   QuizQuestion,
-  WizardStep
 } from '@/types/task';
+import { useTenant } from '@/contexts/tenant-context';
 
 export type CorporateLevels = {
   orgs: string[];
@@ -67,6 +67,8 @@ export default function TaskCreatorWizard({
   onBackendCreate,
   initialTask
 }: TaskCreatorWizardProps) {
+  const { hasFeature } = useTenant();
+
   // Wizard flow step
   const [activeStep, setActiveStep] = useState<WizardStep>('level');
 
@@ -145,6 +147,58 @@ export default function TaskCreatorWizard({
   // Bundle metadata (for multi-task)
   const [bundleTitle, setBundleTitle] = useState(initialTask ? initialTask.title || '' : '');
   const [bundleDescription, setBundleDescription] = useState(initialTask ? initialTask.description || '' : '');
+
+  // Synchronize wizard state whenever initialTask is provided/updated for reassignment
+  useEffect(() => {
+    if (initialTask) {
+      setAssociateWithSprint(
+        initialTask.level === 'sprint' ||
+        Boolean(initialTask.targetSprints && initialTask.targetSprints.length > 0)
+      );
+      setTaskMode(
+        (initialTask.bundle_tasks && initialTask.bundle_tasks.length > 1) ||
+        (initialTask.tasks && initialTask.tasks.length > 1)
+          ? 'multiple'
+          : 'single'
+      );
+      if (initialTask.dueDate) {
+        setDueDate(initialTask.dueDate.split('T')[0]);
+      }
+      setRecurrence((initialTask.recurrence as any) || 'none');
+
+      if (initialTask.bundle_tasks && initialTask.bundle_tasks.length > 0) {
+        setTasks(
+          initialTask.bundle_tasks.map((bt: any, idx: number) => ({
+            id: `task-${idx}`,
+            title: bt.title || '',
+            description: bt.description || '',
+            expectedAnswer: bt.expected_answer || bt.expectedAnswer || (initialTask.tasks?.[idx]?.expectedAnswer) || (initialTask as any).expected_answer || '',
+            submissionFormat: bt.submission_format || 'text',
+            questions: bt.questions || [],
+          }))
+        );
+      } else if (initialTask.tasks && initialTask.tasks.length > 0) {
+        setTasks(
+          initialTask.tasks.map((t, idx) => ({
+            id: t.id || `task-${idx}`,
+            title: t.title || initialTask.title || '',
+            description: t.description || initialTask.description || '',
+            expectedAnswer: t.expectedAnswer || (t as any).expected_answer || (initialTask as any).expected_answer || '',
+            submissionFormat: t.submissionFormat || 'text',
+            questions: t.questions || [],
+          }))
+        );
+      }
+
+      setSelectedSprintIds(initialTask.targetSprints || []);
+      setSelectedOrgs(initialTask.targetOrgs || []);
+      setSelectedFunctions(initialTask.targetFunctions || []);
+      setSelectedSubFunctions(initialTask.targetSubFunctions || []);
+      setSelectedIndividualIds(initialTask.targetIndividuals || []);
+      setBundleTitle(initialTask.title || '');
+      setBundleDescription(initialTask.description || '');
+    }
+  }, [initialTask]);
 
   // -------------------------
   // Helper State management
@@ -839,7 +893,7 @@ const toggleCorrectAnswer = (
                       <label className="text-xs font-bold text-[#334155] block">Select Sprints to Link (Multi-Select)</label>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-slate-50/20">
                         {sprints.map((sprint) => {
-                          const isSelected = selectedSprintIds.includes(sprint.id);
+                          const isSelected = selectedSprintIds.includes(sprint.id) || selectedSprintIds.includes(sprint.title);
                           return (
                             <button
                               type="button"
@@ -1048,6 +1102,7 @@ const toggleCorrectAnswer = (
                             
                             <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                               {/* Submit Image */}
+                              {hasFeature('taskManagementImage') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'image')}
@@ -1060,8 +1115,10 @@ const toggleCorrectAnswer = (
                                 <ImageIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Image</span>
                               </button>
+                              )}
 
                               {/* Submit Text */}
+                              {hasFeature('taskManagementTextual') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'text')}
@@ -1074,8 +1131,10 @@ const toggleCorrectAnswer = (
                                 <TextIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Text Entry</span>
                               </button>
+                              )}
 
                               {/* Submit Quiz Form */}
+                              {hasFeature('taskManagementEvaluation') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'multiple_choice')}
@@ -1088,8 +1147,10 @@ const toggleCorrectAnswer = (
                                 <QuizIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Evaluation</span>
                               </button>
+                              )}
 
                               {/* Submit Audio */}
+                              {hasFeature('taskManagementAudio') && (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'audio')}
@@ -1102,8 +1163,23 @@ const toggleCorrectAnswer = (
                                 <MicIcon size={14} className="shrink-0" />
                                 <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Audio</span>
                               </button>
+                              )}
 
-
+                              {/* Submit Video */}
+                              {hasFeature('taskManagementVideo') && (
+                              <button
+                                type="button"
+                                onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
+                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                  (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
+                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
+                                }`}
+                              >
+                                <VideoIcon size={14} className="shrink-0" />
+                                <span className="text-[10px] font-semibold font-sans truncate text-center sm:text-left">Video</span>
+                              </button>
+                              )}
                             </div>
                           </div>
 

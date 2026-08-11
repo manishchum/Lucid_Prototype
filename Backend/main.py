@@ -252,6 +252,10 @@ app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
 
+@app.post("/api/logs")
+async def client_logs_endpoint():
+    return {"success": True}
+
 
 if __name__ == "__main__":
     import uvicorn

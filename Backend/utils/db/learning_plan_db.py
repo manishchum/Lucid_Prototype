@@ -480,6 +480,8 @@ async def bulk_create_learning_plans(
         skipped = 0
 
         now = datetime.utcnow().isoformat()
+        baseline_settings = bulk_data.get("baseline_settings") or {}
+        print("DEBUG BULK CREATE - baseline_settings:", baseline_settings, "module_ids:", module_ids)
 
         for user_id in user_ids:
 
@@ -525,11 +527,10 @@ async def bulk_create_learning_plans(
                         "due_date"
                     ),
 
-                    "baseline_assessment":
-                        bulk_data.get(
-                            "baseline_assessment",
-                            True
-                        ),
+                    "baseline_assessment": baseline_settings.get(
+                        module_id, 
+                        bulk_data.get("baseline_assessment", False)
+                    ),
 
                     "processed_module_ids":
                         processed_lookup.get(

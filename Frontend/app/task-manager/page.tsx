@@ -18,7 +18,6 @@ import {
   submitTaskResponse,
   reassignTask,
   fetchAudienceFunctions,
-  fetchAudienceSubFunctions,
   type CreateTaskPayload,
   type SubmitTaskPayload,
   type Task,
@@ -36,6 +35,29 @@ function mapBackendLevel(level?: string): AssignmentLevel {
   if (!level) return "individual";
   if (level === "cohort") return "sprint";
   return level as AssignmentLevel;
+}
+
+function isUuid(val?: string): boolean {
+  if (!val || typeof val !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+}
+
+function parseUserIds(raw: any): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
+  if (typeof raw === 'string') {
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      return raw.slice(1, -1).split(',').map(s => s.trim().replace(/^"/, '').replace(/"$/, '')).filter(Boolean);
+    }
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+      } catch (e) {}
+    }
+    return [raw];
+  }
+  return [];
 }
 
 function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
@@ -62,6 +84,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
         id: sub.child_task_id || `${task.task_id}-${index}`,
         title: sub.title || "",
         description: sub.description || "",
+        expectedAnswer: sub.expected_answer || sub.expectedAnswer || (task as any).expected_answer || "",
         submissionFormat: normalizeFormat(sub.submission_format),
         questions: (sub.questions || []) as QuizQuestion[],
       }));
@@ -88,6 +111,7 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
         id: index === 0 ? task.task_id : `${task.task_id}-${fmt}`,
         title: task.title,
         description: task.description ?? "",
+        expectedAnswer: (task as any).expected_answer || (task as any).expectedAnswer || "",
         submissionFormat: fmt as SubmissionFormat,
         questions: task.questions || [],
       }));
@@ -106,11 +130,11 @@ function mapBackendTasksToAssignedTasks(backendTasks: Task[]): AssignedTask[] {
       level,
       mode: isMultiple ? ("multiple" as const) : ("single" as const),
       tasks: subtasks,
-      targetSprints: level === "sprint" ? [audienceName].filter(Boolean) : [],
+      targetSprints: task.target_module_id && isUuid(task.target_module_id) ? [task.target_module_id] : [],
       targetOrgs: level === "org" ? [audienceName].filter(Boolean) : [],
-      targetFunctions: level === "function" ? [audienceName].filter(Boolean) : [],
-      targetSubFunctions: level === "sub_function" ? [audienceName].filter(Boolean) : [],
-      targetIndividuals: level === "individual" ? (task.target_user_ids || []) : [],
+      targetFunctions: task.target_function_id && isUuid(task.target_function_id) ? [task.target_function_id] : (level === "function" ? [audienceName].filter(Boolean) : []),
+      targetSubFunctions: task.target_sub_function_id && isUuid(task.target_sub_function_id) ? [task.target_sub_function_id] : (level === "sub_function" ? [audienceName].filter(Boolean) : []),
+      targetIndividuals: parseUserIds(task.target_user_ids).filter(isUuid),
       dueDate: task.due_date,
       createdAt: task.created_at,
       status: hasSubmission ? "Completed" : "Active",
@@ -188,8 +212,6 @@ function TaskManagerContent() {
     if (authLoading || !user || !effectiveUserId || !companyId) return;
 
     const fetchKey = `${effectiveUserId}-${companyId}-${role}`;
-    if (lastFetchedRef.current === fetchKey) return;
-    
     lastFetchedRef.current = fetchKey;
 
     setIsLoading(true);
@@ -204,27 +226,10 @@ function TaskManagerContent() {
 
       const subFunctionsMap: Record<string, string[]> = {};
       if (apiFunctions && apiFunctions.length > 0) {
-        const subFuncsResults = await Promise.all(
-          apiFunctions.map(async (f) => {
-            try {
-              const subFuncs = await fetchAudienceSubFunctions(f.function_id, {
-                userId: effectiveUserId,
-                companyId,
-              });
-              return {
-                functionName: f.function_name,
-                subFunctionNames: subFuncs.map((sf) => sf.sub_function_name),
-              };
-            } catch (err) {
-              return {
-                functionName: f.function_name,
-                subFunctionNames: [],
-              };
-            }
-          })
-        );
-        subFuncsResults.forEach((res) => {
-          subFunctionsMap[res.functionName] = res.subFunctionNames;
+        apiFunctions.forEach((f) => {
+          subFunctionsMap[f.function_name] = (f.sub_functions || []).map(
+            (sf) => sf.sub_function_name
+          );
         });
       }
 

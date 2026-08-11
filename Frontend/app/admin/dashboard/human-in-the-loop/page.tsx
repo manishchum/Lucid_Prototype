@@ -24,6 +24,8 @@ interface TrainingModule {
   user_role?: 'uploader' | 'reviewer' | 'both';
   reviewer_name?: string;
   uploader_name?: string;
+  reviewer?: { user_id?: string; name?: string; email?: string } | null;
+  uploader?: { user_id?: string; name?: string; email?: string } | null;
 }
 
 function useIllusionProgress(active: boolean) {
@@ -177,7 +179,6 @@ export default function HumanInTheLoopPage() {
       const uploadedModules = allCompanyModules.filter((m: any) => m.uploaded_by === currentUserId);
       const reviewModules = allCompanyModules.filter((m: any) => 
         m.reviewer_id === currentUserId && 
-        m.review_stage === 'in_review' && 
         m.uploaded_by !== currentUserId
       );
 
@@ -202,11 +203,21 @@ export default function HumanInTheLoopPage() {
         else if (isReviewer) role = 'reviewer';
         else if (isUploader) role = 'uploader';
 
+        const reviewerName = 
+          (mod as any).reviewer?.name || 
+          (mod as any).reviewer?.email || 
+          (mod.reviewer_id === currentUserId ? 'You' : (mod.reviewer_id ? 'Assigned' : 'Not Assigned'));
+
+        const uploaderName = 
+          (mod as any).uploader?.name || 
+          (mod as any).uploader?.email || 
+          (mod.uploaded_by === currentUserId ? 'You' : 'Unknown');
+
         uniqueModules.push({ 
           ...mod, 
           user_role: role,
-          reviewer_name: (mod as any).reviewer?.name || 'Not Assigned',
-          uploader_name: (mod as any).uploader?.name || 'Unknown'
+          reviewer_name: reviewerName,
+          uploader_name: uploaderName
         });
       }
 
