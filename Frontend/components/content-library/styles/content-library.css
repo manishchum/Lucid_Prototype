@@ -1,7 +1,7 @@
 .content-library__root { display: flex; }
 
 /* Reuse global theme variables so the content-library sidebar matches the main app sidebar */
-:root {
+/* :root {
   --cl-color-background: color-mix(in srgb, var(--background, 255 255 255) 100%, transparent);
   --cl-color-foreground: color-mix(in srgb, rgb(var(--foreground)), transparent);
   --cl-color-primary: rgb(var(--sidebar-primary));
@@ -18,18 +18,17 @@
 }
 
 /* Sidebar styles (prefixed) */
-.app-sidebar {
+/* .app-sidebar {
   width: 220px;
   background: #ffffff; /* match main Learner dashboard sidebar */
-  color: #111827; /* dark text */
-  padding: 18px;
+  /* color: #111827; /* dark text */
+  /* padding: 18px;
   border-right: 1px solid #e6e9ef;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-.app-sidebar .brand { display:flex; align-items:center; gap:10px; }
+  gap: 16px; */
+/* .app-sidebar .brand { display:flex; align-items:center; gap:10px; }
 .app-sidebar .logo { width:40px; height:40px; border-radius:8px; background: #2563eb; color: #fff; display:flex; align-items:center; justify-content:center; font-weight:700 }
 .app-sidebar .title { font-weight:700; color:#111827; }
 .nav-tabs { display:flex; flex-direction:column; gap:8px; margin-top:6px; }
@@ -38,9 +37,9 @@
 .nav-tab.active { background: #dbeafe; color: #2563eb; box-shadow:0 6px 18px rgba(37,99,235,0.08); }
 .nav-tab .label { font-weight:600; }
 .app-main { flex:1; padding:32px; }
-.muted { color:#6b6b6b; font-size:13px; }
+.muted { color:#6b6b6b; font-size:13px; } */
 
-@media (prefers-color-scheme: dark) {
+/* @media (prefers-color-scheme: dark) {
   :root {
     --cl-color-background: #0A0A0A;
     --cl-color-foreground: #FAFAFA;
@@ -48,4 +47,4 @@
     --cl-sidebar-accent: #262626;
     --cl-color-border: #262626;
   }
-}
+} */

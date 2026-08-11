@@ -1,9 +1,15 @@
 import base64
 import json
 import os
+import re
 import tempfile
 from typing import Optional
 from uuid import uuid4
+
+def is_valid_uuid(val: any) -> bool:
+    if not val or not isinstance(val, str):
+        return False
+    return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", val, re.I))
 # from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
@@ -256,56 +262,36 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     db = get_service_supabase_client()
 
-    def _select_assignments(source_name: str, table_name: str) -> list:
-        try:
-            if table_name == "v_active_assignments":
-                cols = "assignment_id, company_id, level, status, due_date, recurrence, total_target_count, created_at, audience_display_name"
-            else:
-                cols = "assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at"
-            response = (
-                db.table(table_name)
-                .select(cols)
-                .eq("company_id", company_id)
-                .execute()
-            )
-            return response.data or []
-        except Exception as exc:
-            print(f"[task-manager] {source_name} query failed:", exc)
-            return []
-
     try:
-        assignments = _select_assignments("v_active_assignments", "v_active_assignments")
-        if assignments:
-            # Supplement missing target fields from task_assignments
-            assignment_ids = [a.get("assignment_id") for a in assignments if a.get("assignment_id")]
-            if assignment_ids:
-                try:
-                    ta_res = (
-                        db.table("task_assignments")
-                        .select("assignment_id, target_user_ids, target_function_id, target_sub_function_id, target_module_id")
-                        .in_("assignment_id", assignment_ids)
-                        .execute()
-                    )
-                    ta_data = ta_res.data or []
-                    ta_map = {row["assignment_id"]: row for row in ta_data if "assignment_id" in row}
-                    for a in assignments:
-                        aid = a.get("assignment_id")
-                        if aid in ta_map:
-                            a["target_user_ids"] = ta_map[aid].get("target_user_ids")
-                            a["target_function_id"] = ta_map[aid].get("target_function_id")
-                            a["target_sub_function_id"] = ta_map[aid].get("target_sub_function_id")
-                            a["target_module_id"] = ta_map[aid].get("target_module_id")
-                except Exception as ta_error:
-                    print("[task-manager] Supplementing target fields failed:", ta_error)
-    except Exception as view_error:
-        print("[task-manager] Falling back to task_assignments:", view_error)
+        assignments = (
+            db.table("task_assignments")
+            .select("assignment_id, company_id, created_by, level, target_module_id, target_function_id, target_sub_function_id, target_user_ids, due_date, recurrence, status, total_target_count, created_at, updated_at")
+            .eq("company_id", company_id)
+            .execute()
+        ).data or []
+    except Exception as exc:
+        print("[task-manager] task_assignments query failed:", exc)
         assignments = []
 
     if not assignments:
-        assignments = _select_assignments("task_assignments", "task_assignments")
-
-    if not assignments:
         return []
+
+    # Map training module titles for target_module_id (Sprint)
+    module_ids = [str(a["target_module_id"]) for a in assignments if a.get("target_module_id")]
+    module_map = {}
+    if module_ids:
+        try:
+            m_res = db.table("training_modules").select("module_id, title").in_("module_id", module_ids).execute()
+            module_map = {str(row["module_id"]): row.get("title") for row in (m_res.data or []) if "module_id" in row}
+        except Exception as e:
+            print("[task-manager] Failed to fetch module titles:", e)
+
+    for a in assignments:
+        mod_id = str(a.get("target_module_id") or "")
+        if mod_id and mod_id in module_map:
+            a["audience_display_name"] = module_map[mod_id]
+        elif not a.get("audience_display_name"):
+            a["audience_display_name"] = a.get("level") or ""
 
     caller_is_admin = await is_user_admin(user_id) if user_id else False
 
@@ -494,7 +480,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "company_id": company_id,
                 "title": task.get("title", ""),
                 "description": task.get("description", ""),
-                "expected_answer": task.get("expected_answer") if caller_is_admin else None,
+                "expected_answer": task.get("expected_answer"),
                 "submission_format": submission_format_list,
                 "questions": task.get("questions") or [],
                 "bundle_tasks": task.get("bundle_tasks") or [],
@@ -503,6 +489,9 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "recurrence": assignment.get("recurrence", "none"),
                 "level": assignment.get("level", ""),
                 "target_user_ids": assignment.get("target_user_ids"),
+                "target_function_id": assignment.get("target_function_id"),
+                "target_sub_function_id": assignment.get("target_sub_function_id"),
+                "target_module_id": assignment.get("target_module_id"),
                 "audience_display_name": assignment.get("audience_display_name") or assignment.get("level", ""),
                 "total_target_count": assignment.get("total_target_count", 0),
                 "completion_count": comp_count,
@@ -692,7 +681,12 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             "status": "completed" if user_completed else assignment.get("status", "active"),
             "submitted": user_completed,
             "submission": user_sub_row,
-            "target_user_ids": assignment.get("target_user_ids")
+            "level": assignment.get("level", ""),
+            "target_user_ids": assignment.get("target_user_ids"),
+            "target_function_id": assignment.get("target_function_id"),
+            "target_sub_function_id": assignment.get("target_sub_function_id"),
+            "target_module_id": assignment.get("target_module_id"),
+            "expected_answer": task.get("expected_answer"),
         }
         
         if caller_is_admin and "expected_answer" in task:
@@ -716,7 +710,7 @@ async def resolve_audience_count(payload: TaskCreate, company_id: str, requestin
         .eq("employment_status", "ACTIVE")
     )
 
-    if payload.level == "cohort" and payload.target_module_id:
+    if payload.level == "cohort" and is_valid_uuid(payload.target_module_id):
         learning_plan = (
             db.table("learning_plan")
             .select("user_id")
@@ -724,20 +718,21 @@ async def resolve_audience_count(payload: TaskCreate, company_id: str, requestin
             .in_("status", ["ASSIGNED", "IN_PROGRESS"])
             .execute()
         ).data or []
-        ids = [row["user_id"] for row in learning_plan]
+        ids = [row["user_id"] for row in learning_plan if is_valid_uuid(row.get("user_id"))]
         if not ids:
             return 0
         res = base.in_("user_id", ids).execute()
         return res.count or 0
 
-    if payload.level == "function" and payload.target_function_id:
+    if payload.level == "function" and is_valid_uuid(payload.target_function_id):
         return base.eq("function_id", payload.target_function_id).execute().count or 0
 
-    if payload.level == "sub_function" and payload.target_sub_function_id:
+    if payload.level == "sub_function" and is_valid_uuid(payload.target_sub_function_id):
         return base.eq("sub_function_id", payload.target_sub_function_id).execute().count or 0
 
     if payload.level == "individual" and payload.target_user_ids:
-        return len(payload.target_user_ids)
+        valid_uids = [u for u in payload.target_user_ids if is_valid_uuid(u)]
+        return len(valid_uids)
 
     if payload.level == "org":
         return base.execute().count or 0
@@ -764,15 +759,20 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
 
     db = get_service_supabase_client()
 
+    target_module_id = payload.target_module_id if is_valid_uuid(payload.target_module_id) else None
+    target_function_id = payload.target_function_id if is_valid_uuid(payload.target_function_id) else None
+    target_sub_function_id = payload.target_sub_function_id if is_valid_uuid(payload.target_sub_function_id) else None
+    target_user_ids = [u for u in (payload.target_user_ids or []) if is_valid_uuid(u)]
+
     db.table("task_assignments").insert({
         "assignment_id": assignment_id,
         "company_id": company_id,
-        "created_by": payload.created_by,
+        "created_by": payload.created_by if is_valid_uuid(payload.created_by) else None,
         "level": payload.level,
-        "target_module_id": payload.target_module_id,
-        "target_function_id": payload.target_function_id,
-        "target_sub_function_id": payload.target_sub_function_id,
-        "target_user_ids": payload.target_user_ids or None,
+        "target_module_id": target_module_id,
+        "target_function_id": target_function_id,
+        "target_sub_function_id": target_sub_function_id,
+        "target_user_ids": target_user_ids if target_user_ids else None,
         "due_date": str(payload.due_date),
         "recurrence": payload.recurrence,
         "status": "active",
@@ -1127,6 +1127,35 @@ async def get_audience_functions(company_id: str, requesting_user_id: str) -> li
         )
         funcs.extend(additional_funcs_res.data or [])
 
+    # Fetch all sub-functions for the collected functions in a single batch query
+    func_ids = [f["function_id"] for f in funcs if f.get("function_id")]
+    if func_ids:
+        try:
+            sub_funcs_res = (
+                db.table("sub_function")
+                .select("sub_function_id, sub_function_name, function_id")
+                .in_("function_id", func_ids)
+                .eq("is_active", True)
+                .execute()
+            )
+            sub_funcs_by_func = {}
+            for sf in (sub_funcs_res.data or []):
+                fid = sf.get("function_id")
+                if fid:
+                    sub_funcs_by_func.setdefault(fid, []).append({
+                        "sub_function_id": sf.get("sub_function_id"),
+                        "sub_function_name": sf.get("sub_function_name"),
+                    })
+            for f in funcs:
+                f["sub_functions"] = sub_funcs_by_func.get(f.get("function_id"), [])
+        except Exception as exc:
+            print("[task-manager] Batch fetch sub_functions failed:", exc)
+            for f in funcs:
+                f["sub_functions"] = []
+    else:
+        for f in funcs:
+            f["sub_functions"] = []
+
     return funcs
 
 
@@ -1393,48 +1422,64 @@ async def reassign_task_assignment(
     if level == "sprint":
         db_level = "cohort"
         if target_sprints:
-            modules = (
-                db.table("training_modules")
-                .select("module_id")
-                .eq("company_id", company_id)
-                .in_("title", target_sprints)
-                .execute()
-            ).data
-            if modules:
-                target_module_id = modules[0]["module_id"]
+            uuid_sprints = [s for s in target_sprints if is_valid_uuid(s)]
+            if uuid_sprints:
+                target_module_id = uuid_sprints[0]
+            else:
+                modules = (
+                    db.table("training_modules")
+                    .select("module_id")
+                    .eq("company_id", company_id)
+                    .in_("title", target_sprints)
+                    .execute()
+                ).data
+                if modules:
+                    target_module_id = modules[0]["module_id"]
     else:
         if target_individuals:
             db_level = "individual"
-            users = (
-                db.table("users")
-                .select("user_id")
-                .eq("company_id", company_id)
-                .in_("name", target_individuals)
-                .execute()
-            ).data
-            if users:
-                target_user_ids = [u["user_id"] for u in users]
+            uuid_users = [u for u in target_individuals if is_valid_uuid(u)]
+            if uuid_users:
+                target_user_ids = uuid_users
+            else:
+                users = (
+                    db.table("users")
+                    .select("user_id")
+                    .eq("company_id", company_id)
+                    .in_("name", target_individuals)
+                    .execute()
+                ).data
+                if users:
+                    target_user_ids = [u["user_id"] for u in users]
         elif target_sub_functions:
             db_level = "sub_function"
-            sub_funcs = (
-                db.table("sub_function")
-                .select("sub_function_id")
-                .in_("sub_function_name", target_sub_functions)
-                .execute()
-            ).data
-            if sub_funcs:
-                target_sub_function_id = sub_funcs[0]["sub_function_id"]
+            uuid_subfuncs = [sf for sf in target_sub_functions if is_valid_uuid(sf)]
+            if uuid_subfuncs:
+                target_sub_function_id = uuid_subfuncs[0]
+            else:
+                sub_funcs = (
+                    db.table("sub_function")
+                    .select("sub_function_id")
+                    .in_("sub_function_name", target_sub_functions)
+                    .execute()
+                ).data
+                if sub_funcs:
+                    target_sub_function_id = sub_funcs[0]["sub_function_id"]
         elif target_functions:
             db_level = "function"
-            funcs = (
-                db.table("function")
-                .select("function_id")
-                .eq("company_id", company_id)
-                .in_("function_name", target_functions)
-                .execute()
-            ).data
-            if funcs:
-                target_function_id = funcs[0]["function_id"]
+            uuid_funcs = [f for f in target_functions if is_valid_uuid(f)]
+            if uuid_funcs:
+                target_function_id = uuid_funcs[0]
+            else:
+                funcs = (
+                    db.table("function")
+                    .select("function_id")
+                    .eq("company_id", company_id)
+                    .in_("function_name", target_functions)
+                    .execute()
+                ).data
+                if funcs:
+                    target_function_id = funcs[0]["function_id"]
         elif target_orgs:
             db_level = "org"
 
@@ -1513,6 +1558,7 @@ async def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
+            "expected_answer": primary_task.get("expected_answer"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1520,6 +1566,10 @@ async def reassign_task_assignment(
             "due_date": due_date,
             "recurrence": recurrence,
             "level": db_level,
+            "target_user_ids": target_user_ids,
+            "target_function_id": target_function_id,
+            "target_sub_function_id": target_sub_function_id,
+            "target_module_id": target_module_id,
             "audience_display_name": audience_display_name,
             "total_target_count": audience_count,
             "completion_count": 0,
@@ -1557,6 +1607,7 @@ async def reassign_task_assignment(
             "company_id": company_id,
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
+            "expected_answer": primary_task.get("expected_answer"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1564,6 +1615,10 @@ async def reassign_task_assignment(
             "due_date": due_date,
             "recurrence": recurrence,
             "level": db_level,
+            "target_user_ids": target_user_ids,
+            "target_function_id": target_function_id,
+            "target_sub_function_id": target_sub_function_id,
+            "target_module_id": target_module_id,
             "audience_display_name": audience_display_name,
             "total_target_count": audience_count,
             "completion_count": 0,

@@ -1,112 +1,112 @@
-import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+// import { NextResponse } from 'next/server';
+// import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '');
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '');
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-    const label = (body?.label || '').toString();
-    const source = (body?.source || '').toString();
+// export async function POST(req: Request) {
+//   try {
+//     const body = await req.json();
+//     const label = (body?.label || '').toString();
+//     const source = (body?.source || '').toString();
 
-    if (!label) return NextResponse.json({ summary: '' });
+//     if (!label) return NextResponse.json({ summary: '' });
 
-    const gemKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GENAI_API_KEY;
-    if (gemKey) {
-      try {
-        // New system prompt: produce a short, practical learning card based on the label and module content.
-        // Output plain text only. Structure the output as follows (use double newlines between sections):
-        // 1) Definition: 1-2 sentence plain-language definition of the label, grounded in the provided content when possible.
-        // 2) Key points: 3 concise bullet points (use leading hyphens) that summarize important facts or steps.
-        // 3) Practical tip: one short actionable tip the learner can apply immediately.
-        // If the provided content does not contain information to answer, fall back to short, accurate best-practice guidance and prepend the word "(Inferred)" to indicate it was inferred.
-        // Keep total output under ~140 words. Do not produce JSON, HTML, or extra commentary. No apologies.
-        const system = `You are a helpful learning assistant that creates short learning cards.
-Output ONLY plain text with three sections separated by a blank line:\n\nDefinition: (1-2 sentences)\n\nKey points:\n- point 1\n- point 2\n- point 3\n\nPractical tip: (1 short actionable tip)\n\nWhen possible, ground content strictly in the provided module content. If the content lacks detail, provide concise, accurate best-practice guidance and prepend '\\(Inferred\\)' to the Definition line. Keep total length under 140 words. No JSON, no extra explanation.`;
+//     const gemKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GENAI_API_KEY;
+//     if (gemKey) {
+//       try {
+//         // New system prompt: produce a short, practical learning card based on the label and module content.
+//         // Output plain text only. Structure the output as follows (use double newlines between sections):
+//         // 1) Definition: 1-2 sentence plain-language definition of the label, grounded in the provided content when possible.
+//         // 2) Key points: 3 concise bullet points (use leading hyphens) that summarize important facts or steps.
+//         // 3) Practical tip: one short actionable tip the learner can apply immediately.
+//         // If the provided content does not contain information to answer, fall back to short, accurate best-practice guidance and prepend the word "(Inferred)" to indicate it was inferred.
+//         // Keep total output under ~140 words. Do not produce JSON, HTML, or extra commentary. No apologies.
+//         const system = `You are a helpful learning assistant that creates short learning cards.
+// Output ONLY plain text with three sections separated by a blank line:\n\nDefinition: (1-2 sentences)\n\nKey points:\n- point 1\n- point 2\n- point 3\n\nPractical tip: (1 short actionable tip)\n\nWhen possible, ground content strictly in the provided module content. If the content lacks detail, provide concise, accurate best-practice guidance and prepend '\\(Inferred\\)' to the Definition line. Keep total length under 140 words. No JSON, no extra explanation.`;
 
-        const prompt = `Label: ${label}\n\nContent:\n${source}`;
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        const result = await model.generateContent(`${system}\n\n${prompt}`);
-        const response = await result.response;
-        let aiText = '';
-        try {
-          aiText = await response.text();
-        } catch (e) {
-          aiText = '';
-        }
-        const trimmed = aiText.trim();
-        if (trimmed) return NextResponse.json({ summary: trimmed });
-      } catch (e) {
-        console.error('Gemini summary error', e);
-      }
-    }
+//         const prompt = `Label: ${label}\n\nContent:\n${source}`;
+//         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+//         const result = await model.generateContent(`${system}\n\n${prompt}`);
+//         const response = await result.response;
+//         let aiText = '';
+//         try {
+//           aiText = await response.text();
+//         } catch (e) {
+//           aiText = '';
+//         }
+//         const trimmed = aiText.trim();
+//         if (trimmed) return NextResponse.json({ summary: trimmed });
+//       } catch (e) {
+//         console.error('Gemini summary error', e);
+//       }
+//     }
 
-    // Fallback heuristic: return paragraph(s) containing label words or a sizeable excerpt
-    let cleanText = source
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/<\/?(p|div|br|h[1-6]|ul|ol|li|table|tr|td|th|section|article|blockquote)[^>]*>/gi, '\n')
-      .replace(/<[^>]+>/g, ' ');
+//     // Fallback heuristic: return paragraph(s) containing label words or a sizeable excerpt
+//     let cleanText = source
+//       .replace(/&nbsp;/g, ' ')
+//       .replace(/&amp;/g, '&')
+//       .replace(/&lt;/g, '<')
+//       .replace(/&gt;/g, '>')
+//       .replace(/&quot;/g, '"')
+//       .replace(/&#39;/g, "'")
+//       .replace(/<\/?(p|div|br|h[1-6]|ul|ol|li|table|tr|td|th|section|article|blockquote)[^>]*>/gi, '\n')
+//       .replace(/<[^>]+>/g, ' ');
 
-    const labelWords = label.toLowerCase().split(/\s+/).filter(Boolean).map((w: string) => w.replace(/[^a-z0-9]/gi, ''));
-    const paragraphs = cleanText.split(/\n/).map((p: string) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    let bestIdx = -1;
-    let bestScore = 0;
-    for (let i = 0; i < paragraphs.length; i++) {
-      const p = paragraphs[i].toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && p.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestIdx = i;
-      }
-    }
-    if (bestIdx >= 0 && bestScore > 0) {
-      // Find the first substantive paragraph starting from bestIdx to avoid just returning short headings
-      let contentIdx = bestIdx;
-      while (contentIdx < paragraphs.length && paragraphs[contentIdx].split(/\s+/).length < 10) {
-        contentIdx++;
-      }
-      if (contentIdx >= paragraphs.length) contentIdx = bestIdx;
+//     const labelWords = label.toLowerCase().split(/\s+/).filter(Boolean).map((w: string) => w.replace(/[^a-z0-9]/gi, ''));
+//     const paragraphs = cleanText.split(/\n/).map((p: string) => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+//     let bestIdx = -1;
+//     let bestScore = 0;
+//     for (let i = 0; i < paragraphs.length; i++) {
+//       const p = paragraphs[i].toLowerCase();
+//       let score = 0;
+//       for (const w of labelWords) {
+//         if (w.length > 2 && p.includes(w)) score += 1;
+//       }
+//       if (score > bestScore) {
+//         bestScore = score;
+//         bestIdx = i;
+//       }
+//     }
+//     if (bestIdx >= 0 && bestScore > 0) {
+//       // Find the first substantive paragraph starting from bestIdx to avoid just returning short headings
+//       let contentIdx = bestIdx;
+//       while (contentIdx < paragraphs.length && paragraphs[contentIdx].split(/\s+/).length < 10) {
+//         contentIdx++;
+//       }
+//       if (contentIdx >= paragraphs.length) contentIdx = bestIdx;
 
-      // Return a window of lines from the substantive match
-      const start = contentIdx;
-      const end = Math.min(paragraphs.length, contentIdx + 2);
-      const summary = paragraphs.slice(start, end).join('\n\n');
-      return NextResponse.json({ summary: `Definition:\n${summary}` });
-    }
+//       // Return a window of lines from the substantive match
+//       const start = contentIdx;
+//       const end = Math.min(paragraphs.length, contentIdx + 2);
+//       const summary = paragraphs.slice(start, end).join('\n\n');
+//       return NextResponse.json({ summary: `Definition:\n${summary}` });
+//     }
 
-    // Sentence-level fallback
-    const plain = paragraphs.join(' ');
-    const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
-    let bestSIdx = -1;
-    bestScore = 0;
-    for (let i = 0; i < sentences.length; i++) {
-      const s = sentences[i].toLowerCase();
-      let score = 0;
-      for (const w of labelWords) {
-        if (w.length > 2 && s.includes(w)) score += 1;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestSIdx = i;
-      }
-    }
-    if (bestSIdx >= 0 && bestScore > 0) {
-      const start = Math.max(0, bestSIdx - 1);
-      const end = Math.min(sentences.length, bestSIdx + 2);
-      return NextResponse.json({ summary: sentences.slice(start, end).join(' ').trim() });
-    }
+//     // Sentence-level fallback
+//     const plain = paragraphs.join(' ');
+//     const sentences = plain.match(/[^.!?]+[.!?]+/g) || [plain];
+//     let bestSIdx = -1;
+//     bestScore = 0;
+//     for (let i = 0; i < sentences.length; i++) {
+//       const s = sentences[i].toLowerCase();
+//       let score = 0;
+//       for (const w of labelWords) {
+//         if (w.length > 2 && s.includes(w)) score += 1;
+//       }
+//       if (score > bestScore) {
+//         bestScore = score;
+//         bestSIdx = i;
+//       }
+//     }
+//     if (bestSIdx >= 0 && bestScore > 0) {
+//       const start = Math.max(0, bestSIdx - 1);
+//       const end = Math.min(sentences.length, bestSIdx + 2);
+//       return NextResponse.json({ summary: sentences.slice(start, end).join(' ').trim() });
+//     }
 
-    // final fallback
-    return NextResponse.json({ summary: plain.slice(0, 1200) + (plain.length > 1200 ? ' ...' : '') });
-  } catch (e: any) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
-  }
-}
+//     // final fallback
+//     return NextResponse.json({ summary: plain.slice(0, 1200) + (plain.length > 1200 ? ' ...' : '') });
+//   } catch (e: any) {
+//     return NextResponse.json({ error: String(e) }, { status: 500 });
+//   }
+// }

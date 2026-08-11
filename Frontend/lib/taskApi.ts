@@ -19,6 +19,9 @@ export interface Task {
   completion_count: number;
   created_at: string;
   target_user_ids?: string[];
+  target_function_id?: string;
+  target_sub_function_id?: string;
+  target_module_id?: string;
   // optional fields attached by backend when returning user-specific tasks
   submitted?: boolean;
   submission?: any;
@@ -173,10 +176,16 @@ export async function submitTaskResponse(
 }
 
 
+export interface AudienceFunction {
+  function_id: string;
+  function_name: string;
+  sub_functions?: { sub_function_id: string; sub_function_name: string }[];
+}
+
 export async function fetchAudienceFunctions(params?: {
   userId?: string;
   companyId?: string;
-}) {
+}): Promise<AudienceFunction[]> {
   const res = await fetchWithAuth(`${BACKEND_URL}/api/task-manager/audience/functions`, {
     headers: buildHeaders(params),
   });
@@ -184,7 +193,7 @@ export async function fetchAudienceFunctions(params?: {
     const err = await res.json().catch(() => ({}));
     throw new Error(formatApiError(err, "Failed to fetch departments"));
   }
-  return res.json() as Promise<{ function_id: string; function_name: string }[]>;
+  return res.json() as Promise<AudienceFunction[]>;
 }
 
 export async function fetchAudienceSubFunctions(
