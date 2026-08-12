@@ -2,7 +2,7 @@
 FastAPI routes for learning_plan operations.
 """
 
-from typing import Optional
+from typing import Optional, Dict
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from utils.auth import RequestAuth, get_request_auth_required
@@ -33,6 +33,7 @@ class BulkCreateLearningPlanRequest(BaseModel):
     priority: Optional[int] = 1
     status: Optional[str] = "ASSIGNED"
     baseline_assessment: Optional[bool] = False
+    baseline_settings: Optional[Dict[str, bool]] = None
     
     
 class UpdateLearningPlanRequest(BaseModel):
