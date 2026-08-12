@@ -152,26 +152,19 @@ async def send_otp(body: SendOTPRequest):
             detail=f"Too many OTP requests for this phone number. Please try again in {minutes} minutes."
         )
 
-    # Check user existence in DB
+    # Check user existence in DB (Strict single-indexed E.164 lookup)
     try:
         service_client = get_service_supabase_client()
-        digits = normalized_phone.replace("+91", "")
-        possible_formats = list(set([
-            normalized_phone,
-            digits,
-            f"0{digits}",
-            f"91{digits}"
-        ]))
-
         user_res = (
             service_client
             .table("users")
             .select("user_id, is_active, company_id")
-            .in_("phone", possible_formats)
+            .eq("phone", normalized_phone)
             .limit(1)
             .execute()
         )
         rows = getattr(user_res, "data", None) or []
+
         user_data = rows[0] if rows else None
         if not user_data:
             raise HTTPException(status_code=404, detail="Phone number is not registered with Lucid")
@@ -232,27 +225,20 @@ async def verify_otp(body: VerifyOTPRequest):
         else:
             raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
 
-    # Fetch user details for session token generation
+    # Fetch user details for session token generation (Strict single-indexed E.164 lookup)
     try:
         service_client = get_service_supabase_client()
-        digits = normalized_phone.replace("+91", "")
-        possible_formats = list(set([
-            normalized_phone,
-            digits,
-            f"0{digits}",
-            f"91{digits}"
-        ]))
-
         user_res = (
             service_client
             .table("users")
             .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
-            .in_("phone", possible_formats)
+            .eq("phone", normalized_phone)
             .eq("is_active", True)
             .limit(1)
             .execute()
         )
         rows = getattr(user_res, "data", None) or []
+
         user_data = rows[0] if rows else None
         if not user_data:
             raise HTTPException(status_code=404, detail="User account not found or inactive")
@@ -268,42 +254,31 @@ async def verify_otp(body: VerifyOTPRequest):
 
     firebase_uid = user_data.get("firebase_uid")
     if not firebase_uid:
-        # 1. Try finding existing Firebase user by phone number
+        # Atomic single attempt: provision Firebase Auth user using DB user_id as deterministic UID
+        target_uid = str(user_data["user_id"])
         try:
-            fb_user = firebase_auth.get_user_by_phone_number(normalized_phone)
+            fb_user = firebase_auth.create_user(
+                uid=target_uid,
+                phone_number=normalized_phone,
+                email=(user_data.get("email") or "").strip().lower() or None,
+            )
             firebase_uid = fb_user.uid
-            print(f"[verify-otp] Resolved existing Firebase user by phone: {firebase_uid}")
+            print(f"[verify-otp] Provisioned Firebase user: {firebase_uid}")
+        except firebase_auth.UidAlreadyExistsError:
+            firebase_uid = target_uid
         except Exception:
-            pass
-
-        # 2. Try finding existing Firebase user by email if available
-        if not firebase_uid and user_data.get("email"):
+            # Fallback lookup if phone number is already registered under another UID
             try:
-                fb_user = firebase_auth.get_user_by_email(user_data["email"].strip().lower())
+                fb_user = firebase_auth.get_user_by_phone_number(normalized_phone)
                 firebase_uid = fb_user.uid
-                print(f"[verify-otp] Resolved existing Firebase user by email: {firebase_uid}")
-            except Exception:
-                pass
+            except Exception as err:
+                print(f"[verify-otp] Firebase user resolution failed: {err}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to initialize Firebase authentication account"
+                )
 
-        # 3. Provision new Firebase user if not found
-        if not firebase_uid:
-            try:
-                fb_user = firebase_auth.create_user(phone_number=normalized_phone)
-                firebase_uid = fb_user.uid
-                print(f"[verify-otp] Provisioned new Firebase user by phone: {firebase_uid}")
-            except Exception as phone_create_err:
-                try:
-                    fb_user = firebase_auth.create_user(uid=str(user_data["user_id"]))
-                    firebase_uid = fb_user.uid
-                    print(f"[verify-otp] Provisioned new Firebase user by user_id: {firebase_uid}")
-                except Exception as uid_create_err:
-                    print(f"[verify-otp] Failed to create Firebase user: {phone_create_err} / {uid_create_err}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to initialize Firebase authentication account"
-                    )
-
-        # 4. Persist firebase_uid in users table and mapping table
+        # Persist firebase_uid in users table and mapping table
         try:
             service_client.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_data["user_id"]).execute()
             user_data["firebase_uid"] = firebase_uid
