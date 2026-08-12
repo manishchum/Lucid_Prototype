@@ -44,7 +44,7 @@ async def get_manager_daily_report_from_db(
     """
     try:
         response = supabase_admin.table("manager_daily_reports") \
-            .select("*") \
+            .select("report_date, insights, manager_summary, id") \
             .eq("manager_id", manager_id) \
             .eq("report_date", report_date) \
             .execute()
