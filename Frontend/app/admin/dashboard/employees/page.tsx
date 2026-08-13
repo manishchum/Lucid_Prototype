@@ -1919,7 +1919,7 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
               onChange={handleFileChange}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Expected format: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
+              Expected format: company_user_id, email, name, company_name, function, sub_function, employment_status, roles, position, phone
             </div>
           </div>
           
