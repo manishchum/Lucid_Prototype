@@ -231,7 +231,7 @@ async def verify_otp(body: VerifyOTPRequest):
         user_res = (
             service_client
             .table("users")
-            .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active")
             .eq("phone", normalized_phone)
             .eq("is_active", True)
             .limit(1)
@@ -335,7 +335,7 @@ async def refresh_token(
         user_res = (
             supabase
             .table("users")
-            .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active")
             .eq("user_id", auth.user_id)
             .eq("is_active", True)
             .maybe_single()
