@@ -14,8 +14,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase_admin, supabase
-
-import google.generativeai as genai
+from ai.ai_gateway import AI
+from ai.types import AIRequest
+# import google.generativeai as genai
 
 
 router = APIRouter()
@@ -69,9 +70,9 @@ else:
 BUCKET = "module_audio"
 
 # Gemini init (same behavior)
-if not os.getenv("GEMINI_API_KEY"):
-    print("[TTS API] WARNING: GEMINI_API_KEY not set")
-genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
+# if not os.getenv("GEMINI_API_KEY"):
+#     print("[TTS API] WARNING: GEMINI_API_KEY not set")
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
 
 # -------------------------------
@@ -517,46 +518,106 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: str
         else "Single brief greeting (e.g., 'Today we're discussing [topic]')"
     )
 
-    return f"""Create a natural, engaging podcast conversation between two people:
-{speakers}
+#     return f"""Create a natural, engaging podcast conversation between two people:
+# {speakers}
 
-Module Title: {moduleTitle}
+# Module Title: {moduleTitle}
 
-Content to cover:
-{moduleContent}
+# Content to cover:
+# {moduleContent}
 
-CRITICAL REQUIREMENTS - FOLLOW EXACTLY:
-1. DIALOGUE COUNT: Generate EXACTLY {dialogueCount} dialogue exchanges total (count each speaker turn)
-2. MINIMAL GREETING: {greeting_instruction}
-3. DIVE INTO CONTENT: From Line 2 onwards, immediately start discussing the actual topic
-4. PROPER ENDING: Last 3 lines MUST wrap up with summary and sign-off. DO NOT end mid-sentence.
-5. COMPLETE ALL {dialogueCount} LINES - Do not stop early
+# CRITICAL REQUIREMENTS - FOLLOW EXACTLY:
+# 1. DIALOGUE COUNT: Generate EXACTLY {dialogueCount} dialogue exchanges total (count each speaker turn)
+# 2. MINIMAL GREETING: {greeting_instruction}
+# 3. DIVE INTO CONTENT: From Line 2 onwards, immediately start discussing the actual topic
+# 4. PROPER ENDING: Last 3 lines MUST wrap up with summary and sign-off. DO NOT end mid-sentence.
+# 5. COMPLETE ALL {dialogueCount} LINES - Do not stop early
 
-IMPORTANT - Make it sound like a real conversation:
-1. {languageInstruction}
-2. Use natural speech patterns - include filler words like {filler_words}
-3. The host should react naturally - {reactions}
-4. Keep responses conversational and flowing - 2 to 4 sentences per turn
-5. The expert should explain concepts like teaching a friend, not lecturing
-6. Include smooth transitions - {transitions}
-7. Show genuine enthusiasm and interest in the topic
-8. Avoid formal or robotic language - be warm and relatable
-9. Skip activities, homework sections, and discussion prompts
-10. Focus on practical insights and real-world applications
+# IMPORTANT - Make it sound like a real conversation:
+# 1. {languageInstruction}
+# 2. Use natural speech patterns - include filler words like {filler_words}
+# 3. The host should react naturally - {reactions}
+# 4. Keep responses conversational and flowing - 2 to 4 sentences per turn
+# 5. The expert should explain concepts like teaching a friend, not lecturing
+# 6. Include smooth transitions - {transitions}
+# 7. Show genuine enthusiasm and interest in the topic
+# 8. Avoid formal or robotic language - be warm and relatable
+# 9. Skip activities, homework sections, and discussion prompts
+# 10. Focus on practical insights and real-world applications
 
-{language_reminder}
+# {language_reminder}
 
-STRUCTURE:
-- Line 1: {structure_line_1}
-- Lines 2 to {dialogueCount}-3: Deep dive into main content
-- Last 3 lines: Wrap-up with key takeaways and sign-off
+# STRUCTURE:
+# - Line 1: {structure_line_1}
+# - Lines 2 to {dialogueCount}-3: Deep dive into main content
+# - Last 3 lines: Wrap-up with key takeaways and sign-off
 
-Format each line as:
-{format_instruction}
+# Format each line as:
+# {format_instruction}
 
-Generate EXACTLY {dialogueCount} dialogue exchanges total."""
+# Generate EXACTLY {dialogueCount} dialogue exchanges total."""
 
 
+    return {
+        "speakers": speakers,
+        "moduleTitle": moduleTitle,
+        "moduleContent": moduleContent,
+        "dialogueCount": dialogueCount,
+        "greetingInstruction": greeting_instruction,
+        "languageInstruction": languageInstruction,
+        "fillerWords": filler_words,
+        "reactions": reactions,
+        "transitions": transitions,
+        "languageReminder": language_reminder,
+        "structureLine1": structure_line_1,
+        "formatInstruction": format_instruction,
+    }
+
+async def generatePodcastScriptWithAI(
+    moduleTitle: str,
+    moduleContent: str,
+    language: str,
+    company_id: str,
+    user_id: str,
+) -> str:
+
+    promptVariables = buildGeminiPodcastPrompt(
+        moduleTitle,
+        moduleContent,
+        language,
+    )
+
+    print("[TTS] Calling AI Gateway for podcast script generation")
+
+    aiResponse = await AI.execute(
+        AIRequest(
+            feature="podcast_generation",
+            company_id=str(company_id),
+            user_id=str(user_id),
+            route="/tts",
+            prompt_type="default",
+            variables=promptVariables,
+            response_format="text",
+        )
+    )
+
+    if not aiResponse or not aiResponse.content:
+        raise Exception("Podcast generation returned empty AI response.")
+
+    print(
+        "[TTS] AI Gateway:",
+        aiResponse.provider,
+        aiResponse.model,
+        "prompt_version=",
+        aiResponse.prompt_version,
+    )
+
+    print(
+        "[TTS] Podcast AI response length:",
+        len(str(aiResponse.content)),
+    )
+
+    return str(aiResponse.content).strip()
 # -------------------------------
 # Dialogue parsing (same)
 # -------------------------------
@@ -837,7 +898,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     moduleRes = (
         supabase
         .table("processed_modules")
-        .select("processed_module_id, title, content")
+        .select("processed_module_id, original_module_id, title, content")
         .eq("processed_module_id", processedModuleId)
         .maybe_single()
         .execute()
@@ -856,33 +917,115 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     if not fullContent:
         return {"error": "Empty content", "status": 400}
 
+    originalModuleId = module.get("original_module_id")
+
+    if not originalModuleId:
+        return {
+            "error": "Processed module has no original_module_id",
+            "status": 400,
+        }
+
+    trainingModuleRes = (
+        supabase
+        .table("training_modules")
+        .select("company_id, uploaded_by")
+        .eq("module_id", originalModuleId)
+        .maybe_single()
+        .execute()
+    )
+
+    trainingModule = getattr(trainingModuleRes, "data", None)
+    trainingModuleError = getattr(trainingModuleRes, "error", None)
+
+    if trainingModuleError or not trainingModule:
+        errMsg = (
+            trainingModuleError.get("message")
+            if isinstance(trainingModuleError, dict)
+            else str(trainingModuleError)
+            if trainingModuleError
+            else "Training module not found"
+        )
+
+        return {
+            "error": f"Failed to resolve module context: {errMsg}",
+            "status": 404,
+        }
+
+    companyId = trainingModule.get("company_id")
+    userId = trainingModule.get("uploaded_by")
+
+    if not companyId:
+        return {
+            "error": "Training module has no company_id",
+            "status": 400,
+        }
+
+    if not userId:
+        return {
+            "error": "Training module has no uploaded_by user_id",
+            "status": 400,
+        }
+
+    print(
+        f"[TTS] Resolved context: company={companyId}, uploaded_by={userId}"
+    )
+    
     subscription_addons = await getCompanySubscriptionAddonsForProcessedModule(processedModuleId)
     if not isLanguageAllowedForCompany(language, subscription_addons):
         return {"error": f"Language '{language}' is not enabled for this company.", "status": 400}
 
     # Gemini
-    print(f"[TTS] Calling Gemini to generate podcast script (language: {language})...")
-    prompt = buildGeminiPodcastPrompt(module.get("title") or "", fullContent, language)
+    # print(f"[TTS] Calling Gemini to generate podcast script (language: {language})...")
+    # prompt = buildGeminiPodcastPrompt(module.get("title") or "", fullContent, language)
 
-    geminiResponse = ""
+    # geminiResponse = ""
+    # try:
+    #     # Increased token limits to ensure full dialogue generation with proper endings
+    #     maxTokens = 2000 if language == "hinglish" else 2500
+    #     temp = 0.3 if language == "hinglish" else 0.35
+
+    #     geminiResult = await callGemini(prompt, {"temperature": temp, "maxOutputTokens": maxTokens})
+
+    #     if not geminiResult.get("ok"):
+    #         print("[TTS] Gemini API failed:", geminiResult.get("text"))
+    #         return {"error": f"Gemini API failed: {geminiResult.get('text')}", "status": 500}
+
+    #     geminiResponse = ((geminiResult.get("data") or {}).get("text")) or ""
+    #     if not geminiResponse:
+    #         return {"error": "No text generated from Gemini", "status": 500}
+
+    # except Exception as err:
+    #     print("[TTS] Gemini API error:", err)
+    #     return {"error": f"Gemini API failed: {str(err)}", "status": 500}
+    
+        # AI Gateway
+    print(
+        f"[TTS] Generating podcast script via AI Gateway "
+        f"(language: {language})..."
+    )
+
     try:
-        # Increased token limits to ensure full dialogue generation with proper endings
-        maxTokens = 2000 if language == "hinglish" else 2500
-        temp = 0.3 if language == "hinglish" else 0.35
+        geminiResponse = await generatePodcastScriptWithAI(
+            moduleTitle=module.get("title") or "",
+            moduleContent=fullContent,
+            language=language,
+            company_id=str(companyId),
+            user_id=str(userId),
+        )
 
-        geminiResult = await callGemini(prompt, {"temperature": temp, "maxOutputTokens": maxTokens})
-
-        if not geminiResult.get("ok"):
-            print("[TTS] Gemini API failed:", geminiResult.get("text"))
-            return {"error": f"Gemini API failed: {geminiResult.get('text')}", "status": 500}
-
-        geminiResponse = ((geminiResult.get("data") or {}).get("text")) or ""
         if not geminiResponse:
-            return {"error": "No text generated from Gemini", "status": 500}
+            return {
+                "error": "No podcast script generated from AI Gateway",
+                "status": 500,
+            }
 
     except Exception as err:
-        print("[TTS] Gemini API error:", err)
-        return {"error": f"Gemini API failed: {str(err)}", "status": 500}
+        print("[TTS] AI Gateway podcast generation failed:", err)
+
+        return {
+            "error": f"Podcast AI generation failed: {str(err)}",
+            "status": 500,
+        }
 
     print(f"[TTS] Gemini response length: {len(geminiResponse)} chars")
     print(f"[TTS] Gemini response preview (first 500 chars): {geminiResponse[:500]}")
