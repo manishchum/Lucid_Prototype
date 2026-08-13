@@ -12,9 +12,12 @@ import torch
 import httpx
 # from huggingface_hub import InferenceClient
 from PIL import Image
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
+from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional, get_effective_company_id, require_addon
+
+router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_video"))])
 
 # from supabase import create_client, Client
 from utils.supabase_client import supabase, supabase_admin

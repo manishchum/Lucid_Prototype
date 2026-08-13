@@ -413,10 +413,13 @@ def send_email_with_pdf(to_email: str, subject: str, body_html: str, pdf_bytes: 
         print(f"[Reports SMTP Error] Failed to send email to {to_email}:", e)
         return False
 
+from utils.auth import RequestAuth, get_request_auth_required, require_addon
+
 @router.post("/generate")
 async def generate_report(
     payload: ReportGenerateRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    company_id: str = Depends(require_addon("reports"))
 ):
     # 1. Authorize - only Admins/Managers can access submissions analysis
     if not is_user_admin(auth_ctx.user_id):
@@ -425,7 +428,6 @@ async def generate_report(
             detail="Forbidden: Only administrators or managers can generate analysis reports."
         )
 
-    company_id = auth_ctx.company_id
     if not company_id:
         raise HTTPException(status_code=400, detail="Company ID not resolved from context.")
 

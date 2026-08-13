@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
-from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 
 from utils.db.assessments_db import (
     create_assessment,
@@ -50,6 +50,14 @@ async def create_assessment_endpoint(
     Create a new assessment.
     Permission: User must have company access.
     """
+    if request.type == 'baseline':
+        from utils.auth_bridge import get_service_supabase_client
+        supabase_client = get_service_supabase_client()
+        resp = supabase_client.table('companies').select('subscription_addons').eq('company_id', request.company_id).maybe_single().execute()
+        addons = resp.data.get('subscription_addons') if resp.data else []
+        if 'baseline_assessment' not in (addons or []):
+            raise HTTPException(status_code=403, detail="Forbidden: 'baseline_assessment' addon is required.")
+            
     assessment_data = request.dict(exclude_none=True)
     result = await create_assessment(auth_ctx.user_id, assessment_data)
     
@@ -163,6 +171,7 @@ async def get_baseline_endpoint(
     company_id: str,
     original_module_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    _ = Depends(require_addon("baseline_assessment"))
 ):
     """
     Get baseline assessment for a company and module.

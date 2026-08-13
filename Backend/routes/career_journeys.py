@@ -13,11 +13,12 @@ from utils.auth import (
     get_request_auth_required_from_request,
     get_effective_company_id,
     get_request_auth_required,
-    RequestAuth
+    RequestAuth,
+    require_addon
 )
 from utils.db.permissions import check_user_permission
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("sprintverse"))])
 
 # Initialize Supabase client with error handling
 try:
