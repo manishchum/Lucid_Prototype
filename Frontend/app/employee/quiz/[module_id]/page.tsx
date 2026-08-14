@@ -542,9 +542,7 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
         }
       }
       if (!learningStyle) {
-        setError('Could not determine your Performance Sprint.');
-        setLoading(false);
-        return;
+        learningStyle = 'General';
       }
       // 1. Try to fetch existing quiz for this module and Performance Sprint
       let assessment = null;

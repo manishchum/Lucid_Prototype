@@ -9,9 +9,9 @@ from utils.redis_limiter import check_rate_limit
 from ai.ai_gateway import AI
 from ai.types import AIRequest
 
-from utils.auth import RequestAuth, get_request_auth_optional
+from utils.auth import RequestAuth, get_request_auth_optional, require_addon
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("chat_in_studio"))])
 
 # genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 # ai = GenerativeModel("gemini-3.1-pro-preview")

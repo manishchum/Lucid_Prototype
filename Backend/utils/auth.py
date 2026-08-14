@@ -478,6 +478,28 @@ async def get_effective_company_id(
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
 
+def require_addon(addon_name: str):
+	async def _verify_addon(company_id: str = Depends(get_effective_company_id)):
+		from utils.auth_bridge import get_service_supabase_client
+		supabase_client = get_service_supabase_client()
+		resp = (
+			supabase_client
+			.table('companies')
+			.select('subscription_addons')
+			.eq('company_id', company_id)
+			.maybe_single()
+			.execute()
+		)
+		if not resp.data:
+			raise HTTPException(status_code=403, detail="Company not found")
+		
+		addons = resp.data.get('subscription_addons') or []
+		if addon_name not in addons:
+			raise HTTPException(status_code=403, detail=f"Forbidden: '{addon_name}' addon is required.")
+		
+		return company_id
+	return _verify_addon
+
 
 @dataclass
 class RoleplayContext:

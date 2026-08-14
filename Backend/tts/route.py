@@ -10,12 +10,13 @@ from typing import Any, Dict, List, Optional, Literal
 
 import asyncio
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase_admin, supabase
 from ai.ai_gateway import AI
 from ai.types import AIRequest
+from utils.auth import require_addon
 # import google.generativeai as genai
 
 
@@ -971,6 +972,10 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     )
     
     subscription_addons = await getCompanySubscriptionAddonsForProcessedModule(processedModuleId)
+    
+    if "lucid_studio_podcast" not in (subscription_addons or []):
+        return {"error": "Company does not have the 'lucid_studio_podcast' addon enabled.", "status": 403}
+        
     if not isLanguageAllowedForCompany(language, subscription_addons):
         return {"error": f"Language '{language}' is not enabled for this company.", "status": 400}
 

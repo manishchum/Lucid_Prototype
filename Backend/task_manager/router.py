@@ -2,12 +2,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 
-from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 from utils.exceptions import ApiException
 from .models import SubmissionCreate, TaskCreate, TaskListResponse, TaskReassignPayload
 from . import service
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("task_management"))])
 
 
 @router.get("/task-manager/tasks", response_model=TaskListResponse)

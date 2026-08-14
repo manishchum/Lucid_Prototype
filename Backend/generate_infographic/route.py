@@ -3,12 +3,13 @@ import re
 import json
 from typing import Dict, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 # from supabase import create_client, Client
 from utils.supabase_client import supabase
 from ai.ai_gateway import AI
 from ai.types import AIRequest
+from utils.auth import require_addon
 # import google.generativeai as genai
 
 # --------------------------------------------------------------------------
@@ -218,7 +219,7 @@ async def generateInfographicData(
 # ROUTE
 # --------------------------------------------------------------------------
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_infographic"))])
 
 @router.post("/generate-infographic")
 async def POST(request: Request):

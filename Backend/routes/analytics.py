@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Header, Query
+from utils.auth import require_addon
+from fastapi import APIRouter, Header, Query, Depends
 from utils.auth_bridge import get_service_supabase_client
 from utils.redis_client import set_cache, get_cache
 import json
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
+router = APIRouter(prefix="/api/analytics", tags=["Analytics"], dependencies=[Depends(require_addon("kpi"))])
 
 
 @router.get("/dashboard/{company_id}")
