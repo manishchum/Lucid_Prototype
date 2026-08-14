@@ -86,11 +86,18 @@ class AI:
                         f"Missing API key for {provider_name}"
                     )
 
+                provider_kwargs = {
+                    "prompt": final_prompt,
+                    "model": model,
+                    "api_key": api_key,
+                    "response_format": request.response_format,
+                }
+
+                if provider_name == "openai":
+                    provider_kwargs["audio"] = request.audio
+
                 response = await provider_class.execute(
-                    prompt=final_prompt,
-                    model=model,
-                    api_key=api_key,
-                    response_format=request.response_format
+                    **provider_kwargs
                 )
 
                 break

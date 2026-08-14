@@ -72,6 +72,8 @@ class AIRequest:
 
     files: list[Any] = field(default_factory=list)
 
+    audio: Any = None
+    
     stream: bool = False
 
     response_format: str = "text"

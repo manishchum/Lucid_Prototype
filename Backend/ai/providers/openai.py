@@ -16,7 +16,8 @@ class OpenAIProvider:
         prompt: str,
         model: ModelConfig,
         api_key: str,
-        response_format: str = "text"
+        response_format: str = "text",
+        audio=None,
     ) -> AIResponse:
 
         start = time.perf_counter()
@@ -25,16 +26,43 @@ class OpenAIProvider:
             api_key=api_key
         )
 
+        if audio is not None:
+
+            response = client.audio.transcriptions.create(
+                model=model.model,
+                file=audio,
+                prompt=prompt,
+            )
+
+            latency = int(
+                (time.perf_counter() - start) * 1000
+            )
+
+            text = getattr(
+                response,
+                "text",
+                ""
+            )
+
+            return AIResponse(
+                success=True,
+                content=text,
+                provider="openai",
+                model=model.model,
+                prompt_version=0,
+                finish_reason=None,
+                input_tokens=0,
+                output_tokens=0,
+                total_tokens=0,
+                latency_ms=latency,
+                raw_response=response,
+            )
+
         response = client.responses.create(
-
             model=model.model,
-
             input=prompt,
-
             temperature=model.temperature,
-
             top_p=model.top_p,
-
             max_output_tokens=model.max_tokens
         )
 
