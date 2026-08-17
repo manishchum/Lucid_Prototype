@@ -116,6 +116,16 @@ async def find_timestamped_uploads(base_filenames: List[str]) -> List[str]:
 
 # ==================== TRAINING MODULE OPERATIONS ====================
 
+MODULE_FIELDS_WITH_USERS = (
+    "module_id, company_id, title, description, content_type, content_url, "
+    "gpt_summary, created_at, transcription, ai_modules, ai_topics, ai_objectives, "
+    "processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, "
+    "additional_readings, source_files, ingestion_status, page_count, match_chunks, "
+    "points, vectordb_cleanup_timestamp, "
+    "reviewer:users!training_modules_reviewer_id_fkey(user_id, name, email), "
+    "uploader:users!training_modules_uploaded_by_fkey(user_id, name, email)"
+)
+
 async def get_training_modules_by_company(
     requesting_user_id: str,
     company_id: str,
@@ -138,7 +148,7 @@ async def get_training_modules_by_company(
     
     try:
         query_client = get_service_supabase_client()
-        query = query_client.table('training_modules').select('*').eq('company_id', company_id)
+        query = query_client.table('training_modules').select(MODULE_FIELDS_WITH_USERS).eq('company_id', company_id)
         
         if processing_status:
             query = query.eq('processing_status', processing_status)
@@ -164,7 +174,7 @@ async def get_training_module_by_id(
     """
     try:
         query_client = get_service_supabase_client()
-        response = query_client.table('training_modules').select('*').eq(
+        response = query_client.table('training_modules').select(MODULE_FIELDS_WITH_USERS).eq(
             'module_id', module_id
         ).maybe_single().execute()
         
@@ -440,7 +450,7 @@ async def get_training_modules_by_uploader(
     
     try:
         db = get_service_supabase_client()
-        response = db.table('training_modules').select('*').eq(
+        response = db.table('training_modules').select(MODULE_FIELDS_WITH_USERS).eq(
             'company_id', company_id
         ).eq('uploaded_by', uploader_id).order('created_at', desc=True).execute()
         

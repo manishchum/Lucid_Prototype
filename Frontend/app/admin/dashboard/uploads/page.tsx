@@ -55,11 +55,30 @@ function ContentUpload({
   const [retrievedReviewerId, setRetrievedReviewerId] = useState<string | null>(null);
   const [emailValidationMessage, setEmailValidationMessage] = useState<string>('');
   const [isValidatingEmail, setIsValidatingEmail] = useState(false);
+  const [companyUsers, setCompanyUsers] = useState<Array<{ user_id: string; name: string | null; email: string }>>([]);
   const [additionalLinks, setAdditionalLinks] = useState<Array<{ title: string; url: string }>>([]);
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
  
-  // const [assignedUserCount, setAssignedUserCount] = useState(0);
+  // Fetch company users for quick reviewer selection
+  useEffect(() => {
+    if (!companyId) return;
+    const fetchCompanyUsers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('user_id, name, email')
+          .eq('company_id', companyId)
+          .neq('is_active', false);
+        if (!error && data) {
+          setCompanyUsers(data);
+        }
+      } catch (err) {
+        console.error('Failed to fetch company users for reviewer selection:', err);
+      }
+    };
+    fetchCompanyUsers();
+  }, [companyId]);
 
   // Debounce timer for email validation
   useEffect(() => {
@@ -77,34 +96,43 @@ function ContentUpload({
     return () => clearTimeout(timer);
   }, [reviewerEmail]);
 
-
-
-  const validateReviewerEmail = async (email: string) => {
+  const validateReviewerEmail = async (email: string): Promise<string | null> => {
+    if (!email || !email.trim()) {
+      setEmailValidationMessage('');
+      setRetrievedReviewerId(null);
+      return null;
+    }
     try {
-
       const res = await fetchWithAuth(
-        `${API_URL}/api/admin/uploads/validate-reviewer?email=${encodeURIComponent(email)}&company_id=${companyId}`
+        `${API_URL}/api/admin/uploads/validate-reviewer?email=${encodeURIComponent(email.trim())}&company_id=${companyId}`
       );
 
       if (!res.ok) {
-        setEmailValidationMessage('User with this email does not exist.');
+        setEmailValidationMessage('❌ User with this email does not exist in your organization.');
         setRetrievedReviewerId(null);
-        return;
+        return null;
       }
 
       const data = await res.json();
 
+      if (!data?.reviewer?.user_id) {
+        setEmailValidationMessage('❌ User with this email does not exist.');
+        setRetrievedReviewerId(null);
+        return null;
+      }
+
+      const reviewerId = data.reviewer.user_id;
       setEmailValidationMessage(
-        `Reviewer found: ${data.reviewer.name || data.reviewer.email}`
+        `✅ Reviewer found: ${data.reviewer.name || data.reviewer.email}`
       );
+      setRetrievedReviewerId(reviewerId);
+      return reviewerId;
 
-      setRetrievedReviewerId(
-        data.reviewer.user_id
-      );
-
-    } catch {
-      setEmailValidationMessage('Error validating email');
+    } catch (err) {
+      console.error('Error validating reviewer email:', err);
+      setEmailValidationMessage('❌ Error validating email');
       setRetrievedReviewerId(null);
+      return null;
     }
   };
 
@@ -245,6 +273,19 @@ function ContentUpload({
     setUploading(true);
 
     try {
+      let finalReviewerId = retrievedReviewerId;
+
+      if (reviewerEmail.trim() && !finalReviewerId) {
+        setIsValidatingEmail(true);
+        finalReviewerId = await validateReviewerEmail(reviewerEmail.trim());
+        setIsValidatingEmail(false);
+      }
+
+      if (reviewerEmail.trim() && !finalReviewerId) {
+        alert("The specified reviewer email is invalid or was not found in your organization. Please enter a valid reviewer email or select one from the dropdown.");
+        setUploading(false);
+        return;
+      }
 
       const formData = new FormData();
 
@@ -268,10 +309,10 @@ function ContentUpload({
         String(thresholdValue)
       );
 
-      if (retrievedReviewerId) {
+      if (finalReviewerId) {
         formData.append(
           "reviewer_id",
-          retrievedReviewerId
+          finalReviewerId
         );
       }
 
@@ -315,6 +356,9 @@ function ContentUpload({
       setAdditionalLinks([]);
       setLinkTitle("");
       setLinkUrl("");
+      setReviewerEmail("");
+      setRetrievedReviewerId(null);
+      setEmailValidationMessage("");
 
     } catch (err) {
 
@@ -480,16 +524,46 @@ function ContentUpload({
         </p>
       </div>
 
-      {/* Reviewer Email Input */}
+      {/* Reviewer Selection / Email Input */}
       <div>
-        <Label htmlFor="reviewerEmail">Reviewer Email </Label>
+        <Label htmlFor="reviewerEmail">Assign Reviewer</Label>
+        {companyUsers.length > 0 && (
+          <div className="mb-2">
+            <select
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-[#3B66F5] focus:border-transparent text-slate-700"
+              value={retrievedReviewerId || ""}
+              onChange={(e) => {
+                const selectedId = e.target.value;
+                if (!selectedId) {
+                  setReviewerEmail("");
+                  setRetrievedReviewerId(null);
+                  setEmailValidationMessage("");
+                  return;
+                }
+                const selectedUser = companyUsers.find((u) => u.user_id === selectedId);
+                if (selectedUser) {
+                  setReviewerEmail(selectedUser.email);
+                  setRetrievedReviewerId(selectedUser.user_id);
+                  setEmailValidationMessage(`✅ Reviewer selected: ${selectedUser.name || selectedUser.email}`);
+                }
+              }}
+            >
+              <option value="">-- Select a Reviewer from Organization --</option>
+              {companyUsers.map((user) => (
+                <option key={user.user_id} value={user.user_id}>
+                  {user.name ? `${user.name} (${user.email})` : user.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="relative">
           <Input
             id="reviewerEmail"
             type="email"
             value={reviewerEmail}
             onChange={(e) => setReviewerEmail(e.target.value)}
-            placeholder="Enter reviewer's email address"
+            placeholder="Or type reviewer's email address..."
             className={`border-slate-200 focus:border-[#3B66F5] focus:ring-[#3B66F5] ${
               emailValidationMessage.includes('❌') ? 'border-red-300 focus:border-red-500' : 
               emailValidationMessage.includes('✅') ? 'border-green-300 focus:border-green-500' : ''

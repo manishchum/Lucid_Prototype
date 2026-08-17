@@ -23,6 +23,7 @@ from utils.auth import (
     _verify_firebase_token,
     get_roleplay_context,
     resolve_user_context_from_claims,
+    require_addon,
 )
 
 from utils.db import roleplay_db
@@ -30,7 +31,8 @@ from utils.db.permissions import check_user_permission
 
 router = APIRouter(
     prefix="/roleplay",
-    tags=["Roleplay"]
+    tags=["Roleplay"],
+    dependencies=[Depends(require_addon("role_play"))]
 )
 
 logging.basicConfig(level=logging.INFO)

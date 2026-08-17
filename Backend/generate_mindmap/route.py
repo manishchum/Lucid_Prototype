@@ -3,12 +3,13 @@ import re
 import json
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 
 import google.generativeai as genai
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_mindmap"))])
 
 genAI = genai.GenerativeModel("gemini-2.5-flash-lite") if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else None
 

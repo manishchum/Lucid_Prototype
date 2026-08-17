@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
+import { useTenant } from '@/contexts/tenant-context';
 import { sharedDataClient } from '@/lib/data-client';
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -112,6 +112,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 export default function EmployeesPage() {
   const router  = useRouter();
   const { user, loading: authLoading, isAdmin, isSuperAdmin, userRoles } = useAuth();
+  const { hasFeature } = useTenant();
   const isDeveloper = (userRoles || []).some((r: string) => (r || '').toUpperCase() === 'DEVELOPER');
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -1918,7 +1919,7 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
               onChange={handleFileChange}
             />
             <div className="text-xs text-gray-500 mt-1">
-              Expected format: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
+              Expected format: company_user_id, email, name, company_name, function, sub_function, employment_status, roles, position, phone
             </div>
           </div>
           
@@ -3024,6 +3025,7 @@ function LearningPlanAssignmentsView({ learningPlans, users, trainingModules, co
 }
 
 function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trainingModules, companyId, adminId, onSuccess, onError }: any) {
+  const { hasFeature } = useTenant();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -3072,7 +3074,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
           user_ids: assignableUsers,
           module_ids: selectedModules,
           due_date: dueDate || null,
-          baseline_assessment: false,
+          baseline_settings: moduleBaselineSettings,
           
           status: "ASSIGNED",
         }),
@@ -3374,7 +3376,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
             user_ids: selectedUsers,
             module_ids: selectedModules,
             due_date: dueDate || null,
-            // baseline_settings: moduleBaselineSettings,
+            baseline_settings: moduleBaselineSettings,
             status: "ASSIGNED",
           }),
         }
@@ -3548,6 +3550,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
               </div>
 
               {/* Baseline Assessment Bulk Actions */}
+              {hasFeature('baselineAssessment') && (
               <div className="flex items-center gap-4 mb-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
                 <Label className="text-sm font-medium">Baseline Assessment Bulk Actions:</Label>
                 <Button
@@ -3569,6 +3572,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                   Disable All
                 </Button>
               </div>
+              )}
 
 
               {loadingModules ? (
@@ -3617,7 +3621,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                           </div>
                         </label>
                         {/* Individual Baseline Assessment Toggle - Centered */}
-                        {/* <div className="flex items-center gap-3 flex-shrink-0">
+                        {hasFeature('baselineAssessment') && (
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           <Label className="text-xs font-medium text-gray-600">Baseline Assessment</Label>
                           <label className="flex items-center cursor-pointer">
                             <div className="relative">
@@ -3642,7 +3647,8 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
                           <span className="text-xs text-gray-500">
                             {moduleBaselineSettings[module.module_id] ? 'Required' : 'Optional'}
                           </span>
-                        </div> */}
+                        </div>
+                        )}
                         <div></div>
                       </div>
                     ))}
