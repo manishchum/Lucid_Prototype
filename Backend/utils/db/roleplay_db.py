@@ -212,9 +212,10 @@ def get_scenario(scenario_id:str, company_id:str):
     return(
         supabase
         .table("scenarios")
-        .select("scenario_id")
+        .select("scenario_id, company_id")
         .eq("scenario_id", scenario_id)
         .eq("company_id", company_id)
+        .maybe_single()
         .execute()
     )
 
@@ -342,17 +343,11 @@ def save_roleplay_assessment(
     )
 
 
-def check_retry_limit(employee_id: str, scenario_id: str):
-    user_meta, error = get_user_company_and_functions(employee_id)
-
-    if error:
-        raise HTTPException(
-            status_code=400,
-            detail=error["message"]
-        )
-
-    company_id = user_meta["company_id"]
-
+def check_retry_limit(
+    employee_id: str,
+    scenario_id: str,
+    company_id: str
+):
     company_limits, error = get_company_roleplay_limits(company_id)
 
     if error:
@@ -368,25 +363,42 @@ def check_retry_limit(employee_id: str, scenario_id: str):
             status_code=403,
             detail="Roleplay retries are disabled for your company."
         )
-    sessions_res = get_roleplay_sessions(employee_id, scenario_id)
-    session_ids = [s.get("id") for s in (sessions_res.data or []) if s.get("id")]
+
+    sessions_res = get_roleplay_sessions(
+        employee_id,
+        scenario_id
+    )
+
+    session_ids = [
+        s.get("id")
+        for s in (sessions_res.data or [])
+        if s.get("id")
+    ]
 
     attempt_count = 0
+
     if session_ids:
-        assess_res = count_roleplay_attempts(employee_id, session_ids)
+        assess_res = count_roleplay_attempts(
+            employee_id,
+            session_ids
+        )
         attempt_count = assess_res.count or 0
 
     if attempt_count >= retry_limit:
         raise HTTPException(
             status_code=403,
-            detail=f"Roleplay retry limit reached. You can attempt this scenario up to {retry_limit} time(s).",
+            detail=(
+                f"Roleplay retry limit reached. "
+                f"You can attempt this scenario up to "
+                f"{retry_limit} time(s)."
+            )
         )
 
     return {
         "retry_limit": retry_limit,
         "attempt_count": attempt_count,
     }
-
+    
 def get_roleplay_session(session_id: str):
     return (
         supabase
