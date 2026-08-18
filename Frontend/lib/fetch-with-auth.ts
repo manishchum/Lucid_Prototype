@@ -107,12 +107,12 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers,
   });
 
-  console.log(
-    "[FETCH]",
-    options.method || "GET",
-    url,
-    response.status
-  );
+  // console.log(
+  //   "[FETCH]",
+  //   options.method || "GET",
+  //   url,
+  //   response.status
+  // );
 
   if (!response.ok) {
     console.error(

@@ -16,6 +16,8 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional, get_effective_company_id, require_addon
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
 router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_video"))])
 
@@ -29,9 +31,9 @@ import subprocess
 import shutil
 # from diffusers import FluxPipeline
 try:
-    from diffusers import AutoPipelineForText2Image as FluxPipeline
+    from diffusers import AutoPipelineForText2Image
 except ImportError:
-    FluxPipeline = None
+    AutoPipelineForText2Image = None
 from playwright.sync_api import sync_playwright
 
 # ------------------------------------------------------------------
@@ -346,89 +348,167 @@ def isTranslationSuspicious(original: str, translated: str, target_language: str
     return False
 
 
-async def translateScriptToLanguage(script: str, target_language: str) -> str:
+# async def translateScriptToLanguage(script: str, target_language: str) -> str:
+#     if not script:
+#         return ""
+#     language_name = getLanguageDisplayName(target_language)
+#     api_key = os.environ.get("GEMINI_API_KEY")
+#     if not api_key:
+#         raise Exception("GEMINI_API_KEY is not configured for script translation")
+
+#     async def request_translation(prompt_text: str) -> str:
+#         async with httpx.AsyncClient(timeout=300) as client:
+#             res = await client.post(
+#                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={api_key}",
+#                 headers={"Content-Type": "application/json"},
+#                 json={
+#                     "contents": [
+#                         {
+#                             "role": "user",
+#                             "parts": [{"text": prompt_text}]
+#                         }
+#                     ],
+#                     "generationConfig": {
+#                         "temperature": 0.0,
+#                         "maxOutputTokens": 4096
+#                     }
+#                 }
+#             )
+
+#         if res.status_code < 200 or res.status_code >= 300:
+#             raise Exception(f"Script translation failed: {res.status_code} {res.text}")
+
+#         payload = res.json()
+#         translated = (
+#             (payload.get("candidates") or [{}])[0]
+#             .get("content", {})
+#             .get("parts", [{}])[0]
+#             .get("text", "")
+#         )
+#         if not translated:
+#             raise Exception("Script translation returned no text")
+
+#         return translated.strip()
+
+#     prompt = (
+#         f"Translate the following English text into {language_name}. "
+#         "Do not omit any sentences or shorten the text. "
+#         "Use the target language script where applicable. "
+#         "Return only a JSON object with a single field named \"translation\". "
+#         "Do not include any extra explanation.\n\n"
+#         f"Text:\n{script}"
+#     )
+
+#     translated = await request_translation(prompt)
+#     if translated.startswith("{"):
+#         try:
+#             parsed = json.loads(translated)
+#             translated = str(parsed.get("translation", "")).strip()
+#         except Exception:
+#             pass
+
+#     if isTranslationSuspicious(script, translated, target_language):
+#         fallback_prompt = (
+#             f"Translate the entire English text below into {language_name}. "
+#             "Do not omit any part of the source text. "
+#             "Translate sentence by sentence and preserve the original meaning. "
+#             "Return only a JSON object with key \"translation\" and no extra commentary.\n\n"
+#             f"Text:\n{script}"
+#         )
+#         translated = await request_translation(fallback_prompt)
+#         if translated.startswith("{"):
+#             try:
+#                 parsed = json.loads(translated)
+#                 translated = str(parsed.get("translation", "")).strip()
+#             except Exception:
+#                 pass
+
+#         if isTranslationSuspicious(script, translated, target_language):
+#             raise Exception(
+#                 f"Translation into {language_name} appears incomplete or invalid. "
+#                 "Please check the GEMINI_API_KEY and the translation prompt."
+#             )
+
+#     return translated
+
+async def translateScriptToLanguage(
+    script: str,
+    target_language: str,
+    company_id: str,
+    user_id: str,
+) -> str:
     if not script:
         return ""
+
     language_name = getLanguageDisplayName(target_language)
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise Exception("GEMINI_API_KEY is not configured for script translation")
 
-    async def request_translation(prompt_text: str) -> str:
-        async with httpx.AsyncClient(timeout=300) as client:
-            res = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={api_key}",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": prompt_text}]
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.0,
-                        "maxOutputTokens": 4096
-                    }
-                }
-            )
-
-        if res.status_code < 200 or res.status_code >= 300:
-            raise Exception(f"Script translation failed: {res.status_code} {res.text}")
-
-        payload = res.json()
-        translated = (
-            (payload.get("candidates") or [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-        )
-        if not translated:
-            raise Exception("Script translation returned no text")
-
-        return translated.strip()
-
-    prompt = (
-        f"Translate the following English text into {language_name}. "
-        "Do not omit any sentences or shorten the text. "
-        "Use the target language script where applicable. "
-        "Return only a JSON object with a single field named \"translation\". "
-        "Do not include any extra explanation.\n\n"
-        f"Text:\n{script}"
+    print(
+        f"[VIDEO] Translating script via AI Gateway "
+        f"(language: {language_name})..."
     )
 
-    translated = await request_translation(prompt)
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="video_script_translation",
+            company_id=str(company_id),
+            user_id=str(user_id),
+            route="/gpt-video",
+            prompt_type="default",
+            variables={
+                "languageName": language_name,
+                "script": script,
+            },
+            response_format="text",
+        )
+    )
+
+    if not ai_response or not ai_response.content:
+        raise Exception(
+            f"Video script translation returned empty response "
+            f"for language {language_name}"
+        )
+
+    translated = str(ai_response.content).strip()
+
+    print(
+        "[VIDEO] Translation AI Gateway:",
+        ai_response.provider,
+        ai_response.model,
+        "prompt_version=",
+        ai_response.prompt_version,
+    )
+
+    print(
+        "[VIDEO] Translation response length:",
+        len(translated),
+    )
+
     if translated.startswith("{"):
         try:
             parsed = json.loads(translated)
-            translated = str(parsed.get("translation", "")).strip()
+            translated = str(
+                parsed.get("translation", "")
+            ).strip()
         except Exception:
             pass
 
-    if isTranslationSuspicious(script, translated, target_language):
-        fallback_prompt = (
-            f"Translate the entire English text below into {language_name}. "
-            "Do not omit any part of the source text. "
-            "Translate sentence by sentence and preserve the original meaning. "
-            "Return only a JSON object with key \"translation\" and no extra commentary.\n\n"
-            f"Text:\n{script}"
+    if not translated:
+        raise Exception(
+            f"Video script translation returned empty translation "
+            f"for language {language_name}"
         )
-        translated = await request_translation(fallback_prompt)
-        if translated.startswith("{"):
-            try:
-                parsed = json.loads(translated)
-                translated = str(parsed.get("translation", "")).strip()
-            except Exception:
-                pass
 
-        if isTranslationSuspicious(script, translated, target_language):
-            raise Exception(
-                f"Translation into {language_name} appears incomplete or invalid. "
-                "Please check the GEMINI_API_KEY and the translation prompt."
-            )
+    if isTranslationSuspicious(
+        script,
+        translated,
+        target_language,
+    ):
+        print(
+            f"[VIDEO] Warning: translation for {language_name} "
+            "appears suspicious"
+        )
 
     return translated
-
 
 async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str) -> list:
     try:
@@ -520,73 +600,132 @@ def extract_json_array(text: str):
         print("[BAD JSON STRING]", json_str[:1000])
         return None
 
-async def planScenes(content: str) -> List[Scene]:
-    async with httpx.AsyncClient(timeout=300) as client:
-        res = await client.post(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent",
-    params={"key": os.environ.get("GEMINI_API_KEY")},
-    headers={"Content-Type": "application/json"},
-    json={
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{
-                    "text": f"""
-You are a master AI instructor specializing in NotebookLM-style deep dives. You synthesize complex information into engaging narratives.
+# async def planScenes(content: str) -> List[Scene]:
+#     async with httpx.AsyncClient(timeout=300) as client:
+#         res = await client.post(
+#     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent",
+#     params={"key": os.environ.get("GEMINI_API_KEY")},
+#     headers={"Content-Type": "application/json"},
+#     json={
+#         "contents": [
+#             {
+#                 "role": "user",
+#                 "parts": [{
+#                     "text": f"""
+# You are a master AI instructor specializing in NotebookLM-style deep dives. You synthesize complex information into engaging narratives.
 
-Create a deep-dive, conversational instructor-led video script based on the modules provided.
+# Create a deep-dive, conversational instructor-led video script based on the modules provided.
 
-For each scene, provide:
-1. title
-2. spoken_script (in English)
-3. hinglish_script (in conversational Hinglish - a mix of Hindi and English written in Latin script)
-4. slide_bullets (2-3 bullets)
-5. visual_prompt (no text, no human faces)
+# For each scene, provide:
+# 1. title
+# 2. spoken_script (in English)
+# 3. hinglish_script (in conversational Hinglish - a mix of Hindi and English written in Latin script)
+# 4. slide_bullets (2-3 bullets)
+# 5. visual_prompt (no text, no human faces)
 
-CRITICAL: Return JSON ONLY.
-[
-  {{
-    "title": "...",
-    "spoken_script": "...",
-    "hinglish_script": "...",
-    "slide_bullets": ["...", "..."],
-    "visual_prompt": "..."
-  }}
-]
+# CRITICAL: Return JSON ONLY.
+# [
+#   {{
+#     "title": "...",
+#     "spoken_script": "...",
+#     "hinglish_script": "...",
+#     "slide_bullets": ["...", "..."],
+#     "visual_prompt": "..."
+#   }}
+# ]
 
-CONTENT:
-{content}
-"""
-                }]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 20486
-        }
-    }
-)
+# CONTENT:
+# {content}
+# """
+#                 }]
+#             }
+#         ],
+#         "generationConfig": {
+#             "temperature": 0.3,
+#             "maxOutputTokens": 20486
+#         }
+#     }
+# )
 
     
-    print(res)
-    if res.status_code < 200 or res.status_code >= 300:
-        raise Exception("OpenAI scene planning failed")
+#     print(res)
+#     if res.status_code < 200 or res.status_code >= 300:
+#         raise Exception("OpenAI scene planning failed")
 
-    json_data = res.json()
-    rawText = ""
-    try:
-        rawText = (json_data.get("candidates") or [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "") or ""
-    except Exception:
-        rawText = ""
+#     json_data = res.json()
+#     rawText = ""
+#     try:
+#         rawText = (json_data.get("candidates") or [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "") or ""
+#     except Exception:
+#         rawText = ""
 
-    scenes = extract_json_array(rawText)
+#     scenes = extract_json_array(rawText)
+
+#     if not scenes:
+#         print("[Gemini RAW OUTPUT]", rawText[:2000])
+#         raise Exception("No JSON array found from Gemini response")
+
+#     return scenes
+
+async def planScenes(
+    content: str,
+    company_id: str,
+    user_id: str,
+) -> List[Scene]:
+
+    print("[VIDEO] Calling AI Gateway for scene planning")
+
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="video_scene_generation",
+            company_id=str(company_id),
+            user_id=str(user_id),
+            route="/gpt-video",
+            prompt_type="default",
+            variables={
+                "content": content,
+            },
+            response_format="text",
+        )
+    )
+
+    if not ai_response or not ai_response.content:
+        raise Exception(
+            "Video scene planning returned empty AI response."
+        )
+
+    raw_text = str(ai_response.content).strip()
+
+    print(
+        "[VIDEO] Scene planning AI Gateway:",
+        ai_response.provider,
+        ai_response.model,
+        "prompt_version=",
+        ai_response.prompt_version,
+    )
+
+    print(
+        "[VIDEO] Scene planning response length:",
+        len(raw_text),
+    )
+
+    scenes = extract_json_array(raw_text)
 
     if not scenes:
-        print("[Gemini RAW OUTPUT]", rawText[:2000])
-        raise Exception("No JSON array found from Gemini response")
+        print(
+            "[VIDEO] Scene planning raw output:",
+            raw_text[:2000]
+        )
+        raise Exception(
+            "No valid JSON scene array returned from AI Gateway"
+        )
+
+    if not isinstance(scenes, list):
+        raise Exception(
+            "Video scene planner returned invalid scene structure"
+        )
 
     return scenes
-
 
 # ------------------------------------------------------------------
 # 2. IMAGEN (Fallback to placeholder on failure)
@@ -1036,7 +1175,9 @@ async def composeScene(
 # ------------------------------------------------------------------
 # MAIN VIDEO PIPELINE
 # ------------------------------------------------------------------
-async def generateVideo(processedModuleId: str) -> dict:
+async def generateVideo(
+    processedModuleId: str
+) -> dict:
     print("Processed_Module_id:-", processedModuleId)
 
     module = None
@@ -1081,6 +1222,57 @@ async def generateVideo(processedModuleId: str) -> dict:
 
     actualId = module["processed_module_id"]
 
+    # Resolve ownership context for AI Gateway usage tracking.
+    try:
+        context_res = (
+            supabase
+            .table("training_modules")
+            .select("company_id, uploaded_by")
+            .eq(
+                "module_id",
+                module["original_module_id"]
+            )
+            .maybe_single()
+            .execute()
+        )
+
+        context_data = getattr(
+            context_res,
+            "data",
+            None
+        )
+
+        if not context_data:
+            raise Exception(
+                "Training module ownership context not found"
+            )
+
+        company_id = context_data.get("company_id")
+        user_id = context_data.get("uploaded_by")
+
+        if not company_id:
+            raise Exception(
+                "Company ID missing for video generation"
+            )
+
+        if not user_id:
+            raise Exception(
+                "Uploaded-by user ID missing for video generation"
+            )
+
+        print(
+            f"[VIDEO] Resolved context: "
+            f"company={company_id}, "
+            f"uploaded_by={user_id}"
+        )
+
+    except Exception as e:
+        print(
+            "[VIDEO] Failed to resolve ownership context:",
+            e
+        )
+        raise
+    
     # Context
     userModules = None
     try:
@@ -1098,7 +1290,11 @@ async def generateVideo(processedModuleId: str) -> dict:
     context = "\n\n".join([f"### {m['title']}\n{m['content']}" for m in (userModules or [])]) or module["content"]
 
     print("[VIDEO] Planning scenes...")
-    scenes = await planScenes(context)
+    scenes = await planScenes(
+        context,
+        company_id,
+        user_id,
+    )
     print(f"[VIDEO] Planned {len(scenes)} scenes.")
     tmpDir = os.path.join(tempfile.gettempdir(), f"lucid-gen-{str(uuid_lib.uuid4())}")
     os.makedirs(tmpDir, exist_ok=True)
@@ -1133,7 +1329,7 @@ async def generateVideo(processedModuleId: str) -> dict:
             elif language == "en":
                 script = scene.get("spoken_script", "")
             else:
-                script = await translateScriptToLanguage(scene.get("spoken_script", ""), language)
+                script = await translateScriptToLanguage(scene.get("spoken_script", ""), language, company_id, user_id)
 
             language_code = LANGUAGE_CODE_TO_GOOGLE_TTS_LOCALE.get(language, "en-IN")
             voice_name = getGoogleTtsVoiceName(language)
@@ -1143,7 +1339,7 @@ async def generateVideo(processedModuleId: str) -> dict:
             scene_max_duration = max(scene_max_duration, duration)
 
             out_path = os.path.join(tmpDir, f"scene-{language}-{i}.mp4")
-            await composeScene(bg, slide, avatar, audio_path, out_path, fallbacks, duration)
+            await composeScene(bg, slide, audio_path, out_path, fallbacks, duration)
             sceneVideos_by_language[language].append(out_path)
 
         timeline += scene_max_duration
@@ -1247,26 +1443,74 @@ async def generateVideo(processedModuleId: str) -> dict:
 # ------------------------------------------------------------------
 router = APIRouter()
 
+# @router.post("/gpt-video")
+# async def POST(req: Request):
+#     print("[GPT-VIDEO] POST request received")
+#     try:
+#         body = await req.json()
+
+#         # ✅ supports BOTH keys
+#         moduleId = body.get("processed_module_id") or body.get("module_id")
+#         if not moduleId:
+#             return JSONResponse({"error": "Missing module ID"}, status_code=400)
+
+#         print("[GPT-VIDEO] Starting generation for:", moduleId)
+
+#         urls = await generateVideo(moduleId)
+
+#         return JSONResponse({
+#             "videoUrl": urls.get("videoUrl"),
+#             "videoUrls": urls.get("videoUrls", {}),
+#             "videoUrlHinglish": urls.get("videoUrls", {}).get("hinglish")
+#         })
+#     except Exception as e:
+#         print("[GPT-VIDEO] Video generation failed:", e)
+#         return JSONResponse({"error": str(e) or "Generation failed"}, status_code=500)
+
 @router.post("/gpt-video")
 async def POST(req: Request):
     print("[GPT-VIDEO] POST request received")
+
     try:
         body = await req.json()
 
-        # ✅ supports BOTH keys
-        moduleId = body.get("processed_module_id") or body.get("module_id")
-        if not moduleId:
-            return JSONResponse({"error": "Missing module ID"}, status_code=400)
+        moduleId = (
+            body.get("processed_module_id")
+            or body.get("module_id")
+        )
 
-        print("[GPT-VIDEO] Starting generation for:", moduleId)
+        if not moduleId:
+            return JSONResponse(
+                {"error": "Missing module ID"},
+                status_code=400
+            )
+
+        print(
+            "[GPT-VIDEO] Starting generation for:",
+            moduleId
+        )
 
         urls = await generateVideo(moduleId)
 
         return JSONResponse({
             "videoUrl": urls.get("videoUrl"),
             "videoUrls": urls.get("videoUrls", {}),
-            "videoUrlHinglish": urls.get("videoUrls", {}).get("hinglish")
+            "videoUrlHinglish": urls.get(
+                "videoUrls",
+                {}
+            ).get("hinglish")
         })
+
     except Exception as e:
-        print("[GPT-VIDEO] Video generation failed:", e)
-        return JSONResponse({"error": str(e) or "Generation failed"}, status_code=500)
+        print(
+            "[GPT-VIDEO] Video generation failed:",
+            e
+        )
+
+        return JSONResponse(
+            {
+                "error": str(e)
+                or "Generation failed"
+            },
+            status_code=500
+        )

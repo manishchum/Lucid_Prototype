@@ -36,11 +36,7 @@ function uniqueNonEmpty(values) {
 }
 
 const API_BASE_URLS = uniqueNonEmpty([
-  process.env.VIDEO_WORKER_API_BASE_URL,
-  process.env.AUDIO_WORKER_API_BASE_URL,
-  process.env.INTERNAL_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
-  process.env.BACKEND_URL,
 ]);
 
 const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 120000);

@@ -11,7 +11,9 @@ from utils.redis_client import get_cache, set_cache, redis_client
 from utils.redis_limiter import check_rate_limit
 
 # from db import create_client, Client
-import google.generativeai as genai
+# import google.generativeai as genai
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
 
 router = APIRouter()
@@ -27,49 +29,49 @@ router = APIRouter()
 # db: Client = create_client(supabaseUrl, supabaseKey)
 
 # Gemini init
-genAI = genai
-genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
+# genAI = genai
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
 
-def parseGeminiJSON(raw_text: str) -> dict:
-    """Extract and parse JSON from Gemini response, handling markdown code blocks and duplicates"""
-    try:
-        # Remove markdown code blocks if present
-        cleaned = raw_text.strip()
+# def parseGeminiJSON(raw_text: str) -> dict:
+#     """Extract and parse JSON from Gemini response, handling markdown code blocks and duplicates"""
+#     try:
+#         # Remove markdown code blocks if present
+#         cleaned = raw_text.strip()
         
-        # Handle ```json...``` blocks
-        if cleaned.startswith('```'):
-            # Find first opening backticks
-            start = cleaned.find('```')
-            if start != -1:
-                # Skip past language identifier (e.g., 'json')
-                content_start = cleaned.find('\n', start + 3)
-                if content_start != -1:
-                    # Find closing backticks
-                    end = cleaned.find('```', content_start)
-                    if end != -1:
-                        cleaned = cleaned[content_start:end].strip()
+#         # Handle ```json...``` blocks
+#         if cleaned.startswith('```'):
+#             # Find first opening backticks
+#             start = cleaned.find('```')
+#             if start != -1:
+#                 # Skip past language identifier (e.g., 'json')
+#                 content_start = cleaned.find('\n', start + 3)
+#                 if content_start != -1:
+#                     # Find closing backticks
+#                     end = cleaned.find('```', content_start)
+#                     if end != -1:
+#                         cleaned = cleaned[content_start:end].strip()
         
-        # If there are multiple JSON objects (duplicates), take only the first complete one
-        first_open = cleaned.find('{')
-        if first_open != -1:
-            brace_count = 0
-            for i in range(first_open, len(cleaned)):
-                if cleaned[i] == '{':
-                    brace_count += 1
-                elif cleaned[i] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        # Found complete first JSON object
-                        cleaned = cleaned[first_open:i+1]
-                        break
+#         # If there are multiple JSON objects (duplicates), take only the first complete one
+#         first_open = cleaned.find('{')
+#         if first_open != -1:
+#             brace_count = 0
+#             for i in range(first_open, len(cleaned)):
+#                 if cleaned[i] == '{':
+#                     brace_count += 1
+#                 elif cleaned[i] == '}':
+#                     brace_count -= 1
+#                     if brace_count == 0:
+#                         # Found complete first JSON object
+#                         cleaned = cleaned[first_open:i+1]
+#                         break
         
-        return json.loads(cleaned)
+#         return json.loads(cleaned)
     
-    except json.JSONDecodeError as e:
-        print(f"[parseGeminiJSON] JSON parsing failed: {e}")
-        print(f"[parseGeminiJSON] Attempted to parse: {cleaned[:500] if cleaned else 'empty'}...")
-        raise ValueError(f"Invalid JSON in Gemini response: {str(e)}")
+#     except json.JSONDecodeError as e:
+#         print(f"[parseGeminiJSON] JSON parsing failed: {e}")
+#         print(f"[parseGeminiJSON] Attempted to parse: {cleaned[:500] if cleaned else 'empty'}...")
+#         raise ValueError(f"Invalid JSON in Gemini response: {str(e)}")
 
 
 @router.post("/training-plan")
@@ -247,18 +249,18 @@ async def POST(request: Request):
                         }
                     )
 
-        module_id_query = None
-        try:
-            module_id_query = request.query_params.get("module_id")
-        except Exception:
-            module_id_query = None
+        # module_id_query = None
+        # try:
+        #     module_id_query = request.query_params.get("module_id")
+        # except Exception:
+        #     module_id_query = None
 
-        if not os.getenv("GEMINI_API_KEY"):
-            print("[Training Plan API] GEMINI_API_KEY is not set")
-            return JSONResponse(
-                content={"error": "Server misconfiguration: GEMINI_API_KEY is missing."},
-                status_code=500,
-            )
+        # if not os.getenv("GEMINI_API_KEY"):
+        #     print("[Training Plan API] GEMINI_API_KEY is not set")
+        #     return JSONResponse(
+        #         content={"error": "Server misconfiguration: GEMINI_API_KEY is missing."},
+        #         status_code=500,
+        #     )
 
 
 
@@ -639,174 +641,385 @@ async def POST(request: Request):
                 "- For scores 86-100%: Recommend 1-2 modules. Allocate 2 hours per module."
             )
 
-        # prompts EXACTLY preserved
-        learningStyleSection = ""
+        # # prompts EXACTLY preserved
+        # learningStyleSection = ""
+        # if useLearningStyle and geminiText:
+        #     learningStyleSection = (
+        #         geminiText + "\n\n"
+        #         + "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n"
+        #         + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
+        #     )
+        
+        # prompt1 = (
+        #     "You are an expert corporate trainer. Given the following assessment results and feedback for an employee" + (" and the available training modules, and the employee's learning style and analysis" if useLearningStyle else " and the available training modules") + ", generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n"
+        #     + learningStyleSection
+        #     + (kpiText + "\n\n" if kpiText else "")
+        #     + "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n"
+        #     + moduleRequirements
+        #     + "\n"
+        #     + "- NEVER recommend modules that are NOT in the Available Modules list.\n"
+        #     + "- NEVER generate, invent, or assume modules that don't exist.\n"
+        #     + "- NEVER recommend only 1 module for low scores (below 50%) if more are available.\n"
+        #     + "- Each module must include: title (or name), recommended_time (in hours), and order.\n"
+        #     + "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n"
+        #     + "The plan should:\n"
+        #     + "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n"
+        #     + "- Select modules ONLY from the Available Modules list\n"
+        #     + "- Map each selected module to specific weaknesses\n"
+        #     + "- Specify study order, recommended time per module (in hours)\n"
+        #     + "- Include actionable tips and recommendations\n"
+        #     + ("- Ensure all recommendations align with the employee's learning style\n\n" if useLearningStyle else "\n")
+        #     + "KPI Comparison Instructions:\n"
+        #     + "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n"
+        #     + "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n"
+        #     + "- If datatype is 'numeric', compare the raw numbers.\n"
+        #     + "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n"
+        #     + "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n"
+        #     + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback" + (", learning style" if useLearningStyle else "") + ", and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses" + (", learning style" if useLearningStyle else "") + ", and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n"
+        #     + "Assessment Results (baseline only, percentage-based):\n"
+        #     + json.dumps(baselinePercentAssessments, indent=2)
+        #     + "\n\n"
+        #     + "Available Modules:\n"
+        #     + json.dumps(modules, indent=2)
+        #     + "\n\n"
+        #     + "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n"
+        #     + "JSON format:\n"
+        #     + "{\n"
+        #     + '  "plan": {\n'
+        #     + '    "modules": [\n'
+        #     + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+        #     + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 5, "order": 2 }\n'
+        #     + "    ],\n"
+        #     + '    "tips": "' + ('General study tips and strategies for success' if not useLearningStyle else 'Study tips tailored to learning style') + '..."\n'
+        #     + "  },\n"
+        #     + '  "reasoning": { ... }\n'
+        #     + "}\n"
+        #     + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
+        #     + ('{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "learning_style_influence": string,\n  "kpi_influence": string,\n  "overall_strategy": string\n}\n' if useLearningStyle else '{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "kpi_influence": string,\n  "overall_strategy": string\n}\n')
+        #     + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
+        #     + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
+        # )
+
+        # learningStyleSection2 = ""
+        # if useLearningStyle and geminiText:
+        #     learningStyleSection2 = (
+        #         geminiText + "\n\n"
+        #         + "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n"
+        #         + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
+        #     )
+        
+        # prompt2 = (
+        #     "You are an expert corporate trainer. Given the available training modules" + (" and the employee's learning style" if useLearningStyle else "") + ", generate a personalized JSON learning plan that assigns ALL available modules.\n\n"
+        #     + learningStyleSection2
+        #     + "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n"
+        #     + "- Include ALL modules from the Available Modules list in the learning plan.\n"
+        #     + "- NEVER skip or omit any available module.\n"
+        #     + "- NEVER recommend modules that are NOT in the Available Modules list.\n"
+        #     + "- NEVER generate, invent, or assume modules that don't exist.\n"
+        #     + "- Each module must include: title (matching exactly from Available Modules), recommended_time (in hours), and order.\n"
+        #     + "- Order modules logically based on learning progression and dependencies.\n"
+        #     + "- Allocate 3-5 hours per module as recommended study time.\n\n"
+        #     + "The plan should:\n"
+        #     + "- Include ALL available modules in a logical learning sequence\n"
+        #     + "- Specify study order (1, 2, 3, etc.) for each module\n"
+        #     + "- Specify recommended time per module (in hours, typically 3-5 hours each)\n"
+        #     + "- Include actionable tips and study strategies\n"
+        #     + ("- Ensure all recommendations align with the employee's learning style\n\n" if useLearningStyle else "\n")
+        #     + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n"
+        #     + ("- How the learning style influenced the ordering and study approach\n" if useLearningStyle else "")
+        #     + "- For each module, justify the recommended time duration based on complexity" + (" and the employee's learning style" if useLearningStyle else "") + "\n"
+        #     + "- Explain the overall learning progression strategy\n\n"
+        #     + "Available Modules:\n"
+        #     + json.dumps(modules, indent=2)
+        #     + "\n\n"
+        #     + "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n"
+        #     + "JSON format:\n"
+        #     + "{\n"
+        #     + '  "plan": {\n'
+        #     + '    "modules": [\n'
+        #     + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
+        #     + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 4, "order": 2 },\n'
+        #     + '      { "title": "Module Name 3", "processed_module_id": "id-here", "recommended_time": 5, "order": 3 }\n'
+        #     + "    ],\n"
+        #     + '    "tips": "' + ('Study tips tailored to learning style' if useLearningStyle else 'General study tips and strategies for success') + '..."\n'
+        #     + "  },\n"
+        #     + ('  "reasoning": {\n'
+        #     + '    "learning_style_influence": "Explanation of how learning style influenced module ordering...",\n'
+        #     + '    "module_selection": [\n'
+        #     + '      {\n'
+        #     + '        "module_name": "Module Name",\n'
+        #     + '        "justification": "Why this module is placed in this order...",\n'
+        #     + '        "recommended_time": 5\n'
+        #     + '      }\n'
+        #     + '    ],\n'
+        #     + '    "overall_strategy": "Explanation of the complete learning path..."\n'
+        #     + "  }\n" if useLearningStyle else '  "reasoning": {\n'
+        #     + '    "module_selection": [\n'
+        #     + '      {\n'
+        #     + '        "module_name": "Module Name",\n'
+        #     + '        "justification": "Why this module is placed in this order...",\n'
+        #     + '        "recommended_time": 5\n'
+        #     + '      }\n'
+        #     + '    ],\n'
+        #     + '    "overall_strategy": "Explanation of the complete learning path..."\n'
+        #     + "  }\n")
+        #     + "}\n"
+        #     + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
+        #     + ('{\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "overall_strategy": string\n, \n  "learning_style_influence": string}\n' if useLearningStyle else '{\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "overall_strategy": string\n}\n')
+        #     + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
+        #     + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
+        # )
+        
+        # ============================================================
+        # AI PROMPT CONFIGURATION
+        # Prompts are stored in ai_prompts and rendered by AI Gateway.
+        # ============================================================
+
+        learningStyleSection1 = ""
+        learningStyleSection2 = ""
+        learningStyleContext = ""
+        learningStyleContext2 = ""
+        learningStyleRequirement = ""
+        learningStyleRequirement2 = ""
+        learningStyleReasoningContext = ""
+        tipsDescription = ""
+        reasoningStructure = ""
+        reasoningStructure2 = ""
+
         if useLearningStyle and geminiText:
-            learningStyleSection = (
+            learningStyleContext = " and the available training modules, and the employee's learning style and analysis"
+
+            learningStyleSection1 = (
                 geminiText + "\n\n"
                 + "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n"
                 + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style and analysis. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
             )
-        
-        prompt1 = (
-            "You are an expert corporate trainer. Given the following assessment results and feedback for an employee" + (" and the available training modules, and the employee's learning style and analysis" if useLearningStyle else " and the available training modules") + ", generate a personalized JSON learning plan. If KPI scores (description, score, benchmark, and datatype) are available, use them; otherwise, rely only on baseline assessments.\n\n"
-            + learningStyleSection
-            + (kpiText + "\n\n" if kpiText else "")
-            + "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n"
-            + moduleRequirements
-            + "\n"
-            + "- NEVER recommend modules that are NOT in the Available Modules list.\n"
-            + "- NEVER generate, invent, or assume modules that don't exist.\n"
-            + "- NEVER recommend only 1 module for low scores (below 50%) if more are available.\n"
-            + "- Each module must include: title (or name), recommended_time (in hours), and order.\n"
-            + "- Prioritize modules addressing the most critical skill gaps shown in the assessment.\n\n"
-            + "The plan should:\n"
-            + "- Identify weak areas based on scores, benchmarks, datatypes, and feedback\n"
-            + "- Select modules ONLY from the Available Modules list\n"
-            + "- Map each selected module to specific weaknesses\n"
-            + "- Specify study order, recommended time per module (in hours)\n"
-            + "- Include actionable tips and recommendations\n"
-            + ("- Ensure all recommendations align with the employee's learning style\n\n" if useLearningStyle else "\n")
-            + "KPI Comparison Instructions:\n"
-            + "- For each KPI, compare the employee's score to the benchmark using the provided datatype.\n"
-            + "- If datatype is 'percentage', treat both score and benchmark as percentages out of 100.\n"
-            + "- If datatype is 'numeric', compare the raw numbers.\n"
-            + "- If datatype is 'ratio', compare as a ratio (e.g., score/benchmark).\n"
-            + "- Use this comparison to identify strengths and weaknesses for each KPI.\n\n"
-            + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n- Which assessment results, feedback" + (", learning style" if useLearningStyle else "") + ", and KPI factors (including benchmark and datatype) influenced your choices\n- For each module, justify the recommended time duration (e.g., why 3 hours and not less or more) based on the employee's needs, weaknesses" + (", learning style" if useLearningStyle else "") + ", and KPIs (including benchmark and datatype)\n- Explicitly explain how the score, benchmark, and datatype influenced the number of modules and total study hours.\n\n"
-            + "Assessment Results (baseline only, percentage-based):\n"
-            + json.dumps(baselinePercentAssessments, indent=2)
-            + "\n\n"
-            + "Available Modules:\n"
-            + json.dumps(modules, indent=2)
-            + "\n\n"
-            + "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n"
-            + "JSON format:\n"
-            + "{\n"
-            + '  "plan": {\n'
-            + '    "modules": [\n'
-            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 5, "order": 2 }\n'
-            + "    ],\n"
-            + '    "tips": "' + ('General study tips and strategies for success' if not useLearningStyle else 'Study tips tailored to learning style') + '..."\n'
-            + "  },\n"
-            + '  "reasoning": { ... }\n'
-            + "}\n"
-            + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
-            + ('{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "learning_style_influence": string,\n  "kpi_influence": string,\n  "overall_strategy": string\n}\n' if useLearningStyle else '{\n  "score_analysis": string,\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "kpi_influence": string,\n  "overall_strategy": string\n}\n')
-            + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
-            + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
-        )
 
-        learningStyleSection2 = ""
-        if useLearningStyle and geminiText:
             learningStyleSection2 = (
                 geminiText + "\n\n"
                 + "The employee's learning style is classified as one of: Concrete Sequential (CS), Concrete Random (CR), Abstract Sequential (AS), or Abstract Random (AR).\n\n"
                 + "When generating the plan, tailor your recommendations, study strategies, and tips to fit the employee's specific learning style. For example, suggest structured, step-by-step approaches for CS, creative and flexible methods for CR, analytical and theory-driven strategies for AS, and collaborative or intuitive approaches for AR.\n\n"
             )
-        
-        prompt2 = (
-            "You are an expert corporate trainer. Given the available training modules" + (" and the employee's learning style" if useLearningStyle else "") + ", generate a personalized JSON learning plan that assigns ALL available modules.\n\n"
-            + learningStyleSection2
-            + "CRITICAL MODULE SELECTION REQUIREMENTS - MUST FOLLOW:\n"
-            + "- Include ALL modules from the Available Modules list in the learning plan.\n"
-            + "- NEVER skip or omit any available module.\n"
-            + "- NEVER recommend modules that are NOT in the Available Modules list.\n"
-            + "- NEVER generate, invent, or assume modules that don't exist.\n"
-            + "- Each module must include: title (matching exactly from Available Modules), recommended_time (in hours), and order.\n"
-            + "- Order modules logically based on learning progression and dependencies.\n"
-            + "- Allocate 3-5 hours per module as recommended study time.\n\n"
-            + "The plan should:\n"
-            + "- Include ALL available modules in a logical learning sequence\n"
-            + "- Specify study order (1, 2, 3, etc.) for each module\n"
-            + "- Specify recommended time per module (in hours, typically 3-5 hours each)\n"
-            + "- Include actionable tips and study strategies\n"
-            + ("- Ensure all recommendations align with the employee's learning style\n\n" if useLearningStyle else "\n")
-            + "Additionally, provide a detailed reasoning (as a separate JSON object) explaining how you arrived at this learning plan, including:\n"
-            + ("- How the learning style influenced the ordering and study approach\n" if useLearningStyle else "")
-            + "- For each module, justify the recommended time duration based on complexity" + (" and the employee's learning style" if useLearningStyle else "") + "\n"
-            + "- Explain the overall learning progression strategy\n\n"
-            + "Available Modules:\n"
-            + json.dumps(modules, indent=2)
-            + "\n\n"
-            + "Output ONLY a single JSON object with two top-level keys: plan and reasoning.\n"
-            + "JSON format:\n"
-            + "{\n"
-            + '  "plan": {\n'
-            + '    "modules": [\n'
-            + '      { "title": "Module Name", "processed_module_id": "id-here", "recommended_time": 5, "order": 1 },\n'
-            + '      { "title": "Module Name 2", "processed_module_id": "id-here", "recommended_time": 4, "order": 2 },\n'
-            + '      { "title": "Module Name 3", "processed_module_id": "id-here", "recommended_time": 5, "order": 3 }\n'
-            + "    ],\n"
-            + '    "tips": "' + ('Study tips tailored to learning style' if useLearningStyle else 'General study tips and strategies for success') + '..."\n'
-            + "  },\n"
-            + ('  "reasoning": {\n'
-            + '    "learning_style_influence": "Explanation of how learning style influenced module ordering...",\n'
-            + '    "module_selection": [\n'
-            + '      {\n'
-            + '        "module_name": "Module Name",\n'
-            + '        "justification": "Why this module is placed in this order...",\n'
-            + '        "recommended_time": 5\n'
-            + '      }\n'
-            + '    ],\n'
-            + '    "overall_strategy": "Explanation of the complete learning path..."\n'
-            + "  }\n" if useLearningStyle else '  "reasoning": {\n'
-            + '    "module_selection": [\n'
-            + '      {\n'
-            + '        "module_name": "Module Name",\n'
-            + '        "justification": "Why this module is placed in this order...",\n'
-            + '        "recommended_time": 5\n'
-            + '      }\n'
-            + '    ],\n'
-            + '    "overall_strategy": "Explanation of the complete learning path..."\n'
-            + "  }\n")
-            + "}\n"
-            + "The 'reasoning' key must contain a valid JSON object with the following structure:\n"
-            + ('{\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "overall_strategy": string\n, \n  "learning_style_influence": string}\n' if useLearningStyle else '{\n  "module_selection": [\n    {\n      "module_name": string,\n      "justification": string,\n      "recommended_time": number\n    }\n  ],\n  "overall_strategy": string\n}\n')
-            + 'Do NOT include any other text, explanation, or formatting. Example: { "plan": { ... }, "reasoning": { ... } }'
-            + '\n\nCRITICAL: Return ONLY ONE JSON object. Do not duplicate the response. Do not wrap in markdown code blocks. Return raw JSON only.'
-        )
+
+            learningStyleContext2 = " and the employee's learning style"
+
+            learningStyleRequirement = (
+                "- Ensure all recommendations align with the employee's learning style\n\n"
+            )
+
+            learningStyleRequirement2 = (
+                "- Ensure all recommendations align with the employee's learning style\n\n"
+            )
+
+            learningStyleReasoningContext = ", learning style"
+
+            tipsDescription = "Study tips tailored to learning style"
+
+            reasoningStructure = """{
+        "score_analysis": string,
+        "module_selection": [
+            {
+            "module_name": string,
+            "justification": string,
+            "recommended_time": number
+            }
+        ],
+        "learning_style_influence": string,
+        "kpi_influence": string,
+        "overall_strategy": string
+        }"""
+
+            reasoningStructure2 = """{
+        "learning_style_influence": string,
+        "module_selection": [
+            {
+            "module_name": string,
+            "justification": string,
+            "recommended_time": number
+            }
+        ],
+        "overall_strategy": string
+        }"""
+
+        else:
+            learningStyleContext = " and the available training modules"
+            learningStyleContext2 = ""
+            tipsDescription = "General study tips and strategies for success"
+
+            reasoningStructure = """{
+        "score_analysis": string,
+        "module_selection": [
+            {
+            "module_name": string,
+            "justification": string,
+            "recommended_time": number
+            }
+        ],
+        "kpi_influence": string,
+        "overall_strategy": string
+        }"""
+
+            reasoningStructure2 = """{
+        "module_selection": [
+            {
+            "module_name": string,
+            "justification": string,
+            "recommended_time": number
+            }
+        ],
+        "overall_strategy": string
+        }"""
 
         # Check if baseline is enabled for this learning plan
         # If baseline_assessment === 0 (OFF), use prompt2 (all modules, no score references)
         # If baseline_assessment === 1 (ON), use prompt1 if assessments exist, else prompt2
-        baselineEnabledForPlan = True  # Default to ON
+        # baselineEnabledForPlan = True  # Default to ON
+        # if (
+        #     checkForBaseline
+        #     and isinstance(checkForBaseline, list)
+        #     and len(checkForBaseline) > 0
+        # ):
+        #     baselineEnabledForPlan = checkForBaseline[0].get("baseline_assessment") == 1
+        #     print(f"[Training Plan API] Baseline assessment enabled for plan: {baselineEnabledForPlan}")
+        
+        # # Select prompt based on baseline setting and assessment availability
+        # if not baselineEnabledForPlan:
+        #     # Baseline is OFF - always use prompt2 (all modules, no score analysis)
+        #     prompt = prompt2
+        #     print("[Training Plan API] Using prompt2 (baseline OFF - all modules)")
+        # elif len(baselinePercentAssessments) > 0:
+        #     # Baseline is ON and assessments exist - use prompt1 (personalized)
+        #     prompt = prompt1
+        #     # print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+        # else:
+        #     # Baseline is ON but no assessments - use prompt2 (all modules)
+        #     prompt = prompt2
+        #     # print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
+        
+        # ============================================================
+        # SELECT DATABASE PROMPT
+        # ============================================================
+
+        baselineEnabledForPlan = True
+
         if (
             checkForBaseline
             and isinstance(checkForBaseline, list)
             and len(checkForBaseline) > 0
         ):
-            baselineEnabledForPlan = checkForBaseline[0].get("baseline_assessment") == 1
-            print(f"[Training Plan API] Baseline assessment enabled for plan: {baselineEnabledForPlan}")
-        
-        # Select prompt based on baseline setting and assessment availability
+            baselineEnabledForPlan = (
+                checkForBaseline[0].get("baseline_assessment") == 1
+            )
+
+            print(
+                f"[Training Plan API] Baseline assessment enabled for plan: "
+                f"{baselineEnabledForPlan}"
+            )
+
         if not baselineEnabledForPlan:
-            # Baseline is OFF - always use prompt2 (all modules, no score analysis)
-            prompt = prompt2
-            print("[Training Plan API] Using prompt2 (baseline OFF - all modules)")
+            promptType = "all_modules"
+            print("[Training Plan API] Using all_modules prompt (baseline OFF)")
+
         elif len(baselinePercentAssessments) > 0:
-            # Baseline is ON and assessments exist - use prompt1 (personalized)
-            prompt = prompt1
-            # print("[Training Plan API] Using prompt1 (baseline ON - personalized)")
+            promptType = "personalized"
+            print("[Training Plan API] Using personalized prompt")
+
         else:
-            # Baseline is ON but no assessments - use prompt2 (all modules)
-            prompt = prompt2
-            # print("[Training Plan API] Using prompt2 (baseline ON but no assessments)")
+            promptType = "all_modules"
+            print("[Training Plan API] Using all_modules prompt (baseline ON but no assessments)")
 
         # Call Gemini
+        # planJsonRaw = ""
+        # try:
+        #     await check_rate_limit(
+        #         user_id=auth_ctx.user_id,
+        #         endpoint="training-plan"
+        #     )
+        #     model = genai.GenerativeModel("gemini-3.1-pro-preview")
+        #     result = model.generate_content(prompt)
+        #     planJsonRaw = (result.text or "").strip()
+        # except Exception as err:
+        #     print("[Training Plan API] Gemini call failed:", str(err))
+        #     return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
+        
+        # ============================================================
+        # CENTRALIZED AI GATEWAY CALL
+        # ============================================================
+
         planJsonRaw = ""
+
         try:
             await check_rate_limit(
                 user_id=auth_ctx.user_id,
                 endpoint="training-plan"
             )
-            model = genai.GenerativeModel("gemini-3.1-pro-preview")
-            result = model.generate_content(prompt)
-            planJsonRaw = (result.text or "").strip()
+
+            ai_response = await AI.execute(
+                AIRequest(
+                    feature="training_plan",
+                    company_id=str(company_id or ""),
+                    user_id=str(user_id or ""),
+                    route="/training-plan",
+                    prompt_type=promptType,
+                    variables={
+                        "learningStyleContext": learningStyleContext,
+                        "learningStyleSection": learningStyleSection1,
+                        "kpiText": kpiText,
+                        "moduleRequirements": moduleRequirements,
+                        "learningStyleRequirement": learningStyleRequirement,
+                        "learningStyleReasoningContext": learningStyleReasoningContext,
+                        "baselinePercentAssessments": json.dumps(
+                            baselinePercentAssessments,
+                            indent=2
+                        ),
+                        "modules": json.dumps(
+                            modules,
+                            indent=2
+                        ),
+                        "tipsDescription": tipsDescription,
+                        "reasoningStructure": reasoningStructure,
+                        "learningStyleContext2": learningStyleContext2,
+                        "learningStyleSection2": learningStyleSection2,
+                        "learningStyleRequirement2": learningStyleRequirement2,
+                        "reasoningInstructions2": (
+                            (
+                                "- How the learning style influenced the ordering and study approach\n"
+                                if useLearningStyle
+                                else ""
+                            )
+                            + "- For each module, justify the recommended time duration based on complexity"
+                            + (
+                                " and the employee's learning style"
+                                if useLearningStyle
+                                else ""
+                            )
+                            + "\n"
+                            + "- Explain the overall learning progression strategy\n"
+                        ),
+                        "reasoningStructure2": reasoningStructure2,
+                    },
+                    response_format="text",
+                )
+            )
+
+            planJsonRaw = (
+                ai_response.content
+                if ai_response and ai_response.content
+                else ""
+            )
+
+            planJsonRaw = str(planJsonRaw).strip()
+
         except Exception as err:
-            print("[Training Plan API] Gemini call failed:", str(err))
-            return JSONResponse(content={"error": "Gemini call failed", "details": str(err)}, status_code=500)
+            print("[Training Plan API] AI Gateway call failed:", str(err))
+
+            return JSONResponse(
+                content={
+                    "error": "AI Gateway call failed",
+                    "details": str(err)
+                },
+                status_code=500
+            )
 
         # Clean response
         # print('[Training Plan API] Raw Gemini response:', planJsonRaw)

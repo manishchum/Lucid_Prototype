@@ -28,7 +28,7 @@ from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
 from module_chat.route import router as module_chat
-from assistant.route import router as assistant_router
+# from assistant.route import router as assistant_router
 # from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
@@ -214,7 +214,7 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
-app.include_router(assistant_router, prefix="/api", tags=["assistant"])
+# app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 # app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 app.include_router(task_manager_router, prefix="/api", tags=["task-manager"])

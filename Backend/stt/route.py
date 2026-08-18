@@ -3,19 +3,21 @@ import io
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-from openai import OpenAI
+# from openai import OpenAI
 
 from utils.auth import (
     RequestAuth,
     get_request_auth_required,
 )
 from utils.redis_limiter import check_rate_limit
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
 router = APIRouter()
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+# client = OpenAI(
+#     api_key=os.getenv("OPENAI_API_KEY")
+# )
 
 MAX_AUDIO_SIZE = 25 * 1024 * 1024  # 25 MB
 
@@ -33,11 +35,11 @@ async def speech_to_text(
     )
 
     
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(
-            status_code=500,
-            detail="OpenAI API key not configured"
-        )
+    # if not os.getenv("OPENAI_API_KEY"):
+    #     raise HTTPException(
+    #         status_code=500,
+    #         detail="OpenAI API key not configured"
+    #     )
 
 
     if not audio:
@@ -73,7 +75,7 @@ async def speech_to_text(
     await audio.seek(0)
 
     print(
-        f"[STT] Sending {file_size / 1024:.2f} KB to GPT-4o Mini Transcribe..."
+        f"[STT] Sending {file_size / 1024:.2f} KB to AI Gateway..."
     )
 
     buffer = io.BytesIO(file_bytes)
@@ -83,27 +85,57 @@ async def speech_to_text(
     buffer.name = filename
     buffer.seek(0)
 
-    try:
-        transcription = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
-            file=buffer,
-            prompt=(
-                "The speaker may speak English, Hindi, Hinglish "
-                "(Hindi written using English letters), or mixed language. "
-                "Transcribe exactly as spoken. "
-                "Do not translate."
+    # try:
+    #     transcription = client.audio.transcriptions.create(
+    #         model="gpt-4o-mini-transcribe",
+    #         file=buffer,
+    #         prompt=(
+    #             "The speaker may speak English, Hindi, Hinglish "
+    #             "(Hindi written using English letters), or mixed language. "
+    #             "Transcribe exactly as spoken. "
+    #             "Do not translate."
+    #         )
+    #     )
+    # except Exception as exc:
+    #     print(f"[STT] Transcription failed: {exc}")
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="Audio transcription failed. Ensure the file is a supported audio format."
+    #     ) from exc
+    if not auth_ctx.company_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Authenticated user has no associated memory"
+            )
+            
+    try:      
+        ai_response = await AI.execute(
+            AIRequest(
+                feature="speech_to_text",
+                company_id=str(auth_ctx.company_id),
+                user_id=str(auth_ctx.user_id),
+                route="/speech-to-text",
+                prompt_type="default",
+                variables={},
+                response_format="text",
+                audio=buffer,
             )
         )
+
     except Exception as exc:
-        print(f"[STT] Transcription failed: {exc}")
+
+        print(f"[STT] AI Gateway transcription failed: {exc}")
+
         raise HTTPException(
             status_code=400,
             detail="Audio transcription failed. Ensure the file is a supported audio format."
         ) from exc
 
-    print("[STT] Transcription:", transcription.text)
+    transcription_text = str(ai_response.content or "").strip()
 
-    if not transcription.text or not transcription.text.strip():
+    print("[STT] Transcription:", transcription_text)
+
+    if not transcription_text:
         raise HTTPException(
             status_code=400,
             detail="No speech detected"
@@ -111,7 +143,7 @@ async def speech_to_text(
 
     return JSONResponse(
         {
-            "text": transcription.text.strip(),
-            "processingMethod": "gpt-4o-mini-transcribe",
+            "text": transcription_text,
+            "processingMethod": ai_response.model,
         }
     )

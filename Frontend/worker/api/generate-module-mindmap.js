@@ -36,11 +36,7 @@ function uniqueNonEmpty(values) {
 }
 
 const API_BASE_URLS = uniqueNonEmpty([
-  process.env.MINDMAP_WORKER_API_BASE_URL,
-  process.env.AUDIO_WORKER_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
-  process.env.BACKEND_URL,
-  process.env.INTERNAL_API_BASE_URL,
 ]);
 
 const POLL_INTERVAL_MS = Number(process.env.MINDMAP_WORKER_POLL_INTERVAL_MS || 120000);
@@ -105,6 +101,31 @@ async function moduleSupportsAddon(moduleId, addon) {
   return addons.has(normalizeAddonKey(addon));
 }
 
+async function getModuleContext(moduleId) {
+  if (!moduleId) return null;
+
+  const { data, error } = await supabase
+    .from('training_modules')
+    .select('company_id, uploaded_by')
+    .eq('module_id', moduleId)
+    .single();
+
+  if (error) {
+    throw new Error(
+      `Failed to resolve training module context for ${moduleId}: ${error.message}`
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    companyId: data.company_id || null,
+    userId: data.uploaded_by || null,
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -148,7 +169,7 @@ function isValidMindmap(payload) {
   return !!payload && Array.isArray(payload.nodes) && payload.nodes.length > 0 && Array.isArray(payload.edges);
 }
 
-async function generateMindmapFromApi(content, title = '') {
+async function generateMindmapFromApi(content, title = '', companyId = null, userId = null) {
   let lastError = null;
 
   for (const baseUrl of API_BASE_URLS) {
@@ -158,7 +179,7 @@ async function generateMindmapFromApi(content, title = '') {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, title }),
+        body: JSON.stringify({ content, title, company_id:companyId, user_id:userId }),
       });
 
       const text = await response.text();
@@ -200,7 +221,33 @@ async function processProcessedModuleRow(row) {
   console.log(`[MINDMAP WORKER] Generating mindmap for ${processedModuleId} (${title})`);
 
   const content = safeContentForModel(row.content || '');
-  const mindmap = await generateMindmapFromApi(content, row.title || '');
+
+  const moduleContext = await getModuleContext(
+    row.original_module_id
+  );
+
+  if (!moduleContext?.companyId) {
+    throw new Error(
+      `Could not resolve company_id for module ${row.original_module_id}`
+    );
+  }
+
+  if (!moduleContext?.userId) {
+    throw new Error(
+      `Could not resolve uploaded_by user_id for module ${row.original_module_id}`
+    );
+  }
+
+  console.log(
+    `[MINDMAP WORKER] Resolved context: company=${moduleContext.companyId}, uploaded_by=${moduleContext.userId}`
+  );
+
+  const mindmap = await generateMindmapFromApi(
+    content,
+    row.title || '',
+    moduleContext.companyId,
+    moduleContext.userId,
+  );
 
   const { error: updateError } = await supabase
     .from('processed_modules')

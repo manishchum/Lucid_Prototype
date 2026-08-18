@@ -13,8 +13,8 @@ import RoleplayConfigPage, { RoleplayConfig } from '@/components/roleplay/Rolepl
 import AssessmentReportComponent from '@/components/roleplay/AssessmentReport';
 // import { createRolePlayAssessment } from '@/lib/roleplayDatabase';
 // import { supabase } from '@/lib/supabase';
-import { callGemini } from '@/lib/gemini-helper';
-import { fetchWithAuth } from '@/lib/fetch-with-auth';
+// import { callGemini } from '@/lib/gemini-helper';
+// import { fetchWithAuth } from '@/lib/fetch-with-auth';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 interface AssessmentReport {
