@@ -7,9 +7,9 @@ import asyncio
 from utils.supabase_client import supabase
 from utils.redis_limiter import check_rate_limit
 
-from utils.auth import RequestAuth, get_request_auth_optional
+from utils.auth import RequestAuth, get_request_auth_optional, require_addon
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("chat_in_studio"))])
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 

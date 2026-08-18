@@ -123,32 +123,19 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
         if auth_claims:
             query_client = get_service_supabase_client()
 
-        # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
+        # Strict single-indexed E.164 lookup for maximum performance
         normalized_phone = normalize_phone(phone)
-
-        possible_formats = [
-            normalized_phone,
-        ]
-
-        digits = normalized_phone.replace("+91", "")
-
-        possible_formats.extend([
-            digits,
-            f"0{digits}",
-            f"91{digits}"
-        ])
-
-        possible_formats = list(set(possible_formats))
 
         resp = (
             query_client
             .table("users")
-            .select("user_id, email, name, company_id, department_id, manager_id, position, phone, avatar_url, employment_status, hire_date, last_login, login_count, is_active, created_at, updated_at, password, title_id, function_id, sub_function_id, ready_status, email_unsubscribed, unsubscribed_at, firebase_uid, fcm_token")
-            .in_("phone", possible_formats)
+            .select("user_id, email, name, company_id, manager_id, position, phone, avatar_url, employment_status, hire_date, last_login, login_count, is_active, created_at, updated_at, password, title_id, function_id, sub_function_id, ready_status, email_unsubscribed, unsubscribed_at, firebase_uid, fcm_token")
+            .eq("phone", normalized_phone)
             .limit(1)
             .execute()
         )
         rows = resp.data if hasattr(resp, 'data') else []
+
         user = rows[0] if rows else None
         if auth_claims and user and requesting_user_id and str(user.get("user_id")) != str(requesting_user_id):
             return {"data": None, "error": "Permission denied"}

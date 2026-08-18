@@ -4,10 +4,11 @@ import json
 import httpx
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
+from utils.auth import get_request_auth_required, RequestAuth, get_effective_company_id, require_addon
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_flashcards"))])
 
 COMMON_GEMINI_MODELS = ["gemini-2.5-flash-lite"]
 
