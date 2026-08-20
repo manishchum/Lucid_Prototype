@@ -11,7 +11,15 @@ from ai.types import AIRequest
 router = APIRouter()
 from utils.auth import get_request_auth_required, RequestAuth, get_effective_company_id, require_addon
 
-router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_flashcards"))])
+router = APIRouter(
+    dependencies=[
+        Depends(
+            require_addon(
+                ("lucid_studio_flashcard", "lucid_studio_flashcards")
+            )
+        )
+    ]
+)
 
 # COMMON_GEMINI_MODELS = ["gemini-2.5-flash-lite"]
 

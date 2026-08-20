@@ -32,8 +32,9 @@ import shutil
 # from diffusers import FluxPipeline
 try:
     from diffusers import AutoPipelineForText2Image
-except ImportError:
+except ImportError as exc:
     AutoPipelineForText2Image = None
+    print(f"[VIDEO] diffusers image pipeline unavailable; using fallback backgrounds: {exc}")
 from playwright.sync_api import sync_playwright
 
 # ------------------------------------------------------------------
@@ -123,14 +124,22 @@ def get_image_pipeline():
 
     if IMAGE_PIPE is None:
 
+        if AutoPipelineForText2Image is None:
+            print("[VIDEO] SDXL pipeline unavailable; using fallback background.")
+            return None
+
         print("Loading SDXL Turbo...")
 
-        IMAGE_PIPE = AutoPipelineForText2Image.from_pretrained(
-            "stabilityai/sdxl-turbo",
-            torch_dtype=torch.float32
-        )
-
-        IMAGE_PIPE.enable_attention_slicing()
+        try:
+            IMAGE_PIPE = AutoPipelineForText2Image.from_pretrained(
+                "stabilityai/sdxl-turbo",
+                torch_dtype=torch.float32
+            )
+            IMAGE_PIPE.enable_attention_slicing()
+        except Exception as exc:
+            print(f"[VIDEO] SDXL pipeline load failed; using fallback backgrounds: {exc}")
+            IMAGE_PIPE = False
+            return None
 
         print("SDXL Loaded.")
 
@@ -767,28 +776,34 @@ async def planScenes(
 
 
 async def generateImagenImage(prompt, outFile):
-
     pipe = get_image_pipeline()
 
-    image = await run_in_threadpool(
-        lambda: pipe(
-                prompt=(
-                    prompt
-                    + ", ultra realistic"
-                    + ", corporate training"
-                    + ", highly detailed"
-                    + ", cinematic lighting"
-                    + ", no text"
-                    + ", 16:9"
-                ),
-                guidance_scale=0.0,
-                num_inference_steps=2,
-            ).images[0]
-    )
+    if not pipe:
+        return False
 
-    image = image.resize((1280,720))
+    try:
+        image = await run_in_threadpool(
+            lambda: pipe(
+                    prompt=(
+                        prompt
+                        + ", ultra realistic"
+                        + ", corporate training"
+                        + ", highly detailed"
+                        + ", cinematic lighting"
+                        + ", no text"
+                        + ", 16:9"
+                    ),
+                    guidance_scale=0.0,
+                    num_inference_steps=2,
+                ).images[0]
+        )
 
-    image.save(outFile)
+        image = image.resize((1280, 720))
+        image.save(outFile)
+        return True
+    except Exception as exc:
+        print(f"[VIDEO] Scene image generation failed; using fallback background: {exc}")
+        return False
     
 # ------------------------------------------------------------------
 # FALLBACK ASSETS

@@ -497,7 +497,7 @@ async def get_effective_company_id(
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
 
-def require_addon(addon_name: str):
+def require_addon(addon_name):
 	async def _verify_addon(company_id: str = Depends(get_effective_company_id)):
 		from utils.auth_bridge import get_service_supabase_client
 		supabase_client = get_service_supabase_client()
@@ -512,9 +512,21 @@ def require_addon(addon_name: str):
 		if not resp.data:
 			raise HTTPException(status_code=403, detail="Company not found")
 		
-		addons = resp.data.get('subscription_addons') or []
-		if addon_name not in addons:
-			raise HTTPException(status_code=403, detail=f"Forbidden: '{addon_name}' addon is required.")
+		addons = {
+			str(addon).strip().lower()
+			for addon in (resp.data.get('subscription_addons') or [])
+		}
+		required_addons = (
+			[addon_name]
+			if isinstance(addon_name, str)
+			else list(addon_name)
+		)
+		required_addons = [str(addon).strip().lower() for addon in required_addons]
+		if not any(addon in addons for addon in required_addons):
+			raise HTTPException(
+				status_code=403,
+				detail=f"Forbidden: one of {required_addons} addons is required."
+			)
 		
 		return company_id
 	return _verify_addon
