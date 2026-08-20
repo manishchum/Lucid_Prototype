@@ -17,6 +17,7 @@ const fetch = require('node-fetch');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WORKER_INTERNAL_TOKEN = process.env.AI_GATEWAY_INTERNAL_TOKEN || '';
 
 function normalizeBaseUrl(value) {
   return (value || '').trim().replace(/\/$/, '');
@@ -225,6 +226,25 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
   return addons;
 }
 
+async function getModuleContext(moduleId) {
+  if (!moduleId) return { companyId: null, userId: null };
+
+  const { data, error } = await supabase
+    .from('training_modules')
+    .select('company_id, uploaded_by')
+    .eq('module_id', moduleId)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(`Failed to resolve training module context for ${moduleId}: ${error?.message || 'not found'}`);
+  }
+
+  return {
+    companyId: data.company_id || null,
+    userId: data.uploaded_by || null,
+  };
+}
+
 async function moduleSupportsAddon(moduleId, addon) {
   const addons = await getCompanySubscriptionAddonsForModule(moduleId);
   return addons.has(normalizeAddonKey(addon));
@@ -245,7 +265,7 @@ function isEligible(row, allowedLanguages) {
   return hasAnyMissingAudio(row, Array.from(allowedLanguages));
 }
 
-async function callTtsForLanguage(processedModuleId, language) {
+async function callTtsForLanguage(processedModuleId, language, companyId, userId) {
   const normalizedLanguage = normalizeLanguage(language);
   console.log(`[AUDIO WORKER] Requesting ${normalizedLanguage} audio for ${processedModuleId}`);
 
@@ -257,7 +277,12 @@ async function callTtsForLanguage(processedModuleId, language) {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Internal-Token': WORKER_INTERNAL_TOKEN,
+          'X-User-ID': userId,
+          'X-Company-ID': companyId,
+        },
         body: JSON.stringify({ processed_module_id: processedModuleId, language: normalizedLanguage })
       });
 
@@ -314,16 +339,17 @@ async function processProcessedModuleRow(row, forceLanguage = null) {
   const normalizedForceLanguage = forceLanguage ? normalizeLanguage(forceLanguage) : null;
   const companyAddons = await getCompanySubscriptionAddonsForModule(row.original_module_id || row.original_module_id);
   const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(companyAddons));
+  const moduleContext = await getModuleContext(row.original_module_id);
 
   if (normalizedForceLanguage) {
-    await callTtsForLanguage(processedModuleId, normalizedForceLanguage);
+    await callTtsForLanguage(processedModuleId, normalizedForceLanguage, moduleContext.companyId, moduleContext.userId);
     return { ok: true, processedModuleId, generated: [normalizedForceLanguage] };
   }
 
   const generated = [];
   for (const language of allowedLanguages) {
     if (needsAudioForLanguage(row, language)) {
-      await callTtsForLanguage(processedModuleId, language);
+      await callTtsForLanguage(processedModuleId, language, moduleContext.companyId, moduleContext.userId);
       generated.push(language);
     }
   }

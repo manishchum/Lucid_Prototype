@@ -360,7 +360,26 @@ def get_request_auth_optional(
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
  	x_device_id=Header(None, alias="X-Device-ID"),
+	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
+	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
 ) -> RequestAuth:
+	if x_worker_token:
+		expected_worker_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
+		if expected_worker_token and x_worker_token == expected_worker_token:
+			if not x_user_id or not x_company_id:
+				raise HTTPException(
+					status_code=401,
+					detail="Worker authentication requires X-User-ID and X-Company-ID",
+				)
+			return RequestAuth(
+				user_id=str(x_user_id),
+				email=None,
+				source="internal-worker",
+				claims=None,
+				company_id=str(x_company_id),
+			)
+
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")

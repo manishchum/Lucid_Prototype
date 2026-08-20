@@ -16,6 +16,7 @@ const fetch = require('node-fetch');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WORKER_INTERNAL_TOKEN = process.env.AI_GATEWAY_INTERNAL_TOKEN || '';
 
 function normalizeBaseUrl(value) {
   return (value || '').trim().replace(/\/$/, '');
@@ -164,7 +165,12 @@ async function generateFlashcardsFromApi(content, companyId, userId) {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Internal-Token': WORKER_INTERNAL_TOKEN,
+          'X-User-ID': userId,
+          'X-Company-ID': companyId,
+        },
         body: JSON.stringify({ 
           content,
           company_id: companyId,
