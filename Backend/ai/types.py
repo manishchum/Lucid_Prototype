@@ -78,6 +78,8 @@ class AIRequest:
 
     response_format: str = "text"
 
+    generation_config: dict[str, Any] = field(default_factory=dict)
+
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

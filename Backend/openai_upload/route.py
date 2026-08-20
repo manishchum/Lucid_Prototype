@@ -1,7 +1,9 @@
 from email.header import Header
+import base64
 import os
 import re
 import json
+import traceback
 import uuid
 import shutil
 import asyncio
@@ -19,6 +21,7 @@ import httpx
 import pandas as pd
 from fastapi import APIRouter, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from ingestion import ingest_from_upload
 from fastapi import UploadFile, File, Form
 # ... (rest of your existing imports)
@@ -31,8 +34,8 @@ print("NEXT_PUBLIC_SUPABASE_URL =", os.getenv("NEXT_PUBLIC_SUPABASE_URL"))
 print("=" * 80)
 from ingestion.parser import parse_excel_first_sheet
 
-# ✅ Gemini v1 SDK
-from google import genai  # type: ignore
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
 
 # CloudConvert setup - lazy init to avoid startup errors
@@ -53,6 +56,89 @@ def get_cloudconvert_client():
         return None
 
 router = APIRouter()
+
+
+class AIImageInput(BaseModel):
+    mime_type: str
+    data: str
+
+
+class AIFileInput(BaseModel):
+    mime_type: str
+    data: str
+
+
+class AIExecuteRequest(BaseModel):
+    feature: str
+    company_id: str
+    user_id: str
+    route: str
+    variables: Dict[str, Any] = Field(default_factory=dict)
+    prompt_type: str = "default"
+    images: List[AIImageInput] = Field(default_factory=list)
+    files: List[AIFileInput] = Field(default_factory=list)
+    response_format: str = "text"
+    generation_config: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/ai/execute")
+async def execute_ai(request: AIExecuteRequest, http_request: Request):
+    expected_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
+
+    if not expected_token:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "AI gateway internal token is not configured"}
+        )
+
+    provided_token = http_request.headers.get("X-AI-Gateway-Token")
+
+    if provided_token != expected_token:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized AI gateway request"}
+        )
+
+    try:
+        ai_response = await AI.execute(
+            AIRequest(
+                feature=request.feature,
+                company_id=str(request.company_id),
+                user_id=str(request.user_id),
+                route=request.route,
+                prompt_type=request.prompt_type,
+                variables=request.variables,
+                images=[image.model_dump() for image in request.images],
+                files=[file.model_dump() for file in request.files],
+                response_format=request.response_format,
+                generation_config=request.generation_config,
+                metadata=request.metadata,
+            )
+        )
+
+        return {
+            "success": ai_response.success,
+            "content": ai_response.content,
+            "provider": ai_response.provider,
+            "model": ai_response.model,
+            "prompt_version": ai_response.prompt_version,
+            "finish_reason": ai_response.finish_reason,
+            "input_tokens": ai_response.input_tokens,
+            "output_tokens": ai_response.output_tokens,
+            "total_tokens": ai_response.total_tokens,
+            "latency_ms": ai_response.latency_ms,
+        }
+    except Exception as exc:
+        print(
+            f"[AI GATEWAY ROUTE] execution failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=502,
+            content={"detail": str(exc)}
+        )
 
 @router.post("/lucid_tool_upload")
 async def lucid_tool_upload(
@@ -258,160 +344,157 @@ async def convertDocToPdf(inputPath: str, outputPath: str):
 # -------------------------
 # Gemini setup (replaces OpenAI Assistants file upload)
 # -------------------------
-# ✅ No other logic changes
-# ✅ Uses Gemini Files API (v1) SDK
-if not os.getenv("GEMINI_API_KEY"):
-    print("[openai_upload] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
+# ✅ Gateway-managed Gemini access
+# if not os.getenv("GEMINI_API_KEY"):
+#     print("[openai_upload] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
 
-gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "")
+# SOURCE_FACT_INDEX_PROMPT = """
+# You are extracting FACTS from a single source document.
 
-SOURCE_FACT_INDEX_PROMPT = """
-You are extracting FACTS from a single source document.
+# Your task:
+# - Identify ONLY facts explicitly stated in the document.
+# - Facts must be domain-specific and concrete.
+# - Do NOT infer, generalize, or teach.
 
-Your task:
-- Identify ONLY facts explicitly stated in the document.
-- Facts must be domain-specific and concrete.
-- Do NOT infer, generalize, or teach.
+# FACT TYPES TO EXTRACT:
+# - Core domain concepts explicitly defined
+# - Named frameworks, models, or methods
+# - Rules, constraints, or principles
+# - Named risks or limitations
+# - Explicitly described outcomes or goals
 
-FACT TYPES TO EXTRACT:
-- Core domain concepts explicitly defined
-- Named frameworks, models, or methods
-- Rules, constraints, or principles
-- Named risks or limitations
-- Explicitly described outcomes or goals
+# DO NOT INCLUDE:
+# - Analogies
+# - Examples not present in the text
+# - Organizational theory unless explicitly mentioned
+# - Cross-domain interpretations
 
-DO NOT INCLUDE:
-- Analogies
-- Examples not present in the text
-- Organizational theory unless explicitly mentioned
-- Cross-domain interpretations
+# OUTPUT FORMAT (JSON ONLY):
 
-OUTPUT FORMAT (JSON ONLY):
+# {
+#   "source_facts": [
+#     {
+#       "id": "F1",
+#       "fact": "<verbatim or near-verbatim statement>",
+#       "type": "concept | framework | risk | rule | goal"
+#     }
+#   ]
+# }
 
-{
-  "source_facts": [
-    {
-      "id": "F1",
-      "fact": "<verbatim or near-verbatim statement>",
-      "type": "concept | framework | risk | rule | goal"
-    }
-  ]
-}
+# If something is not clearly stated in the document, do NOT include it.
+# """
 
-If something is not clearly stated in the document, do NOT include it.
-"""
+# INSTRUCTION_PROMPT = """
+# You are an expert instructional designer analyzing a SINGLE provided learning asset.
 
-INSTRUCTION_PROMPT = """
-You are an expert instructional designer analyzing a SINGLE provided learning asset.
+# Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
+# grounded in the source content.
 
-Your task is to decompose the asset into learning modules that are STRICTLY AND EXCLUSIVELY
-grounded in the source content.
+# Treat extracted text, headings, tables, product names, timelines, numeric limits, and
+# regulatory references as authoritative source material.
 
-Treat extracted text, headings, tables, product names, timelines, numeric limits, and
-regulatory references as authoritative source material.
+# CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
+# learning modules using ONLY those facts.
 
-CRITICAL: You must first extract an internal SOURCE FACT INDEX and then generate
-learning modules using ONLY those facts.
+# -------------------------------------------------
+# STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
+# -------------------------------------------------
 
--------------------------------------------------
-STEP 1 — SOURCE FACT INDEX (INTERNAL, NON-OUTPUT)
--------------------------------------------------
+# Before creating modules, internally extract a list of facts from the document.
 
-Before creating modules, internally extract a list of facts from the document.
+# Rules for SOURCE FACT INDEX:
+# - Include ONLY facts explicitly stated in the document
+# - No inference, no teaching, no cross-domain reasoning
+# - No organizational theory unless explicitly present
+# - No examples unless present in the document
 
-Rules for SOURCE FACT INDEX:
-- Include ONLY facts explicitly stated in the document
-- No inference, no teaching, no cross-domain reasoning
-- No organizational theory unless explicitly present
-- No examples unless present in the document
+# Fact types allowed:
+# - Defined concepts
+# - Named frameworks, models, or methods
+# - Explicit risks or limitations
+# - Explicit goals or outcomes
+# - Explicit metrics or constraints
 
-Fact types allowed:
-- Defined concepts
-- Named frameworks, models, or methods
-- Explicit risks or limitations
-- Explicit goals or outcomes
-- Explicit metrics or constraints
+# If a fact is not clearly stated in the document, it MUST NOT appear later.
 
-If a fact is not clearly stated in the document, it MUST NOT appear later.
+# -------------------------------------------------
+# NON-NEGOTIABLE GROUNDING RULES
+# -------------------------------------------------
 
--------------------------------------------------
-NON-NEGOTIABLE GROUNDING RULES
--------------------------------------------------
+# 1. FACT-LOCK
+# - Every module title, topic, and objective MUST map to at least one source fact.
+# - If a concept could exist without this document, DO NOT include it.
 
-1. FACT-LOCK
-- Every module title, topic, and objective MUST map to at least one source fact.
-- If a concept could exist without this document, DO NOT include it.
+# 2. NO CROSS-DOMAIN LEAKAGE
+# - Do NOT introduce organizational theory, productivity models, security metrics,
+#   system design concepts, or management frameworks unless explicitly named
+#   in the document.
 
-2. NO CROSS-DOMAIN LEAKAGE
-- Do NOT introduce organizational theory, productivity models, security metrics,
-  system design concepts, or management frameworks unless explicitly named
-  in the document.
+# 3. NO GENERIC KNOWLEDGE
+# - Do NOT “educate beyond the document” by adding external frameworks.
+# - Elaboration is allowed ONLY to clarify document facts.
 
-3. NO GENERIC KNOWLEDGE
-- Do NOT “educate beyond the document” by adding external frameworks.
-- Elaboration is allowed ONLY to clarify document facts.
+# 4. VERBATIM ANCHORING
+# - Reuse document terminology exactly (framework names, prompt patterns, risks).
+# - Do not rename or abstract them.
 
-4. VERBATIM ANCHORING
-- Reuse document terminology exactly (framework names, prompt patterns, risks).
-- Do not rename or abstract them.
+# 5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
 
-5. COMPANY CONTEXT ENFORCEMENT (CRITICAL)
+# If the source document explicitly names:
+# - a company,
+# - brand,
+# - organization,
+# - founders,
+# - locations,
+# - mission statements,
+# - strategic positioning,
+# - product portfolios tied to the organization,
+# - products
 
-If the source document explicitly names:
-- a company,
-- brand,
-- organization,
-- founders,
-- locations,
-- mission statements,
-- strategic positioning,
-- product portfolios tied to the organization,
-- products
+# THEN:
 
-THEN:
+# - The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
+# - Use direct, natural phrasing such as:
+#   “At <Company Name>…”
+#   “For sales representatives at <Company Name>…”
+#   “<Company Name>’s mission emphasizes…”
 
-- The company name MUST appear explicitly in module titles, topics, or explanatory text where relevant.
-- Use direct, natural phrasing such as:
-  “At <Company Name>…”
-  “For sales representatives at <Company Name>…”
-  “<Company Name>’s mission emphasizes…”
+# - Do NOT anonymize, generalize, or abstract company identity.
+# - This is a company onboarding asset, not a generic industry guide.
 
-- Do NOT anonymize, generalize, or abstract company identity.
-- This is a company onboarding asset, not a generic industry guide.
+# If the document is company-specific, the learning modules MUST be company-specific.
 
-If the document is company-specific, the learning modules MUST be company-specific.
+# -------------------------------------------------
+# PROCESSING STEPS
+# -------------------------------------------------
+# 1. Identify ONE overall learning goal using document language.
+# 2. Segment modules strictly along document sections.
+# 3. Each module must cover ONE dominant document idea.
+# 4. Preserve document order.
 
--------------------------------------------------
-PROCESSING STEPS
--------------------------------------------------
-1. Identify ONE overall learning goal using document language.
-2. Segment modules strictly along document sections.
-3. Each module must cover ONE dominant document idea.
-4. Preserve document order.
+# -------------------------------------------------
+# OUTPUT FORMAT (MARKDOWN ONLY)
+# -------------------------------------------------
 
--------------------------------------------------
-OUTPUT FORMAT (MARKDOWN ONLY)
--------------------------------------------------
+# #### Module [#]: [Source-anchored title]
 
-#### Module [#]: [Source-anchored title]
+# **Topics:**
+# - Topic using exact or near-exact source terminology
+# - Topic using exact or near-exact source terminology
 
-**Topics:**
-- Topic using exact or near-exact source terminology
-- Topic using exact or near-exact source terminology
+# **Objectives:**
+# - Learners will [action] [specific concept, product, rule, or process from source]
+# - Learners will [action] [specific concept, product, rule, or process from source]
 
-**Objectives:**
-- Learners will [action] [specific concept, product, rule, or process from source]
-- Learners will [action] [specific concept, product, rule, or process from source]
+# -------------------------------------------------
+# SOURCE GAP HANDLING
+# -------------------------------------------------
+# If the source does NOT explicitly define something:
+# - List a clarifying question
+# - Do NOT invent or generalize
 
--------------------------------------------------
-SOURCE GAP HANDLING
--------------------------------------------------
-If the source does NOT explicitly define something:
-- List a clarifying question
-- Do NOT invent or generalize
-
-Respond ONLY in Markdown.
-"""
+# Respond ONLY in Markdown.
+# """
 
 
 # -------------------------
@@ -651,21 +734,47 @@ async def processAndStoreResults(moduleId: str, message: str):
     
     # print("Upsert Payload:", upsert_payload)
     print(f"[processAndStoreResults] Upserting row for module_id={str(moduleId)}")
-    res = supabase.table("training_modules").upsert(
-        upsert_payload, 
-        on_conflict="module_id",
-        returning="representation"
-    ).execute()
+
+    res = (
+        supabase
+        .table("training_modules")
+        .upsert(
+            upsert_payload,
+            on_conflict="module_id",
+        )
+        .execute()
+    )
 
     op_error = getattr(res, "error", None)
-    if op_error:
-        err_msg = op_error.get("message") if isinstance(op_error, dict) else getattr(op_error, "message", str(op_error))
-        err_code = op_error.get("code") if isinstance(op_error, dict) else getattr(op_error, "code", None)
-        print(f"[processAndStoreResults] Supabase operation error: {err_msg} (code: {err_code})")
-        print(f"[processAndStoreResults] Full error object: {op_error}")
-        raise Exception(f"Failed to save to Supabase: {err_msg}")
 
-    data = res.data if hasattr(res, "data") else None
+    if op_error:
+        err_msg = (
+            op_error.get("message")
+            if isinstance(op_error, dict)
+            else getattr(op_error, "message", str(op_error))
+        )
+
+        err_code = (
+            op_error.get("code")
+            if isinstance(op_error, dict)
+            else getattr(op_error, "code", None)
+        )
+
+        print(
+            f"[processAndStoreResults] Supabase operation error: "
+            f"{err_msg} (code: {err_code})"
+        )
+
+        print(
+            f"[processAndStoreResults] Full error object: "
+            f"{op_error}"
+        )
+
+        raise Exception(
+            f"Failed to save to Supabase: {err_msg}"
+        )
+
+    data = getattr(res, "data", None)
 
     if not data or len(data) == 0:
         print(f"[processAndStoreResults] WARNING: No rows affected for moduleId: {moduleId}.")
@@ -701,55 +810,6 @@ async def processAndStoreResults(moduleId: str, message: str):
 # -------------------------
 # handleTextContent
 # -------------------------
-from google.genai import types
-
-def normalize_gemini_contents(contents):
-    """
-    Convert dict-based messages to Gemini Content/Part objects.
-    Keeps existing Content objects untouched.
-    """
-
-    normalized = []
-
-    for item in contents:
-
-        # already correct
-        if isinstance(item, types.Content):
-            normalized.append(item)
-            continue
-
-        # convert dict -> Content
-        if isinstance(item, dict):
-            role = item.get("role", "user")
-            parts = item.get("parts", [])
-
-            normalized_parts = []
-
-            for p in parts:
-                if isinstance(p, types.Part):
-                    normalized_parts.append(p)
-                elif isinstance(p, str):
-                    normalized_parts.append(types.Part(text=p))
-                else:
-                    normalized_parts.append(types.Part(text=str(p)))
-
-            normalized.append(types.Content(role=role, parts=normalized_parts))
-            continue
-
-        # convert raw string
-        if isinstance(item, str):
-            normalized.append(
-                types.Content(role="user", parts=[types.Part(text=item)])
-            )
-            continue
-
-        # fallback
-        normalized.append(
-            types.Content(role="user", parts=[types.Part(text=str(item))])
-        )
-
-    return normalized
-
 from PyPDF2 import PdfReader
 
 def get_pdf_page_count(file_path: str) -> int:
@@ -769,31 +829,69 @@ def get_match_chunks(page_count: int) -> int:
     else:
         return 8
     
-async def processTextContent(text: str, moduleId: str):
-    # ✅ same logic: previously OpenAI chat completion
-    # Now: Gemini text-only generation (no file upload), but flow unchanged.
-    # response = gemini_client.models.generate_content(
-    #     model="gemini-3-flash-preview",
-    #     contents=[
-    #         {"role": "user", "parts": [INSTRUCTION_PROMPT]},
-    #         {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
-    #     ],
-    # )
+async def processTextContent(
+    text: str,
+    moduleId: str,
+    companyId: str | None = None,
+    userId: str | None = None,
+):
+    if not companyId or not userId:
+        module_res = (
+            supabase
+            .table("training_modules")
+            .select("company_id, created_by")
+            .eq("module_id", moduleId)
+            .maybe_single()
+            .execute()
+        )
 
-    payload = [
-        {"role": "user", "parts": [INSTRUCTION_PROMPT]},
-        {"role": "user", "parts": [f"Process the content provided here:\n\n===== BEGIN CONTENT =====\n{text}\n===== END CONTENT ====="]},
-    ]
+        module_data = getattr(
+            module_res,
+            "data",
+            None
+        ) or {}
 
-    response = gemini_client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=normalize_gemini_contents(payload)
+        if not module_data:
+            raise Exception(
+                f"Training module not found: {moduleId}"
+            )
+
+        companyId = (
+            module_data.get("company_id")
+            or companyId
+        )
+
+        userId = (
+            module_data.get("created_by")
+            or userId
+        )
+
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="content_structure_generation",
+            company_id=str(companyId or ""),
+            user_id=str(userId or ""),
+            route="/openai-upload/text",
+            prompt_type="default",
+            variables={
+                "document_content": text,
+            },
+            response_format="text",
+        )
     )
 
-    message = getattr(response, "text", "") or ""
-    results = await processAndStoreResults(moduleId, message.strip())
-    return JSONResponse(content=results)
+    message = str(
+        ai_response.content or ""
+    )
 
+    results = await processAndStoreResults(
+        moduleId,
+        message.strip()
+    )
+
+    return JSONResponse(
+        content=results
+    )
 
 from fastapi import Body
 
@@ -810,7 +908,9 @@ async def openai_upload_text(payload: dict = Body(...)):
 @router.post("/openai-upload/file")
 async def openai_upload_file(
     files: List[UploadFile] = File(...),
-    moduleId: str = Form(...)
+    moduleId: str = Form(...),
+    companyId: str = Form(default=""),
+    userId: str = Form(default=""),
 ):
     temp_files = []
     pdf_files = []
@@ -863,8 +963,6 @@ async def openai_upload_file(
 
             source_storage_path = f"uploads/{moduleId}/source/{safe_name}"
 
-            supabase.storage.from_("content library").remove([source_storage_path])
-
             print("ATTEMPTING SOURCE FILE UPLOAD")
             print("PATH:", source_storage_path)
             print("FILENAME:", file.filename)
@@ -872,14 +970,15 @@ async def openai_upload_file(
             upload_source = supabase.storage.from_("content library").upload(
                 source_storage_path,
                 file_bytes,
-                {"content-type": file.content_type or "application/octet-stream"}
+                {
+                    "content-type": file.content_type or "application/octet-stream",
+                    "upsert": "true",
+                }
             )
             
             print("STEP 2")
             print(upload_source)    
-
-            if hasattr(upload_source, "error") and upload_source.error:
-                raise Exception(f"Failed to upload source file: {upload_source.error}")
+            print("SOURCE STORAGE UPLOAD COMPLETE")
 
             source_file_paths.append(source_storage_path)
             # ----------------------------------------------------
@@ -958,6 +1057,23 @@ async def openai_upload_file(
         #     return await processTextContent(combined_text, moduleId)
         
         
+        if not companyId or not userId:
+            print("LOOKING UP MODULE OWNER")
+            module_res = (
+                supabase
+                .table("training_modules")
+                .select("company_id, uploaded_by")
+                .eq("module_id", moduleId)
+                .maybe_single()
+                .execute()
+            )
+            module_data = getattr(module_res, "data", None) or {}
+            if not module_data:
+                raise Exception(f"Training module not found: {moduleId}")
+            companyId = module_data.get("company_id") or companyId
+            userId = module_data.get("uploaded_by") or userId
+
+        print("MODULE OWNER RESOLVED")
         merged_pdf_path = os.path.join(tempDir, f"{moduleId}_combined.pdf")
 
         merger = PdfMerger()
@@ -969,6 +1085,16 @@ async def openai_upload_file(
         total_pages = get_pdf_page_count(merged_pdf_path)
         print(f"[PAGE COUNT] Total pages in merged PDF: {total_pages}")
 
+        document_content = ""
+        merged_reader = PdfReader(merged_pdf_path)
+        for page in merged_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                document_content += page_text + "\n"
+
+        if not document_content.strip():
+            document_content = "The uploaded document is provided as a PDF file attachment."
+
         match_chunks = get_match_chunks(total_pages)
 
         print(f"[MATCH CHUNKS] Selected: {match_chunks}")
@@ -977,17 +1103,25 @@ async def openai_upload_file(
         with open(merged_pdf_path, "rb") as f:
             combined_bytes = f.read()
 
+        file_input = {
+            "mime_type": "application/pdf",
+            "data": base64.b64encode(combined_bytes).decode("utf-8"),
+        }
+
         storage_path = f"uploads/{moduleId}_combined.pdf"
-        supabase.storage.from_("content library").remove([storage_path])
+        print("UPLOADING MERGED PDF")
         upload_res = supabase.storage.from_("content library").upload(
             storage_path,
             combined_bytes,
-            {"content-type": "application/pdf"}
+            {
+                "content-type": "application/pdf",
+                "upsert": "true",
+            }
         )
-        if hasattr(upload_res, "error") and upload_res.error:
-            raise Exception(f"Failed to upload merged PDF: {upload_res.error}")
+        print("MERGED PDF STORAGE UPLOAD COMPLETE", upload_res)
 
         # Correct public URL extraction
+        print("FETCHING MERGED PDF URL")
         url_res = supabase.storage.from_("content library").get_public_url(storage_path)
         print("Public URL response:", url_res)
         
@@ -1003,33 +1137,40 @@ async def openai_upload_file(
         if not combined_url:
             raise Exception("Failed to generate public URL for merged PDF")
 
-    
-
         # Update training_modules to point to merged file
+        print("UPDATING TRAINING MODULE CONTENT URL")
         supabase.table("training_modules").update({
             "content_url": combined_url
         }).eq("module_id", moduleId).execute()
 
+        print("UPDATING TRAINING MODULE SOURCE FILES")
         supabase.table("training_modules").update({
             "source_files": source_file_paths
         }).eq("module_id", moduleId).execute()
 
+        print("UPDATING TRAINING MODULE PROCESSING STATUS")
         supabase.table("training_modules").update({
             "processing_status": "summarizing",
             "page_count": total_pages,
             "match_chunks": match_chunks
         }).eq("module_id", moduleId).execute()
 
-        geminiFile = gemini_client.files.upload(file=merged_pdf_path)
-
-        response = await asyncio.to_thread(
-            lambda: gemini_client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=[INSTRUCTION_PROMPT, geminiFile],
+        ai_response = await AI.execute(
+            AIRequest(
+                feature="content_structure_generation",
+                company_id=str(companyId or ""),
+                user_id=str(userId or ""),
+                route="/openai-upload/file",
+                prompt_type="default",
+                variables={
+                    "document_content": document_content,
+                },
+                files=[file_input],
+                response_format="text",
             )
         )
 
-        message = getattr(response, "text", "") or ""
+        message = str(ai_response.content or "")
 
         return await processAndStoreResults(moduleId, message.strip())
 

@@ -330,7 +330,7 @@ async def process_sprint(
         # call existing OpenAI/Gemini pipeline
         # ---------------------------------
 
-        form_data = httpx.AsyncClient()
+        # form_data = httpx.AsyncClient()
 
         async with httpx.AsyncClient(
             timeout=None
@@ -389,5 +389,5 @@ async def process_sprint(
             .eq("module_id", module_id)
             .execute()
         )
-
-        raise e
+        print(f"[process_sprint] failed for module_id={module_id}: {e}")
+        return

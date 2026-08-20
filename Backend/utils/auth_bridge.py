@@ -128,7 +128,7 @@ def _get_env(*names: str, required: bool = False) -> Optional[str]:
 
 def get_supabase_url() -> str:
     value = _get_env("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL", required=True)
-    return value.strip() if value else ""
+    return value.strip().rstrip("/") + "/" if value else ""
 
 
 def get_supabase_anon_key() -> str:

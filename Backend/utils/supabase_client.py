@@ -18,7 +18,7 @@ def get_supabase_client() -> Client:
     if not supabase_key:
         raise ValueError("NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable not set")
     
-    return create_client(supabase_url, supabase_key)
+    return create_client(supabase_url.rstrip("/") + "/", supabase_key)
 
 def get_supabase_admin() -> Client:
     """
@@ -32,7 +32,7 @@ def get_supabase_admin() -> Client:
     if not supabase_key:
         raise ValueError("SUPABASE_SERVICE_ROLE_KEY environment variable not set")
         
-    return create_client(supabase_url, supabase_key)
+    return create_client(supabase_url.rstrip("/") + "/", supabase_key)
 
 # Export ready-to-use instances
 supabase = get_supabase_client()
