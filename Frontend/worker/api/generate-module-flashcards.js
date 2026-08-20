@@ -124,7 +124,8 @@ async function getModuleContext(moduleId) {
 
 async function moduleSupportsAddon(moduleId, addon) {
   const addons = await getCompanySubscriptionAddonsForModule(moduleId);
-  return addons.has(normalizeAddonKey(addon));
+  const candidates = Array.isArray(addon) ? addon : [addon];
+  return candidates.some((candidate) => addons.has(normalizeAddonKey(candidate)));
 }
 
 function sleep(ms) {
@@ -300,7 +301,7 @@ async function fetchNextPendingRow() {
     return null;
   }
 
-  if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
+  if (!(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
     return null;
   }
 
@@ -332,7 +333,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
       return { ok: true, skipped: true, reason: 'No missing flashcards or content too short for this processed_module_id' };
     }
 
-    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
+    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 
@@ -340,7 +341,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
   }
 
   if (moduleId) {
-    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_flashcard'))) {
+    if (!(await moduleSupportsAddon(moduleId, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 
