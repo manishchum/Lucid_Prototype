@@ -23,7 +23,7 @@ from utils.auth import (
     _verify_token,
     _build_request_auth_from_verified_claims,
     get_roleplay_context,
-    # require_addon,
+    require_addon,
 )
 
 from utils.db import roleplay_db
@@ -34,7 +34,12 @@ from ai.types import AIRequest
 router = APIRouter(
     prefix="/roleplay",
     tags=["Roleplay"],
-    # dependencies=[Depends(require_addon("role_play"))]
+    dependencies=[Depends(require_addon("role_play"))]
+)
+
+ws_router = APIRouter(
+    prefix="/roleplay",
+    tags=["Roleplay"],
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1281,7 +1286,7 @@ async def finish_roleplay(
 # Realtime
 # ============================================================
 
-@router.websocket("/realtime")
+@ws_router.websocket("/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
     token = websocket.query_params.get("token")
 
@@ -1321,6 +1326,15 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             auth_context.user_id,
             auth_context.company_id,
         )
+
+        from utils.auth_bridge import get_service_supabase_client
+        supabase_client = get_service_supabase_client()
+        resp = supabase_client.table('companies').select('subscription_addons').eq('company_id', auth_context.company_id).maybe_single().execute()
+        
+        if not resp.data or "role_play" not in (resp.data.get('subscription_addons') or []):
+            logger.warning("[Realtime Auth] ❌ Company does not have role_play addon")
+            await websocket.close(code=1008)
+            return
 
     except HTTPException as e:
         logger.warning(
