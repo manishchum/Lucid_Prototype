@@ -10,7 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { supabase } from '@/lib/supabase'
-
+import { CompetitiveBattlecards } from './BattlecardComponent';
+import { ExecutionChecklist } from './ExecutionChecklistComponent';
+import { DosAndDonts } from './DosAndDontsComponent';
+import { EscalationMetrics } from './EscalationMetricsComponent';
 
 const MOCK_DOCUMENTS = [
   {
@@ -21,117 +24,21 @@ const MOCK_DOCUMENTS = [
     modules: [
       {
         title: 'Operation Execution Checklist',
-        content: (
-          <div className="space-y-8">
-            <div>
-              <h1 className="text-2xl font-bold text-[#2A2B4D] mb-4">The Blueprint for Hospitality Excellence</h1>
-              <h2 className="text-xl font-bold text-[#2A2B4D] mb-4">Operation Execution Checklist</h2>
-              {/* <p className="text-slate-600 leading-relaxed">
-                This checklist outlines the mandatory phases for staging, validating, and deploying Natural Language Processing (NLP) models (including syntactic parsers, semantic analyzers, and transformer-based pipelines) into production.
-              </p> */}
-            </div>
-            <div className="space-y-6">
-              <div>
-                <h3 className="flex items-center gap-2 text-lg font-bold text-[#2A2B4D] mb-4">
-                  <Sparkles className="w-5 h-5 text-[#5B3DF8]" />
-                  Front of House (FOH)
-                </h3>
-                <ul className="space-y-3">
-                  {['Greet guests within 30 seconds.',
-                    'Take drink/appetizer orders within 2 minutes.',
-                    'Perform 2-bite check-back after food delivery.',
-                    'Clear tables continuously (pre-bussing).',
-                    'Offer dessert/coffee before billing.',
-                    'Process payment quickly and thank guests warmly.',
-                  ].map((item, i) => (
-                    <li key={i} className="flex gap-3 text-slate-600">
-                      <span className="font-mono text-[#5B3DF8]">[ ]</span>
-                      <span><strong className="text-slate-800">{item.split(':')[0]}:</strong>{item.split(':')[1]}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-            </div>
-            <div className="space-y-6">
-              <div>
-                <h3 className="flex items-center gap-2 text-lg font-bold text-[#2A2B4D] mb-4">
-                  <Sparkles className="w-5 h-5 text-[#5B3DF8]" />
-                  Back of House (FOH)
-                </h3>
-                <ul className="space-y-3">
-                  {['Complete mise en place 15 minutes before service.',
-                    'Ensure all stations are fully stocked and sanitized.',
-                    'Monitor food holding temperatures regularly.',
-                    'Follow cooking temperature standards for all proteins.',
-                    'Execute allergy protocol immediately upon alert.',
-                    'Maintain clean tools, towels, and workstations throughout service.',
-                  ].map((item, i) => (
-                    <li key={i} className="flex gap-3 text-slate-600">
-                      <span className="font-mono text-[#5B3DF8]">[ ]</span>
-                      <span><strong className="text-slate-800">{item.split(':')[0]}:</strong>{item.split(':')[1]}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-            </div>
-          </div>
-        )
+        content: <ExecutionChecklist />
       },
       {
         title: "Critical Do's and Don'ts",
-        content: (
-          <div className="space-y-8">
-            <div>
-              <h1 className="text-2xl font-bold text-[#2A2B4D] mb-4">Critical Do's and Don'ts</h1>
-              <p className="text-slate-600 leading-relaxed">These are the do's and don'ts which are to be followed.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-8">
-              <div className="bg-green-50 rounded-xl p-6 border border-green-100">
-                <h3 className="text-lg font-bold text-green-800 mb-4 flex items-center gap-2"><Check className="w-5 h-5"/> Do's</h3>
-                <ul className="space-y-3">
-                  <li className="text-green-700 text-sm">Maintain fast and friendly guest interaction.</li>
-                  <li className="text-green-700 text-sm">Keep food out of the temperature danger zone.</li>
-                  <li className = "text-green-700 text-sm">Sanitize tools and hands before allergy orders.</li>
-
-
-                </ul>
-              </div>
-              <div className="bg-red-50 rounded-xl p-6 border border-red-100">
-                <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2"><ChevronDown className="w-5 h-5"/> Don'ts</h3>
-                <ul className="space-y-3">
-                  <li className="text-red-700 text-sm">Do not leave dirty dishes on guest tables.</li>
-                  <li className ="text-red-700 text-sm">Do not serve food below required cooking temperatures. </li>
-                  <li className="text-red-700 text-sm">Do not delay greeting or order-taking.</li>
-
-
-                </ul>
-              </div>
-            </div>
-          </div>
-        )
+        content: <DosAndDonts />
       },
       {
         title: 'System Incident Escalation Metrics',
-        content: (
-          <div className="space-y-8">
-             <h1 className="text-2xl font-bold text-[#2A2B4D] mb-4">System Incident Escalation Metrics</h1>
-             <div className="overflow-hidden rounded-xl border border-slate-200">
-               <table className="w-full text-sm text-left">
-                 <thead className="bg-[#EEECF9] text-[#5B3DF8] font-bold">
-                   <tr><th className="px-6 py-4">Incident Type</th><th className="px-6 py-4">	Escalation Trigger</th><th className="px-6 py-4">Action Required</th></tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-200">
-                   <tr><td className="px-6 py-4 font-bold text-red-500">Guest Greeting Delay</td><td className="px-6 py-4">Over 30 seconds</td><td className="px-6 py-4">Notify Floor Manager</td></tr>
-                   <tr><td className="px-6 py-4 font-bold text-orange-500">Drink Order Delay</td><td className="px-6 py-4">Over 2 minutes</td><td className="px-6 py-4">Server performance review</td></tr>
-                   <tr><td className="px-6 py-4 font-bold text-yellow-500">Food Temperature Violation</td><td className="px-6 py-4">Outside safe range</td><td className="px-6 py-4">Immediate corrective action</td></tr>
-
-                 </tbody>
-               </table>
-             </div>
-          </div>
-        )
+        content: <EscalationMetrics />
+      },
+      {
+        title: 'Competitive Battlecards',
+        subtitle: 'Head-to-head metrics & kill points',
+        isSpecial: true,
+        content: <CompetitiveBattlecards />
       }
     ]
   },
@@ -273,7 +180,7 @@ const companyId = employeeData?.company_id;
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.back()} className="text-slate-500 hover:text-slate-700">
+          <Button variant="ghost" size="icon" onClick={() => step !== 'upload' ? setStep('upload') : router.push('/employee/welcome')} className="text-slate-500 hover:text-slate-700">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -284,11 +191,11 @@ const companyId = employeeData?.company_id;
             <p className="text-sm text-slate-500 font-mono mt-1">Enterprise Document Intelligence Hub & AI Toolkit Builder</p>
           </div>
         </div>
-        {step === 'results' && (
+        {/* {step === 'results' && (
           <Button onClick={() => setStep('upload')} className="bg-[#EEECF9] text-[#5B3DF8] hover:bg-[#E2DEFF] font-medium rounded-full px-6">
             Create New Toolkit
           </Button>
-        )}
+        )} */}
       </div>
 
       {step === 'upload' && (
@@ -493,9 +400,9 @@ const companyId = employeeData?.company_id;
                   </div>
                 </div>
               </div>
-              <Button variant="outline" onClick={() => setStep('upload')} className="border-slate-200 text-slate-600 rounded-full px-6 bg-white hover:bg-slate-50">
+              {/* <Button variant="outline" onClick={() => setStep('upload')} className="border-slate-200 text-slate-600 rounded-full px-6 bg-white hover:bg-slate-50">
                 Upload Different File
-              </Button>
+              </Button> */}
             </CardContent>
           </Card>
 
@@ -504,20 +411,43 @@ const companyId = employeeData?.company_id;
               <CardContent className="p-6">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Generated Modules</h3>
                 <div className="space-y-3">
-                  {activeDoc.modules.map((mod) => (
+                  {activeDoc.modules.map((mod: any) => (
                     <button
                       key={mod.title}
                       onClick={() => setSelectedModule(mod.title)}
-                      className={`w-full flex items-center gap-3 p-4 rounded-xl text-left transition-colors ${
-                        selectedModule === mod.title
-                          ? 'bg-[#5B3DF8] text-white shadow-md' 
-                          : 'bg-slate-50/50 hover:bg-slate-100 text-slate-700 font-semibold'
+                      className={`w-full flex items-center justify-between p-4 rounded-xl text-left transition-colors ${
+                        mod.isSpecial
+                          ? 'bg-[#5B3DF8] text-white shadow-lg shadow-indigo-500/25'
+                          : selectedModule === mod.title
+                            ? 'bg-slate-100 text-slate-800 shadow-sm border border-slate-200'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 font-semibold border border-slate-100'
                       }`}
                     >
-                      <div className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold ${
-                        selectedModule === mod.title ? 'bg-white/20' : 'bg-white text-[#5B3DF8]'
-                      }`}>T</div>
-                      <span className="text-sm font-bold truncate">{mod.title}</span>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                          mod.isSpecial ? 'bg-white/20' : 'bg-[#EEECF9] text-[#5B3DF8]'
+                        }`}>
+                          {mod.isSpecial ? 'VS' : 'T'}
+                        </div>
+                        <div>
+                          <div className={`text-sm font-bold truncate ${mod.isSpecial ? 'text-white' : 'text-slate-800'}`}>
+                            {mod.title}
+                          </div>
+                          {mod.subtitle && (
+                            <div className={`text-[10px] mt-0.5 truncate ${mod.isSpecial ? 'text-indigo-200' : 'text-slate-500'}`}>
+                              {mod.subtitle}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {mod.isSpecial ? (
+                        <div className="flex items-center gap-1 text-[10px] font-bold bg-white/20 px-2 py-1 rounded">
+                          LOCK DEALS <ChevronRight className="w-3 h-3" />
+                        </div>
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-300" />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -534,7 +464,7 @@ const companyId = employeeData?.company_id;
                     <h3 className="text-[10px] font-bold text-[#5B3DF8] uppercase tracking-wider mb-2">OUTPUT WINDOW</h3>
                     <h2 className="text-2xl font-bold text-slate-800">{selectedModule}</h2>
                   </div>
-                  <div className="flex gap-3">
+                  {/* <div className="flex gap-3">
                     <Button variant="outline" size="sm" className="rounded-full text-slate-600 border-slate-200">
                       <Copy className="w-4 h-4 mr-2" />
                       Copy Text
@@ -543,7 +473,7 @@ const companyId = employeeData?.company_id;
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Regenerate
                     </Button>
-                  </div>
+                  </div> */}
                 </div>
 
                 <div className="prose prose-slate max-w-none">

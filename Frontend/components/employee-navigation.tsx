@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -366,7 +366,7 @@ const EmployeeNavigation = ({
 
 
 
-          {/* <div className="relative group">
+          {<div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/lucid-tools')}
               className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
@@ -382,7 +382,8 @@ const EmployeeNavigation = ({
               )}
             </button>
             {isCollapsed && <NavTooltip label="Lucid Tools" />}
-          </div> */}
+          </div> }
+          
           {/* Console - visible for manager and higher roles */}
           {canAccessConsole && (
             <div className="relative group">
