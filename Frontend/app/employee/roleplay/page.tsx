@@ -141,9 +141,9 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         router.push("/login");
         return;
       }
-      const addons = employeeData?.company?.subscription_addons || [];
+      const addons = employeeData?.subscription_addons || employeeData?.company?.subscription_addons || [];
       if (!addons.includes('role_play')) {
-        router.push("/employee/dashboard");
+        router.push("/employee/welcome");
       }
     }
   }, [user, authLoading, router, employeeData]);

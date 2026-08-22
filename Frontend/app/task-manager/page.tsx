@@ -189,9 +189,9 @@ function TaskManagerContent() {
         return;
       }
       
-      const addons = employeeData?.company?.subscription_addons || [];
+      const addons = employeeData?.subscription_addons || employeeData?.company?.subscription_addons || [];
       if (!addons.includes('task_management')) {
-        router.push("/employee/dashboard");
+        router.push("/employee/welcome");
         return;
       }
     }

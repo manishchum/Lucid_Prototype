@@ -80,9 +80,9 @@ export default function SkillUpgradePage() {
         return;
       }
       
-      const addons = employeeData?.company?.subscription_addons || [];
+      const addons = employeeData?.subscription_addons || employeeData?.company?.subscription_addons || [];
       if (!addons.includes('sprintverse')) {
-        router.push("/employee/dashboard");
+        router.push("/employee/welcome");
         return;
       }
       

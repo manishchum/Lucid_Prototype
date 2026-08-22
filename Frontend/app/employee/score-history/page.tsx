@@ -434,9 +434,9 @@ export default function ScoreHistoryPage() {
             return;
           }
           
-          const addons = authEmployeeData?.company?.subscription_addons || [];
+          const addons = authEmployeeData?.subscription_addons || authEmployeeData?.company?.subscription_addons || [];
           if (!addons.includes('reports')) {
-            router.push("/employee/dashboard");
+            router.push("/employee/welcome");
             return;
           }
           
