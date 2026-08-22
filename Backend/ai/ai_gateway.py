@@ -21,8 +21,11 @@ class AI:
         request: AIRequest
     ) -> AIResponse:
 
+        # Pricing is mutable configuration. Always read the current model
+        # pricing so a database update cannot leave usage logs at stale rates.
         model = ModelManager.get(
-            request.feature
+            request.feature,
+            use_cache=False,
         )
 
         prompt = PromptManager.get(

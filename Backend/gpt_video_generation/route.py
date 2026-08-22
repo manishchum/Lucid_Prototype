@@ -878,18 +878,58 @@ async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-I
     # ffprobe duration (exact equivalent)
     try:
         if not FFPROBE_PATH:
-            return 5.0
-        
-        result = subprocess.run(
-            [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", "-of", "json", outFile],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        d = json.loads(result.stdout or "{}")
-        return float(d.get("format", {}).get("duration") or 5)
+            duration = 5.0
+        else:
+            result = subprocess.run(
+                [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration", "-of", "json", outFile],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            d = json.loads(result.stdout or "{}")
+            duration = float(d.get("format", {}).get("duration") or 5)
     except Exception:
-        return 5.0
+        duration = 5.0
+
+    if company_id and user_id:
+        try:
+            tts_model = ModelManager.get("video_tts_generation", use_cache=False)
+            character_count = len(script)
+            cost_usd, cost_inr = CostCalculator.calculate(
+                input_tokens=character_count,
+                output_tokens=0,
+                input_cost_per_million=tts_model.input_cost_per_million,
+                output_cost_per_million=tts_model.output_cost_per_million,
+            )
+            UsageTracker.log(
+                UsageLog(
+                    company_id=str(company_id),
+                    user_id=str(user_id),
+                    feature_id=tts_model.feature_id,
+                    provider=tts_model.provider,
+                    model=tts_model.model,
+                    route="/gpt-video/tts",
+                    prompt_version=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    total_tokens=0,
+                    cost_usd=cost_usd,
+                    cost_inr=cost_inr,
+                    latency_ms=int((asyncio.get_running_loop().time() - start) * 1000),
+                    status="success",
+                    usage_quantity=character_count,
+                    usage_unit="characters",
+                    duration_seconds=duration,
+                )
+            )
+            print(
+                f"[VIDEO] TTS usage logged: characters={character_count}, "
+                f"duration_seconds={duration}, cost_usd={cost_usd}"
+            )
+        except Exception as exc:
+            print(f"[VIDEO] TTS usage log failed: {type(exc).__name__}: {exc}")
+
+    return duration
 
 
 # ------------------------------------------------------------------

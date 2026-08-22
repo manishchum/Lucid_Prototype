@@ -1352,6 +1352,9 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
     items_dict = {}
     item_ids_order = []
     scenario_context = None
+    realtime_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    realtime_started_at = asyncio.get_running_loop().time()
+    realtime_model_config = None
 
     try:
         # 1. Receive initial session config
@@ -1701,6 +1704,50 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
+
+        if realtime_model_config and (
+            realtime_usage["total_tokens"] or sid != "unknown"
+        ):
+            try:
+                input_tokens = realtime_usage["input_tokens"]
+                output_tokens = realtime_usage["output_tokens"]
+                total_tokens = realtime_usage["total_tokens"]
+                cost_usd, cost_inr = CostCalculator.calculate(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    input_cost_per_million=realtime_model_config.input_cost_per_million,
+                    output_cost_per_million=realtime_model_config.output_cost_per_million,
+                )
+                UsageTracker.log(
+                    UsageLog(
+                        company_id=str(auth_context.company_id),
+                        user_id=str(auth_context.user_id),
+                        feature_id=realtime_model_config.feature_id,
+                        provider=realtime_model_config.provider,
+                        model=realtime_model_config.model,
+                        route="/roleplay/realtime",
+                        prompt_version=0,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        cost_usd=cost_usd,
+                        cost_inr=cost_inr,
+                        latency_ms=0,
+                        status="success",
+                        usage_quantity=(asyncio.get_running_loop().time() - realtime_started_at) / 60,
+                        usage_unit="session_minutes",
+                        duration_seconds=asyncio.get_running_loop().time() - realtime_started_at,
+                    )
+                )
+                logger.info(
+                    "[Realtime] Usage logged: input=%s output=%s total=%s duration_seconds=%s",
+                    input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    asyncio.get_running_loop().time() - realtime_started_at,
+                )
+            except Exception as e:
+                logger.error("[Realtime] Failed to log usage: %s", e)
         
         # Build the final transcript robustly if it wasn't requested via end_session
         final_transcript = []

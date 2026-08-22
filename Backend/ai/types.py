@@ -151,6 +151,12 @@ class UsageLog:
     status: str
 
     error_message: Optional[str] = None
+
+    usage_quantity: float | None = None
+
+    usage_unit: Optional[str] = None
+
+    duration_seconds: float | None = None
     
 @dataclass(slots=True)
 class FeatureConfig:

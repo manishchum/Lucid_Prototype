@@ -39,6 +39,12 @@ class UsageTracker:
 
             "status": usage.status,
 
-            "error_message": usage.error_message
+            "error_message": usage.error_message,
+
+            "usage_quantity": usage.usage_quantity,
+
+            "usage_unit": usage.usage_unit,
+
+            "duration_seconds": usage.duration_seconds
 
         })
