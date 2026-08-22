@@ -23,18 +23,25 @@ from utils.auth import (
     _verify_token,
     _build_request_auth_from_verified_claims,
     get_roleplay_context,
-    # require_addon,
+    require_addon,
 )
 
 from utils.db import roleplay_db
 from utils.db.permissions import check_user_permission
 from ai.model_manager import ModelManager
 from ai.ai_gateway import AI
-from ai.types import AIRequest
+from ai.cost_calculator import CostCalculator
+from ai.types import AIRequest, UsageLog
+from ai.usage_tracker import UsageTracker
 router = APIRouter(
     prefix="/roleplay",
     tags=["Roleplay"],
-    # dependencies=[Depends(require_addon("role_play"))]
+    dependencies=[Depends(require_addon("role_play"))]
+)
+
+ws_router = APIRouter(
+    prefix="/roleplay",
+    tags=["Roleplay"],
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1281,7 +1288,7 @@ async def finish_roleplay(
 # Realtime
 # ============================================================
 
-@router.websocket("/realtime")
+@ws_router.websocket("/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
     token = websocket.query_params.get("token")
 
@@ -1321,6 +1328,15 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             auth_context.user_id,
             auth_context.company_id,
         )
+
+        from utils.auth_bridge import get_service_supabase_client
+        supabase_client = get_service_supabase_client()
+        resp = supabase_client.table('companies').select('subscription_addons').eq('company_id', auth_context.company_id).maybe_single().execute()
+        
+        if not resp.data or "role_play" not in (resp.data.get('subscription_addons') or []):
+            logger.warning("[Realtime Auth] ❌ Company does not have role_play addon")
+            await websocket.close(code=1008)
+            return
 
     except HTTPException as e:
         logger.warning(
@@ -1594,7 +1610,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
 
             async def receive_openai_to_client():
-                nonlocal conversation_transcript
+                nonlocal conversation_transcript, realtime_usage
                 try:
                     while True:
                         response = json.loads(await openai_ws.recv())
@@ -1654,6 +1670,18 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             await websocket.send_json({"type": "speech_started"})
 
                         elif response_type == "response.done":
+                            response_data = response.get("response") or {}
+                            usage = response_data.get("usage") or response.get("usage")
+                            if usage:
+                                input_tokens = int(usage.get("input_tokens") or 0)
+                                output_tokens = int(usage.get("output_tokens") or 0)
+                                total_tokens = int(
+                                    usage.get("total_tokens")
+                                    or input_tokens + output_tokens
+                                )
+                                realtime_usage["input_tokens"] += input_tokens
+                                realtime_usage["output_tokens"] += output_tokens
+                                realtime_usage["total_tokens"] += total_tokens
                             logger.info("[Realtime] ✅ Response complete")
 
                         elif response_type == "error":

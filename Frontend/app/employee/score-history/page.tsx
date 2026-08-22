@@ -429,11 +429,20 @@ export default function ScoreHistoryPage() {
 
    useEffect(() => {
         if (!authLoading) {
-          if (!user) router.push("/login");
-          else fetchAllData();
+          if (!user) {
+            router.push("/login");
+            return;
+          }
           
+          const addons = authEmployeeData?.company?.subscription_addons || [];
+          if (!addons.includes('reports')) {
+            router.push("/employee/dashboard");
+            return;
+          }
+          
+          fetchAllData();
         }
-      }, [user, authLoading, router]);
+      }, [user, authLoading, router, authEmployeeData]);
 
   const getEmployee = async () => {
     if (authEmployeeData?.user_id) {

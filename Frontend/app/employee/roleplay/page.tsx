@@ -137,9 +137,16 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
 
   useEffect(() => {
     if (!authLoading) {
-      if (!user) router.push("/login");
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      const addons = employeeData?.company?.subscription_addons || [];
+      if (!addons.includes('role_play')) {
+        router.push("/employee/dashboard");
+      }
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, employeeData]);
 
   // const fetchAppUserByEmail = async (email?: string | null) => {
   //   if (!email) return null;

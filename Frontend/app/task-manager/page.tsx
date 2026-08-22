@@ -180,6 +180,22 @@ function mapMembersToTeamMembers(members: any[], companyName?: string): TeamMemb
 function TaskManagerContent() {
   const { user, loading: authLoading, userId, employeeData, isAdmin, isManager, isSuperAdmin, isDeveloper } = useAuth();
   const { activeCompanyId, activeCompany, isDeveloperMode } = useTenant();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      
+      const addons = employeeData?.company?.subscription_addons || [];
+      if (!addons.includes('task_management')) {
+        router.push("/employee/dashboard");
+        return;
+      }
+    }
+  }, [user, authLoading, router, employeeData]);
 
   const effectiveUserId = employeeData?.user_id || userId || "";
   const companyId = useMemo(

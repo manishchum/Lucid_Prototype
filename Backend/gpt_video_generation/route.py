@@ -17,7 +17,10 @@ from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional, get_effective_company_id, require_addon
 from ai.ai_gateway import AI
-from ai.types import AIRequest
+from ai.cost_calculator import CostCalculator
+from ai.model_manager import ModelManager
+from ai.types import AIRequest, UsageLog
+from ai.usage_tracker import UsageTracker
 
 router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_video"))])
 
@@ -853,7 +856,15 @@ async def generateAvatarImage(dir: str) -> str:
 # ------------------------------------------------------------------
 # GOOGLE TTS
 # ------------------------------------------------------------------
-async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-IN", voice_name: Optional[str] = None) -> float:
+async def generateTTSAudio(
+    script: str,
+    outFile: str,
+    language_code: str = "en-IN",
+    voice_name: Optional[str] = None,
+    company_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> float:
+    start = asyncio.get_running_loop().time()
     ttsClient = texttospeech.TextToSpeechClient()
 
     voice_params: Dict[str, Any] = {"language_code": language_code}
@@ -871,6 +882,37 @@ async def generateTTSAudio(script: str, outFile: str, language_code: str = "en-I
 
     if not response.audio_content:
         raise Exception("TTS failed")
+
+    if company_id and user_id:
+        try:
+            tts_model = ModelManager.get("video_tts_generation")
+            input_units = len(script)
+            cost_usd, cost_inr = CostCalculator.calculate(
+                input_tokens=input_units,
+                output_tokens=0,
+                input_cost_per_million=tts_model.input_cost_per_million,
+                output_cost_per_million=tts_model.output_cost_per_million,
+            )
+            UsageTracker.log(
+                UsageLog(
+                    company_id=str(company_id),
+                    user_id=str(user_id),
+                    feature_id=tts_model.feature_id,
+                    provider=tts_model.provider,
+                    model=tts_model.model,
+                    route="/gpt-video/tts",
+                    prompt_version=0,
+                    input_tokens=input_units,
+                    output_tokens=0,
+                    total_tokens=input_units,
+                    cost_usd=cost_usd,
+                    cost_inr=cost_inr,
+                    latency_ms=int((asyncio.get_running_loop().time() - start) * 1000),
+                    status="success",
+                )
+            )
+        except Exception as exc:
+            print(f"[VIDEO] TTS usage log failed: {type(exc).__name__}: {exc}")
 
     with open(outFile, "wb") as f:
         f.write(response.audio_content)
@@ -1390,7 +1432,14 @@ async def generateVideo(
             voice_name = getGoogleTtsVoiceName(language)
 
             print(f"[VIDEO] Scene {i + 1} - {language} Script: {script[:120]}")
-            duration = await generateTTSAudio(script, audio_path, language_code, voice_name)
+            duration = await generateTTSAudio(
+                script,
+                audio_path,
+                language_code,
+                voice_name,
+                company_id,
+                user_id,
+            )
             scene_max_duration = max(scene_max_duration, duration)
 
             out_path = os.path.join(tmpDir, f"scene-{language}-{i}.mp4")
