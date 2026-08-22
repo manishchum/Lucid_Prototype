@@ -91,6 +91,9 @@ class AI:
                     "model": model,
                     "api_key": api_key,
                     "response_format": request.response_format,
+                    "images": request.images,
+                    "files": request.files,
+                    "generation_config": request.generation_config,
                 }
 
                 if provider_name == "openai":
@@ -104,6 +107,10 @@ class AI:
 
             except Exception as exc:
                 last_error = exc
+                print(
+                    f"[AI GATEWAY] provider={provider_name} failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         if not response:
             raise last_error or Exception(
@@ -124,26 +131,29 @@ class AI:
 
         )
 
-        UsageTracker.log(
-
-            UsageLog(
-
-                company_id=request.company_id,
-                user_id=request.user_id,
-                feature_id=model.feature_id,
-                provider=response.provider,
-                model=response.model,
-                route=request.route,
-                prompt_version=prompt.version,
-                input_tokens=response.input_tokens,
-                output_tokens=response.output_tokens,
-                total_tokens=response.total_tokens,
-                cost_usd=cost_usd,
-                cost_inr=cost_inr,
-                latency_ms=response.latency_ms,
-                status="success"
+        try:
+            UsageTracker.log(
+                UsageLog(
+                    company_id=request.company_id,
+                    user_id=request.user_id,
+                    feature_id=model.feature_id,
+                    provider=response.provider,
+                    model=response.model,
+                    route=request.route,
+                    prompt_version=prompt.version,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    total_tokens=response.total_tokens,
+                    cost_usd=cost_usd,
+                    cost_inr=cost_inr,
+                    latency_ms=response.latency_ms,
+                    status="success"
+                )
             )
-
-        )
+        except Exception as exc:
+            print(
+                f"[AI GATEWAY] usage log failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
         return response
