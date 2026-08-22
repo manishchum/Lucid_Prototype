@@ -43,7 +43,7 @@ from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
-from roleplay.route import router as roleplay_router
+from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -212,6 +212,7 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 # app.include_router(roleplay_sessions_router, prefix="/api", tags=["roleplay-sessions"])
 # app.include_router(roleplay_realtime_router, tags=["roleplay-realtime"])
 app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
+app.include_router(roleplay_ws_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 # app.include_router(assistant_router, prefix="/api", tags=["assistant"])

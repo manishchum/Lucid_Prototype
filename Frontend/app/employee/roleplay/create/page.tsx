@@ -53,7 +53,7 @@ const CreateRoleplayComponent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get('edit') === 'true';
-  const { user, loading: authLoading, logout } = useAuth();
+  const { user, loading: authLoading, logout, employeeData } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<string>('learner-brief');
   const [hasSavedDraft, setHasSavedDraft] = useState<boolean>(false);
@@ -101,13 +101,21 @@ const CreateRoleplayComponent = () => {
 
   useEffect(() => {
     if (!authLoading) {
-      if (!user) router.push("/login");
-      else {
-        fetchUserData();
-        checkAdminRole();
+      if (!user) {
+        router.push("/login");
+        return;
       }
+      
+      const addons = employeeData?.subscription_addons || employeeData?.company?.subscription_addons || [];
+      if (!addons.includes('role_play')) {
+        router.push("/employee/welcome");
+        return;
+      }
+
+      fetchUserData();
+      checkAdminRole();
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, employeeData]);
   
   useEffect(() =>{
     if (isAdmin === false){
