@@ -52,16 +52,6 @@ async def validate_reviewer(
                 .execute()
             )
 
-        if not result.data:
-            # Fallback: system-wide lookup by email (e.g. superadmin/cross-company reviewer)
-            result = (
-                supabase_admin
-                .table("users")
-                .select("user_id,name,email,company_id")
-                .ilike("email", cleaned_email)
-                .limit(1)
-                .execute()
-            )
 
         if not result.data:
             raise HTTPException(

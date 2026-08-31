@@ -1026,8 +1026,7 @@ const handleGenerateCertificate = (sprintId: string) => {
 
       setEmployee(emp);
 
-      const selectedCompanyId =
-        isDeveloperMode && activeCompanyId ? activeCompanyId : emp.company_id;
+      const selectedCompanyId = emp.company_id;
 
       if (!selectedCompanyId) {
         setLoading(false);
