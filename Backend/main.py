@@ -28,7 +28,7 @@ from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
 from module_chat.route import router as module_chat
-from assistant.route import router as assistant_router
+# from assistant.route import router as assistant_router
 # from assistant.chat.route import router as assistant_chat_router
 from change_password.route import router as change_password_router
 from task_manager.router import router as task_manager_router
@@ -43,7 +43,7 @@ from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
-from roleplay.route import router as roleplay_router
+from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
 # from routes.users import router as users_router
@@ -212,9 +212,10 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 # app.include_router(roleplay_sessions_router, prefix="/api", tags=["roleplay-sessions"])
 # app.include_router(roleplay_realtime_router, tags=["roleplay-realtime"])
 app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
+app.include_router(roleplay_ws_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
-app.include_router(assistant_router, prefix="/api", tags=["assistant"])
+# app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 # app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
 app.include_router(change_password_router, prefix="/api", tags=["change-password"])
 app.include_router(task_manager_router, prefix="/api", tags=["task-manager"])
@@ -251,6 +252,10 @@ app.include_router(reports.router)  # notifications router
 app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
+
+@app.post("/api/logs")
+async def client_logs_endpoint():
+    return {"success": True}
 
 
 if __name__ == "__main__":

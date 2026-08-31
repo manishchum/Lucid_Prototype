@@ -6,8 +6,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 # from supabase import create_client, Client
-from utils.supabase_client import supabase
-import google.generativeai as genai
+# from utils.supabase_client import supabase
+# import google.generativeai as genai
 from utils.redis_limiter import check_rate_limit
 from utils.redis_client import delete_cache_pattern
 
@@ -15,8 +15,8 @@ from utils.redis_client import delete_cache_pattern
 router = APIRouter()
 
 # Keep same initialization behavior
-genAI = genai
-genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
+# genAI = genai
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 API_BASE=os.getenv("NEXT_PUBLIC_BACKEND_URL")
 
 # Optional supabase init to match original imports (not used in this handler, but preserved)
@@ -36,6 +36,10 @@ async def POST(request: Request):
         userId = body.get("userId")
         assessmentId = body.get("assessmentId")
         userAnswers = body.get("userAnswers")
+        
+        #Assessment type information
+        isBaseline = body.get("isBaseline")
+        assessmentType = body.get("assessmentType")
 
         # Legacy parameters that might be sent
         employeeId = body.get("employeeId")
@@ -57,6 +61,7 @@ async def POST(request: Request):
         normalizedAssessmentId = assessment_id or assessmentId
         normalizedAnswers = answers or userAnswers
         normalizedModuleId = moduleId or processedModuleId or moduleIdFromArray
+        normalizedIsBaseline = (isBaseline is True or str(assessmentType or "").lower() == "baseline")
         
         print(f"📋 Extracted module_id: {normalizedModuleId} (from moduleId={moduleId}, processedModuleId={processedModuleId}, modules array={moduleIdFromArray})")
 
@@ -65,9 +70,7 @@ async def POST(request: Request):
                 content={"error": "Missing required fields: user_id, assessment_id, and answers are required"},
                 status_code=400
             )
-        await check_rate_limit(user_id=normalizedUserId, endpoint="gpt-feedback")
-
-
+        # await check_rate_limit(user_id=normalizedUserId, endpoint="gpt-feedback")
         submit_url = f"{API_BASE}/api/submit-assessment"
         print("Submit URL:", submit_url)
 
@@ -75,8 +78,8 @@ async def POST(request: Request):
             "user_id": normalizedUserId,
             "assessment_id": normalizedAssessmentId,
             "answers": normalizedAnswers,
-            "type": "module" if normalizedModuleId else "baseline",
-            "module_id": normalizedModuleId
+            "type": "baseline" if normalizedIsBaseline else "module",
+            "module_id": None if normalizedIsBaseline else normalizedModuleId
         }
 
         print("Payload prepared:", payload)

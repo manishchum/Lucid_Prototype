@@ -16,26 +16,37 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from websockets.asyncio.client import connect
 
-from config import GEMINI_API_KEY, OPENAI_API_KEY, OPENAI_REALTIME_MODEL
+from config import OPENAI_API_KEY
 
 from utils.auth import (
     RoleplayContext,
-    _verify_firebase_token,
+    _verify_token,
+    _build_request_auth_from_verified_claims,
     get_roleplay_context,
-    resolve_user_context_from_claims,
+    require_addon,
 )
 
 from utils.db import roleplay_db
 from utils.db.permissions import check_user_permission
-
+from ai.model_manager import ModelManager
+from ai.ai_gateway import AI
+from ai.cost_calculator import CostCalculator
+from ai.types import AIRequest, UsageLog
+from ai.usage_tracker import UsageTracker
 router = APIRouter(
     prefix="/roleplay",
-    tags=["Roleplay"]
+    tags=["Roleplay"],
+    dependencies=[Depends(require_addon("role_play"))]
+)
+
+ws_router = APIRouter(
+    prefix="/roleplay",
+    tags=["Roleplay"],
 )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
+# OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={OPENAI_REALTIME_MODEL}"
 
 # ============================================================
 # Request Models
@@ -710,11 +721,32 @@ async def create_roleplay_session(
     ctx: RoleplayContext = Depends(get_roleplay_context)
 ):
     try:
-        if payload.employee_id != ctx.user_id:
-            raise HTTPException(status_code=403, detail="Not authorized to create sessions for other users")
+        logger.info(
+            "[Roleplay Session] user=%s company=%s scenario=%s",
+            ctx.user_id,
+            ctx.company_id,
+            payload.scenario_id,
+        )
 
-        roleplay_db.require_company_scenario(payload.scenario_id, ctx.company_id)
-        roleplay_db.check_retry_limit(payload.employee_id, payload.scenario_id)
+        # User can only create a session for themselves
+        if payload.employee_id != ctx.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to create sessions for other users"
+            )
+
+        # Scenario must belong to the authenticated user's company
+        roleplay_db.require_company_scenario(
+            payload.scenario_id,
+            ctx.company_id
+        )
+
+        # Check company retry policy
+        roleplay_db.check_retry_limit(
+            payload.employee_id,
+            payload.scenario_id,
+            ctx.company_id
+        )
 
         insert_data = {
             "employee_id": payload.employee_id,
@@ -724,15 +756,20 @@ async def create_roleplay_session(
             "scenario_difficulty": payload.scenario_difficulty,
             "conversation_transcript": [],
             "message_count": 0,
-            "started_at": datetime.utcnow().isoformat()
+            "started_at": datetime.utcnow().isoformat(),
         }
+
         if payload.module_id:
             insert_data["module_id"] = payload.module_id
 
         res = roleplay_db.create_roleplay_session(insert_data)
+
         if not res.data:
-            raise HTTPException(status_code=500, detail="Failed to create session in database")
-            
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create session in database"
+            )
+
         return {
             "success": True,
             "data": res.data[0],
@@ -742,10 +779,12 @@ async def create_roleplay_session(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.exception("[Roleplay Session] Failed to create session")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+        
 @router.put("/sessions/{session_id}")
 async def update_roleplay_session(
     session_id: str,
@@ -895,11 +934,11 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
 
         scenario = scenario_result.data
 
-        if not GEMINI_API_KEY:
-            return JSONResponse(
-                content={"error": "Gemini API key not configured"},
-                status_code=500
-            )
+        # if not GEMINI_API_KEY:
+        #     return JSONResponse(
+        #         content={"error": "Gemini API key not configured"},
+        #         status_code=500
+        #     )
 
         # print(session)
         messages = session.get("conversation_transcript",[])
@@ -974,141 +1013,184 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
             for m in messages
         )
 
-        assessment_prompt = f"""
-You are an expert communication and sales coach analyzing a role-play conversation.
+#         assessment_prompt = f"""
+# You are an expert communication and sales coach analyzing a role-play conversation.
 
-Scenario: {scenario_title}
-Learner's Role: {learner_role} (the person being evaluated)
-AI Coach's Role: {ai_role} (the practice partner)
+# Scenario: {scenario_title}
+# Learner's Role: {learner_role} (the person being evaluated)
+# AI Coach's Role: {ai_role} (the practice partner)
 
-CRITICAL INSTRUCTION: You are evaluating the LEARNER ({learner_role}), NOT the AI Coach.
+# CRITICAL INSTRUCTION: You are evaluating the LEARNER ({learner_role}), NOT the AI Coach.
 
-Conversation Transcript:
-{transcript}
+# Conversation Transcript:
+# {transcript}
 
-Analyze the LEARNER's performance and provide a detailed assessment in this EXACT JSON format:
+# Analyze the LEARNER's performance and provide a detailed assessment in this EXACT JSON format:
 
-{{
-  "overallScore": <number between 0-100>,
-  "summary": "<detailed summary of overall performance>",
-  "parameters": [
-    {{
-      "name": "Communication Clarity",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Objection Handling",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Value Proposition",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Active Listening",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }},
-    {{
-      "name": "Confidence & Professionalism",
-      "score": <number between 0-100>,
-      "feedback": "<specific feedback>"
-    }}
-  ],
-  "recommendations": [
-    "<recommendation 1>",
-    "<recommendation 2>",
-    "<recommendation 3>",
-    "<recommendation 4>"
-  ]
-}}
+# {{
+#   "overallScore": <number between 0-100>,
+#   "summary": "<detailed summary of overall performance>",
+#   "parameters": [
+#     {{
+#       "name": "Communication Clarity",
+#       "score": <number between 0-100>,
+#       "feedback": "<specific feedback>"
+#     }},
+#     {{
+#       "name": "Objection Handling",
+#       "score": <number between 0-100>,
+#       "feedback": "<specific feedback>"
+#     }},
+#     {{
+#       "name": "Value Proposition",
+#       "score": <number between 0-100>,
+#       "feedback": "<specific feedback>"
+#     }},
+#     {{
+#       "name": "Active Listening",
+#       "score": <number between 0-100>,
+#       "feedback": "<specific feedback>"
+#     }},
+#     {{
+#       "name": "Confidence & Professionalism",
+#       "score": <number between 0-100>,
+#       "feedback": "<specific feedback>"
+#     }}
+#   ],
+#   "recommendations": [
+#     "<recommendation 1>",
+#     "<recommendation 2>",
+#     "<recommendation 3>",
+#     "<recommendation 4>"
+#   ]
+# }}
 
-Provide ONLY the JSON object with these exact keys: overallScore, summary, parameters, recommendations. No additional text before or after.
-"""
+# Provide ONLY the JSON object with these exact keys: overallScore, summary, parameters, recommendations. No additional text before or after.
+# """
 
-        async with httpx.AsyncClient() as client:
-            try:
-                logging.info("Calling Gemini API with model: gemini-2.5-flash-lite")
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "contents": [
-                            {
-                                "role": "user",
-                                "parts": [{"text": assessment_prompt}],
-                            }
-                        ],
-                        "generationConfig": {
-                            "temperature": 0.4,
-                            "topK": 40,
-                            "topP": 0.95,
-                            "maxOutputTokens": 2048,
-                        },
-                    },
-                    timeout=60.0  # ✅ Increased from 30 to 60 seconds
-                )
-                logging.info("Gemini API responded with status: %d", response.status_code)
-            except httpx.TimeoutException:
-                logging.error("❌ Gemini API timeout after 60 seconds")
-                raise HTTPException(status_code=503, detail="Gemini API timeout - please try again")
-            except Exception as e:
-                logging.error("❌ Gemini API connection error: %s", str(e))
-                raise HTTPException(status_code=503, detail=f"Failed to connect to Gemini API: {str(e)[:50]}")
+        # async with httpx.AsyncClient() as client:
+        #     try:
+        #         logging.info("Calling Gemini API with model: gemini-2.5-flash-lite")
+        #         response = await client.post(
+        #             f"https://generativelanguage.googleapis.com/v1beta/models/"
+        #             f"gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}",
+        #             headers={"Content-Type": "application/json"},
+        #             json={
+        #                 "contents": [
+        #                     {
+        #                         "role": "user",
+        #                         "parts": [{"text": assessment_prompt}],
+        #                     }
+        #                 ],
+        #                 "generationConfig": {
+        #                     "temperature": 0.4,
+        #                     "topK": 40,
+        #                     "topP": 0.95,
+        #                     "maxOutputTokens": 2048,
+        #                 },
+        #             },
+        #             timeout=60.0  # ✅ Increased from 30 to 60 seconds
+        #         )
+        #         logging.info("Gemini API responded with status: %d", response.status_code)
+        #     except httpx.TimeoutException:
+        #         logging.error("❌ Gemini API timeout after 60 seconds")
+        #         raise HTTPException(status_code=503, detail="Gemini API timeout - please try again")
+        #     except Exception as e:
+        #         logging.error("❌ Gemini API connection error: %s", str(e))
+        #         raise HTTPException(status_code=503, detail=f"Failed to connect to Gemini API: {str(e)[:50]}")
 
-        if response.status_code != 200:
-            error_detail = response.text
-            logging.error("Gemini API error (status %d): %s", response.status_code, error_detail)
-            try:
-                gemini_error = response.json().get("error", {})
-                gemini_message = gemini_error.get("message") or error_detail[:200]
-            except Exception:
-                gemini_message = error_detail[:200]
+        # if response.status_code != 200:
+        #     error_detail = response.text
+        #     logging.error("Gemini API error (status %d): %s", response.status_code, error_detail)
+        #     try:
+        #         gemini_error = response.json().get("error", {})
+        #         gemini_message = gemini_error.get("message") or error_detail[:200]
+        #     except Exception:
+        #         gemini_message = error_detail[:200]
             
-            # Check for rate limit or quota issues
-            if response.status_code == 429:
-                return fallback_assessment(
-                    "Assessment could not be generated because Gemini is rate limited. "
-                    "Your conversation has been saved and can be assessed again later."
-                )
-            elif response.status_code == 403:
-                return fallback_assessment(
-                    f"Assessment could not be generated because Gemini denied access: {gemini_message}"
-                )
-            else:
-                return fallback_assessment(
-                    f"Assessment could not be generated because Gemini returned an error: {error_detail[:100]}"
-                )
+        #     # Check for rate limit or quota issues
+        #     if response.status_code == 429:
+        #         return fallback_assessment(
+        #             "Assessment could not be generated because Gemini is rate limited. "
+        #             "Your conversation has been saved and can be assessed again later."
+        #         )
+        #     elif response.status_code == 403:
+        #         return fallback_assessment(
+        #             f"Assessment could not be generated because Gemini denied access: {gemini_message}"
+        #         )
+        #     else:
+        #         return fallback_assessment(
+        #             f"Assessment could not be generated because Gemini returned an error: {error_detail[:100]}"
+        #         )
 
         try:
-            data = response.json()
-        except json.JSONDecodeError:
-            logging.error("Failed to parse Gemini response: %s", response.text[:500])
-            raise HTTPException(status_code=500, detail="Invalid response from Gemini API")
+            ai_response = await AI.execute(
+                AIRequest(
+                    feature="roleplay_assessment",
+                    company_id=str(ctx.company_id),
+                    user_id=str(ctx.user_id),
+                    route="/roleplay/sessions/{session_id}/assessment",
+                    prompt_type="default",
+                    variables={
+                        "scenarioTitle": scenario_title,
+                        "learnerRole": learner_role,
+                        "aiRole": ai_role,
+                        "transcript": transcript,
+                    },
+                    response_format="json",
+                )
+            )
+        except Exception as e:
+            logging.exception(
+                "❌ Roleplay assessment AI Gateway error"
+            )
+            return fallback_assessment(
+                f"Assessment could not be generated at this moment: {str(e)[:200]}"
+            )
 
-        assessment_text = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text")
+        if not ai_response or not ai_response.content:
+            logging.error(
+                "❌ Roleplay assessment returned empty AI Gateway response"
+            )
+            return fallback_assessment(
+                "Assessment could not be generated because the AI service returned an empty response."
+            )
+
+        logging.info(
+            "[Roleplay Assessment] AI Gateway: provider=%s model=%s prompt_version=%s",
+            ai_response.provider,
+            ai_response.model,
+            ai_response.prompt_version,
         )
 
-        if not assessment_text:
-            logging.error("No assessment text in Gemini response: %s", json.dumps(data, indent=2)[:500])
-            raise HTTPException(status_code=500, detail="No response from Gemini API")
+        assessment_text = str(ai_response.content).strip()
 
-        # Remove markdown fences
-        assessment_text = re.sub(r"```json\n?|```", "", assessment_text).strip()
+        if not assessment_text:
+            logging.error(
+                "No assessment content returned by AI Gateway"
+            )
+            return fallback_assessment(
+                "Assessment could not be generated because the AI service returned an empty response."
+            )
+
+        # Remove markdown fences if the model returned them
+        assessment_text = re.sub(
+            r"^```(?:json)?\s*|\s*```$",
+            "",
+            assessment_text,
+            flags=re.IGNORECASE
+        ).strip()
 
         try:
             assessment = json.loads(assessment_text)
         except json.JSONDecodeError:
-            logging.error("Failed to parse assessment JSON: %s", assessment_text)
-            raise HTTPException(status_code=500, detail="Failed to parse assessment report")
+            logging.error(
+                "Failed to parse AI Gateway assessment JSON: %s",
+                assessment_text[:1000]
+            )
+            return fallback_assessment(
+                "Assessment could not be generated because the AI service returned an invalid response."
+            )
 
         # Log the assessment structure for debugging
         logging.info("Assessment keys: %s", list(assessment.keys()))
@@ -1143,11 +1225,8 @@ Provide ONLY the JSON object with these exact keys: overallScore, summary, param
             content={"error": "Failed to parse assessment - invalid JSON format"},
             status_code=500
         )
-    except HTTPException as he:
-        logging.error("❌ HTTP Exception: %s", he.detail)
-        return fallback_assessment(
-            f"Assessment could not be generated at this moment: {he.detail}"
-        )
+    except HTTPException:
+        raise
     except Exception as e:
         logging.exception("❌ Assessment generation error")
         logging.error("Exception details: %s", str(e))
@@ -1209,29 +1288,89 @@ async def finish_roleplay(
 # Realtime
 # ============================================================
 
-@router.websocket("/realtime")
+@ws_router.websocket("/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
-    # Security: Grab the token from the URL query
     token = websocket.query_params.get("token")
+
     if not token:
-        await websocket.close(code=1008)
-        return
-        
-    # Security: Verify the token is real
-    try:
-        claims = _verify_firebase_token(token)
-        resolve_user_context_from_claims(claims) 
-    except Exception as e:
+        logger.warning("[Realtime Auth] ❌ Missing bearer token")
         await websocket.close(code=1008)
         return
 
-    # If the token is valid, accept the connection!
+    try:
+        logger.info("[Realtime Auth] 🔐 WebSocket authentication started")
+
+        # Use the SAME token verification path as normal HTTP requests.
+        # This supports Firebase/Supabase tokens through the centralized auth layer.
+        claims = _verify_token(token)
+
+        token_user_id = (
+            claims.get("uid")
+            or claims.get("user_id")
+            or claims.get("sub")
+        )
+        email = claims.get("email")
+
+        logger.info(
+            "[Realtime Auth] Token verified: uid=%s email=%s",
+            token_user_id,
+            email,
+        )
+
+        # Use the SAME Firebase/Supabase -> internal Lucid user/company
+        # resolution used by normal authenticated HTTP requests.
+        auth_context = _build_request_auth_from_verified_claims(
+            claims
+        )
+
+        logger.info(
+            "[Realtime Auth] ✅ Context resolved: user_id=%s company_id=%s",
+            auth_context.user_id,
+            auth_context.company_id,
+        )
+
+        from utils.auth_bridge import get_service_supabase_client
+        supabase_client = get_service_supabase_client()
+        resp = supabase_client.table('companies').select('subscription_addons').eq('company_id', auth_context.company_id).maybe_single().execute()
+        
+        if not resp.data or "role_play" not in (resp.data.get('subscription_addons') or []):
+            logger.warning("[Realtime Auth] ❌ Company does not have role_play addon")
+            await websocket.close(code=1008)
+            return
+
+    except HTTPException as e:
+        logger.warning(
+            "[Realtime Auth] ❌ Authentication failed: status=%s detail=%s",
+            e.status_code,
+            e.detail,
+        )
+        await websocket.close(code=1008)
+        return
+
+    except Exception as e:
+        logger.exception(
+            "[Realtime Auth] ❌ Unexpected authentication error: %s",
+            str(e),
+        )
+        await websocket.close(code=1008)
+        return
+
+    # Authentication succeeded.
     await websocket.accept()
+
+    logger.info(
+        "[Realtime Auth] ✅ WebSocket connection accepted: user_id=%s company_id=%s",
+        auth_context.user_id,
+        auth_context.company_id,
+    )
 
     conversation_transcript = []
     items_dict = {}
     item_ids_order = []
     scenario_context = None
+    realtime_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    realtime_started_at = asyncio.get_running_loop().time()
+    realtime_model_config = None
 
     try:
         # 1. Receive initial session config
@@ -1246,7 +1385,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             "ai_objectives": init_data.get("aiObjectives"),
             "learner_brief": init_data.get("learnerBrief"),
             "tone":           init_data.get("tone", "Neutral"),
-            "employee_id":    init_data.get("employeeId"),
+            "employee_id":    auth_context.user_id,
             "session_id":     init_data.get("sessionId"),
             "voice_gender":   init_data.get("voiceGender", "female"),
         }
@@ -1259,15 +1398,59 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             scenario_context["user_role"],
             scenario_context["scenario_title"],
         )
+        
+        if scenario_context.get("session_id"):
+            session_result = roleplay_db.get_roleplay_session(
+                scenario_context["session_id"]
+            )
 
+            if not session_result.data:
+                logger.warning(
+                    "[Realtime Auth] ❌ Session not found: %s",
+                    scenario_context["session_id"],
+                )
+                await websocket.close(code=1008)
+                return
+
+            session_employee_id = session_result.data.get("employee_id")
+
+            if str(session_employee_id) != str(auth_context.user_id):
+                logger.warning(
+                    "[Realtime Auth] ❌ Session ownership mismatch: "
+                    "session_user=%s authenticated_user=%s",
+                    session_employee_id,
+                    auth_context.user_id,
+                )
+                await websocket.close(code=1008)
+                return
+            
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not set")
 
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY is empty after stripping")
 
+        realtime_model_config = ModelManager.get("roleplay_realtime")
+        if realtime_model_config.provider.lower() != "openai":
+            raise ValueError(
+                f"Roleplay realtime currently requires an OpenAI-compatible realtime provider. "
+                f"Configured provider: {realtime_model_config.provider}"
+            )
+
+        realtime_model = realtime_model_config.model
+
+        realtime_url = (
+            f"wss://api.openai.com/v1/realtime"
+            f"?model={realtime_model}"
+        )
+
+        logger.info(
+            "[Realtime] Model resolved from AI config: provider=%s model=%s",
+            realtime_model_config.provider,
+            realtime_model,
+        )
         logger.info("[Realtime] 🔑 API Key: loaded and verified")
-        logger.info(f"[Realtime] 🌐 URL: {OPENAI_REALTIME_URL}")
+        logger.info(f"[Realtime] 🌐 Conneting using configured realtime model: {realtime_url}")
 
         headers = {
             "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -1277,7 +1460,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
         # ✅ FIX: Use additional_headers parameter with websockets library
 
-        async with connect(OPENAI_REALTIME_URL, additional_headers=headers) as openai_ws:
+        async with connect(realtime_url, additional_headers=headers) as openai_ws:
             logger.info("[Realtime] ✅ Connected to OpenAI Realtime API")
 
             # ✅ FIX 8: Map voice gender to OpenAI voice options
@@ -1427,7 +1610,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                     logger.error(f"[Realtime] ❌ Forward error: {e}")
 
             async def receive_openai_to_client():
-                nonlocal conversation_transcript
+                nonlocal conversation_transcript, realtime_usage
                 try:
                     while True:
                         response = json.loads(await openai_ws.recv())
@@ -1487,6 +1670,18 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                             await websocket.send_json({"type": "speech_started"})
 
                         elif response_type == "response.done":
+                            response_data = response.get("response") or {}
+                            usage = response_data.get("usage") or response.get("usage")
+                            if usage:
+                                input_tokens = int(usage.get("input_tokens") or 0)
+                                output_tokens = int(usage.get("output_tokens") or 0)
+                                total_tokens = int(
+                                    usage.get("total_tokens")
+                                    or input_tokens + output_tokens
+                                )
+                                realtime_usage["input_tokens"] += input_tokens
+                                realtime_usage["output_tokens"] += output_tokens
+                                realtime_usage["total_tokens"] += total_tokens
                             logger.info("[Realtime] ✅ Response complete")
 
                         elif response_type == "error":
@@ -1537,6 +1732,50 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
 
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
+
+        if realtime_model_config and (
+            realtime_usage["total_tokens"] or sid != "unknown"
+        ):
+            try:
+                input_tokens = realtime_usage["input_tokens"]
+                output_tokens = realtime_usage["output_tokens"]
+                total_tokens = realtime_usage["total_tokens"]
+                cost_usd, cost_inr = CostCalculator.calculate(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    input_cost_per_million=realtime_model_config.input_cost_per_million,
+                    output_cost_per_million=realtime_model_config.output_cost_per_million,
+                )
+                UsageTracker.log(
+                    UsageLog(
+                        company_id=str(auth_context.company_id),
+                        user_id=str(auth_context.user_id),
+                        feature_id=realtime_model_config.feature_id,
+                        provider=realtime_model_config.provider,
+                        model=realtime_model_config.model,
+                        route="/roleplay/realtime",
+                        prompt_version=0,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        total_tokens=total_tokens,
+                        cost_usd=cost_usd,
+                        cost_inr=cost_inr,
+                        latency_ms=0,
+                        status="success",
+                        usage_quantity=(asyncio.get_running_loop().time() - realtime_started_at) / 60,
+                        usage_unit="session_minutes",
+                        duration_seconds=asyncio.get_running_loop().time() - realtime_started_at,
+                    )
+                )
+                logger.info(
+                    "[Realtime] Usage logged: input=%s output=%s total=%s duration_seconds=%s",
+                    input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    asyncio.get_running_loop().time() - realtime_started_at,
+                )
+            except Exception as e:
+                logger.error("[Realtime] Failed to log usage: %s", e)
         
         # Build the final transcript robustly if it wasn't requested via end_session
         final_transcript = []

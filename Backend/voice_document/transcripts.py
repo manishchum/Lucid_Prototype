@@ -345,8 +345,50 @@ async def get_manager_team_reports(
         else:
             r["user_name"] = None
 
-    # Step 3: Calculate richer insights by aggregating renderable_content
-    print(f"Aggregating insights for {len(reports)} reports from {len(team_user_ids)} team members on {report_date}")
+    # Step 3: Fetch manager summary and insights from DB
+    from utils.db.manager_daily_report_db import get_manager_daily_report_from_db
+    saved_report = await get_manager_daily_report_from_db(auth_ctx.user_id, report_date)
+    
+    if saved_report:
+        manager_summary = saved_report.get("manager_summary")
+        insights = saved_report.get("insights")
+    else:
+        manager_summary = None
+        insights = None
+
+    return {
+        "report_date": report_date,
+        "team_members": len(team_user_ids),
+        "report_count": len(reports),
+        "reports": reports,
+        "insights": insights,
+        "manager_summary": manager_summary,
+    }
+
+
+class GenerateManagerReportRequest(BaseModel):
+    report_date: Optional[str] = None
+
+@router.post("/manager/team-reports/generate")
+async def generate_and_send_manager_report(
+    request: GenerateManagerReportRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """Generate the manager's report for a specific day, save to DB, and email it."""
+    report_date = request.report_date or datetime.date.today().isoformat()
+    
+    # 1. First, fetch all the team reports to get the underlying data
+    team_result = await list_team_user_ids(auth_ctx.user_id)
+    if team_result.get("error"):
+        raise HTTPException(status_code=403, detail=team_result["error"])
+    
+    team_user_ids = team_result.get("data") or []
+    if not team_user_ids:
+        raise HTTPException(status_code=400, detail="No team members found.")
+        
+    reports_result = await list_reports_for_user_ids(team_user_ids, report_date=report_date, limit=100)
+    reports = reports_result.get("data") or []
+    
     report_count = len(reports)
     team_count = len(team_user_ids)
 
@@ -476,14 +518,37 @@ async def get_manager_team_reports(
                 "fallback": True,
             }
         except Exception:
-            # Last resort: ensure manager_summary is at least a simple text object
             manager_summary = {"text": "No aggregated summary available.", "fallback": True}
 
-    return {
-        "report_date": report_date,
-        "team_members": team_count,
-        "report_count": report_count,
-        "reports": reports,
-        "insights": insights,
-        "manager_summary": manager_summary,
-    }
+    
+    if not manager_summary or manager_summary.get("error"):
+        raise HTTPException(status_code=500, detail="Failed to generate manager summary.")
+        
+    # 2. Save to DB
+    from utils.db.manager_daily_report_db import upsert_manager_daily_report
+    await upsert_manager_daily_report(
+        manager_id=auth_ctx.user_id,
+        report_date=report_date,
+        manager_summary=manager_summary,
+        insights=insights
+    )
+    
+    # 3. Send Email
+    from utils.daily_manager_report_task import send_manager_daily_report_email
+    profiles_result = await fetch_user_profiles([auth_ctx.user_id])
+    profiles = profiles_result.get("data") or []
+    manager_profile = profiles[0] if profiles else {}
+    manager_email = manager_profile.get("email")
+    manager_name = manager_profile.get("full_name", "Manager")
+    
+    if manager_email:
+        await send_manager_daily_report_email(
+            manager_email=manager_email,
+            manager_name=manager_name,
+            report_date=report_date,
+            manager_summary=manager_summary,
+            insights=insights
+        )
+        
+    return {"success": True, "message": f"Report for {report_date} generated, saved, and emailed successfully."}
+

@@ -128,7 +128,7 @@ def _get_env(*names: str, required: bool = False) -> Optional[str]:
 
 def get_supabase_url() -> str:
     value = _get_env("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL", required=True)
-    return value.strip() if value else ""
+    return value.strip().rstrip("/") + "/" if value else ""
 
 
 def get_supabase_anon_key() -> str:
@@ -196,10 +196,21 @@ def _resolve_user_context_by_identity(
     claims: Dict[str, Any],
     token_exp: Optional[Any],
 ) -> Optional[BridgeUserContext]:
+    def _is_uuid(val: Any) -> bool:
+        try:
+            from uuid import UUID
+            UUID(str(val))
+            return True
+        except Exception:
+            return False
+
     search_order = []
-    app_user_id_claim = claims.get("app_user_id") or claims.get("sub")
-    if app_user_id_claim and str(app_user_id_claim).strip():
+    app_user_id_claim = claims.get("app_user_id")
+    if app_user_id_claim and _is_uuid(app_user_id_claim):
         search_order.append(("user_id", str(app_user_id_claim).strip()))
+    elif claims.get("sub") and _is_uuid(claims.get("sub")):
+        search_order.append(("user_id", str(claims.get("sub")).strip()))
+
     if firebase_uid:
         search_order.append(("firebase_uid", firebase_uid))
     if email:

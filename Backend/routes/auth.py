@@ -115,7 +115,7 @@ from utils.otp_service import (
     verify_otp_code,
     send_dovesoft_sms,
 )
-from utils.auth_bridge import BridgeUserContext, mint_supabase_access_token
+from utils.auth_bridge import BridgeUserContext, mint_supabase_access_token, get_service_supabase_client
 
 
 class SendOTPRequest(BaseModel):
@@ -152,21 +152,26 @@ async def send_otp(body: SendOTPRequest):
             detail=f"Too many OTP requests for this phone number. Please try again in {minutes} minutes."
         )
 
-    # Check user existence in DB
+    # Check user existence in DB (Strict single-indexed E.164 lookup)
     try:
+        service_client = get_service_supabase_client()
         user_res = (
-            supabase
+            service_client
             .table("users")
-            .select("user_id, is_active")
+            .select("user_id, is_active, company_id")
             .eq("phone", normalized_phone)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        user_data = getattr(user_res, "data", None)
+        rows = getattr(user_res, "data", None) or []
+
+        user_data = rows[0] if rows else None
         if not user_data:
             raise HTTPException(status_code=404, detail="Phone number is not registered with Lucid")
         if not user_data.get("is_active"):
             raise HTTPException(status_code=403, detail="User account is deactivated")
+        if not user_data.get("company_id"):
+            raise HTTPException(status_code=403, detail="Company account is not registered or inactive")
     except HTTPException:
         raise
     except Exception as exc:
@@ -220,18 +225,21 @@ async def verify_otp(body: VerifyOTPRequest):
         else:
             raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
 
-    # Fetch user details for session token generation
+    # Fetch user details for session token generation (Strict single-indexed E.164 lookup)
     try:
+        service_client = get_service_supabase_client()
         user_res = (
-            supabase
+            service_client
             .table("users")
-            .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active")
             .eq("phone", normalized_phone)
             .eq("is_active", True)
-            .maybe_single()
+            .limit(1)
             .execute()
         )
-        user_data = getattr(user_res, "data", None)
+        rows = getattr(user_res, "data", None) or []
+
+        user_data = rows[0] if rows else None
         if not user_data:
             raise HTTPException(status_code=404, detail="User account not found or inactive")
     except HTTPException:
@@ -246,33 +254,46 @@ async def verify_otp(body: VerifyOTPRequest):
 
     firebase_uid = user_data.get("firebase_uid")
     if not firebase_uid:
+        # Atomic single attempt: provision Firebase Auth user using DB user_id as deterministic UID
+        target_uid = str(user_data["user_id"])
         try:
-            # Check if user already exists in Firebase Auth by phone
-            fb_user = firebase_auth.get_user_by_phone_number(normalized_phone)
-            firebase_uid = fb_user.uid
-            print(f"[verify-otp] Resolved existing Firebase user by phone: {firebase_uid}")
-            
-            # Update the local database users table with this firebase_uid
-            try:
-                supabase.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_data["user_id"]).execute()
-                user_data["firebase_uid"] = firebase_uid
-            except Exception as db_err:
-                print(f"[verify-otp] Database update for firebase_uid failed: {db_err}")
-                raise HTTPException(status_code=500, detail="Failed to link authentication account")
-        except HTTPException:
-            raise
-        except Exception:
-            # User does not exist in Firebase, and we are not allowed to create one via mobile app.
-            # User creation is handled on the web portal by admins.
-            print(f"[verify-otp] User not found in Firebase Auth: {normalized_phone}")
-            raise HTTPException(
-                status_code=403, 
-                detail="User account is not fully configured for mobile access. Please contact your administrator."
+            fb_user = firebase_auth.create_user(
+                uid=target_uid,
+                phone_number=normalized_phone,
+                email=(user_data.get("email") or "").strip().lower() or None,
             )
+            firebase_uid = fb_user.uid
+            print(f"[verify-otp] Provisioned Firebase user: {firebase_uid}")
+        except firebase_auth.UidAlreadyExistsError:
+            firebase_uid = target_uid
+        except Exception:
+            # Fallback lookup if phone number is already registered under another UID
+            try:
+                fb_user = firebase_auth.get_user_by_phone_number(normalized_phone)
+                firebase_uid = fb_user.uid
+            except Exception as err:
+                print(f"[verify-otp] Firebase user resolution failed: {err}")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to initialize Firebase authentication account"
+                )
+
+        # Persist firebase_uid in users table and mapping table
+        try:
+            service_client.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user_data["user_id"]).execute()
+            user_data["firebase_uid"] = firebase_uid
+            service_client.table("user_firebase_uids").upsert({
+                "user_id": user_data["user_id"],
+                "firebase_uid": firebase_uid,
+                "provider": "phone"
+            }, on_conflict="firebase_uid").execute()
+        except Exception as db_err:
+            print(f"[verify-otp] Database update/mapping for firebase_uid failed: {db_err}")
 
     # Generate Firebase Custom Token
     try:
-        token = firebase_auth.create_token(firebase_uid).decode("utf-8")
+        custom_token_bytes = firebase_auth.create_custom_token(firebase_uid)
+        token = custom_token_bytes.decode("utf-8") if isinstance(custom_token_bytes, bytes) else str(custom_token_bytes)
     except Exception as token_err:
         print(f"[verify-otp] Custom token generation failed: {token_err}")
         raise HTTPException(status_code=500, detail="Failed to generate custom authentication token")
@@ -314,7 +335,7 @@ async def refresh_token(
         user_res = (
             supabase
             .table("users")
-            .select("user_id, name, email, phone, company_id, department_id, manager_id, firebase_uid, is_active")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active")
             .eq("user_id", auth.user_id)
             .eq("is_active", True)
             .maybe_single()

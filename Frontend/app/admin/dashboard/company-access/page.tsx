@@ -30,7 +30,15 @@ type AddonKey =
   | "lucid_studio_infographic"
   | "lucid_studio_flashcard"
   | "chat_in_studio"
+  | "chat_in_studio_textual"
+  | "chat_in_studio_speech"
   | "task_management"
+  | "task_management_textual"
+  | "task_management_image"
+  | "task_management_evaluation"
+  | "task_management_audio"
+  | "task_management_video"
+  | "baseline_assessment"
   | "kpi"
   | "role_play"
   | "reports"
@@ -103,10 +111,30 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     parentId: "lucid_studio",
   },
   {
+    id: "kpi",
+    label: "KPI",
+    description: "Enable KPI intelligence and score tracking.",
+    category: "addon",
+  },
+  {
     id: "chat_in_studio",
     label: "Chat in Studio",
     description: "Enable in-studio chat for guided conversations.",
     category: "core",
+  },
+  {
+    id: "chat_in_studio_textual",
+    label: "Textual Chat",
+    description: "Enable textual chat option in module.",
+    category: "core",
+    parentId: "chat_in_studio",
+  },
+  {
+    id: "chat_in_studio_speech",
+    label: "Speech to Speech Chat",
+    description: "Enable speech to speech option in module.",
+    category: "core",
+    parentId: "chat_in_studio",
   },
   {
     id: "task_management",
@@ -115,9 +143,44 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     category: "core",
   },
   {
-    id: "kpi",
-    label: "KPI",
-    description: "Enable KPI intelligence and score tracking.",
+    id: "task_management_textual",
+    label: "Text",
+    description: "Text submission format",
+    category: "core",
+    parentId: "task_management",
+  },
+  {
+    id: "task_management_image",
+    label: "Image",
+    description: "Image submission format",
+    category: "core",
+    parentId: "task_management",
+  },
+  {
+    id: "task_management_evaluation",
+    label: "Evaluation",
+    description: "Evaluation/MCQ format",
+    category: "core",
+    parentId: "task_management",
+  },
+  {
+    id: "task_management_audio",
+    label: "Audio",
+    description: "Audio submission format",
+    category: "core",
+    parentId: "task_management",
+  },
+  // {
+  //   id: "task_management_video",
+  //   label: "Video",
+  //   description: "Video submission format",
+  //   category: "core",
+  //   parentId: "task_management",
+  // },
+  {
+    id: "baseline_assessment",
+    label: "Baseline Assessment",
+    description: "Enable baseline assessment functionality.",
     category: "addon",
   },
   {
@@ -154,6 +217,19 @@ const LUCID_STUDIO_CHILDREN: AddonKey[] = [
   "lucid_studio_mindmap",
   "lucid_studio_infographic",
   "lucid_studio_flashcard",
+]
+
+const CHAT_IN_STUDIO_CHILDREN: AddonKey[] = [
+  "chat_in_studio_textual",
+  "chat_in_studio_speech",
+]
+
+const TASK_MANAGEMENT_CHILDREN: AddonKey[] = [
+  "task_management_textual",
+  "task_management_image",
+  "task_management_evaluation",
+  "task_management_audio",
+  // "task_management_video",
 ]
 
 function normalizeAddonKey(value: string): AddonKey | null {
@@ -223,6 +299,14 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   // Default Lucid Studio and Textual to enabled on the company access page
   effectiveAddons.add("lucid_studio")
   effectiveAddons.add("lucid_studio_textual")
+  
+  if (effectiveAddons.has("task_management")) {
+    effectiveAddons.add("task_management_textual")
+  }
+
+  if (effectiveAddons.has("chat_in_studio")) {
+    effectiveAddons.add("chat_in_studio_textual")
+  }
 
   const hasLucidChild = [
     "lucid_studio_textual",
@@ -237,13 +321,36 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
     effectiveAddons.add("lucid_studio")
   }
 
+  const hasChatChild = [
+    "chat_in_studio_textual",
+    "chat_in_studio_speech",
+  ].some((child) => effectiveAddons.has(child as AddonKey))
+
+  const hasTaskChild = TASK_MANAGEMENT_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
+
+  if (hasLucidChild) {
+    effectiveAddons.add("lucid_studio")
+  }
+
+  if (hasChatChild) {
+    effectiveAddons.add("chat_in_studio")
+  }
+
+  if (hasTaskChild) {
+    effectiveAddons.add("task_management")
+  }
+
   return Array.from(effectiveAddons)
 }
 
 function deriveFrontendTier(addons: AddonKey[]): SubscriptionTier | null {
   const current = new Set(addons)
   if (current.has("task_management")) return "tier_3"
-  if (current.has("chat_in_studio")) return "tier_2"
+  if (
+    current.has("chat_in_studio") ||
+    current.has("chat_in_studio_textual") ||
+    current.has("chat_in_studio_speech")
+  ) return "tier_2"
   if (current.has("lucid_studio")) return "tier_1"
   return null
 }
@@ -338,10 +445,31 @@ export default function CompanyAccessPage() {
         if (LUCID_STUDIO_CHILDREN.includes(addon)) {
           next.add("lucid_studio")
         }
+        if (CHAT_IN_STUDIO_CHILDREN.includes(addon)) {
+          next.add("chat_in_studio")
+        }
+        if (TASK_MANAGEMENT_CHILDREN.includes(addon)) {
+          next.add("task_management")
+        }
+        
+        // Auto-enable textual variants if parent is toggled on
+        if (addon === "chat_in_studio") {
+          next.add("chat_in_studio_textual")
+        }
+        if (addon === "task_management") {
+          next.add("task_management_textual")
+        }
       } else {
         next.delete(addon)
         if (addon === "lucid_studio") {
           LUCID_STUDIO_CHILDREN.forEach((child) => next.delete(child))
+        }
+        if (addon === "chat_in_studio") {
+          CHAT_IN_STUDIO_CHILDREN.forEach((child) => next.delete(child))
+        }
+        // Check task management
+        if (addon === "task_management") {
+          TASK_MANAGEMENT_CHILDREN.forEach((child) => next.delete(child))
         }
       }
 
@@ -612,7 +740,9 @@ export default function CompanyAccessPage() {
                   {FEATURE_DEFINITIONS.map((feature) => {
                     const checked = draftAddons.includes(feature.id)
                     const isLucidChild = feature.parentId === "lucid_studio"
-                    const parentEnabled = draftAddons.includes("lucid_studio")
+                    const parentEnabled = feature.parentId === "lucid_studio"
+                      ? draftAddons.includes("lucid_studio")
+                      : false
 
                     if (isLucidChild && !parentEnabled) {
                       return null
@@ -621,6 +751,8 @@ export default function CompanyAccessPage() {
                     const isMandatory =
                       feature.id === "lucid_studio" ||
                       feature.id === "lucid_studio_textual";
+
+                    if (feature.parentId === "task_management" || feature.parentId === "chat_in_studio") return null
 
                     return (
                       <div
@@ -659,6 +791,60 @@ export default function CompanyAccessPage() {
                         </div>
                         {isLucidChild && !parentEnabled && (
                           <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
+                        )}
+                        
+                        {/* Inline sub-toggles for Chat in Studio */}
+                        {feature.id === "chat_in_studio" && checked && (
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-2">
+                            {FEATURE_DEFINITIONS.filter(f => f.parentId === "chat_in_studio").map(childFeature => {
+                              const childChecked = draftAddons.includes(childFeature.id)
+                              const isChildMandatory = childFeature.id === "chat_in_studio_textual"
+                              
+                              return (
+                                <label key={childFeature.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${childChecked ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"} ${isChildMandatory ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                  <input 
+                                    type="checkbox" 
+                                    className="sr-only"
+                                    checked={childChecked}
+                                    onChange={(e) => {
+                                      if (!isChildMandatory) {
+                                        handleToggleAddon(childFeature.id, e.target.checked)
+                                      }
+                                    }}
+                                    disabled={isChildMandatory}
+                                  />
+                                  <span>{childFeature.label}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                        
+                        {/* Inline sub-toggles for Task Management */}
+                        {feature.id === "task_management" && checked && (
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-2">
+                            {FEATURE_DEFINITIONS.filter(f => f.parentId === "task_management").map(childFeature => {
+                              const childChecked = draftAddons.includes(childFeature.id)
+                              const isChildMandatory = childFeature.id === "task_management_textual"
+                              
+                              return (
+                                <label key={childFeature.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${childChecked ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"} ${isChildMandatory ? "opacity-70 cursor-not-allowed" : ""}`}>
+                                  <input 
+                                    type="checkbox" 
+                                    className="sr-only"
+                                    checked={childChecked}
+                                    onChange={(e) => {
+                                      if (!isChildMandatory) {
+                                        handleToggleAddon(childFeature.id, e.target.checked)
+                                      }
+                                    }}
+                                    disabled={isChildMandatory}
+                                  />
+                                  <span>{childFeature.label}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
                         )}
                       </div>
                     )

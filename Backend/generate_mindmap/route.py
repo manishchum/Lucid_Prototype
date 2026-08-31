@@ -3,14 +3,16 @@ import re
 import json
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
+from ai.ai_gateway import AI
+from ai.types import AIRequest
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
+# import google.generativeai as genai
 
-import google.generativeai as genai
+router = APIRouter(dependencies=[Depends(require_addon("lucid_studio_mindmap"))])
 
-router = APIRouter()
-
-genAI = genai.GenerativeModel("gemini-2.5-flash-lite") if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else None
+# genAI = genai.GenerativeModel("gemini-2.5-flash-lite") if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")) else None
 
 
 # ------------------------------------------------------------------
@@ -209,6 +211,154 @@ def createMindGraph(content: str, title: str = "", branchCount=4) -> MindGraph:
 
     return {"nodes": nodes, "edges": edges}
 
+# ------------------------------------------------------------------
+# AI MINDMAP GENERATION
+# ------------------------------------------------------------------
+
+async def generateMindGraphWithAI(
+    content: str,
+    title: str,
+    company_id: str,
+    user_id: str,
+) -> MindGraph:
+
+    print("[generate-mindmap] Calling AI Gateway")
+
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="mindmap_generation",
+            company_id=str(company_id),
+            user_id=str(user_id),
+            route="/generate-mindmap",
+            prompt_type="default",
+            variables={
+                "title": title,
+                "content": content,
+            },
+            response_format="text",
+        )
+    )
+
+    if not ai_response or not ai_response.content:
+        raise Exception("Mindmap generation returned empty AI response.")
+
+    text = str(ai_response.content).strip()
+
+    print(
+        "[generate-mindmap] AI Gateway:",
+        ai_response.provider,
+        ai_response.model,
+        "prompt_version=",
+        ai_response.prompt_version,
+    )
+
+    print(
+        "[generate-mindmap] Raw AI response length:",
+        len(text),
+    )
+
+    print(
+        "[generate-mindmap] Raw AI response preview:",
+        text[:1000],
+    )
+
+    jsonText = text
+
+    jsonMatch = re.search(
+        r"```json\s*([\s\S]*?)\s*```",
+        text,
+        re.IGNORECASE,
+    ) or re.search(
+        r"```\s*([\s\S]*?)\s*```",
+        text,
+    )
+
+    if jsonMatch:
+        jsonText = jsonMatch.group(1).strip()
+    else:
+        firstBrace = text.find("{")
+        lastBrace = text.rfind("}")
+
+        if firstBrace != -1 and lastBrace != -1:
+            jsonText = text[firstBrace:lastBrace + 1]
+
+    try:
+        data = json.loads(jsonText)
+    except Exception as parse_error:
+        print(
+            "[generate-mindmap] Failed to parse AI JSON:",
+            parse_error,
+        )
+        raise Exception(
+            "Could not parse the mindmap data returned by the AI model."
+        )
+
+    if not isinstance(data, dict):
+        raise Exception("AI returned an invalid mindmap structure.")
+
+    nodes = data.get("nodes")
+    edges = data.get("edges")
+
+    if not isinstance(nodes, list) or not nodes:
+        raise Exception("AI returned an invalid mindmap nodes structure.")
+
+    if not isinstance(edges, list):
+        raise Exception("AI returned an invalid mindmap edges structure.")
+
+    if not any(str(node.get("id")) == "1" for node in nodes):
+        raise Exception("AI mindmap is missing the root node.")
+
+    return data
+# ------------------------------------------------------------------
+# ROUTE
+# ------------------------------------------------------------------
+
+# @router.post("/generate-mindmap")
+# async def POST(req: Request):
+#     try:
+#         body = await req.json()
+#         content = str(body.get("content") or "")
+#         title = str(body.get("title") or "")
+
+#         # Clean HTML tags preserving block structures
+#         content = strip_html(content)
+
+#         gemKey = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GENAI_API_KEY")
+
+#         if gemKey:
+#             try:
+#                 genai.configure(api_key=gemKey)
+#                 model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+#                 system = """You are a helpful assistant that converts study material into a compact mind-map JSON suitable for NotebookLM.
+# Output ONLY valid JSON with two keys: nodes and edges. nodes is an array of { id, label, x, y } and edges is an array of { from, to }.
+# Constraints: 1 root node (id "1") at y=0; 4 to 6 main branches (children of root) at y=120; each branch should have 2 to 4 sub-nodes at y=240.
+# Keep labels short (<=80 chars), concise, and hierarchical. Do not include extra fields. Use numeric string ids ("1","2",...).
+# If content is long, prioritize main concepts, section headings, and key bullets."""
+
+#                 prompt = f"Title: {title}\n\nContent:\n{content}"
+#                 result = model.generate_content(system + "\n\n" + prompt)
+#                 aiText = result.text or ""
+
+#                 try:
+#                     firstChar = aiText.find("{")
+#                     lastChar = aiText.rfind("}")
+#                     jsonText = aiText[firstChar:lastChar + 1] if firstChar != -1 and lastChar != -1 else aiText
+#                     parsed = json.loads(jsonText)
+#                 except:
+#                     parsed = None
+
+#                 if parsed and isinstance(parsed.get("nodes"), list) and isinstance(parsed.get("edges"), list) and any(str(n.get("id")) == "1" for n in parsed["nodes"]):
+#                     return JSONResponse(parsed)
+
+#             except Exception as gemErr:
+#                 print("Gemini mindmap generation failed:", gemErr)
+
+#         graph = createMindGraph(content, title, 4)
+#         return JSONResponse(graph)
+
+#     except Exception as e:
+#         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ------------------------------------------------------------------
 # ROUTE
@@ -218,45 +368,82 @@ def createMindGraph(content: str, title: str = "", branchCount=4) -> MindGraph:
 async def POST(req: Request):
     try:
         body = await req.json()
+
         content = str(body.get("content") or "")
         title = str(body.get("title") or "")
+        company_id = body.get("company_id")
+        user_id = body.get("user_id")
 
-        # Clean HTML tags preserving block structures
+        if not content:
+            return JSONResponse(
+                {"error": "Content is required"},
+                status_code=400,
+            )
+
+        if not title:
+            return JSONResponse(
+                {"error": "Title is required"},
+                status_code=400,
+            )
+
+        if not company_id:
+            return JSONResponse(
+                {"error": "Company ID is required"},
+                status_code=400,
+            )
+
+        if not user_id:
+            return JSONResponse(
+                {"error": "User ID is required"},
+                status_code=400,
+            )
+
+        print("[generate-mindmap] Generating mindmap for:", title)
+        print("[generate-mindmap] Content length:", len(content))
+        print("[generate-mindmap] Company ID:", company_id)
+        print("[generate-mindmap] User ID:", user_id)
+
+        # Clean HTML tags while preserving document structure.
         content = strip_html(content)
 
-        gemKey = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GENAI_API_KEY")
+        try:
+            mindmap = await generateMindGraphWithAI(
+                content=content,
+                title=title,
+                company_id=str(company_id),
+                user_id=str(user_id),
+            )
 
-        if gemKey:
-            try:
-                genai.configure(api_key=gemKey)
-                model = genai.GenerativeModel("gemini-2.5-flash-lite")
+            print(
+                "[generate-mindmap] Successfully generated AI mindmap:",
+                f"nodes={len(mindmap.get('nodes', []))},",
+                f"edges={len(mindmap.get('edges', []))}",
+            )
 
-                system = """You are a helpful assistant that converts study material into a compact mind-map JSON suitable for NotebookLM.
-Output ONLY valid JSON with two keys: nodes and edges. nodes is an array of { id, label, x, y } and edges is an array of { from, to }.
-Constraints: 1 root node (id "1") at y=0; 4 to 6 main branches (children of root) at y=120; each branch should have 2 to 4 sub-nodes at y=240.
-Keep labels short (<=80 chars), concise, and hierarchical. Do not include extra fields. Use numeric string ids ("1","2",...).
-If content is long, prioritize main concepts, section headings, and key bullets."""
+            return JSONResponse(mindmap)
 
-                prompt = f"Title: {title}\n\nContent:\n{content}"
-                result = model.generate_content(system + "\n\n" + prompt)
-                aiText = result.text or ""
+        except Exception as ai_error:
+            print(
+                "[generate-mindmap] AI generation failed:",
+                ai_error,
+            )
 
-                try:
-                    firstChar = aiText.find("{")
-                    lastChar = aiText.rfind("}")
-                    jsonText = aiText[firstChar:lastChar + 1] if firstChar != -1 and lastChar != -1 else aiText
-                    parsed = json.loads(jsonText)
-                except:
-                    parsed = None
+            print(
+                "[generate-mindmap] Falling back to heuristic mindmap generation"
+            )
 
-                if parsed and isinstance(parsed.get("nodes"), list) and isinstance(parsed.get("edges"), list) and any(str(n.get("id")) == "1" for n in parsed["nodes"]):
-                    return JSONResponse(parsed)
+            graph = createMindGraph(
+                content,
+                title,
+                4,
+            )
 
-            except Exception as gemErr:
-                print("Gemini mindmap generation failed:", gemErr)
-
-        graph = createMindGraph(content, title, 4)
-        return JSONResponse(graph)
+            return JSONResponse(graph)
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        print("[generate-mindmap] Error:", e)
+
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500,
+        )

@@ -1,19 +1,21 @@
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import JSONResponse
-from google.generativeai import GenerativeModel
-import google.generativeai as genai
-import os
+# from google.generativeai import GenerativeModel
+# import google.generativeai as genai
+# import os
 import asyncio
 from utils.supabase_client import supabase
 from utils.redis_limiter import check_rate_limit
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
-from utils.auth import RequestAuth, get_request_auth_optional
+from utils.auth import RequestAuth, get_request_auth_optional, require_addon
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_addon("chat_in_studio"))])
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# ai = GenerativeModel("gemini-3.1-pro-preview")
 
-ai = GenerativeModel("gemini-3.1-pro-preview")
 
 # WebSocket connections store
 connections = set()
@@ -58,6 +60,237 @@ def _persist_conversation(
         print("[module-chat] Failed to persist conversation:", save_error)
 
 
+def _chunk_text(content: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    if overlap < 0:
+        raise ValueError("overlap must be non-negative")
+
+    step = max(chunk_size - overlap, 1)
+    chunks: list[str] = []
+    start = 0
+
+    while start < len(content):
+        chunk = content[start:start + chunk_size].strip()
+
+        if chunk:
+            chunks.append(chunk)
+
+        start += step
+
+    return chunks
+
+
+async def _resolve_sprint_module_context(
+    module_id: str,
+    user_message: str,
+) -> tuple[dict, str]:
+    try:
+        import time
+        import numpy as np
+        from ingestion.embedder import get_model
+
+        retrieval_start = time.perf_counter()
+
+        # ---------------------------------------------------------
+        # 1. Fetch all processed modules belonging to this sprint
+        # ---------------------------------------------------------
+        pm_query = (
+            supabase.table("processed_modules")
+            .select("processed_module_id, title, content")
+            .eq("original_module_id", module_id)
+            .execute()
+        )
+
+        pm_list = pm_query.data or []
+
+        if not pm_list:
+            raise ValueError("No processed modules found for this sprint")
+
+        print(
+            f"[module-chat] Sprint RAG: "
+            f"{len(pm_list)} processed modules found"
+        )
+
+        # ---------------------------------------------------------
+        # 2. Load embedding model ONCE
+        # ---------------------------------------------------------
+        model = get_model()
+
+        # ---------------------------------------------------------
+        # 3. Embed the user's question ONCE
+        # ---------------------------------------------------------
+        query_text = (
+            "Represent this sentence for searching relevant passages: "
+            f"{user_message}"
+        )
+
+        query_emb = model.encode(
+            query_text,
+            normalize_embeddings=True,
+            convert_to_numpy=True
+        )
+
+        # ---------------------------------------------------------
+        # 4. Create all chunks first
+        # ---------------------------------------------------------
+        chunk_records: list[dict] = []
+
+        for pm in pm_list:
+            content = pm.get("content") or ""
+
+            if not content.strip():
+                continue
+
+            title = pm.get("title", "")
+            processed_id = pm.get("processed_module_id")
+
+            chunks = _chunk_text(
+                content,
+                chunk_size=1200,
+                overlap=200
+            )
+
+            for chunk in chunks:
+                chunk_records.append({
+                    "processed_module_id": processed_id,
+                    "title": title,
+                    "content": chunk,
+                })
+
+        if not chunk_records:
+            raise ValueError("No searchable content found in this sprint")
+
+        print(
+            f"[module-chat] Sprint RAG: "
+            f"{len(chunk_records)} chunks created"
+        )
+
+        # ---------------------------------------------------------
+        # 5. Build embedding texts
+        # ---------------------------------------------------------
+        embedding_texts = [
+            (
+                "Represent this training passage for retrieval: "
+                f"{record['title']}. {record['content']}"
+            )
+            for record in chunk_records
+        ]
+
+        # ---------------------------------------------------------
+        # 6. CRITICAL PERFORMANCE FIX
+        #
+        # OLD:
+        #   model.encode() was called once PER chunk.
+        #
+        # NEW:
+        #   Encode ALL chunks in batches.
+        # ---------------------------------------------------------
+        doc_embeddings = model.encode(
+            embedding_texts,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+            batch_size=64,
+            show_progress_bar=False
+        )
+
+        # ---------------------------------------------------------
+        # 7. Vectorized cosine similarity
+        #
+        # Because both query and document embeddings are normalized,
+        # dot product == cosine similarity.
+        # ---------------------------------------------------------
+        scores = np.dot(doc_embeddings, query_emb)
+
+        # ---------------------------------------------------------
+        # 8. Attach scores to chunks
+        # ---------------------------------------------------------
+        for index, score in enumerate(scores):
+            chunk_records[index]["score"] = float(score)
+
+        # ---------------------------------------------------------
+        # 9. Sort by semantic relevance
+        # ---------------------------------------------------------
+        chunk_records.sort(
+            key=lambda item: item["score"],
+            reverse=True
+        )
+
+        # ---------------------------------------------------------
+        # 10. Determine the best processed module
+        # ---------------------------------------------------------
+        best_chunk = chunk_records[0]
+
+        target_processed_module_id = (
+            best_chunk["processed_module_id"]
+        )
+
+        # ---------------------------------------------------------
+        # 11. Take only the strongest chunks from the
+        #     winning processed module
+        # ---------------------------------------------------------
+        best_module_chunks = [
+            item
+            for item in chunk_records
+            if item["processed_module_id"] == target_processed_module_id
+        ]
+
+        best_module_chunks.sort(
+            key=lambda item: item["score"],
+            reverse=True
+        )
+
+        best_module_chunks = best_module_chunks[:5]
+
+        # ---------------------------------------------------------
+        # 12. Build the final RAG context
+        # ---------------------------------------------------------
+        module_data = {
+            "title": best_chunk.get("title", ""),
+            "content": (
+                "Retrieved context from sprint search:\n\n"
+                + "\n\n--- Retrieved Passage ---\n\n".join(
+                    item["content"]
+                    for item in best_module_chunks
+                )
+            )
+        }
+
+        retrieval_time = time.perf_counter() - retrieval_start
+
+        # ---------------------------------------------------------
+        # 13. Debug information
+        # ---------------------------------------------------------
+        print(
+            f"[module-chat] Sprint RAG matched "
+            f"'{best_chunk['title']}' "
+            f"processed_module_id={target_processed_module_id} "
+            f"score={best_chunk['score']:.4f}"
+        )
+
+        print(
+            "[module-chat] Retrieved chunk scores:",
+            [
+                round(item["score"], 4)
+                for item in best_module_chunks
+            ]
+        )
+
+        print(
+            f"[module-chat] Sprint RAG retrieval time: "
+            f"{retrieval_time:.2f}s"
+        )
+
+        return module_data, target_processed_module_id
+
+    except Exception as error:
+        print(
+            f"[module-chat] Error finding best module for sprint: "
+            f"{error}"
+        )
+        raise
+
 # Process STT (mock)
 async def processSTT(audioChunk: bytes) -> str:
     print("Processing audio chunk of size:", len(audioChunk))
@@ -65,22 +298,60 @@ async def processSTT(audioChunk: bytes) -> str:
 
 
 # Call LLM
-async def callLLM(transcript: str) -> str:
+# async def callLLM(transcript: str) -> str:
 
-    prompt = f"""
-You are a real-time voice assistant helping a user during a training session.
+#     prompt = f"""
+# You are a real-time voice assistant helping a user during a training session.
 
-User said:
-"{transcript}"
+# User said:
+# "{transcript}"
 
-Respond naturally, concisely, and in plain text.
-Do NOT use markdown, HTML, or special formatting.
-"""
+# Respond naturally, concisely, and in plain text.
+# Do NOT use markdown, HTML, or special formatting.
+# """
 
-    result = ai.generate_content(prompt)
+#     result = ai.generate_content(prompt)
 
-    return result.text
+#     return result.text
 
+async def callLLM(
+    transcript: str,
+    user_id: str,
+    company_id: str,
+    processed_module_id: str,
+) -> str:
+
+    module_query = (
+        supabase.table("processed_modules")
+        .select("title, content")
+        .eq("processed_module_id", processed_module_id)
+        .single()
+        .execute()
+    )
+
+    module_data = module_query.data
+
+    if not module_data:
+        raise ValueError("Module not found")
+
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="module_chat",
+            company_id=str(company_id),
+            user_id=str(user_id),
+            route="/module-chat",
+            prompt_type="default",
+            variables={
+                "moduleTitle": module_data.get("title", ""),
+                "moduleContent": module_data.get("content", ""),
+                "conversationContext": "",
+                "userMessage": transcript,
+            },
+            response_format="text",
+        )
+    )
+
+    return str(ai_response.content or "")
 
 # Stream TTS simulation
 async def streamTTS(ws: WebSocket, text: str):
@@ -141,7 +412,12 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 transcript = await processSTT(data)
 
-                llmResponse = await callLLM(transcript)
+                llmResponse = await callLLM(
+                    transcript=transcript,
+                    user_id=user_id,
+                    company_id=company_id,
+                    processed_module_id=processed_module_id,
+                )
 
                 await streamTTS(ws, llmResponse)
 
@@ -182,7 +458,6 @@ async def POST(
     try:
 
         body = await request.json()
-        await check_rate_limit(user_id=auth_ctx.user_id, endpoint="module-chat")
 
         processed_module_id = body.get("processed_module_id")
         module_id = body.get("module_id")
@@ -190,6 +465,26 @@ async def POST(
         chat_history = body.get("chat_history")
         fallback_user_id = body.get("user_id")
         fallback_company_id = body.get("company_id")
+
+        user_id = auth_ctx.user_id or fallback_user_id
+        company_id = _resolve_company_id(user_id, fallback_company_id)
+
+        if not user_id or not company_id:
+            return JSONResponse(
+                {
+                    "error": "Missing required identifiers",
+                    "details": {
+                        "user_id": user_id,
+                        "company_id": company_id
+                    }
+                },
+                status_code=400
+            )
+
+        await check_rate_limit(
+            user_id=user_id,
+            endpoint="module-chat"
+        )
 
         if not user_message:
             return JSONResponse({"error": "Missing user message"}, status_code=400)
@@ -202,44 +497,13 @@ async def POST(
 
         if module_id and not processed_module_id:
             try:
-                # 1. Fetch all processed modules for this sprint
-                pm_query = supabase.table("processed_modules") \
-                    .select("processed_module_id, title, content") \
-                    .eq("original_module_id", module_id) \
-                    .execute()
-                
-                pm_list = pm_query.data
-                if not pm_list:
-                    return JSONResponse({"error": "No processed modules found for this sprint"}, status_code=404)
-                
-                # 2. Generate embeddings to find the best match
-                from ingestion.embedder import get_model
-                import numpy as np
-                
-                model = get_model()
-                
-                query_text = f"Represent this sentence for searching relevant passages: {user_message}"
-                query_emb = model.encode(query_text, normalize_embeddings=True)
-                
-                best_score = -2.0
-                best_pm = pm_list[0]
-                
-                for pm in pm_list:
-                    content_preview = pm.get("content", "")[:1000] if pm.get("content") else ""
-                    doc_text = f"Represent this document for retrieval: {pm.get('title', '')}. {content_preview}"
-                    doc_emb = model.encode(doc_text, normalize_embeddings=True)
-                    
-                    score = np.dot(query_emb, doc_emb)
-                    if score > best_score:
-                        best_score = score
-                        best_pm = pm
-                        
-                moduleData = best_pm
-                target_processed_module_id = best_pm["processed_module_id"]
-                print(f"[module-chat] Sprint-level search matched: {best_pm.get('title')} with score {best_score}")
-
-            except Exception as e:
-                print(f"[module-chat] Error finding best module for sprint: {e}")
+                moduleData, target_processed_module_id = await _resolve_sprint_module_context(
+                    module_id=module_id,
+                    user_message=user_message,
+                )
+            except ValueError as error:
+                return JSONResponse({"error": str(error)}, status_code=404)
+            except Exception:
                 return JSONResponse({"error": "Failed to find best module context"}, status_code=500)
         else:
             try:
@@ -272,49 +536,72 @@ async def POST(
                 for msg in chat_history
             ])
 
-        prompt = f"""
-You are Lucid, a helpful learning assistant helping a user understand a training module.
+#         prompt = f"""
+# You are Lucid, a helpful learning assistant helping a user understand a training module.
 
-Module Title:
-{moduleData['title']}
+# Module Title:
+# {moduleData['title']}
 
-Module Content:
-{moduleData['content']}
+# Module Content:
+# {moduleData['content']}
 
-{"Previous conversation:" + chr(10) + historyContext if historyContext else ""}
+# {"Previous conversation:" + chr(10) + historyContext if historyContext else ""}
 
-User's question:
-{user_message}
+# User's question:
+# {user_message}
 
-IMPORTANT LANGUAGE RULES:
+# IMPORTANT LANGUAGE RULES:
 
-- Detect the language of the user's latest message.
-- ALWAYS reply in the SAME language as the user's latest message.
-- If the user writes in English, reply in English.
-- If the user writes in Hindi (Devanagari), reply in Hindi.
-- If the user writes in Hinglish (Hindi written using English letters), reply in Hinglish.
-- Never translate the user's language unless explicitly asked.
-- Keep technical terms like API, JWT, Redis, SQL, Python, etc. in English where appropriate.
+# - Detect the language of the user's latest message.
+# - ALWAYS reply in the SAME language as the user's latest message.
+# - If the user writes in English, reply in English.
+# - If the user writes in Hindi (Devanagari), reply in Hindi.
+# - If the user writes in Hinglish (Hindi written using English letters), reply in Hinglish.
+# - Never translate the user's language unless explicitly asked.
+# - Keep technical terms like API, JWT, Redis, SQL, Python, etc. in English where appropriate.
 
-Answer ONLY using the information in the training module.
-If the question is unrelated to the module, politely redirect the user back to the module.
+# Answer ONLY using the information in the training module.
+# If the question is unrelated to the module, politely redirect the user back to the module.
 
-Keep the answer:
-- concise
-- conversational
-- natural
-- plain text only
+# Keep the answer:
+# - concise
+# - conversational
+# - natural
+# - plain text only
 
-Do NOT use HTML.
-Do NOT use Markdown.
-Do NOT use bold, italics, or bullet formatting unless explicitly requested.
-"""
+# Do NOT use HTML.
+# Do NOT use Markdown.
+# Do NOT use bold, italics, or bullet formatting unless explicitly requested.
+# """
 
-        model = GenerativeModel("gemini-2.5-flash-lite")
+        # model = GenerativeModel("gemini-2.5-flash-lite")
 
-        result = model.generate_content(prompt)
+        # result = model.generate_content(prompt)
 
-        assistantMessage = result.text
+        # assistantMessage = result.text
+        
+        ai_response = await AI.execute(
+            AIRequest(
+                feature="module_chat",
+                company_id=str(company_id),
+                user_id=str(user_id),
+                route="/module-chat",
+                prompt_type="default",
+                variables={
+                    "moduleTitle": moduleData.get("title", ""),
+                    "moduleContent": moduleData.get("content", ""),
+                    "conversationContext": (
+                        "Previous conversation:\n" + historyContext
+                        if historyContext
+                        else ""
+                    ),
+                    "userMessage": user_message,
+                },
+                response_format="text",
+            )
+        )
+
+        assistantMessage = str(ai_response.content or "")
 
         conversation_payload = []
 
@@ -331,20 +618,20 @@ Do NOT use bold, italics, or bullet formatting unless explicitly requested.
             "content": assistantMessage
         })
 
-        user_id = auth_ctx.user_id or fallback_user_id
-        company_id = _resolve_company_id(user_id, fallback_company_id)
+        # user_id = auth_ctx.user_id or fallback_user_id
+        # company_id = _resolve_company_id(user_id, fallback_company_id)
 
-        if not user_id or not company_id:
-            return JSONResponse(
-                {
-                    "error": "Missing required identifiers",
-                    "details": {
-                        "user_id": user_id,
-                        "company_id": company_id
-                    }
-                },
-                status_code=400
-            )
+        # if not user_id or not company_id:
+        #     return JSONResponse(
+        #         {
+        #             "error": "Missing required identifiers",
+        #             "details": {
+        #                 "user_id": user_id,
+        #                 "company_id": company_id
+        #             }
+        #         },
+        #         status_code=400
+        #     )
 
         _persist_conversation(
             processed_module_id=target_processed_module_id,

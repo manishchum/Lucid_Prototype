@@ -16,6 +16,7 @@ const fetch = require('node-fetch');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WORKER_INTERNAL_TOKEN = process.env.AI_GATEWAY_INTERNAL_TOKEN || '';
 
 function normalizeBaseUrl(value) {
   return (value || '').trim().replace(/\/$/, '');
@@ -36,11 +37,7 @@ function uniqueNonEmpty(values) {
 }
 
 const API_BASE_URLS = uniqueNonEmpty([
-  process.env.VIDEO_WORKER_API_BASE_URL,
-  process.env.AUDIO_WORKER_API_BASE_URL,
-  process.env.INTERNAL_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
-  process.env.BACKEND_URL,
 ]);
 
 const POLL_INTERVAL_MS = Number(process.env.VIDEO_WORKER_POLL_INTERVAL_MS || 120000);
@@ -145,7 +142,7 @@ async function waitForVideoUrlInDb(processedModuleId, waitMs = VIDEO_RECOVERY_WA
   return null;
 }
 
-async function callVideoGeneration(processedModuleId) {
+async function callVideoGeneration(processedModuleId, companyId, userId) {
   console.log(`[VIDEO WORKER] Requesting video generation for ${processedModuleId}`);
 
   let lastError = null;
@@ -156,7 +153,12 @@ async function callVideoGeneration(processedModuleId) {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Internal-Token': WORKER_INTERNAL_TOKEN,
+          'X-User-ID': userId,
+          'X-Company-ID': companyId,
+        },
         body: JSON.stringify({ processed_module_id: processedModuleId }),
       });
 
@@ -216,7 +218,23 @@ async function processProcessedModuleRow(row) {
     return { ok: true, processedModuleId, skipped: true };
   }
 
-  const result = await callVideoGeneration(processedModuleId);
+  const { data: trainingModule, error: trainingModuleError } = await supabase
+    .from('training_modules')
+    .select('company_id, uploaded_by')
+    .eq('module_id', row.original_module_id)
+    .maybeSingle();
+
+  if (trainingModuleError || !trainingModule?.company_id || !trainingModule?.uploaded_by) {
+    throw new Error(
+      `Could not resolve worker context for module ${row.original_module_id}: ${trainingModuleError?.message || 'missing company_id or uploaded_by'}`
+    );
+  }
+
+  const result = await callVideoGeneration(
+    processedModuleId,
+    trainingModule.company_id,
+    trainingModule.uploaded_by
+  );
   return { ok: true, processedModuleId, ...result };
 }
 

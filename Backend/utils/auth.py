@@ -360,7 +360,26 @@ def get_request_auth_optional(
 def get_request_auth_required(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
  	x_device_id=Header(None, alias="X-Device-ID"),
+	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
+	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
 ) -> RequestAuth:
+	if x_worker_token:
+		expected_worker_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
+		if expected_worker_token and x_worker_token == expected_worker_token:
+			if not x_user_id or not x_company_id:
+				raise HTTPException(
+					status_code=401,
+					detail="Worker authentication requires X-User-ID and X-Company-ID",
+				)
+			return RequestAuth(
+				user_id=str(x_user_id),
+				email=None,
+				source="internal-worker",
+				claims=None,
+				company_id=str(x_company_id),
+			)
+
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -477,6 +496,40 @@ async def get_effective_company_id(
 		return home_company_id
 
 	raise HTTPException(status_code=403, detail="Not authorized to query this company")
+
+def require_addon(addon_name):
+	async def _verify_addon(company_id: str = Depends(get_effective_company_id)):
+		from utils.auth_bridge import get_service_supabase_client
+		supabase_client = get_service_supabase_client()
+		resp = (
+			supabase_client
+			.table('companies')
+			.select('subscription_addons')
+			.eq('company_id', company_id)
+			.maybe_single()
+			.execute()
+		)
+		if not resp.data:
+			raise HTTPException(status_code=403, detail="Company not found")
+		
+		addons = {
+			str(addon).strip().lower()
+			for addon in (resp.data.get('subscription_addons') or [])
+		}
+		required_addons = (
+			[addon_name]
+			if isinstance(addon_name, str)
+			else list(addon_name)
+		)
+		required_addons = [str(addon).strip().lower() for addon in required_addons]
+		if not any(addon in addons for addon in required_addons):
+			raise HTTPException(
+				status_code=403,
+				detail=f"Forbidden: one of {required_addons} addons is required."
+			)
+		
+		return company_id
+	return _verify_addon
 
 
 @dataclass

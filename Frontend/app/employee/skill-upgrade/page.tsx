@@ -1,6 +1,7 @@
 'use client';
 
 import { useAuth } from '@/contexts/auth-context';
+import { useRouter } from 'next/navigation';
 import SkillUpgrade from '@/components/career-journey/SkillUpgrade';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -62,8 +63,9 @@ const notifStyles = {
 };
 
 export default function SkillUpgradePage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, employeeData } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || isLoading);
 
   const [notification, setNotification] = useState<{
@@ -72,8 +74,21 @@ export default function SkillUpgradePage() {
   } | null>(null);
 
   useEffect(() => {
-    if (!authLoading) setIsLoading(false);
-  }, [authLoading]);
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      
+      const addons = employeeData?.subscription_addons || employeeData?.company?.subscription_addons || [];
+      if (!addons.includes('sprintverse')) {
+        router.push("/employee/welcome");
+        return;
+      }
+      
+      setIsLoading(false);
+    }
+  }, [authLoading, user, employeeData, router]);
 
   const handleNotification = (message: string, type: 'success' | 'error' | 'info') => {
     setNotification({ message, type });

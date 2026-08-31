@@ -194,7 +194,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
   const canUseMindmap = hasFeature(FEATURES.LUCID_STUDIO_MINDMAP);
   const canUseInfographic = hasFeature(FEATURES.LUCID_STUDIO_INFOGRAPHIC);
   const canUseFlashcards = hasFeature(FEATURES.LUCID_STUDIO_FLASHCARDS);
-  // const canUseFlashcard
+  const canUseChatSpeech = hasFeature(FEATURES.CHAT_IN_STUDIO_SPEECH);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -571,7 +571,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                                 msg.role === 'user' ? 'justify-end' : 'justify-start'
                               )}
                             >
-                              {msg.role === 'assistant' && (
+                              {msg.role === 'assistant' && canUseChatSpeech && (
                                 <VoiceOutput text={msg.content} disabled={chatLoading || !ttsEnabled}
                                 onTTSComplete={() => {
                                 if (voiceLoopActive && idx === userChatHistory.length - 1) {
@@ -624,15 +624,17 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                       >
                         📎
                       </button> */}
-                      <VoiceInput
-                        onTranscription={handleVoiceTranscription}
-                        disabled={chatLoading}
-                        autoStart={autoStartMic}
-                        onManualStop={() => {
-                          //console.log('[ModuleChat] Voice loop stopped - manual stop by user');
-                          setVoiceLoopActive(false);
-                        }}
-                      />
+                      {canUseChatSpeech && (
+                        <VoiceInput
+                          onTranscription={handleVoiceTranscription}
+                          disabled={chatLoading}
+                          autoStart={autoStartMic}
+                          onManualStop={() => {
+                            //console.log('[ModuleChat] Voice loop stopped - manual stop by user');
+                            setVoiceLoopActive(false);
+                          }}
+                        />
+                      )}
                       <input
                         type="text"
                         value={chatInput}

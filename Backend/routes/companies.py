@@ -315,7 +315,15 @@ async def update_company_route(
         "lucid_studio_flashcard",
         "lucid_studio_flashcards",
         "chat_in_studio",
+        "chat_in_studio_textual",
+        "chat_in_studio_speech",
         "task_management",
+        "task_management_textual",
+        "task_management_image",
+        "task_management_evaluation",
+        "task_management_audio",
+        "task_management_video",
+        "baseline_assessment",
         "kpi",
         "role_play",
         "reports",
@@ -372,6 +380,23 @@ async def update_company_route(
             "lucid_studio_flashcards",
         )) and "lucid_studio" not in normalized_addons:
             normalized_addons.insert(0, "lucid_studio")
+
+        # Ensure the parent chat_in_studio addon is present when any child chat feature is enabled.
+        if any(child in normalized_addons for child in (
+            "chat_in_studio_textual",
+            "chat_in_studio_speech",
+        )) and "chat_in_studio" not in normalized_addons:
+            normalized_addons.insert(0, "chat_in_studio")
+
+        # Ensure the parent task_management addon is present when any child task management feature is enabled.
+        if any(child in normalized_addons for child in (
+            "task_management_textual",
+            "task_management_image",
+            "task_management_evaluation",
+            "task_management_audio",
+            "task_management_video",
+        )) and "task_management" not in normalized_addons:
+            normalized_addons.insert(0, "task_management")
 
         update_data["subscription_addons"] = normalized_addons
 

@@ -16,6 +16,7 @@ const fetch = require('node-fetch');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const WORKER_INTERNAL_TOKEN = process.env.AI_GATEWAY_INTERNAL_TOKEN || '';
 
 function normalizeBaseUrl(value) {
   return (value || '').trim().replace(/\/$/, '');
@@ -36,10 +37,7 @@ function uniqueNonEmpty(values) {
 }
 
 const API_BASE_URLS = uniqueNonEmpty([
-  process.env.FLASHCARD_WORKER_API_BASE_URL,
-  process.env.INTERNAL_API_BASE_URL,
   process.env.NEXT_PUBLIC_BACKEND_URL,
-  process.env.BACKEND_URL,
 ]);
 
 const POLL_INTERVAL_MS = Number(process.env.FLASHCARD_WORKER_POLL_INTERVAL_MS || 120000);
@@ -99,9 +97,35 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
   return addons;
 }
 
+async function getModuleContext(moduleId) {
+  if (!moduleId) return null;
+
+  const { data, error } = await supabase
+    .from('training_modules')
+    .select('company_id, uploaded_by')
+    .eq('module_id', moduleId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Failed to resolve training module context for ${moduleId}: ${error.message}`
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    companyId: data.company_id || null,
+    userId: data.uploaded_by || null,
+  };
+}
+
 async function moduleSupportsAddon(moduleId, addon) {
   const addons = await getCompanySubscriptionAddonsForModule(moduleId);
-  return addons.has(normalizeAddonKey(addon));
+  const candidates = Array.isArray(addon) ? addon : [addon];
+  return candidates.some((candidate) => addons.has(normalizeAddonKey(candidate)));
 }
 
 function sleep(ms) {
@@ -133,7 +157,7 @@ function safeContentForModel(content) {
   return content.length > MAX_CONTENT_CHARS ? content.slice(0, MAX_CONTENT_CHARS) : content;
 }
 
-async function generateFlashcardsFromApi(content) {
+async function generateFlashcardsFromApi(content, companyId, userId) {
   let lastError = null;
 
   for (const baseUrl of API_BASE_URLS) {
@@ -142,8 +166,17 @@ async function generateFlashcardsFromApi(content) {
     try {
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Worker-Internal-Token': WORKER_INTERNAL_TOKEN,
+          'X-User-ID': userId,
+          'X-Company-ID': companyId,
+        },
+        body: JSON.stringify({ 
+          content,
+          company_id: companyId,
+          user_id: userId,
+        }),
       });
 
       const text = await response.text();
@@ -185,7 +218,32 @@ async function processProcessedModuleRow(row) {
   console.log(`[FLASHCARD WORKER] Generating flashcards for ${processedModuleId} (${title})`);
 
   const content = safeContentForModel(row.content || '');
-  const cards = await generateFlashcardsFromApi(content);
+
+  const moduleContext = await getModuleContext(
+    row.original_module_id
+  );
+
+  if (!moduleContext?.companyId) {
+    throw new Error(
+      `Could not resolve company_id for module ${row.original_module_id}`
+    );
+  }
+
+  if (!moduleContext?.userId) {
+    throw new Error(
+      `Could not resolve uploaded_by user_id for module ${row.original_module_id}`
+    );
+  }
+
+  console.log(
+    `[FLASHCARD WORKER] Resolved context: company=${moduleContext.companyId}, uploaded_by=${moduleContext.userId}`
+  );
+
+  const cards = await generateFlashcardsFromApi(
+    content,
+    moduleContext.companyId,
+    moduleContext.userId
+  );
 
   const { error: updateError } = await supabase
     .from('processed_modules')
@@ -243,7 +301,7 @@ async function fetchNextPendingRow() {
     return null;
   }
 
-  if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
+  if (!(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
     return null;
   }
 
@@ -275,7 +333,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
       return { ok: true, skipped: true, reason: 'No missing flashcards or content too short for this processed_module_id' };
     }
 
-    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_flashcard'))) {
+    if (row.original_module_id && !(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 
@@ -283,7 +341,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
   }
 
   if (moduleId) {
-    if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_flashcard'))) {
+    if (!(await moduleSupportsAddon(moduleId, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 

@@ -11,8 +11,10 @@ from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.auth_bridge import get_service_supabase_client
 
-import google.generativeai as genai
+# import google.generativeai as genai
 
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 
 router = APIRouter()
 
@@ -28,10 +30,10 @@ router = APIRouter()
 # supabase: Client = create_client(supabaseUrl, supabaseKey)
 
 # Verify GEMINI_API_KEY is loaded
-if not os.getenv("GEMINI_API_KEY"):
-    print("[gpt-mcq-quiz] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
+# if not os.getenv("GEMINI_API_KEY"):
+#     print("[gpt-mcq-quiz] CRITICAL: GEMINI_API_KEY is not set in environment variables!")
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
+# genai.configure(api_key=os.getenv("GEMINI_API_KEY") or "")
 
 
 # -----------------------------
@@ -58,105 +60,141 @@ def normalizeModules(modules: Any):
         key=lambda x: x.get("title", "")
     )
 
+def parse_quiz_response(content: Any) -> List[Any]:
+    if not content:
+        return []
 
+    if isinstance(content, list):
+        return content
+
+    if isinstance(content, dict):
+        return [content]
+
+    if not isinstance(content, str):
+        return []
+
+    cleaned_content = content.strip()
+
+    json_start = cleaned_content.find("[")
+    json_end = cleaned_content.rfind("]")
+
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        cleaned_content = cleaned_content[json_start:json_end + 1]
+    else:
+        if cleaned_content.startswith("```json"):
+            cleaned_content = cleaned_content.replace("```json", "", 1).strip()
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3].strip()
+        elif cleaned_content.startswith("```"):
+            cleaned_content = cleaned_content.replace("```", "", 1).strip()
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3].strip()
+
+    try:
+        parsed = json.loads(cleaned_content)
+    except Exception as exc:
+        print("[gpt-mcq-quiz] Failed to parse AI response:", exc)
+        return []
+
+    return parsed if isinstance(parsed, list) else []
 # -----------------------------
 # Helper to call Gemini for MCQ quiz generation
 # -----------------------------
-async def generateMCQQuiz(summary: str, modules: Any, objectives: Any) -> List[Any]:
-    prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
+# async def generateMCQQuiz(summary: str, modules: Any, objectives: Any) -> List[Any]:
+#     prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
-Input: A learning asset (text, notes, or structured content).
+# Input: A learning asset (text, notes, or structured content).
 
-Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
+# Output: A set of 30 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
 
-Easy → Remember & Understand (default: 20%)
-Average → Apply & Analyze (default: 50%)
-Difficult → Evaluate & Create (default: 30%)
+# Easy → Remember & Understand (default: 20%)
+# Average → Apply & Analyze (default: 50%)
+# Difficult → Evaluate & Create (default: 30%)
 
-Bloom's Level Mapping:
-Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
-Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
-Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
-Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
-Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
-Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
+# Bloom's Level Mapping:
+# Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
+# Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
+# Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
+# Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
+# Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
+# Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
 
-Exhaustive Question-Type Bank (Stems/Patterns):
-Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
-Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
-Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
-Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
-Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
-Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
+# Exhaustive Question-Type Bank (Stems/Patterns):
+# Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
+# Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
+# Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
+# Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
+# Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
+# Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
 
-Question Design Rules:
-- Each question must explicitly map to its Bloom's level.
-- Provide 4 answer choices (A–D).
-- Clearly mark the correct answer.
-- Avoid ambiguity; test one concept per question. Ensure every concept is tested.
+# Question Design Rules:
+# - Each question must explicitly map to its Bloom's level.
+# - Provide 4 answer choices (A–D).
+# - Clearly mark the correct answer.
+# - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
 
-Return ONLY a valid JSON array of 30 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
-{{
-  "question": string,
-  "bloomLevel": string,
-  "options": [string, string, string, string],
-  "correctIndex": number,
-  "explanation": string (optional)
-}}
+# Return ONLY a valid JSON array of 30 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
+# {{
+#   "question": string,
+#   "bloomLevel": string,
+#   "options": [string, string, string, string],
+#   "correctIndex": number,
+#   "explanation": string (optional)
+# }}
 
-Learning Content:
-Summary: {summary}
-Modules: {json.dumps(modules)}
-Objectives: {json.dumps(objectives)}
-"""
+# Learning Content:
+# Summary: {summary}
+# Modules: {json.dumps(modules)}
+# Objectives: {json.dumps(objectives)}
+# """
 
-    try:
-        model = genai.GenerativeModel("gemini-2.5-pro")
-        result = model.generate_content(prompt)
-        content = result.text if result else None
+#     try:
+#         model = genai.GenerativeModel("gemini-2.5-pro")
+#         result = model.generate_content(prompt)
+#         content = result.text if result else None
 
-        if not content:
-            print("[gpt-mcq-quiz][ERROR] Gemini returned empty response")
-            return []
+#         if not content:
+#             print("[gpt-mcq-quiz][ERROR] Gemini returned empty response")
+#             return []
 
-        quiz: Any = None
-        try:
-            cleanedContent = content.strip()
+#         quiz: Any = None
+#         try:
+#             cleanedContent = content.strip()
 
-            jsonStart = cleanedContent.find("[")
-            jsonEnd = cleanedContent.rfind("]")
+#             jsonStart = cleanedContent.find("[")
+#             jsonEnd = cleanedContent.rfind("]")
 
-            if jsonStart != -1 and jsonEnd != -1 and jsonEnd > jsonStart:
-                cleanedContent = cleanedContent[jsonStart:jsonEnd + 1]
-            else:
-                if cleanedContent.startswith("```json"):
-                    cleanedContent = cleanedContent.replace("```json", "", 1).strip()
-                    if cleanedContent.endswith("```"):
-                        cleanedContent = cleanedContent[:-3].strip()
-                elif cleanedContent.startswith("```"):
-                    cleanedContent = cleanedContent.replace("```", "", 1).strip()
-                    if cleanedContent.endswith("```"):
-                        cleanedContent = cleanedContent[:-3].strip()
+#             if jsonStart != -1 and jsonEnd != -1 and jsonEnd > jsonStart:
+#                 cleanedContent = cleanedContent[jsonStart:jsonEnd + 1]
+#             else:
+#                 if cleanedContent.startswith("```json"):
+#                     cleanedContent = cleanedContent.replace("```json", "", 1).strip()
+#                     if cleanedContent.endswith("```"):
+#                         cleanedContent = cleanedContent[:-3].strip()
+#                 elif cleanedContent.startswith("```"):
+#                     cleanedContent = cleanedContent.replace("```", "", 1).strip()
+#                     if cleanedContent.endswith("```"):
+#                         cleanedContent = cleanedContent[:-3].strip()
 
-            quiz = json.loads(cleanedContent)
+#             quiz = json.loads(cleanedContent)
 
-            if (not isinstance(quiz, list)) or len(quiz) == 0:
-                print("[gpt-mcq-quiz][WARN] Parsed quiz is empty or not an array:", quiz)
-                quiz = []
+#             if (not isinstance(quiz, list)) or len(quiz) == 0:
+#                 print("[gpt-mcq-quiz][WARN] Parsed quiz is empty or not an array:", quiz)
+#                 quiz = []
 
-        except Exception as err:
-            print("[gpt-mcq-quiz][ERROR] Failed to parse Gemini response:", err)
-            print("[gpt-mcq-quiz][ERROR] Content that failed to parse:", content)
-            quiz = []
+#         except Exception as err:
+#             print("[gpt-mcq-quiz][ERROR] Failed to parse Gemini response:", err)
+#             print("[gpt-mcq-quiz][ERROR] Content that failed to parse:", content)
+#             quiz = []
 
-        if (not isinstance(quiz, list)) or len(quiz) == 0:
-            print("[gpt-mcq-quiz][ERROR] No valid questions generated")
+#         if (not isinstance(quiz, list)) or len(quiz) == 0:
+#             print("[gpt-mcq-quiz][ERROR] No valid questions generated")
 
-        return quiz
+#         return quiz
 
-    except Exception as error:
-        print("Error calling Gemini API:", error)
-        raise error
+#     except Exception as error:
+#         print("Error calling Gemini API:", error)
+#         raise error
 
 
 @router.post("/gpt-mcq-quiz")
@@ -391,84 +429,167 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
                 return JSONResponse(content={"quiz": existing.get("questions"), "assessmentId": existing.get("assessment_id")})
 
         # ✅ TS PER-MODULE PROMPT (preserved EXACT structure/content)
-        prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
+        # prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
 
-Input: A learning asset (text, notes, or structured content).
+# Input: A learning asset (text, notes, or structured content).
 
-Output: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
+# Output: A set of 10-13 MCQs (Multiple Choice Questions) distributed across difficulty levels based on Bloom's Taxonomy.
 
-Easy → Remember & Understand (default: 20%)
-Average → Apply & Analyze (default: 50%)
-Difficult → Evaluate & Create (default: 30%)
+# Easy → Remember & Understand (default: 20%)
+# Average → Apply & Analyze (default: 50%)
+# Difficult → Evaluate & Create (default: 30%)
 
-Bloom's Level Mapping:
-Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
-Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
-Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
-Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
-Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
-Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
+# Bloom's Level Mapping:
+# Remember: Define, List, Identify, Recall, Name, Label, Recognize, State, Match, Repeat, Select
+# Understand: Explain, Summarize, Describe, Interpret, Restate, Paraphrase, Classify, Discuss, Illustrate, Compare (basic), Report
+# Apply: Solve, Demonstrate, Use, Implement, Apply, Execute, Practice, Show, Operate, Employ, Perform
+# Analyze: Differentiate, Compare, Contrast, Organize, Examine, Break down, Categorize, Investigate, Distinguish, Attribute, Diagram
+# Evaluate: Judge, Critique, Justify, Recommend, Assess, Evaluate, Defend, Support, Argue, Prioritize, Appraise, Rate, Validate
+# Create: Design, Generate, Propose, Develop, Formulate, Construct, Invent, Plan, Compose, Produce, Hypothesize, Integrate, Originate
 
-Exhaustive Question-Type Bank (Stems/Patterns):
-Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
-Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
-Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
-Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
-Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
-Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
+# Exhaustive Question-Type Bank (Stems/Patterns):
+# Remember: "What is…?", "Which of the following defines…?", "Identify…", "Who discovered…?", "When/Where did…?", "Match the term with…"
+# Understand: "Which best explains…?", "Summarize…", "What does this mean…?", "Which example illustrates…?", "Why does…happen?"
+# Apply: "Which principle would you use if…?", "What is the correct method to…?", "How would you solve…?", "Which tool/technique applies to…?", "Which step comes next…?"
+# Analyze: "Which factor contributes most to…?", "What pattern best explains…?", "Which cause-effect relationship is correct…?", "What evidence supports…?", "Which statement best differentiates between…?"
+# Evaluate: "Which option provides the best justification…?", "Which solution is most effective and why?", "Which argument is strongest?", "Which evidence best supports…?", "What decision is most appropriate…?"
+# Create: "What new approach could be developed…?", "Which design achieves…?", "How would you improve…?", "Which combination of ideas solves…?", "What hypothesis could you form…?"
 
-Question Design Rules:
-- Each question must explicitly map to its Bloom's level.
-- Provide 4 answer choices (A–D).
-- Clearly mark the correct answer.
-- Avoid ambiguity; test one concept per question. Ensure every concept is tested.
+# Question Design Rules:
+# - Each question must explicitly map to its Bloom's level.
+# - Provide 4 answer choices (A–D).
+# - Clearly mark the correct answer.
+# - Avoid ambiguity; test one concept per question. Ensure every concept is tested.
 
-Return ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
-{{
-  "question": string,
-  "bloomLevel": string,
-  "options": [string, string, string, string],
-  "correctIndex": number,
-  "explanation": string (optional)
-}}
+# Return ONLY a valid JSON array of 10-13 question objects, with no extra text, markdown, code blocks, or formatting. Each object must include:
+# {{
+#   "question": string,
+#   "bloomLevel": string,
+#   "options": [string, string, string, string],
+#   "correctIndex": number,
+#   "explanation": string (optional)
+# }}
 
-Learning Content:
-Summary: {moduleTitle}
-Modules: {json.dumps([moduleTitle])}
-Objectives: {json.dumps([moduleContent])}"""
+# Learning Content:
+# Summary: {moduleTitle}
+# Modules: {json.dumps([moduleTitle])}
+# Objectives: {json.dumps([moduleContent])}"""
+
 
         try:
-            model = genai.GenerativeModel("gemini-3.1-pro-preview")
-            # model = genai.GenerativeModel("gemini-3.1-pro-preview")
-            result = model.generate_content(prompt)
-            content = result.text if result else ""
+            ai_response = await AI.execute(
+                AIRequest(
+                    feature="quiz_generation_module",
+                    company_id=str(body.get("companyId") or ""),
+                    user_id=str(reqUserId or ""),
+                    route="/gpt-mcq-quiz",
+                    variables={
+                        "moduleTitle": moduleTitle,
+                        "modules": json.dumps([moduleTitle]),
+                        "objectives": json.dumps([moduleContent]),
+                    },
+                    response_format="json",
+                )
+            )
 
-            quiz: List[Any] = []
-            try:
-                cleanedContent = content.strip()
-                jsonStart = cleanedContent.find("[")
-                jsonEnd = cleanedContent.rfind("]")
+            quiz = parse_quiz_response(ai_response.content)
+        #     model = genai.GenerativeModel("gemini-3.1-pro-preview")
+        #     # model = genai.GenerativeModel("gemini-3.1-pro-preview")
+        #     result = model.generate_content(prompt)
+        #     content = result.text if result else ""
 
-                if jsonStart != -1 and jsonEnd != -1 and jsonEnd > jsonStart:
-                    cleanedContent = cleanedContent[jsonStart:jsonEnd + 1]
-                else:
-                    if cleanedContent.startswith("```json"):
-                        cleanedContent = cleanedContent.replace("```json", "", 1).strip()
-                        if cleanedContent.endswith("```"):
-                            cleanedContent = cleanedContent[:-3].strip()
-                    elif cleanedContent.startswith("```"):
-                        cleanedContent = cleanedContent.replace("```", "", 1).strip()
-                        if cleanedContent.endswith("```"):
-                            cleanedContent = cleanedContent[:-3].strip()
+        #     quiz: List[Any] = []
+        #     try:
+        #         cleanedContent = content.strip()
+        #         jsonStart = cleanedContent.find("[")
+        #         jsonEnd = cleanedContent.rfind("]")
 
-                quiz = json.loads(cleanedContent)
-            except Exception:
-                quiz = []
+        #         if jsonStart != -1 and jsonEnd != -1 and jsonEnd > jsonStart:
+        #             cleanedContent = cleanedContent[jsonStart:jsonEnd + 1]
+        #         else:
+        #             if cleanedContent.startswith("```json"):
+        #                 cleanedContent = cleanedContent.replace("```json", "", 1).strip()
+        #                 if cleanedContent.endswith("```"):
+        #                     cleanedContent = cleanedContent[:-3].strip()
+        #             elif cleanedContent.startswith("```"):
+        #                 cleanedContent = cleanedContent.replace("```", "", 1).strip()
+        #                 if cleanedContent.endswith("```"):
+        #                     cleanedContent = cleanedContent[:-3].strip()
+
+        #         quiz = json.loads(cleanedContent)
+        #     except Exception:
+        #         quiz = []
+
+        #     # Save quiz for this learning style, deterministic UUID (SHA1)
+        #     stableIdSeed = f"module:{processedModuleId}|style:{learningStyle}"
+        #     hash_hex = hashlib.sha1(stableIdSeed.encode("utf-8")).hexdigest()
+        #     stableId = f"{hash_hex[0:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
+
+        #     insertAssessmentRes = (
+        #         query_client
+        #         .table("assessments")
+        #         .insert({
+        #             "assessment_id": stableId,
+        #             "type": "module",
+        #             "processed_module_id": processedModuleId,
+        #             "questions": json.dumps(quiz),
+        #             "learning_style": learningStyle,
+        #             "company_id": body.get("companyId") or None
+        #         })
+        #         .execute()
+        #     )
+
+        #     insertError = getattr(insertAssessmentRes, "error", None)
+
+        #     if insertError:
+        #         insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
+
+        #         if insert_code in ["23505", "409"]:
+        #             existingListAfterRes = (
+        #                 query_client
+        #                 .table("assessments")
+        #                 .select("assessment_id, questions")
+        #                 .eq("type", "module")
+        #                 .eq("processed_module_id", processedModuleId)
+        #                 .eq("learning_style", learningStyle)
+        #                 .order("assessment_id", desc=True)
+        #                 .limit(1)
+        #                 .execute()
+        #             )
+
+        #             existingListAfter = getattr(existingListAfterRes, "data", None)
+        #             existingAfter = existingListAfter[0] if isinstance(existingListAfter, list) and len(existingListAfter) > 0 else None
+
+        #             if existingAfter:
+        #                 try:
+        #                     quizExisting = existingAfter.get("questions")
+        #                     quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
+        #                     return JSONResponse(content={"quiz": quizExisting, "assessmentId": existingAfter.get("assessment_id")})
+        #                 except Exception:
+        #                     return JSONResponse(content={"quiz": existingAfter.get("questions"), "assessmentId": existingAfter.get("assessment_id")})
+
+        #             return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
+
+        #         return JSONResponse(content={"error": "Failed to save assessment"}, status_code=500)
+
+        #     return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
+            if (not isinstance(quiz, list)) or len(quiz) == 0:
+                return JSONResponse(
+                    content={
+                        "error": "Quiz generation failed or returned empty array.",
+                        "details": "The AI model did not generate any valid questions. Please try again.",
+                        "rawResponse": quiz
+                    },
+                    status_code=500
+                )
 
             # Save quiz for this learning style, deterministic UUID (SHA1)
             stableIdSeed = f"module:{processedModuleId}|style:{learningStyle}"
             hash_hex = hashlib.sha1(stableIdSeed.encode("utf-8")).hexdigest()
-            stableId = f"{hash_hex[0:8]}-{hash_hex[8:12]}-{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
+            stableId = (
+                f"{hash_hex[0:8]}-{hash_hex[8:12]}-"
+                f"{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
+            )
 
             insertAssessmentRes = (
                 query_client
@@ -487,7 +608,11 @@ Objectives: {json.dumps([moduleContent])}"""
             insertError = getattr(insertAssessmentRes, "error", None)
 
             if insertError:
-                insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
+                insert_code = (
+                    insertError.get("code")
+                    if isinstance(insertError, dict)
+                    else getattr(insertError, "code", None)
+                )
 
                 if insert_code in ["23505", "409"]:
                     existingListAfterRes = (
@@ -502,25 +627,53 @@ Objectives: {json.dumps([moduleContent])}"""
                         .execute()
                     )
 
-                    existingListAfter = getattr(existingListAfterRes, "data", None)
-                    existingAfter = existingListAfter[0] if isinstance(existingListAfter, list) and len(existingListAfter) > 0 else None
+                    existingListAfter = getattr(
+                        existingListAfterRes, "data", None
+                    )
+
+                    existingAfter = (
+                        existingListAfter[0]
+                        if isinstance(existingListAfter, list)
+                        and len(existingListAfter) > 0
+                        else None
+                    )
 
                     if existingAfter:
                         try:
                             quizExisting = existingAfter.get("questions")
-                            quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
-                            return JSONResponse(content={"quiz": quizExisting, "assessmentId": existingAfter.get("assessment_id")})
+                            quizExisting = (
+                                quizExisting
+                                if isinstance(quizExisting, list)
+                                else json.loads(quizExisting)
+                            )
+
+                            return JSONResponse(
+                                content={
+                                    "quiz": quizExisting,
+                                    "assessmentId": existingAfter.get("assessment_id")
+                                }
+                            )
                         except Exception:
-                            return JSONResponse(content={"quiz": existingAfter.get("questions"), "assessmentId": existingAfter.get("assessment_id")})
+                            return JSONResponse(
+                                content={
+                                    "quiz": existingAfter.get("questions"),
+                                    "assessmentId": existingAfter.get("assessment_id")
+                                }
+                            )
 
-                    return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
+                return JSONResponse(
+                    content={"error": "Failed to save assessment"},
+                    status_code=500
+                )
 
-                return JSONResponse(content={"error": "Failed to save assessment"}, status_code=500)
-
-            return JSONResponse(content={"quiz": quiz, "assessmentId": stableId})
-
+            return JSONResponse(
+                content={
+                    "quiz": quiz,
+                    "assessmentId": stableId
+                }
+            )
         except Exception as error:
-            print("Error generating quiz with Gemini:", error)
+            print("[gpt-mcq-quiz]Error generating quiz:", error)
             return JSONResponse(content={"error": "Failed to generate quiz"}, status_code=500)
 
     # ----------------------------------------------------------------------
@@ -530,7 +683,7 @@ Objectives: {json.dumps([moduleContent])}"""
     companyId = body.get("companyId")
     assessmentType = body.get("assessmentType")
     isBaseline = body.get("isBaseline")
-    user_id = body.get("user_id")
+    user_id = str(reqUserId or "")
 
     if (not moduleIds) or (not isinstance(moduleIds, list)) or len(moduleIds) == 0:
         return JSONResponse(content={"error": "moduleIds (array) required"}, status_code=400)
@@ -859,7 +1012,25 @@ Objectives: {json.dumps([moduleContent])}"""
             except Exception:
                 pass
 
-    quiz = await generateMCQQuiz(combinedSummary, currentModules, combinedObjectives)
+    # quiz = await generateMCQQuiz(combinedSummary, currentModules, combinedObjectives)
+    
+    ai_response = await AI.execute(
+        AIRequest(
+            feature="quiz_generation_baseline",
+            company_id=str(companyId),
+            user_id=str(reqUserId or ""),
+            route="/gpt-mcq-quiz",
+            variables={
+                "summary": combinedSummary,
+                "modules": json.dumps(currentModules),
+                "objectives": json.dumps(combinedObjectives),
+            },
+            response_format="json",
+        )
+    )
+
+    quiz = parse_quiz_response(ai_response.content)
+
 
     if (not isinstance(quiz, list)) or len(quiz) == 0:
         return JSONResponse(content={
