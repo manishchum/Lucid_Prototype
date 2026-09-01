@@ -33,7 +33,7 @@ except ImportError:
 
 IMAGE_OUTPUT_COST_USD = 0.039
 BACKGROUND_IMAGES_PER_SEGMENT = 5
-MAX_LEGACY_SEGMENT_DURATION_SECONDS = 30.0
+MAX_LEGACY_SEGMENT_DURATION_SECONDS = 300.0
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +383,19 @@ def _concat_videos_sync(video_paths: List[str], list_file: str, out_path: str):
     ]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.decode("utf-8", errors="ignore")[:2000])
+        # Fallback to re-encoding if stream copy fails
+        cmd_reencode = [
+            _FFMPEG, "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", list_file,
+            "-c:v", "libx264",
+            "-c:a", "aac",
+            "-pix_fmt", "yuv420p",
+            out_path,
+        ]
+        result_re = subprocess.run(cmd_reencode, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result_re.returncode != 0:
+            raise RuntimeError(result_re.stderr.decode("utf-8", errors="ignore")[:2000])
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +430,7 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         slide_path = seg.get("slide_png")
         audio_en = seg.get("audio_en_path")
         audio_hi = seg.get("audio_hi_path")
-        duration = 30.0
-        seg["duration"] = duration
+        duration = float(seg.get("duration") or 30.0)
 
         if duration > MAX_LEGACY_SEGMENT_DURATION_SECONDS:
             print(f"[W7] Capping segment {seg_id} duration from {duration:.1f}s to {MAX_LEGACY_SEGMENT_DURATION_SECONDS:.1f}s")
@@ -442,7 +453,7 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         await run_in_threadpool(_make_bg_video_sync, bg_image_paths, bg_path, duration)
 
         # Compose EN video
-        en_duration = min(seg.get("duration_en", duration), duration)
+        en_duration = float(seg.get("duration_en") or duration)
         if audio_en and os.path.exists(audio_en):
             out_en = os.path.join(tmp_dir, f"seg_{seg_id}_en.mp4")
             try:
@@ -455,7 +466,7 @@ async def run(voice_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
                 print(f"[W7] EN compose failed {seg_id}: {e}")
 
         # Compose HI video
-        hi_duration = min(seg.get("duration_hi", duration), duration)
+        hi_duration = float(seg.get("duration_hi") or duration)
         if audio_hi and os.path.exists(audio_hi):
             out_hi = os.path.join(tmp_dir, f"seg_{seg_id}_hi.mp4")
             try:

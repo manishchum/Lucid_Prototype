@@ -234,9 +234,6 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         backup_en_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_en.mp4")
         list_file_en = os.path.join(tmp_dir, "lecture_en_list.txt")
         _concat_videos_sync(lecture_video_en_paths, list_file_en, backup_en_path)
-        trimmed_backup_en_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_en_30s.mp4")
-        _trim_video_sync(backup_en_path, trimmed_backup_en_path, duration_seconds=30.0)
-        backup_en_path = trimmed_backup_en_path
         upload_backup_en = f"{processed_module_id}/interactive/{course_id}_lecture_backup_en.mp4"
         backup_video_url_en = _upload_file_sync(backup_en_path, upload_backup_en)
         print(f"[W9] Uploaded EN backup video: {backup_video_url_en}")
@@ -245,9 +242,6 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
         backup_hi_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_hi.mp4")
         list_file_hi = os.path.join(tmp_dir, "lecture_hi_list.txt")
         _concat_videos_sync(lecture_video_hi_paths, list_file_hi, backup_hi_path)
-        trimmed_backup_hi_path = os.path.join(tmp_dir, f"{course_id}_lecture_backup_hi_30s.mp4")
-        _trim_video_sync(backup_hi_path, trimmed_backup_hi_path, duration_seconds=30.0)
-        backup_hi_path = trimmed_backup_hi_path
         upload_backup_hi = f"{processed_module_id}/interactive/{course_id}_lecture_backup_hi.mp4"
         backup_video_url_hi = _upload_file_sync(backup_hi_path, upload_backup_hi)
         print(f"[W9] Uploaded HI backup video: {backup_video_url_hi}")

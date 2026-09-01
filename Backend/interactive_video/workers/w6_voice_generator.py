@@ -38,7 +38,7 @@ _VOICES = {
     },
     "hi": {
         "language_code": "hi-IN",
-        "name": "hi-IN-Neural2-B",
+        "name": "hi-IN-Chirp3-HD-Callirrhoe",
     },
 }
 
