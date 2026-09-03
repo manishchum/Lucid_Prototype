@@ -13,7 +13,7 @@ MODEL_CACHE_TTL = 600      # 10 minutes
 class ModelManager:
 
     @staticmethod
-    def get(feature: str) -> ModelConfig:
+    def get(feature: str, use_cache: bool = True) -> ModelConfig:
         """
         Returns the active model configuration
         for the requested feature.
@@ -26,7 +26,7 @@ class ModelManager:
         # --------------------------------------------------
 
         try:
-            if redis_client:
+            if use_cache and redis_client:
                 cached = redis_client.get(cache_key)
 
                 if cached:
@@ -81,7 +81,7 @@ class ModelManager:
         # --------------------------------------------------
 
         try:
-            if redis_client:
+            if use_cache and redis_client:
                 import json
 
                 redis_client.setex(

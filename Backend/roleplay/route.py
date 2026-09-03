@@ -23,7 +23,7 @@ from utils.auth import (
     _verify_token,
     _build_request_auth_from_verified_claims,
     get_roleplay_context,
-    # require_addon,
+    require_addon,
 )
 
 from utils.db import roleplay_db
@@ -36,7 +36,12 @@ from ai.usage_tracker import UsageTracker
 router = APIRouter(
     prefix="/roleplay",
     tags=["Roleplay"],
-    # dependencies=[Depends(require_addon("role_play"))]
+    dependencies=[Depends(require_addon("role_play"))]
+)
+
+ws_router = APIRouter(
+    prefix="/roleplay",
+    tags=["Roleplay"],
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1283,7 +1288,7 @@ async def finish_roleplay(
 # Realtime
 # ============================================================
 
-@router.websocket("/realtime")
+@ws_router.websocket("/realtime")
 async def websocket_realtime_roleplay(websocket: WebSocket):
     token = websocket.query_params.get("token")
 
@@ -1324,6 +1329,15 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             auth_context.company_id,
         )
 
+        from utils.auth_bridge import get_service_supabase_client
+        supabase_client = get_service_supabase_client()
+        resp = supabase_client.table('companies').select('subscription_addons').eq('company_id', auth_context.company_id).maybe_single().execute()
+        
+        if not resp.data or "role_play" not in (resp.data.get('subscription_addons') or []):
+            logger.warning("[Realtime Auth] ❌ Company does not have role_play addon")
+            await websocket.close(code=1008)
+            return
+
     except HTTPException as e:
         logger.warning(
             "[Realtime Auth] ❌ Authentication failed: status=%s detail=%s",
@@ -1355,6 +1369,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
     item_ids_order = []
     scenario_context = None
     realtime_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    realtime_started_at = asyncio.get_running_loop().time()
     realtime_model_config = None
 
     try:
@@ -1718,7 +1733,9 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
     finally:
         sid = scenario_context.get("session_id") if scenario_context else "unknown"
 
-        if realtime_model_config and realtime_usage["total_tokens"]:
+        if realtime_model_config and (
+            realtime_usage["total_tokens"] or sid != "unknown"
+        ):
             try:
                 input_tokens = realtime_usage["input_tokens"]
                 output_tokens = realtime_usage["output_tokens"]
@@ -1745,13 +1762,17 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                         cost_inr=cost_inr,
                         latency_ms=0,
                         status="success",
+                        usage_quantity=(asyncio.get_running_loop().time() - realtime_started_at) / 60,
+                        usage_unit="session_minutes",
+                        duration_seconds=asyncio.get_running_loop().time() - realtime_started_at,
                     )
                 )
                 logger.info(
-                    "[Realtime] Usage logged: input=%s output=%s total=%s",
+                    "[Realtime] Usage logged: input=%s output=%s total=%s duration_seconds=%s",
                     input_tokens,
                     output_tokens,
                     total_tokens,
+                    asyncio.get_running_loop().time() - realtime_started_at,
                 )
             except Exception as e:
                 logger.error("[Realtime] Failed to log usage: %s", e)
