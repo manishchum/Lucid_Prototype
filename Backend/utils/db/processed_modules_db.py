@@ -192,16 +192,18 @@ async def get_processed_modules_by_original_module(
         response = query.order('order_index').execute()
         
         # Attach threshold_value from training_modules
-        sprint_response = query_client.table('training_modules').select('threshold_value').eq(
+        sprint_response = query_client.table('training_modules').select('threshold_value, sprint_insights').eq(
             'module_id', resolved_original_module_id
         ).maybe_single().execute()
         sprint_data = getattr(sprint_response, 'data', None) or {}
         threshold_val = sprint_data.get('threshold_value', 70)
+        sprint_insights = sprint_data.get('sprint_insights', [])
 
         modules_data = response.data or []
         for mod in modules_data:
             if isinstance(mod, dict):
                 mod['threshold_value'] = threshold_val
+                mod['sprint_insights'] = sprint_insights
 
         return {"data": modules_data, "error": None}
     except Exception as e:
@@ -250,19 +252,21 @@ async def get_processed_module_by_id(
             }
         
         # Fetch sprint (training module) info
-        sprint_response = db.table('training_modules').select('module_id, title, threshold_value').eq(
+        sprint_response = db.table('training_modules').select('module_id, title, threshold_value, sprint_insights').eq(
             'module_id', original_module_id
         ).maybe_single().execute()
 
         sprint_data = getattr(sprint_response, 'data', None) or {}
         sprint_name = sprint_data.get('title', '')
         threshold_val = sprint_data.get('threshold_value', 70)
+        sprint_insights = sprint_data.get('sprint_insights', [])
         
         # Add sprint information to the response
         module_data = module_row.copy()
         module_data['sprint_name'] = sprint_name
         module_data['sprint_id'] = original_module_id
         module_data['threshold_value'] = threshold_val
+        module_data['sprint_insights'] = sprint_insights
         
         return {"data": module_data, "error": None}
     except Exception as e:

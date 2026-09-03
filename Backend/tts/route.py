@@ -250,6 +250,42 @@ def cleanTextForTTS(text: str):
     return text.strip()
 
 
+def prepareTextForSpeech(text: str) -> str:
+    """Convert common written notation into text Google TTS reads naturally."""
+    text = (
+        re.sub(r"[#*`>]", "", text)
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # A hyphen joins numeric tokens for some TTS voices (62-65 -> 6265).
+    text = re.sub(
+        r"(?<![\w.])(\d+(?:\.\d+)?)\s*[-\u2013\u2014]\s*(\d+(?:\.\d+)?)(?=\s*(?:%|\b))",
+        r"\1 to \2",
+        text,
+    )
+
+    replacements = (
+        (r"(?<=\d)\s*%", " percent"),
+        (r"\bkm/h\b", "kilometers per hour"),
+        (r"\bkm\b", "kilometers"),
+        (r"\bmph\b", "miles per hour"),
+        (r"\bkg\b", "kilograms"),
+        (r"\bmg\b", "milligrams"),
+        (r"\bml\b", "milliliters"),
+        (r"\bvs\.?", "versus"),
+        (r"\be\.g\.?\b", "for example"),
+        (r"\bi\.e\.?\b", "that is"),
+        (r"\s*&\s*", " and "),
+        (r"\s*\+\s*", " plus "),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
 SUPPORTED_PODCAST_LANGUAGE_CODES = {
     "en",
     "hinglish",
@@ -701,7 +737,7 @@ async def synthesizeText(
     """
 
     try:
-        text = cleanTextForTTS(text)
+        text = prepareTextForSpeech(text)
 
         if not text:
             return {
@@ -784,19 +820,29 @@ async def synthesizeText(
             }
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://texttospeech.googleapis.com/v1/text:synthesize",
-                headers={
-                    "Authorization": f"Bearer {accessToken}",
-                    "Content-Type": "application/json"
-                },
-                json=requestBody
-            )
+        max_retries = 3
+        retry_delay = 2 # seconds
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://texttospeech.googleapis.com/v1/text:synthesize",
+                    headers={
+                        "Authorization": f"Bearer {accessToken}",
+                        "Content-Type": "application/json"
+                    },
+                    json=requestBody
+                )
 
-        if response.status_code != 200:
+            if response.status_code == 200:
+                break
+            
+            if response.status_code in (429, 503) and attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(retry_delay * (2 ** attempt))
+                continue
+
             return {
-                "error": response.text,
+                "error": f"Google TTS API failed: {response.text}",
                 "status": response.status_code
             }
 
