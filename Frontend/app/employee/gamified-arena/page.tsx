@@ -27,7 +27,13 @@ import {
   Check,
   RotateCcw,
   HelpCircle,
-  Layers as LayersIcon
+  Layers as LayersIcon,
+  FileSearch,
+  ListOrdered,
+  ShieldAlert,
+  Target,
+  Users,
+  AlertTriangle
 } from "lucide-react";
 
 // ==========================================
@@ -165,8 +171,10 @@ const MOCK_LEADERBOARD_USERS: LeaderboardUser[] = [
 
 export default function EmployeeGamifiedArenaPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("bc335f5e-e0a4-48ee-94d1-4d47f06ccb6d");
-  const [activeTab, setActiveTab] = useState<"sprints" | "fill-blanks" | "case-study" | "matching" | "flashcards" | "mcq" | "leaderboard" | "vault">("sprints");
+  const [activeTab, setActiveTab] = useState<"sprints" | "fill-blanks" | "case-study" | "matching" | "flashcards" | "process-flow" | "fraud-spotter" | "mcq" | "pvp-duel" | "leaderboard" | "vault">("sprints");
   const [userXp, setUserXp] = useState<number>(3450);
+
+  // ... (rest of logic remains continuous) ...
   const [completedActivities, setCompletedActivities] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [soundMuted, setSoundMuted] = useState<boolean>(false);
@@ -253,30 +261,25 @@ export default function EmployeeGamifiedArenaPage() {
   };
 
   const completedCount = Object.keys(completedActivities).length;
-  const totalActivities = 5;
+  const totalActivities = 8;
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans selection:bg-indigo-500 selection:text-white pb-16">
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(99,102,241,0.05),rgba(255,255,255,0))]" />
 
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
-        {/* SOPHISTICATED MINIMAL HEADER BAR */}
-        <header className="rounded-3xl bg-white border border-slate-200/90 p-5 sm:p-6 shadow-sm relative overflow-hidden space-y-4">
+        {/* TOP COMPACT HEADER */}
+        <header className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-sm space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              {/* Study Mode Indicator / Return Button */}
-              {activeTab === "sprints" ? (
-                <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-black shadow-2xs">
-                  <Swords className="w-4 h-4 text-indigo-600" />
-                  <span className="leading-none tracking-tight">Study Mode</span>
-                </div>
-              ) : (
+            {/* TOP LEFT BRANDING & BACK BUTTON */}
+            <div className="flex items-center gap-3">
+              {activeTab !== "sprints" && (
                 <button
                   onClick={() => {
                     playSound("tap");
                     setActiveTab("sprints");
                   }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all border border-slate-200/80 shadow-2xs cursor-pointer active:scale-95"
+                  className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <ArrowLeft className="w-4 h-4 text-slate-600" />
                   <span className="leading-none">Study Mode</span>
@@ -286,12 +289,9 @@ export default function EmployeeGamifiedArenaPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-                    TATA AIA Policy Surrender Arena ⚡
+                    Workfloww.ai Arena ⚡
                   </h1>
                 </div>
-                <p className="text-xs font-bold text-slate-500 mt-0.5">
-                  Sub-Module 1P1: Fundamentals of Policy Surrender & VOC Protocols
-                </p>
               </div>
             </div>
 
@@ -315,12 +315,12 @@ export default function EmployeeGamifiedArenaPage() {
                   playSound("tap");
                   setActiveTab("leaderboard");
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer shadow-2xs ${activeTab === "leaderboard"
+                className={`px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${activeTab === "leaderboard"
                   ? "bg-amber-500 text-white border-amber-500 shadow-sm"
-                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80"
+                  : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-200/80"
                   }`}
               >
-                <Trophy className={`w-3.5 h-3.5 ${activeTab === "leaderboard" ? "text-white" : "text-amber-500"}`} />
+                <Trophy className="w-4 h-4 text-amber-500" />
                 <span>Leaderboard</span>
               </button>
 
@@ -330,32 +330,29 @@ export default function EmployeeGamifiedArenaPage() {
                   playSound("tap");
                   setActiveTab("vault");
                 }}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer shadow-2xs ${activeTab === "vault"
+                className={`px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${activeTab === "vault"
                   ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                  : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80"
+                  : "bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200/80"
                   }`}
               >
-                <Shield className={`w-3.5 h-3.5 ${activeTab === "vault" ? "text-white" : "text-indigo-600"}`} />
+                <Shield className="w-4 h-4 text-indigo-600" />
                 <span>Badges</span>
               </button>
 
-              {/* Active Streak Button */}
-              <button
+              {/* Active Streak Counter Pill */}
+              <div
                 onClick={() => {
                   playSound("tap");
                   setStreakModalOpen(true);
                 }}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer shadow-2xs ${streakDays > 0
-                  ? "bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-100/80"
-                  : "bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200/80"
-                  }`}
+                className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2 rounded-2xl text-xs font-extrabold cursor-pointer hover:bg-rose-100 transition-all shadow-2xs"
               >
-                <Flame className={`w-4 h-4 ${streakDays > 0 ? "fill-rose-500 text-rose-500 animate-pulse" : "text-slate-400"}`} />
-                <span>{streakDays > 0 ? `${streakDays} Day Streak 🔥` : "0 Day Streak"}</span>
-              </button>
+                <Flame className="w-4 h-4 text-rose-500 fill-rose-500 animate-bounce" />
+                <span>{streakDays} Day Streak 🔥</span>
+              </div>
 
-              {/* XP Counter */}
-              <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs font-bold shadow-2xs">
+              {/* User Total XP Badge */}
+              <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3.5 py-2 rounded-2xl text-xs font-black shadow-2xs">
                 <Sparkles className="w-4 h-4 fill-indigo-500 text-indigo-600" />
                 <span>+{userXp} XP</span>
               </div>
@@ -363,14 +360,17 @@ export default function EmployeeGamifiedArenaPage() {
           </div>
 
           {/* BOTTOM ROW: DRILL FORMAT PILLS (Only shown when active in a drill) */}
-          {["fill-blanks", "case-study", "matching", "flashcards", "mcq"].includes(activeTab) && (
-            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+          {["fill-blanks", "case-study", "matching", "flashcards", "process-flow", "fraud-spotter", "mcq", "pvp-duel"].includes(activeTab) && (
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
               {[
-                { id: "fill-blanks", label: "1. Fill the Blanks ✍️", count: completedActivities["fill-blanks"] ? "✓" : "2", icon: Brain },
-                { id: "case-study", label: "2. Vibe Check 🕵️‍♂️", count: completedActivities["case-study"] ? "✓" : "1", icon: BookOpen },
+                { id: "fill-blanks", label: "1. Fill Blanks ✍️", count: completedActivities["fill-blanks"] ? "✓" : "1", icon: Brain },
+                { id: "case-study", label: "2. Vibe Check 🕵️‍♂️", count: completedActivities["case-study"] ? "✓" : "2", icon: BookOpen },
                 { id: "matching", label: "3. Risk Rizz 🧩", count: completedActivities["matching"] ? "✓" : "3", icon: Sparkles },
-                { id: "flashcards", label: "4. Code Breaker 🔓", count: completedActivities["flashcards"] ? "✓" : "2", icon: Lock },
-                { id: "mcq", label: "5. Speed Run ⏱️", count: completedActivities["mcq"] ? "✓" : "1", icon: Clock },
+                { id: "flashcards", label: "4. Code Breaker 🔓", count: completedActivities["flashcards"] ? "✓" : "4", icon: Lock },
+                { id: "process-flow", label: "5. Flow Master 🔄", count: completedActivities["process-flow"] ? "✓" : "5", icon: ListOrdered },
+                { id: "fraud-spotter", label: "6. Audit Spotter 🔍", count: completedActivities["fraud-spotter"] ? "✓" : "6", icon: FileSearch },
+                { id: "mcq", label: "7. Speed Run ⏱️", count: completedActivities["mcq"] ? "✓" : "7", icon: Clock },
+                { id: "pvp-duel", label: "8. 1v1 AI Duel ⚔️", count: completedActivities["pvp-duel"] ? "✓" : "8", icon: Swords },
               ].map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -381,15 +381,15 @@ export default function EmployeeGamifiedArenaPage() {
                       playSound("tap");
                       setActiveTab(tab.id as any);
                     }}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap border shrink-0 cursor-pointer ${isActive
-                      ? "bg-gradient-to-r from-indigo-600 to-blue-600 text-white border-transparent shadow-sm shadow-indigo-500/20"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border shrink-0 cursor-pointer ${isActive
+                      ? "bg-slate-900 text-white border-slate-900 shadow-sm"
                       : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/80"
                       }`}
                   >
-                    <Icon className={`w-3.5 h-3.5 ${isActive ? "text-white" : "text-slate-500"}`} />
+                    <Icon className={`w-3.5 h-3.5 ${isActive ? "text-cyan-400" : "text-slate-500"}`} />
                     <span>{tab.label}</span>
                     <span
-                      className={`ml-1 text-[10px] px-1.5 py-0.2 rounded-full font-black ${isActive ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"
+                      className={`text-[10px] px-1.5 py-0.2 rounded-md font-black ${isActive ? "bg-white/20 text-white" : "bg-slate-200/80 text-slate-600"
                         }`}
                     >
                       {tab.count}
@@ -402,7 +402,7 @@ export default function EmployeeGamifiedArenaPage() {
         </header>
 
         {/* DRILL PROGRESS BAR — Only rendered during active questionnaire drills */}
-        {["fill-blanks", "case-study", "matching", "flashcards", "mcq"].includes(activeTab) && (
+        {["fill-blanks", "case-study", "matching", "flashcards", "process-flow", "fraud-spotter", "mcq", "pvp-duel"].includes(activeTab) && (
           <div className="space-y-1.5 px-1">
             <div className="flex items-center justify-between text-xs font-bold text-slate-600">
               <span>Drill {completedCount + 1} of {totalActivities}</span>
@@ -445,11 +445,11 @@ export default function EmployeeGamifiedArenaPage() {
                 {
                   id: 1,
                   title: "Sprint 1: Policy Surrender Fundamentals",
-                  desc: "Master voluntary termination, surrender value factors (product spec, premium paid, premium paying term).",
+                  desc: "Master voluntary termination, surrender value factors, process flow, audit spotter, and 1v1 PvP Arena Duel.",
                   unlocked: true,
-                  status: completedActivities["mcq"] ? "COMPLETED ✓" : "ACTIVE & UNLOCKED",
-                  drillsCount: "5 Interactive Drills",
-                  reward: "+1,000 XP Total",
+                  status: completedActivities["pvp-duel"] ? "COMPLETED ✓" : "ACTIVE & UNLOCKED",
+                  drillsCount: "8 Interactive Drills",
+                  reward: "+1,800 XP Total",
                   badge: "Surrender Guardian Badge",
                   bg: "bg-white border-indigo-500 ring-2 ring-indigo-500/10 shadow-md",
                 },
@@ -457,13 +457,13 @@ export default function EmployeeGamifiedArenaPage() {
                   id: 2,
                   title: "Sprint 2: Process & Eligibility Criteria",
                   desc: "Master ULIP vs Traditional lock-in periods, submission channels, 10km distance, and 10 Lakh amount rules.",
-                  unlocked: !!completedActivities["mcq"],
-                  status: completedActivities["mcq"] ? "ACTIVE & UNLOCKED 🎉" : "LOCKED 🔒",
+                  unlocked: !!completedActivities["pvp-duel"],
+                  status: completedActivities["pvp-duel"] ? "ACTIVE & UNLOCKED 🎉" : "LOCKED 🔒",
                   drillsCount: "5 Advanced Drills",
                   reward: "+1,200 XP",
                   badge: "Eligibility Master Badge",
-                  prereq: completedActivities["mcq"] ? "" : "Complete Sprint 1 Drills to Unlock",
-                  bg: completedActivities["mcq"] ? "bg-white border-emerald-500 ring-2 ring-emerald-500/10 shadow-md" : "bg-slate-100/70 border-slate-200 opacity-75",
+                  prereq: completedActivities["pvp-duel"] ? "" : "Complete Sprint 1 Drills to Unlock",
+                  bg: completedActivities["pvp-duel"] ? "bg-white border-emerald-500 ring-2 ring-emerald-500/10 shadow-md" : "bg-slate-100/70 border-slate-200 opacity-75",
                 },
                 {
                   id: 3,
@@ -563,28 +563,14 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider">FILL IN THE BLANKS</span>
-                <span className="text-xs font-bold text-slate-500">Governance Policy Drill</span>
+                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider">DRILL 1: FILL IN THE BLANKS</span>
+                <span className="text-xs font-bold text-slate-500">Policy Terms & Definitions</span>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100 text-xs font-black flex items-center gap-1">
                 <Flame className="w-3.5 h-3.5 text-rose-500" /> +150 XP
               </span>
             </div>
-            <div className="rounded-2xl bg-[#0f172a] text-white p-5 shadow-lg flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-indigo-600/30 border border-indigo-400/40 flex items-center justify-center shrink-0 text-indigo-300">
-                  <Brain className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-black text-indigo-400 uppercase tracking-wider">DR. R. K. SHARMA (SENIOR GOVERNANCE AUDITOR)</div>
-                  <p className="text-sm font-semibold italic text-slate-200 mt-1">&quot;Star Enterprises compliance framework requires complete regulatory alignment. Fill in the missing talk-track terms below.&quot;</p>
-                </div>
-              </div>
-              <button onClick={() => playSound("tap")} className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-all shrink-0">
-                <Volume2 className="w-4 h-4" />
-              </button>
-            </div>
-            <FillBlanksSolver onComplete={() => { claimReward("fill-blanks", 150); setActiveTab("case-study"); }} isAlreadyCompleted={!!completedActivities["fill-blanks"]} />
+            <FillBlanksSolver onComplete={(earnedXp) => { claimReward("fill-blanks", earnedXp); setActiveTab("case-study"); }} isAlreadyCompleted={!!completedActivities["fill-blanks"]} />
           </div>
         )}
 
@@ -592,12 +578,12 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider">CASE STUDY / TRUE OR FALSE</span>
-                <span className="text-xs font-bold text-slate-500">Procurement Dilemma</span>
+                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider">DRILL 2: VIBE CHECK (TRUE / FALSE)</span>
+                <span className="text-xs font-bold text-slate-500">Procedural Rules Dilemma</span>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-black">+250 XP</span>
             </div>
-            <CaseStudySolver onComplete={() => { claimReward("case-study", 250); setActiveTab("matching"); }} isAlreadyCompleted={!!completedActivities["case-study"]} />
+            <CaseStudySolver onComplete={(earnedXp) => { claimReward("case-study", earnedXp); setActiveTab("matching"); }} isAlreadyCompleted={!!completedActivities["case-study"]} />
           </div>
         )}
 
@@ -605,12 +591,12 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-black uppercase tracking-wider">MATCHING PAIRS</span>
-                <span className="text-xs font-bold text-slate-500">Risk & Mitigation Matrix</span>
+                <span className="px-3.5 py-1.5 rounded-full bg-purple-100 text-purple-700 text-xs font-black uppercase tracking-wider">DRILL 3: RISK RIZZ (MATCHING PAIRS)</span>
+                <span className="text-xs font-bold text-slate-500">Requirements & Action Matrix</span>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-purple-50 text-purple-700 border border-purple-100 text-xs font-black">+200 XP</span>
             </div>
-            <MatchingPairsSolver onComplete={() => { claimReward("matching", 200); setActiveTab("flashcards"); }} isAlreadyCompleted={!!completedActivities["matching"]} />
+            <MatchingPairsSolver onComplete={(earnedXp) => { claimReward("matching", earnedXp); setActiveTab("flashcards"); }} isAlreadyCompleted={!!completedActivities["matching"]} />
           </div>
         )}
 
@@ -618,12 +604,38 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black uppercase tracking-wider">CODE BREAKER 🔓</span>
-                <span className="text-xs font-bold text-slate-500">Decipher Governance Terms</span>
+                <span className="px-3.5 py-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black uppercase tracking-wider">DRILL 4: CODE BREAKER 🔓</span>
+                <span className="text-xs font-bold text-slate-500">Decipher Policy Terms</span>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">+150 XP</span>
             </div>
-            <CodeBreakerSolver onComplete={() => { claimReward("flashcards", 150); setActiveTab("mcq"); }} isAlreadyCompleted={!!completedActivities["flashcards"]} />
+            <CodeBreakerSolver onComplete={(earnedXp) => { claimReward("flashcards", earnedXp); setActiveTab("process-flow"); }} isAlreadyCompleted={!!completedActivities["flashcards"]} />
+          </div>
+        )}
+
+        {activeTab === "process-flow" && (
+          <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="px-3.5 py-1.5 rounded-full bg-cyan-100 text-cyan-700 text-xs font-black uppercase tracking-wider">DRILL 5: FLOW MASTER 🔄</span>
+                <span className="text-xs font-bold text-slate-500">Step-by-Step Sequence Builder</span>
+              </div>
+              <span className="px-3.5 py-1.5 rounded-full bg-cyan-50 text-cyan-700 border border-cyan-100 text-xs font-black">+250 XP</span>
+            </div>
+            <ProcessFlowSolver onComplete={(earnedXp) => { claimReward("process-flow", earnedXp); setActiveTab("fraud-spotter"); }} isAlreadyCompleted={!!completedActivities["process-flow"]} />
+          </div>
+        )}
+
+        {activeTab === "fraud-spotter" && (
+          <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="px-3.5 py-1.5 rounded-full bg-amber-100 text-amber-800 text-xs font-black uppercase tracking-wider">DRILL 6: AUDIT SPOTTER 🔍</span>
+                <span className="text-xs font-bold text-slate-500">Document Inspection Red-Flag Hunter</span>
+              </div>
+              <span className="px-3.5 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-xs font-black">+200 XP</span>
+            </div>
+            <FraudSpotterSolver onComplete={(earnedXp) => { claimReward("fraud-spotter", earnedXp); setActiveTab("mcq"); }} isAlreadyCompleted={!!completedActivities["fraud-spotter"]} />
           </div>
         )}
 
@@ -631,12 +643,27 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-rose-100 text-rose-700 text-xs font-black uppercase tracking-wider">TIMED SPEED QUIZ</span>
-                <span className="text-xs font-bold text-slate-500">Statutory Framework</span>
+                <span className="px-3.5 py-1.5 rounded-full bg-rose-100 text-rose-700 text-xs font-black uppercase tracking-wider">DRILL 7: TIMED SPEED QUIZ ⏱️</span>
+                <span className="text-xs font-bold text-slate-500">Verification Protocol Challenge</span>
               </div>
-              <span className="px-3.5 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-xs font-black">+300 XP</span>
+              <span className="px-3.5 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-xs font-black">+300 XP</span>
             </div>
-            <McqSpeedQuizSolver onComplete={() => { claimReward("mcq", 300); setActiveTab("sprints"); }} isAlreadyCompleted={!!completedActivities["mcq"]} />
+            <McqSpeedQuizSolver onComplete={(earnedXp) => { claimReward("mcq", earnedXp); setActiveTab("pvp-duel"); }} isAlreadyCompleted={!!completedActivities["mcq"]} />
+          </div>
+        )}
+
+        {activeTab === "pvp-duel" && (
+          <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className="px-3.5 py-1.5 rounded-full bg-cyan-600 text-white text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+                  <Swords className="w-3.5 h-3.5" /> DRILL 8: 1V1 HUMAN VS AI ARENA DUEL ⚔️
+                </span>
+                <span className="text-xs font-bold text-slate-500">Real-Time AI Sentinel Clash</span>
+              </div>
+              <span className="px-3.5 py-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-xs font-black">+400 XP Glory</span>
+            </div>
+            <PvpDuelSolver onComplete={(earnedXp) => { claimReward("pvp-duel", earnedXp); setActiveTab("sprints"); }} isAlreadyCompleted={!!completedActivities["pvp-duel"]} />
           </div>
         )}
 
@@ -1727,6 +1754,649 @@ export default function EmployeeGamifiedArenaPage() {
               Claim {earnedXp} XP & Unlock Sprint 2 🎉 <ArrowRight className="w-4 h-4" />
             </button>
           ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------
+  // 5. FLOW MASTER / PROCESS SEQUENCE SOLVER
+  // ------------------------------------------
+  function ProcessFlowSolver({
+    onComplete,
+    isAlreadyCompleted,
+  }: {
+    onComplete: (xp: number) => void;
+    isAlreadyCompleted: boolean;
+  }) {
+    const initialSteps = [
+      { id: "s3", title: "3. Guide to Tasha DIY Chatbot or Branch Visit", correctPos: 2 },
+      { id: "s1", title: "1. 3-Point Call Verification (Bank, Nominee, DOB)", correctPos: 0 },
+      { id: "s4", title: "4. Execute 1-5 Scale VOC Rating & Farewell", correctPos: 3 },
+      { id: "s2", title: "2. Evaluate Distance (10km) & Value (10L) Rules", correctPos: 1 },
+    ];
+
+    const [selectedSequence, setSelectedSequence] = useState<string[]>(
+      isAlreadyCompleted ? ["s1", "s2", "s3", "s4"] : []
+    );
+    const [submitted, setSubmitted] = useState<boolean>(isAlreadyCompleted);
+    const [wrongAttempts, setWrongAttempts] = useState<number>(0);
+
+    const earnedXp = Math.max(50, 250 - wrongAttempts * 35);
+    const isCorrect = selectedSequence.join(",") === "s1,s2,s3,s4";
+
+    const handleStepClick = (stepId: string) => {
+      if (submitted) return;
+      playSound("tap");
+      if (selectedSequence.includes(stepId)) {
+        setSelectedSequence(selectedSequence.filter((id) => id !== stepId));
+      } else if (selectedSequence.length < 4) {
+        setSelectedSequence([...selectedSequence, stepId]);
+      }
+    };
+
+    const handleVerify = () => {
+      if (selectedSequence.length !== 4) return;
+      if (selectedSequence.join(",") === "s1,s2,s3,s4") {
+        playSound("correct");
+      } else {
+        playSound("incorrect");
+        setWrongAttempts((prev) => prev + 1);
+      }
+      setSubmitted(true);
+    };
+
+    const handleReset = () => {
+      playSound("tap");
+      setSelectedSequence([]);
+      setSubmitted(false);
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="p-4 rounded-2xl bg-cyan-50/60 border border-cyan-200/80 text-xs font-semibold text-cyan-900 flex items-center gap-2.5">
+          <ListOrdered className="w-4 h-4 text-cyan-600 shrink-0" />
+          <span>Tap each step card below in chronological order to build the official Surrender Workflow:</span>
+        </div>
+
+        {/* SEQUENCE SLOTS DISPLAY */}
+        <div className="space-y-2.5">
+          <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            SELECTED CHRONOLOGICAL SEQUENCE ({selectedSequence.length}/4):
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[0, 1, 2, 3].map((idx) => {
+              const stepId = selectedSequence[idx];
+              const stepObj = initialSteps.find((s) => s.id === stepId);
+              return (
+                <div
+                  key={idx}
+                  className={`p-3.5 rounded-2xl border flex items-center gap-3 transition-all min-h-[56px] ${
+                    stepObj
+                      ? isCorrect
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-900 shadow-xs"
+                        : "bg-indigo-50 border-indigo-200 text-indigo-900 shadow-xs"
+                      : "bg-slate-50 border-dashed border-slate-300 text-slate-400 text-xs"
+                  }`}
+                >
+                  <span className="w-7 h-7 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center justify-center shrink-0">
+                    #{idx + 1}
+                  </span>
+                  <span className="text-xs font-bold leading-tight">
+                    {stepObj ? stepObj.title : "Tap a step below to place here"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* AVAILABLE STEPS BANK */}
+        {!submitted && (
+          <div className="space-y-2">
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              STEP POOL (TAP TO SELECT/DESELECT):
+            </div>
+            <div className="grid grid-cols-1 gap-2.5">
+              {initialSteps.map((step) => {
+                const isSelected = selectedSequence.includes(step.id);
+                return (
+                  <button
+                    key={step.id}
+                    disabled={isSelected}
+                    onClick={() => handleStepClick(step.id)}
+                    className={`p-4 rounded-2xl border text-left text-xs font-bold transition-all cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-50"
+                        : "bg-white hover:bg-cyan-50/50 hover:border-cyan-300 border-slate-200 text-slate-800 shadow-2xs"
+                    }`}
+                  >
+                    <span>{step.title}</span>
+                    {isSelected && <Check className="w-4 h-4 text-emerald-600 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {submitted && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-3 ${
+              isCorrect
+                ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                : "bg-rose-50 border-rose-300 text-rose-900"
+            }`}
+          >
+            {isCorrect ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <div>
+              <span>
+                {isCorrect
+                  ? `Boom! Perfect workflow sequence constructed!`
+                  : "Incorrect sequence order! Correct flow is: Verification ➔ Distance/Value Rules ➔ Tasha/Branch Guidance ➔ VOC & Farewell."}
+              </span>
+              {wrongAttempts > 0 && isCorrect && (
+                <span className="block text-[10px] text-amber-700 font-extrabold mt-0.5">
+                  ⚠️ (-{wrongAttempts * 35} XP penalty applied for {wrongAttempts} wrong {wrongAttempts === 1 ? "attempt" : "attempts"})
+                </span>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        <div className="pt-2 flex items-center justify-between">
+          {submitted && !isCorrect ? (
+            <button
+              onClick={handleReset}
+              className="px-4 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Re-Order Sequence (-35 XP Penalty)
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {!submitted ? (
+            <button
+              disabled={selectedSequence.length !== 4}
+              onClick={handleVerify}
+              className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs disabled:opacity-40 transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+            >
+              Verify Workflow Order
+            </button>
+          ) : isCorrect ? (
+            <button
+              onClick={() => {
+                playSound("complete");
+                onComplete(earnedXp);
+              }}
+              className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+            >
+              Claim {earnedXp} XP & Next Drill <ArrowRight className="w-4 h-4" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------
+  // 6. AUDIT SPOTTER / RED FLAG HUNTER SOLVER
+  // ------------------------------------------
+  function FraudSpotterSolver({
+    onComplete,
+    isAlreadyCompleted,
+  }: {
+    onComplete: (xp: number) => void;
+    isAlreadyCompleted: boolean;
+  }) {
+    const [selectedSection, setSelectedSection] = useState<number | null>(null);
+    const [submitted, setSubmitted] = useState<boolean>(isAlreadyCompleted);
+    const [wrongAttempts, setWrongAttempts] = useState<number>(0);
+
+    const earnedXp = Math.max(50, 200 - wrongAttempts * 30);
+
+    const documentSections = [
+      {
+        id: 1,
+        label: "Section A: Policyholder Details",
+        content: "Customer: Yomit Khurana | Policy #TA-99203",
+        isRedFlag: false,
+        feedback: "Compliant: Policyholder identity details match internal database records.",
+      },
+      {
+        id: 2,
+        label: "Section B: Distance & Value Rule",
+        content: "Amount: ₹4,50,000 | Branch Distance: 8.5 km",
+        isRedFlag: false,
+        feedback: "Compliant: Amount < 10 Lakh and Distance <= 10km qualifies for branch visit.",
+      },
+      {
+        id: 3,
+        label: "Section C: Identity Proof Attachment",
+        content: "Attached ID: Unmasked Aadhaar Copy (Full 12-Digit Visible)",
+        isRedFlag: true,
+        feedback: "RED FLAG SPOTTED! Protocol requires MASKED Aadhaar (first 8 digits hidden).",
+      },
+      {
+        id: 4,
+        label: "Section D: 3-Point Call Verification",
+        content: "Verified: Bank Name ✓ | Nominee Name ✓ | Nominee DOB ✓",
+        isRedFlag: false,
+        feedback: "Compliant: All 3 mandatory verification points confirmed.",
+      },
+    ];
+
+    const handleSelect = (id: number) => {
+      if (submitted) return;
+      playSound("tap");
+      setSelectedSection(id);
+    };
+
+    const handleVerify = () => {
+      if (selectedSection === null) return;
+      const sec = documentSections.find((s) => s.id === selectedSection);
+      if (sec?.isRedFlag) {
+        playSound("correct");
+      } else {
+        playSound("incorrect");
+        setWrongAttempts((prev) => prev + 1);
+      }
+      setSubmitted(true);
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs font-semibold text-amber-900 flex items-center gap-2.5">
+          <FileSearch className="w-4 h-4 text-amber-700 shrink-0" />
+          <span>Inspect the incoming Surrender Docket below. Spot the compliance red-flag by tapping the non-compliant section:</span>
+        </div>
+
+        {/* DOCUMENT DOCKET CARD */}
+        <div className="p-6 rounded-3xl bg-slate-900 text-white shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4 text-amber-400" /> SURRENDER REQUEST AUDIT DOCKET #9920
+            </span>
+            <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2.5 py-1 rounded-full">CONFIDENTIAL AUDIT</span>
+          </div>
+
+          <div className="space-y-3">
+            {documentSections.map((sec) => {
+              const isSelected = selectedSection === sec.id;
+              return (
+                <div
+                  key={sec.id}
+                  onClick={() => handleSelect(sec.id)}
+                  className={`p-4 rounded-2xl border text-left text-xs transition-all cursor-pointer ${
+                    isSelected
+                      ? sec.isRedFlag && submitted
+                        ? "bg-emerald-950/80 border-emerald-400 text-emerald-200 ring-2 ring-emerald-400/30"
+                        : "bg-rose-950/80 border-rose-500 text-rose-100 ring-2 ring-rose-500/30"
+                      : "bg-slate-800/80 hover:bg-slate-800 border-slate-700 text-slate-200"
+                  }`}
+                >
+                  <div className="font-black text-slate-400 text-[10px] uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>{sec.label}</span>
+                    {isSelected && <span className="text-amber-400 font-extrabold">SELECTED FOR AUDIT</span>}
+                  </div>
+                  <div className="font-semibold">{sec.content}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {submitted && selectedSection !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-3 ${
+              documentSections.find((s) => s.id === selectedSection)?.isRedFlag
+                ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+                : "bg-rose-50 border-rose-300 text-rose-900"
+            }`}
+          >
+            {documentSections.find((s) => s.id === selectedSection)?.isRedFlag ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            ) : (
+              <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            )}
+            <div>
+              <span>{documentSections.find((s) => s.id === selectedSection)?.feedback}</span>
+              {wrongAttempts > 0 && documentSections.find((s) => s.id === selectedSection)?.isRedFlag && (
+                <span className="block text-[10px] text-amber-700 font-extrabold mt-0.5">
+                  ⚠️ (-{wrongAttempts * 30} XP penalty applied for {wrongAttempts} wrong {wrongAttempts === 1 ? "attempt" : "attempts"})
+                </span>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        <div className="pt-2 flex items-center justify-between">
+          {submitted && !documentSections.find((s) => s.id === selectedSection)?.isRedFlag ? (
+            <button
+              onClick={() => {
+                playSound("tap");
+                setSelectedSection(null);
+                setSubmitted(false);
+              }}
+              className="px-4 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Re-Inspect Docket (-30 XP Penalty)
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {!submitted ? (
+            <button
+              disabled={selectedSection === null}
+              onClick={handleVerify}
+              className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs disabled:opacity-40 transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+            >
+              Flag Compliance Red-Flag
+            </button>
+          ) : documentSections.find((s) => s.id === selectedSection)?.isRedFlag ? (
+            <button
+              onClick={() => {
+                playSound("complete");
+                onComplete(earnedXp);
+              }}
+              className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+            >
+              Claim {earnedXp} XP & Next Drill <ArrowRight className="w-4 h-4" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // ------------------------------------------
+  // 8. 1V1 ARENA PVP DUEL SOLVER (REAL-TIME HUMAN VS AI FIGHT)
+  // ------------------------------------------
+  function PvpDuelSolver({
+    onComplete,
+    isAlreadyCompleted,
+  }: {
+    onComplete: (xp: number) => void;
+    isAlreadyCompleted: boolean;
+  }) {
+    const [playerHp, setPlayerHp] = useState<number>(100);
+    const [aiHp, setAiHp] = useState<number>(isAlreadyCompleted ? 0 : 100);
+    const [round, setRound] = useState<number>(1);
+    const [battleLog, setBattleLog] = useState<string[]>([
+      "⚔️ MATCH START: YOU vs TASHA COMPLIANCE AI BOT 🤖 (100 HP vs 100 HP)",
+      "🤖 TASHA AI BOT opens Round 1 with 'Shortcut Surge' attack!",
+    ]);
+    const [isAiTurn, setIsAiTurn] = useState<boolean>(false);
+    const [isFinished, setIsFinished] = useState<boolean>(isAlreadyCompleted);
+    const [wrongAttempts, setWrongAttempts] = useState<number>(0);
+    const [roundTimeLeft, setRoundTimeLeft] = useState<number>(12);
+
+    const roundsData = [
+      {
+        roundNum: 1,
+        aiAttackName: "COMPLIANCE SHORTCUT SURGE ⚡",
+        aiPrompt: "TASHA AI: 'Customer wants instant phone refund without ID proof. Bypass 3-point check!'",
+        moves: [
+          {
+            id: "m1_correct",
+            name: "🛡️ STRICT 3-POINT SHIELD & VERIFY",
+            desc: "Verify Registered Bank, Nominee Name & Nominee DOB.",
+            isCorrect: true,
+            damageToAi: 50,
+            feedback: "PERFECT COUNTER! You shielded the shortcut and slashed TASHA AI BOT for 50 DMG!",
+          },
+          {
+            id: "m1_wrong",
+            name: "💥 INSTANT APPROVAL SLASH",
+            desc: "Approve phone payout immediately without verification.",
+            isCorrect: false,
+            damageToPlayer: 35,
+            feedback: "COMPLIANCE FLOPS! TASHA AI BOT punished your breach for 35 DMG!",
+          },
+        ],
+      },
+      {
+        roundNum: 2,
+        aiAttackName: "DISTANCE & VALUE CONFUSION 🌀",
+        aiPrompt: "TASHA AI: 'Customer is 12km away with 15 Lakh policy. Mandatory branch visit required!'",
+        moves: [
+          {
+            id: "m2_correct",
+            name: "⚡ DIY GUIDANCE COUNTER-STRIKE",
+            desc: "Under TATA AIA rules, >10km or >10 Lakh MUST be guided to Tasha DIY Chatbot.",
+            isCorrect: true,
+            damageToAi: 50,
+            feedback: "K.O. STRIKE! You caught the AI rule violation and dealt 50 FINISHING DMG!",
+          },
+          {
+            id: "m2_wrong",
+            name: "🏢 FORCE BRANCH VISIT SLAM",
+            desc: "Force customer to travel 12km to the branch anyway.",
+            isCorrect: false,
+            damageToPlayer: 35,
+            feedback: "RULE MISMATCH! TASHA AI BOT counter-attacked for 35 DMG!",
+          },
+        ],
+      },
+    ];
+
+    const currentRoundData = roundsData[Math.min(round - 1, roundsData.length - 1)];
+
+    // Turn timer countdown
+    React.useEffect(() => {
+      if (isFinished || isAiTurn) return;
+      if (roundTimeLeft <= 0) {
+        playSound("incorrect");
+        setPlayerHp((hp) => Math.max(10, hp - 30));
+        setBattleLog((prev) => ["⏰ TIME EXPIRED! TASHA AI BOT dealt 30 DMG due to slow response!", ...prev]);
+        setWrongAttempts((prev) => prev + 1);
+        setRoundTimeLeft(12);
+        return;
+      }
+      const timer = setInterval(() => {
+        setRoundTimeLeft((prev) => prev - 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }, [roundTimeLeft, isFinished, isAiTurn]);
+
+    const handlePlayerMove = (move: any) => {
+      if (isFinished || isAiTurn) return;
+      playSound("tap");
+
+      if (move.isCorrect) {
+        playSound("correct");
+        const nextAiHp = Math.max(0, aiHp - move.damageToAi);
+        setAiHp(nextAiHp);
+        setBattleLog((prev) => [`💥 ${move.feedback}`, ...prev]);
+
+        if (nextAiHp <= 0) {
+          setIsFinished(true);
+          playSound("complete");
+          setBattleLog((prev) => ["🏆 K.O.! TASHA COMPLIANCE AI BOT DEFEATED! HUMAN VICTORY!", ...prev]);
+        } else {
+          setRound((r) => r + 1);
+          setRoundTimeLeft(12);
+        }
+      } else {
+        playSound("incorrect");
+        const nextPlayerHp = Math.max(10, playerHp - move.damageToPlayer);
+        setPlayerHp(nextPlayerHp);
+        setWrongAttempts((prev) => prev + 1);
+        setBattleLog((prev) => [`⚠️ ${move.feedback}`, ...prev]);
+        setRoundTimeLeft(12);
+      }
+    };
+
+    const earnedXp = Math.max(100, 400 - wrongAttempts * 50);
+
+    const handleRetryMatch = () => {
+      playSound("tap");
+      setPlayerHp(100);
+      setAiHp(100);
+      setRound(1);
+      setWrongAttempts(0);
+      setIsFinished(false);
+      setRoundTimeLeft(12);
+      setBattleLog(["⚔️ MATCH RESTARTED! YOU vs TASHA COMPLIANCE AI BOT 🤖"]);
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* PVP BATTLE ARENA TOP DASHBOARD */}
+        <div className="p-6 rounded-3xl bg-slate-900 text-white shadow-2xl relative overflow-hidden space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <Swords className="w-5 h-5 text-cyan-400 animate-pulse" />
+              <span className="text-xs font-black text-cyan-400 uppercase tracking-widest">
+                1V1 ARENA BATTLE — ROUND {round} OF 2
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black text-amber-400 bg-amber-950 px-3 py-1 rounded-full border border-amber-500/30 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> {roundTimeLeft}s TURN CLOCK
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2.5 py-1 rounded-full">
+                WAGER: +400 XP
+              </span>
+            </div>
+          </div>
+
+          {/* HEALTH BARS CLASH */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* PLAYER HP CARD */}
+            <div className="p-4 rounded-2xl bg-indigo-950/80 border border-indigo-500/40 space-y-2">
+              <div className="flex items-center justify-between text-xs font-black">
+                <span className="text-indigo-300 flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-indigo-400" /> YOU (HUMAN CHAMPION)
+                </span>
+                <span className="text-emerald-400 font-mono text-sm">{playerHp} HP</span>
+              </div>
+              <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
+                <motion.div
+                  animate={{ width: `${playerHp}%` }}
+                  className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+                />
+              </div>
+            </div>
+
+            {/* AI HP CARD */}
+            <div className="p-4 rounded-2xl bg-purple-950/80 border border-purple-500/40 space-y-2">
+              <div className="flex items-center justify-between text-xs font-black">
+                <span className="text-purple-300 flex items-center gap-1.5">
+                  <Brain className="w-4 h-4 text-cyan-400 animate-pulse" /> TASHA AI BOT 🤖
+                </span>
+                <span className="text-cyan-400 font-mono text-sm">{aiHp} HP</span>
+              </div>
+              <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
+                <motion.div
+                  animate={{ width: `${aiHp}%` }}
+                  className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* BATTLE LOG COMMENTARY STREAM */}
+          <div className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-300 max-h-24 overflow-y-auto space-y-1">
+            {battleLog.slice(0, 3).map((log, i) => (
+              <div key={i} className={i === 0 ? "text-cyan-300 font-bold" : "text-slate-400"}>
+                {log}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AI ATTACK PROMPT */}
+        {!isFinished && (
+          <div className="p-5 rounded-2xl bg-rose-50/80 border border-rose-200 text-sm font-extrabold text-rose-950 leading-relaxed flex items-start gap-3 shadow-2xs">
+            <Flame className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider block mb-1">
+                ROUND {round} — {currentRoundData.aiAttackName}
+              </span>
+              <span>{currentRoundData.aiPrompt}</span>
+            </div>
+          </div>
+        )}
+
+        {/* PLAYER COMBAT MOVES CARDS */}
+        {!isFinished && (
+          <div className="space-y-3">
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              SELECT YOUR COUNTER-ATTACK MOVE:
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {currentRoundData.moves.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => handlePlayerMove(m)}
+                  className="p-5 rounded-2xl border text-left text-xs font-bold transition-all cursor-pointer bg-white hover:bg-cyan-50/60 hover:border-cyan-400 border-slate-200 text-slate-900 shadow-2xs hover:shadow-md flex flex-col justify-between space-y-2 group"
+                >
+                  <div className="text-sm font-black text-indigo-700 group-hover:text-cyan-700 flex items-center justify-between">
+                    <span>{m.name}</span>
+                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-all text-cyan-600" />
+                  </div>
+                  <div className="text-slate-600 text-xs font-semibold leading-relaxed">{m.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* FINISHED / K.O. BANNERS */}
+        {isFinished && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="p-6 rounded-3xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-2xl space-y-3 text-center"
+          >
+            <Trophy className="w-12 h-12 text-amber-300 mx-auto animate-bounce" />
+            <h3 className="text-xl font-black tracking-tight">🤖 TASHA COMPLIANCE AI BOT K.O.&apos;D!</h3>
+            <p className="text-xs font-bold text-emerald-100 max-w-md mx-auto">
+              Outstanding victory! You proved human compliance superiority over the AI Bot with flawless regulatory execution.
+            </p>
+            {wrongAttempts > 0 && (
+              <span className="block text-[11px] text-amber-200 font-extrabold">
+                ⚠️ (-{wrongAttempts * 50} XP penalty applied for {wrongAttempts} missteps)
+              </span>
+            )}
+          </motion.div>
+        )}
+
+        {/* BOTTOM ACTION BAR */}
+        <div className="pt-2 flex items-center justify-between">
+          {!isFinished ? (
+            <button
+              onClick={handleRetryMatch}
+              className="px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Restart Match
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {isFinished && (
+            <button
+              onClick={() => {
+                playSound("complete");
+                onComplete(earnedXp);
+              }}
+              className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all shadow-md shadow-emerald-600/20 flex items-center gap-2 cursor-pointer ml-auto"
+            >
+              Claim {earnedXp} XP Glory & Unlock Sprint 2 🎉 <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     );
