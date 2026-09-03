@@ -820,19 +820,29 @@ async def synthesizeText(
             }
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://texttospeech.googleapis.com/v1/text:synthesize",
-                headers={
-                    "Authorization": f"Bearer {accessToken}",
-                    "Content-Type": "application/json"
-                },
-                json=requestBody
-            )
+        max_retries = 3
+        retry_delay = 2 # seconds
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://texttospeech.googleapis.com/v1/text:synthesize",
+                    headers={
+                        "Authorization": f"Bearer {accessToken}",
+                        "Content-Type": "application/json"
+                    },
+                    json=requestBody
+                )
 
-        if response.status_code != 200:
+            if response.status_code == 200:
+                break
+            
+            if response.status_code in (429, 503) and attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(retry_delay * (2 ** attempt))
+                continue
+
             return {
-                "error": response.text,
+                "error": f"Google TTS API failed: {response.text}",
                 "status": response.status_code
             }
 
