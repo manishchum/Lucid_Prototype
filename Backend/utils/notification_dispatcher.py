@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Optional, List
-from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 from utils.websocket_manager import manager
 from utils.redis_client import redis_client
 from utils.auth import _ensure_firebase_admin_initialized
@@ -68,8 +68,9 @@ async def dispatch_hybrid_notification(
 
     # Step 1: Save to Supabase DB (Persistence / History Log)
     try:
+        _db = get_service_supabase_client()
         insert_resp = (
-            supabase.table("notifications")
+            _db.table("notifications")
             .insert({
                 "user_id": user_id,
                 "title": title,
@@ -120,8 +121,9 @@ async def dispatch_hybrid_notification(
 
     # Step 4: FCM Push Notification (Android & iOS System Tray / Lock Screen)
     try:
+        _db = get_service_supabase_client()
         user_res = (
-            supabase.table("users")
+            _db.table("users")
             .select("fcm_token")
             .eq("user_id", user_id)
             .maybe_single()
@@ -177,7 +179,8 @@ async def dispatch_hybrid_notification(
         logger.warning(f"[Dispatcher] FCM push dispatch failed for user {user_id}: {err_msg}")
         if any(token_err in err_msg.lower() for token_err in ["unregistered", "notregistered", "invalid-registration-token", "not registered"]):
             try:
-                supabase.table("users").update({"fcm_token": None}).eq("user_id", user_id).execute()
+                _db = get_service_supabase_client()
+                _db.table("users").update({"fcm_token": None}).eq("user_id", user_id).execute()
                 logger.info(f"[Dispatcher] Purged stale FCM token for user {user_id}")
             except Exception as purge_err:
                 logger.warning(f"[Dispatcher] Failed to purge stale FCM token: {purge_err}")

@@ -141,8 +141,9 @@ def _resolve_internal_user_context(
 	# Legacy fallback: direct lookup by email in users table.
 	if email:
 		try:
+			_admin_client = get_service_supabase_client()
 			res = (
-				supabase
+				_admin_client
 				.table("users")
 				.select("user_id, company_id")
 				.eq("email", email)
@@ -315,10 +316,10 @@ def get_request_auth_optional(
 			if _is_uuid(val):
 				return val
 			try:
-
+				_admin_client = get_service_supabase_client()
 				# NEW: lookup through mapping table first
 				mapping_resp = (
-					supabase
+					_admin_client
 					.table("user_firebase_uids")
 					.select("user_id")
 					.eq("firebase_uid", val)
@@ -333,7 +334,7 @@ def get_request_auth_optional(
 
 				# Fallback to legacy users.firebase_uid
 				resp = (
-					supabase
+					_admin_client
 					.table("users")
 					.select("user_id")
 					.eq("firebase_uid", val)
