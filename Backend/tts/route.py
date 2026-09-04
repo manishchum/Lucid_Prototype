@@ -875,7 +875,7 @@ async def synthesizeText(
 async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str) -> list:
     try:
         pm_res = (
-            supabase
+            supabase_admin
             .table("processed_modules")
             .select("original_module_id")
             .eq("processed_module_id", processedModuleId)
@@ -888,7 +888,7 @@ async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str)
 
         original_module_id = pm_data.get("original_module_id")
         tm_res = (
-            supabase
+            supabase_admin
             .table("training_modules")
             .select("company_id")
             .eq("module_id", original_module_id)
@@ -900,7 +900,7 @@ async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str)
             return []
 
         company_res = (
-            supabase
+            supabase_admin
             .table("companies")
             .select("subscription_addons")
             .eq("company_id", tm_data.get("company_id"))
@@ -943,7 +943,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
 
     # Fetch module content from processed_modules
     moduleRes = (
-        supabase
+        supabase_admin
         .table("processed_modules")
         .select("processed_module_id, original_module_id, title, content")
         .eq("processed_module_id", processedModuleId)
@@ -954,11 +954,26 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     module = getattr(moduleRes, "data", None)
     moduleError = getattr(moduleRes, "error", None)
 
-    if moduleError or not module:
-        err_msg = None
-        if moduleError:
-            err_msg = moduleError.get("message") if isinstance(moduleError, dict) else str(moduleError)
+    if not module:
+        fallbackRes = (
+            supabase_admin
+            .table("processed_modules")
+            .select("processed_module_id, original_module_id, title, content")
+            .eq("original_module_id", processedModuleId)
+            .limit(1)
+            .execute()
+        )
+        fallbackData = getattr(fallbackRes, "data", None)
+        if fallbackData and isinstance(fallbackData, list) and len(fallbackData) > 0:
+            module = fallbackData[0]
+            processedModuleId = module["processed_module_id"]
+
+    if moduleError and not module:
+        err_msg = moduleError.get("message") if isinstance(moduleError, dict) else str(moduleError)
         return {"error": err_msg or "Module not found", "status": 404}
+
+    if not module:
+        return {"error": "Module not found", "status": 404}
 
     fullContent = module.get("content") or ""
     if not fullContent:
@@ -973,7 +988,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
         }
 
     trainingModuleRes = (
-        supabase
+        supabase_admin
         .table("training_modules")
         .select("company_id, uploaded_by")
         .eq("module_id", originalModuleId)
@@ -1283,7 +1298,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     }
 
     updRes = (
-        supabase
+        supabase_admin
         .table("processed_modules")
         .update(updateData)
         .eq("processed_module_id", processedModuleId)
@@ -1320,7 +1335,7 @@ async def GET(request: Request):
 
         if not targetId:
             res = (
-                supabase
+                supabase_admin
                 .table("processed_modules")
                 .select("processed_module_id")
                 .is_("audio_url", "null")
@@ -1342,7 +1357,7 @@ async def GET(request: Request):
 
             if not targetId:
                 anyOneRes = (
-                    supabase
+                    supabase_admin
                     .table("processed_modules")
                     .select("processed_module_id")
                     .limit(1)
