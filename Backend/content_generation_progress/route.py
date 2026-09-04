@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 
 
 router = APIRouter()
@@ -23,9 +23,11 @@ async def GET(req: Request):
     if not module_id:
         return JSONResponse(content={"error": "Missing module_id"}, status_code=400)
 
+    db = get_service_supabase_client()
+
     # Get processed_modules progress
     pmRes = (
-        supabase
+        db
         .table("processed_modules")
         .select("content")
         .eq("original_module_id", module_id)
@@ -50,7 +52,7 @@ async def GET(req: Request):
     # Get job status from content_jobs
     jobStatus = None
     jobsRes = (
-        supabase
+        db
         .table("content_jobs")
         .select("status")
         .eq("module_id", module_id)
