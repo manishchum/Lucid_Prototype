@@ -1,6 +1,5 @@
 # ingestion/supabase_store.py
 import io
-from supabase import create_client
 from typing import List
 import numpy as np
 import os
@@ -9,11 +8,10 @@ from PIL import Image as PILImage
 import uuid
 from utils.supabase_client import supabase_admin
 
-SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET = "module-assets"
+
+# Use admin client for all DB operations (trusted backend ingestion pipeline)
+supabase = supabase_admin
 
 def fetch_document_details(doc_id: str, source_type="training"):
     
