@@ -43,6 +43,7 @@ from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
+from routes.logs import router as logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -253,9 +254,7 @@ app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
 
-@app.post("/api/logs")
-async def client_logs_endpoint():
-    return {"success": True}
+app.include_router(logs_router)
 
 
 if __name__ == "__main__":
