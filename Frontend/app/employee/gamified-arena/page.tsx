@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useTenant, FEATURES } from "@/contexts/tenant-context";
+import { useRouter } from "next/navigation";
 import {
   Trophy,
   Shield,
@@ -170,6 +172,15 @@ const MOCK_LEADERBOARD_USERS: LeaderboardUser[] = [
 ];
 
 export default function EmployeeGamifiedArenaPage() {
+  const { hasFeature } = useTenant();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!hasFeature(FEATURES.GAMIFICATION)) {
+      router.replace("/employee/welcome");
+    }
+  }, [hasFeature, router]);
+
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("bc335f5e-e0a4-48ee-94d1-4d47f06ccb6d");
   const [activeTab, setActiveTab] = useState<"sprints" | "fill-blanks" | "case-study" | "matching" | "flashcards" | "process-flow" | "fraud-spotter" | "mcq" | "pvp-duel" | "leaderboard" | "vault">("sprints");
   const [userXp, setUserXp] = useState<number>(3450);
