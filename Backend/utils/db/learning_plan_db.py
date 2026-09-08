@@ -368,6 +368,7 @@ async def bulk_create_learning_plans(
 ) -> Dict[str, Any]:
 
     try:
+        db = get_service_supabase_client()
 
         ####################################################
         # STEP 1 - Permission
@@ -406,7 +407,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         module_resp = (
-            supabase
+            db
             .table("training_modules")
             .select("module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks")
             .in_("module_id", module_ids)
@@ -425,7 +426,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         processed_resp = (
-            supabase
+            db
             .table("processed_modules")
             .select(
                 "original_module_id,processed_module_id"
@@ -453,7 +454,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         existing_resp = (
-            supabase
+            db
             .table("learning_plan")
             .select("user_id,module_id")
             .in_("user_id", user_ids)
@@ -556,7 +557,7 @@ async def bulk_create_learning_plans(
         if payload:
 
             insert_resp = (
-                supabase
+                db
                 .table("learning_plan")
                 .insert(payload)
                 .execute()
@@ -569,19 +570,18 @@ async def bulk_create_learning_plans(
         ####################################################
 
         company_name_resp = (
-            supabase
+            db
             .table("companies")
             .select("name")
             .eq(
                 "company_id",
                 company_id
             )
-            .single()
             .execute()
         )
 
         company_name = (
-            company_name_resp.data.get("name")
+            company_name_resp.data[0].get("name")
             if company_name_resp.data
             else "Your Company"
         )
@@ -591,7 +591,7 @@ async def bulk_create_learning_plans(
             try:
 
                 user_resp = (
-                    supabase
+                    db
                     .table("users")
                     .select(
                         "user_id,name,email"
@@ -600,20 +600,21 @@ async def bulk_create_learning_plans(
                         "user_id",
                         user_id
                     )
-                    .single()
                     .execute()
                 )
 
                 if not user_resp.data:
                     continue
+                
+                user_data = user_resp.data[0]
 
                 await send_assignment_notification_email(
 
-                    recipient_email=user_resp.data["email"],
+                    recipient_email=user_data["email"],
 
-                    recipient_name=user_resp.data["name"],
+                    recipient_name=user_data["name"],
 
-                    recipient_user_id=user_resp.data["user_id"],
+                    recipient_user_id=user_data["user_id"],
 
                     assignment_title=module["title"],
 

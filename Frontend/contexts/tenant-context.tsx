@@ -41,6 +41,7 @@ export type Addon =
   | 'role_play'
   | 'sprintverse'
   | 'reports'
+  | 'gamification'
 
 // Feature constants - single source of truth for feature names
 export const FEATURES = {
@@ -65,6 +66,7 @@ export const FEATURES = {
   ROLE_PLAY: "rolePlay",
   REPORTS: "reports",
   SPRINTVERSE: "sprintverse",
+  GAMIFICATION: "gamification",
 } as const
 
 export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
@@ -95,6 +97,7 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.ROLE_PLAY]: { requiredAddons: ["role_play"] },
   [FEATURES.REPORTS]: { requiredAddons : ["reports"]},
   [FEATURES.SPRINTVERSE]: {requiredAddons : ["sprintverse"]},
+  [FEATURES.GAMIFICATION]: { requiredAddons: ["gamification"] },
 }
 
 // Tier hierarchy - which tiers can ACCESS each tier level
@@ -183,6 +186,7 @@ const isAddon = (value: string): value is Addon => {
     "role_play",
     "reports",
     "sprintverse",
+    "gamification",
   ].includes(value)
 }
 
