@@ -127,7 +127,12 @@ def get_user_supabase_client(user_id: Optional[str] = None, company_id: Optional
     Get Supabase client instance scoped to a user and company using the ANON key.
     Passes x-user-id and x-company-id headers so PostgREST RLS functions (current_app_user_id,
     current_app_company_id, can_access_company, can_access_user) work under RLS enforcement.
+    Reuses cached clients to prevent continuous connection pool recreation.
     """
+    cache_key = (str(user_id or ""), str(company_id or "") if company_id else None)
+    if cache_key in _user_client_cache:
+        return _user_client_cache[cache_key]
+
     supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
@@ -143,7 +148,12 @@ def get_user_supabase_client(user_id: Optional[str] = None, company_id: Optional
         headers["x-company-id"] = str(company_id)
 
     options = SyncClientOptions(headers=headers) if headers else None
-    return create_client(supabase_url.rstrip("/") + "/", supabase_key, options=options)
+    client = create_client(supabase_url.rstrip("/") + "/", supabase_key, options=options)
+
+    if len(_user_client_cache) >= _MAX_CACHED_CLIENTS:
+        _user_client_cache.clear()
+    _user_client_cache[cache_key] = client
+    return client
 
 def get_supabase_admin() -> Client:
     """
@@ -226,15 +236,7 @@ class ContextAwareSupabaseProxy:
                 caller_info=caller,
             )
 
-        cache_key = (ctx.user_id, ctx.company_id)
-        if cache_key in _user_client_cache:
-            return _user_client_cache[cache_key]
-
-        client = get_user_supabase_client(user_id=ctx.user_id, company_id=ctx.company_id)
-        if len(_user_client_cache) >= _MAX_CACHED_CLIENTS:
-            _user_client_cache.clear()
-        _user_client_cache[cache_key] = client
-        return client
+        return get_user_supabase_client(user_id=ctx.user_id, company_id=ctx.company_id)
 
     def table(self, table_name: str):
         return self._resolve_client(f"table:{table_name}").table(table_name)
