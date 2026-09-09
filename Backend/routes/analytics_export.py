@@ -414,7 +414,7 @@ async def get_leaderboard(
         raise HTTPException(status_code=403, detail="Permission denied: Not in this company")
     
     try:
-        result = await get_company_leaderboard(company_id, limit=limit)
+        result = await get_company_leaderboard(company_id, limit=limit, requesting_user_id=auth_ctx.user_id)
         
         if result.get("error"):
             raise HTTPException(status_code=400, detail=result["error"])
@@ -456,7 +456,7 @@ async def get_user_leaderboard_rank(
         raise HTTPException(status_code=403, detail="Permission denied: Not in this company")
     
     try:
-        result = await get_user_rank(auth_ctx.user_id, company_id)
+        result = await get_user_rank(auth_ctx.user_id, company_id, requesting_user_id=auth_ctx.user_id)
         
         if result.get("error"):
             raise HTTPException(status_code=400, detail=result["error"])

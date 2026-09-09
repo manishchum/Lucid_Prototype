@@ -1,4 +1,4 @@
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin as supabase
 
 
 # ============================================================

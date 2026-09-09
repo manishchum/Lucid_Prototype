@@ -5,7 +5,7 @@ Handles CRUD operations with permission checks.
 
 from typing import Dict, Any, List, Optional
 import asyncio
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase, get_user_supabase_client
 import uuid
 from datetime import datetime, date
 from ..auth_bridge import get_service_supabase_client
@@ -282,15 +282,19 @@ async def create_learning_plan(
         if not has_access:
             return {"data": None, "error": "Access denied: Cannot create plan for user in different company"}
         
+        db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        user_company_id = await get_user_company_id(resolved_requesting_user_id)
+        user_client = get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=user_company_id)
+
         # Verify module exists and belongs to same company
-        module_resp = supabase.table('training_modules').select('company_id').eq(
+        module_resp = user_client.table('training_modules').select('company_id').eq(
             'module_id', module_id
         ).maybe_single().execute()
         
         if not module_resp.data:
             return {"data": None, "error": "Training module not found"}
         
-        user_company_id = await get_user_company_id(requesting_user_id)
         module_company_id = module_resp.data.get('company_id')
         
         if module_company_id != user_company_id:
@@ -321,7 +325,7 @@ async def create_learning_plan(
             ]
         
         # Create the learning plan
-        resp = supabase.table('learning_plan').insert(plan_data).execute()
+        resp = user_client.table('learning_plan').insert(plan_data).execute()
         
         delete_cache_pattern(f"dashboard_summary:{user_id}*")
         if not resp.data:
@@ -330,13 +334,13 @@ async def create_learning_plan(
         created_plan = resp.data[0] if isinstance(resp.data, list) else resp.data
 
         try:
-            user_resp = supabase.table('users').select('user_id, email, name').eq(
+            user_resp = user_client.table('users').select('user_id, email, name').eq(
                 'user_id', user_id
             ).single().execute()
-            module_title_resp = supabase.table('training_modules').select('title').eq(
+            module_title_resp = user_client.table('training_modules').select('title').eq(
                 'module_id', module_id
             ).single().execute()
-            company_resp = supabase.table('companies').select('name').eq(
+            company_resp = user_client.table('companies').select('name').eq(
                 'company_id', user_company_id
             ).single().execute()
 
@@ -389,7 +393,9 @@ async def bulk_create_learning_plans(
         # STEP 2 - Company
         ####################################################
 
-        company_id = await get_user_company_id(requesting_user_id)
+        db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        company_id = await get_user_company_id(resolved_requesting_user_id)
 
         if not company_id:
             return {
@@ -397,6 +403,8 @@ async def bulk_create_learning_plans(
                 "skipped": 0,
                 "error": "Unable to determine company."
             }
+
+        user_client = get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=company_id)
 
         user_ids = bulk_data["user_ids"]
         module_ids = bulk_data["module_ids"]
@@ -406,7 +414,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         module_resp = (
-            supabase
+            user_client
             .table("training_modules")
             .select("module_id, company_id, title, description, content_type, content_url, gpt_summary, created_at, ai_modules, ai_topics, ai_objectives, processing_status, threshold_value, review_stage, reviewer_id, uploaded_by, additional_readings, source_files, ingestion_status, page_count, match_chunks")
             .in_("module_id", module_ids)
@@ -425,7 +433,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         processed_resp = (
-            supabase
+            user_client
             .table("processed_modules")
             .select(
                 "original_module_id,processed_module_id"
@@ -453,7 +461,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         existing_resp = (
-            supabase
+            user_client
             .table("learning_plan")
             .select("user_id,module_id")
             .in_("user_id", user_ids)
@@ -556,7 +564,7 @@ async def bulk_create_learning_plans(
         if payload:
 
             insert_resp = (
-                supabase
+                user_client
                 .table("learning_plan")
                 .insert(payload)
                 .execute()
@@ -569,7 +577,7 @@ async def bulk_create_learning_plans(
         ####################################################
 
         company_name_resp = (
-            supabase
+            user_client
             .table("companies")
             .select("name")
             .eq(
@@ -591,7 +599,7 @@ async def bulk_create_learning_plans(
             try:
 
                 user_resp = (
-                    supabase
+                    user_client
                     .table("users")
                     .select(
                         "user_id,name,email"
@@ -666,8 +674,13 @@ async def update_learning_plan(
     Permission: User can update their own plan (limited fields), manager+ can update plans in their company.
     """
     try:
+        db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        user_company_id = await get_user_company_id(resolved_requesting_user_id)
+        user_client = get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=user_company_id)
+
         # Fetch the learning plan to check ownership
-        plan_resp = supabase.table('learning_plan').select('user_id').eq(
+        plan_resp = user_client.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
         ).maybe_single().execute()
         
@@ -675,12 +688,6 @@ async def update_learning_plan(
             return {"data": None, "error": "Learning plan not found"}
         
         plan_user_id = plan_resp.data.get('user_id')
-        resolved_requesting_user_id = requesting_user_id
-        try:
-            db = get_service_supabase_client()
-            resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
-        except Exception:
-            pass
         
         # Check if user is updating their own plan
         if resolved_requesting_user_id == plan_user_id:
@@ -708,7 +715,7 @@ async def update_learning_plan(
             del updates['user_id']
         
         # Update the learning plan
-        resp = supabase.table('learning_plan').update(updates).eq(
+        resp = user_client.table('learning_plan').update(updates).eq(
             'learning_plan_id', learning_plan_id
         ).execute()
         
@@ -729,20 +736,17 @@ async def delete_learning_plan(
     Permission: Manager+ only, same company.
     """
     try:
-        # Check if user has manager+ permission
-        resolved_requesting_user_id = requesting_user_id
-        try:
-            db = get_service_supabase_client()
-            resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
-        except Exception:
-            pass
+        db = get_service_supabase_client()
+        resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
+        user_company_id = await get_user_company_id(resolved_requesting_user_id)
+        user_client = get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=user_company_id)
 
         has_permission = await check_user_permission(resolved_requesting_user_id, 'manager')
         if not has_permission:
             return {"data": None, "error": "Permission denied: Manager role required"}
         
         # Fetch the learning plan to check company
-        plan_resp = supabase.table('learning_plan').select('user_id').eq(
+        plan_resp = user_client.table('learning_plan').select('user_id').eq(
             'learning_plan_id', learning_plan_id
         ).maybe_single().execute()
         
@@ -757,7 +761,7 @@ async def delete_learning_plan(
             return {"data": None, "error": "Access denied: Different company"}
         
         # Delete the learning plan
-        resp = supabase.table('learning_plan').delete().eq(
+        resp = user_client.table('learning_plan').delete().eq(
             'learning_plan_id', learning_plan_id
         ).execute()
         

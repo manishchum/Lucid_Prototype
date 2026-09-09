@@ -43,6 +43,7 @@ type AddonKey =
   | "role_play"
   | "reports"
   | "sprintverse"
+  | "gamification"
 
 type CompanyRecord = {
   company_id: string
@@ -200,6 +201,12 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     label: "Sprintverse",
     description: "Enable Sprintverse for collaborative sprint planning.",
     category: "core",
+  },
+  {
+    id: "gamification",
+    label: "Gamification",
+    description: "Enable AI-driven gamification sprints and drills.",
+    category: "addon",
   },
 ]
 

@@ -1281,7 +1281,7 @@ async def generateVideo(
 
     # 1) maybeSingle equivalent
     try:
-        res = supabase.table("processed_modules") \
+        res = supabase_admin.table("processed_modules") \
             .select("content, title, processed_module_id, created_at, original_module_id") \
             .eq("processed_module_id", processedModuleId) \
             .execute()
@@ -1294,7 +1294,7 @@ async def generateVideo(
     # If module missing, fallback .single()
     if not module:
         try:
-            res = supabase.table("processed_modules") \
+            res = supabase_admin.table("processed_modules") \
                 .select("content, title, processed_module_id, created_at, original_module_id") \
                 .eq("processed_module_id", processedModuleId) \
                 .execute()
@@ -1306,7 +1306,7 @@ async def generateVideo(
 
     # fallback by original_module_id
     if not module:
-        res = supabase.table("processed_modules") \
+        res = supabase_admin.table("processed_modules") \
             .select("content, title, processed_module_id, created_at, original_module_id") \
             .eq("original_module_id", processedModuleId) \
             .execute()
@@ -1322,7 +1322,7 @@ async def generateVideo(
     # Resolve ownership context for AI Gateway usage tracking.
     try:
         context_res = (
-            supabase
+            supabase_admin
             .table("training_modules")
             .select("company_id, uploaded_by")
             .eq(
@@ -1373,7 +1373,7 @@ async def generateVideo(
     # Context
     userModules = None
     try:
-        res_ctx = supabase.table("processed_modules") \
+        res_ctx = supabase_admin.table("processed_modules") \
             .select("title, content") \
             .eq("processed_module_id", actualId) \
             .order("created_at", desc=True) \
@@ -1383,6 +1383,13 @@ async def generateVideo(
         print("inside try 3")
     except Exception:
         userModules = None
+
+    # ... generate video files ...
+    print("[VIDEO] Starting scene generation & video compilation...")
+
+    # We call OpenAI/Gemini/FFmpeg/etc to generate the video scenes...
+    # (Existing generation logic continues)
+
 
     context = "\n\n".join([f"### {m['title']}\n{m['content']}" for m in (userModules or [])]) or module["content"]
 
@@ -1527,7 +1534,7 @@ async def generateVideo(
 
     update_data["video_generated_at"] = datetime.datetime.utcnow().isoformat()
 
-    supabase.table("processed_modules").update(update_data).eq("processed_module_id", actualId).execute()
+    supabase_admin.table("processed_modules").update(update_data).eq("processed_module_id", actualId).execute()
 
     # cleanup
     try:

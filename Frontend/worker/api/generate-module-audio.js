@@ -283,7 +283,8 @@ async function callTtsForLanguage(processedModuleId, language, companyId, userId
           'X-User-ID': userId,
           'X-Company-ID': companyId,
         },
-        body: JSON.stringify({ processed_module_id: processedModuleId, language: normalizedLanguage })
+        body: JSON.stringify({ processed_module_id: processedModuleId, language: normalizedLanguage }),
+        timeout: 15 * 60 * 1000, // 15 minutes
       });
 
       const text = await response.text();
@@ -295,7 +296,8 @@ async function callTtsForLanguage(processedModuleId, language, companyId, userId
       }
 
       if (!response.ok) {
-        if ([502, 503, 504].includes(response.status)) {
+        const isNginxTimeout = [502, 503, 504].includes(response.status) && (!payload || payload.raw || !payload.error);
+        if (isNginxTimeout) {
           console.log(`[AUDIO WORKER] HTTP ${response.status} from ${baseUrl}. Nginx disconnected but Backend is likely still generating ${normalizedLanguage} audio! Entering wait-and-poll loop...`);
           const maxWaitMs = 15 * 60 * 1000; // wait up to 15 minutes
           const startMs = Date.now();
@@ -492,7 +494,12 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
 
     const results = [];
     for (const row of rows) {
-      results.push(await processProcessedModuleRow(row, language));
+      try {
+        results.push(await processProcessedModuleRow(row, language));
+      } catch (err) {
+        console.error(`[AUDIO WORKER] Failed to process row ${row.processed_module_id}:`, err);
+        results.push({ ok: false, processedModuleId: row.processed_module_id, error: err.message });
+      }
     }
 
     return { ok: true, processedCount: rows.length, results };

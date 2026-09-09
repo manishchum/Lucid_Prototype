@@ -1,7 +1,7 @@
 import os
 import tempfile
 import httpx
-from utils.supabase_client import supabase
+from utils.auth_bridge import get_service_supabase_client
 from ingestion.pipeline import ingest_pdf_for_rag
 from ingestion.embedder import cleanup_model_cache
 
@@ -19,8 +19,9 @@ def ingest_by_module_id(module_id: str):
     print(f"[RAG] Fetching content_url for module_id: {module_id}")
 
     # 1️⃣ Get content_url from DB
+    db = get_service_supabase_client()
     res = (
-        supabase
+        db
         .table("training_modules")
         .select("content_url")
         .eq("module_id", module_id)

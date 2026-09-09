@@ -24,7 +24,9 @@ class GeminiProvider:
         response_format: str = "text",
         images=None,
         files=None,
+        audio=None,
         generation_config=None,
+        **kwargs,
     ) -> AIResponse:
 
         start = time.perf_counter()

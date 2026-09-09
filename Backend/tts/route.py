@@ -250,6 +250,42 @@ def cleanTextForTTS(text: str):
     return text.strip()
 
 
+def prepareTextForSpeech(text: str) -> str:
+    """Convert common written notation into text Google TTS reads naturally."""
+    text = (
+        re.sub(r"[#*`>]", "", text)
+        .replace("\n", " ")
+        .replace("\r", " ")
+    )
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # A hyphen joins numeric tokens for some TTS voices (62-65 -> 6265).
+    text = re.sub(
+        r"(?<![\w.])(\d+(?:\.\d+)?)\s*[-\u2013\u2014]\s*(\d+(?:\.\d+)?)(?=\s*(?:%|\b))",
+        r"\1 to \2",
+        text,
+    )
+
+    replacements = (
+        (r"(?<=\d)\s*%", " percent"),
+        (r"\bkm/h\b", "kilometers per hour"),
+        (r"\bkm\b", "kilometers"),
+        (r"\bmph\b", "miles per hour"),
+        (r"\bkg\b", "kilograms"),
+        (r"\bmg\b", "milligrams"),
+        (r"\bml\b", "milliliters"),
+        (r"\bvs\.?", "versus"),
+        (r"\be\.g\.?\b", "for example"),
+        (r"\bi\.e\.?\b", "that is"),
+        (r"\s*&\s*", " and "),
+        (r"\s*\+\s*", " plus "),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    return re.sub(r"\s+", " ", text).strip()
+
+
 SUPPORTED_PODCAST_LANGUAGE_CODES = {
     "en",
     "hinglish",
@@ -701,7 +737,7 @@ async def synthesizeText(
     """
 
     try:
-        text = cleanTextForTTS(text)
+        text = prepareTextForSpeech(text)
 
         if not text:
             return {
@@ -784,19 +820,29 @@ async def synthesizeText(
             }
         }
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(
-                "https://texttospeech.googleapis.com/v1/text:synthesize",
-                headers={
-                    "Authorization": f"Bearer {accessToken}",
-                    "Content-Type": "application/json"
-                },
-                json=requestBody
-            )
+        max_retries = 3
+        retry_delay = 2 # seconds
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://texttospeech.googleapis.com/v1/text:synthesize",
+                    headers={
+                        "Authorization": f"Bearer {accessToken}",
+                        "Content-Type": "application/json"
+                    },
+                    json=requestBody
+                )
 
-        if response.status_code != 200:
+            if response.status_code == 200:
+                break
+            
+            if response.status_code in (429, 503) and attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(retry_delay * (2 ** attempt))
+                continue
+
             return {
-                "error": response.text,
+                "error": f"Google TTS API failed: {response.text}",
                 "status": response.status_code
             }
 
@@ -829,7 +875,7 @@ async def synthesizeText(
 async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str) -> list:
     try:
         pm_res = (
-            supabase
+            supabase_admin
             .table("processed_modules")
             .select("original_module_id")
             .eq("processed_module_id", processedModuleId)
@@ -842,7 +888,7 @@ async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str)
 
         original_module_id = pm_data.get("original_module_id")
         tm_res = (
-            supabase
+            supabase_admin
             .table("training_modules")
             .select("company_id")
             .eq("module_id", original_module_id)
@@ -854,7 +900,7 @@ async def getCompanySubscriptionAddonsForProcessedModule(processedModuleId: str)
             return []
 
         company_res = (
-            supabase
+            supabase_admin
             .table("companies")
             .select("subscription_addons")
             .eq("company_id", tm_data.get("company_id"))
@@ -897,7 +943,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
 
     # Fetch module content from processed_modules
     moduleRes = (
-        supabase
+        supabase_admin
         .table("processed_modules")
         .select("processed_module_id, original_module_id, title, content")
         .eq("processed_module_id", processedModuleId)
@@ -908,11 +954,26 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     module = getattr(moduleRes, "data", None)
     moduleError = getattr(moduleRes, "error", None)
 
-    if moduleError or not module:
-        err_msg = None
-        if moduleError:
-            err_msg = moduleError.get("message") if isinstance(moduleError, dict) else str(moduleError)
+    if not module:
+        fallbackRes = (
+            supabase_admin
+            .table("processed_modules")
+            .select("processed_module_id, original_module_id, title, content")
+            .eq("original_module_id", processedModuleId)
+            .limit(1)
+            .execute()
+        )
+        fallbackData = getattr(fallbackRes, "data", None)
+        if fallbackData and isinstance(fallbackData, list) and len(fallbackData) > 0:
+            module = fallbackData[0]
+            processedModuleId = module["processed_module_id"]
+
+    if moduleError and not module:
+        err_msg = moduleError.get("message") if isinstance(moduleError, dict) else str(moduleError)
         return {"error": err_msg or "Module not found", "status": 404}
+
+    if not module:
+        return {"error": "Module not found", "status": 404}
 
     fullContent = module.get("content") or ""
     if not fullContent:
@@ -927,7 +988,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
         }
 
     trainingModuleRes = (
-        supabase
+        supabase_admin
         .table("training_modules")
         .select("company_id, uploaded_by")
         .eq("module_id", originalModuleId)
@@ -1237,7 +1298,7 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     }
 
     updRes = (
-        supabase
+        supabase_admin
         .table("processed_modules")
         .update(updateData)
         .eq("processed_module_id", processedModuleId)
@@ -1274,7 +1335,7 @@ async def GET(request: Request):
 
         if not targetId:
             res = (
-                supabase
+                supabase_admin
                 .table("processed_modules")
                 .select("processed_module_id")
                 .is_("audio_url", "null")
@@ -1296,7 +1357,7 @@ async def GET(request: Request):
 
             if not targetId:
                 anyOneRes = (
-                    supabase
+                    supabase_admin
                     .table("processed_modules")
                     .select("processed_module_id")
                     .limit(1)
