@@ -34,6 +34,10 @@ LIMITS = {
     "speech-to-text": {
         "limit": 10,
         "window": 3600,
+    },
+    "client-logs": {
+        "limit": 30,
+        "window": 60,          # 30 requests/min per IP
     }
 }
 

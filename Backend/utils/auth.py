@@ -197,13 +197,22 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 		source="firebase",
 	)
 
-	return RequestAuth(
+	auth_result = RequestAuth(
 		user_id=str(user_id),
 		email=str(email) if email else None,
 		source="firebase",
 		claims=claims,
 		company_id=str(company_id) if company_id else None,
 	)
+
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_result.user_id,
+		company_id=auth_result.company_id,
+		email=auth_result.email,
+	)
+
+	return auth_result
 
 def validate_device_session(
     user_id: str,
@@ -353,7 +362,11 @@ def get_request_auth_optional(
 
 		resolved = _resolve_firebase_uid_to_user_id(x_user_id)
 		print(f"[auth optional] Using X-User-ID fallback; x_user_id={x_user_id}; resolved_user_id={resolved}")
-		return RequestAuth(user_id=resolved, email=None, source="legacy-x-user-id", claims=None)
+		auth_result = RequestAuth(user_id=resolved, email=None, source="legacy-x-user-id", claims=None)
+		if resolved:
+			from utils.supabase_client import set_current_user_context
+			set_current_user_context(user_id=resolved)
+		return auth_result
 
 	return RequestAuth(user_id=None, email=None, source="anonymous", claims=None)
 
@@ -373,13 +386,19 @@ def get_request_auth_required(
 					status_code=401,
 					detail="Worker authentication requires X-User-ID and X-Company-ID",
 				)
-			return RequestAuth(
+			auth_result = RequestAuth(
 				user_id=str(x_user_id),
 				email=None,
 				source="internal-worker",
 				claims=None,
 				company_id=str(x_company_id),
 			)
+			from utils.supabase_client import set_current_user_context
+			set_current_user_context(
+				user_id=auth_result.user_id,
+				company_id=auth_result.company_id,
+			)
+			return auth_result
 
 	token = _extract_bearer_token(authorization)
 	if not token:
@@ -426,13 +445,22 @@ def get_request_auth_jwt_required(
 	if (x_device_id and x_register_session != "true"):
 		validate_device_session(str(user_id), str(x_device_id))
 
-	return RequestAuth(
+	auth_result = RequestAuth(
 		user_id=str(user_id),
 		email=str(email) if email else None,
 		source="firebase",
 		claims=claims,
 		company_id=str(company_id) if company_id else None,
 	)
+
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_result.user_id,
+		company_id=auth_result.company_id,
+		email=auth_result.email,
+	)
+
+	return auth_result
 
 
 def get_request_auth_jwt_required_from_request(request: Request) -> RequestAuth:
@@ -473,6 +501,14 @@ async def get_effective_company_id(
 		except Exception:
 			pass
 
+	from utils.supabase_client import set_current_user_context
+	if auth_ctx.user_id and home_company_id:
+		set_current_user_context(
+			user_id=auth_ctx.user_id,
+			company_id=home_company_id,
+			email=auth_ctx.email,
+		)
+
 	if not requested_company_id:
 		if not home_company_id:
 			raise HTTPException(status_code=400, detail="User has no associated company and no override provided")
@@ -490,6 +526,11 @@ async def get_effective_company_id(
 		is_admin = False
 
 	if is_developer or is_admin:
+		set_current_user_context(
+			user_id=auth_ctx.user_id,
+			company_id=str(requested_company_id),
+			email=auth_ctx.email,
+		)
 		return str(requested_company_id)
 
 	# Forged or unauthorized override => constrain to actual company
@@ -544,6 +585,12 @@ async def get_roleplay_context(
 	auth_ctx: RequestAuth = Depends(get_request_auth_required),
 	company_id: str = Depends(get_effective_company_id),
 ) -> RoleplayContext:
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_ctx.user_id,
+		company_id=company_id,
+		email=auth_ctx.email,
+	)
 	return RoleplayContext(
 		user_id=auth_ctx.user_id,
 		company_id=company_id,

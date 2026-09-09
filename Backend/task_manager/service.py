@@ -11,6 +11,7 @@ def is_valid_uuid(val: any) -> bool:
         return False
     return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", val, re.I))
 # from utils.supabase_client import supabase
+from fastapi import HTTPException
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
@@ -89,6 +90,13 @@ def _media_suffix(mime_type: str, fallback: str) -> str:
 def _store_media(payload: SubmissionCreate, company_id: str, submission_id: str, media_input: str | None, media_type: str, default_mime: str, fallback_suffix: str) -> str | None:
     if not media_input:
         return None
+
+    # If already a valid public cloud URL from Supabase Storage / S3, keep it directly
+    trimmed_input = media_input.strip()
+    if (trimmed_input.startswith("http://") or trimmed_input.startswith("https://")) and (
+        "/storage/v1/object/public/" in trimmed_input or "supabase.co" in trimmed_input
+    ):
+        return trimmed_input
 
     try:
         media_bytes, mime_type = _extract_media_bytes(media_input, default_mime)
@@ -850,6 +858,24 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
 
     if not await check_company_access(requesting_user_id, company_id):
         raise AuthorizationError("Access denied to this company")
+
+    # Guard against local file:// URIs in submission payload
+    for field_name, url_val in [
+        ("image_url", payload.image_url),
+        ("audio_url", payload.audio_url),
+        ("video_url", payload.video_url),
+    ]:
+        if url_val and (url_val.strip().lower().startswith("file://") or url_val.strip().lower().startswith("file:/")):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Local file URI detected in '{field_name}'. Media must be uploaded to cloud storage via pre-signed URL before submitting.",
+            )
+
+    if payload.text_response and (payload.text_response.strip().lower().startswith("file://") or payload.text_response.strip().lower().startswith("file:/")):
+        raise HTTPException(
+            status_code=400,
+            detail="Local file URI detected in submission payload. Media must be uploaded to cloud storage via pre-signed URL before submitting.",
+        )
 
     submission_id = str(uuid4())
 

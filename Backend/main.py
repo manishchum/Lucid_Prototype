@@ -14,6 +14,12 @@ from fastapi.exceptions import HTTPException
 from config import FRONTEND_URL
 from utils.exceptions import ApiException
 from utils.logging import ErrorLogger
+from utils.supabase_client import (
+    UnauthenticatedDatabaseAccessError,
+    clear_current_user_context,
+    set_current_user_context,
+    set_current_request_info,
+)
 from openai_upload.route import router as openai_upload_router
 from start_content_generation.route import router as start_content_generation_router
 from learning_style.route import router as learning_style_router
@@ -43,6 +49,7 @@ from routes.admin_uploads import router as admin_uploads_router
 from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
+from routes.logs import router as logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -88,6 +95,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         # exc.detail can be str or dict
         content = {"detail": exc.detail}
         status_code = exc.status_code
+    # If this is a database auth error, return friendly 401
+    elif isinstance(exc, UnauthenticatedDatabaseAccessError):
+        content = {
+            "success": False,
+            "detail": "Authentication required to perform this database operation.",
+            "code": "RLS_AUTH_CONTEXT_REQUIRED",
+            "action": exc.action,
+        }
+        status_code = 401
     # If we have a known ApiException, use its structured payload and status
     elif isinstance(exc, ApiException):
         content = exc.to_dict()
@@ -120,6 +136,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def supabase_auth_context_middleware(request: Request, call_next):
+    """
+    Middleware to automatically extract authentication headers (Bearer token or X-User-ID)
+    and scope the global Supabase proxy to the calling user context.
+    Always clears the context in a finally block to ensure no context leak between requests.
+    """
+    token = None
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+
+    x_user_id = request.headers.get("x-user-id") or request.headers.get("X-User-ID")
+    x_company_id = request.headers.get("x-company-id") or request.headers.get("X-Company-ID")
+
+    try:
+        set_current_request_info(str(request.url.path), request.method)
+
+        if token:
+            try:
+                from utils.auth import _verify_token, _resolve_internal_user_context
+                claims = _verify_token(token)
+                token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
+                email = claims.get("email")
+                uid, cid = _resolve_internal_user_context(email, token_user_id, claims)
+                if uid:
+                    set_current_user_context(
+                        user_id=uid,
+                        company_id=cid or x_company_id,
+                        email=email,
+                        endpoint=str(request.url.path),
+                        method=request.method,
+                    )
+            except Exception:
+                pass
+
+        if x_user_id:
+            set_current_user_context(
+                user_id=x_user_id,
+                company_id=x_company_id,
+                endpoint=str(request.url.path),
+                method=request.method,
+            )
+
+        response = await call_next(request)
+        return response
+    finally:
+        clear_current_user_context()
 
 
 @app.get("/")
@@ -253,9 +319,7 @@ app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
 
-@app.post("/api/logs")
-async def client_logs_endpoint():
-    return {"success": True}
+app.include_router(logs_router)
 
 
 if __name__ == "__main__":
