@@ -19,7 +19,7 @@ import {
   Trash2,
   Download
 } from "lucide-react";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
@@ -41,6 +41,7 @@ type ContentItem = {
 
 export default function AdminContentLibrary() {
   const { user, loading: authLoading, isAdmin, isSuperAdmin, isManager, isDeveloper } = useAuth();
+  const { toast } = useToast();
   
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);

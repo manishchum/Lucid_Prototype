@@ -378,6 +378,44 @@ async def process_sprint(
             .execute()
         )
 
+        # ---------------------------------
+        # gamification generation trigger
+        # ---------------------------------
+        # Fetch company_id and uploader
+        module_info = supabase_admin.table("training_modules").select("company_id, uploaded_by").eq("module_id", module_id).single().execute()
+        
+        if module_info.data:
+            company_id = module_info.data.get("company_id")
+            user_id = module_info.data.get("uploaded_by")
+
+            company_info = supabase_admin.table("companies").select("subscription_addons").eq("company_id", company_id).single().execute()
+            if company_info.data:
+                addons = company_info.data.get("subscription_addons") or []
+                if "gamification" in addons:
+                    try:
+                        import jwt
+                        import os
+                        
+                        # Generate internal service token to bypass auth
+                        secret = os.environ.get("SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long")
+                        token = jwt.encode(
+                            {"sub": user_id, "user_id": user_id, "company_id": company_id, "role": "authenticated"},
+                            secret,
+                            algorithm="HS256"
+                        )
+                        
+                        async with httpx.AsyncClient(timeout=None) as client:
+                            await client.post(
+                                "http://127.0.0.1:8000/api/v1/gamification/generate",
+                                json={
+                                    "module_id": module_id,
+                                    "company_id": company_id
+                                },
+                                headers={"Authorization": f"Bearer {token}"}
+                            )
+                    except Exception as e:
+                        print(f"[process_sprint] gamification generation failed: {e}")
+
     except Exception as e:
 
         (
