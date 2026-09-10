@@ -273,23 +273,30 @@ def validate_device_session(
     )
 
 def get_request_auth_optional(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
-	
 ) -> RequestAuth:
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str):
+			validate_device_session(cached_auth.user_id, x_device_id)
+		return cached_auth
+
 	token = _extract_bearer_token(authorization)
 
 	if token:
 		try:
 			claims = _verify_token(token)
-			auth_ctx = _build_request_auth_from_verified_claims(claims,x_device_id)
+			auth_ctx = _build_request_auth_from_verified_claims(claims, x_device_id if isinstance(x_device_id, str) else None)
 			print(
 				f"[auth optional] Bearer verified successfully; "
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
-			if x_device_id:
+			if x_device_id and isinstance(x_device_id, str):
 				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
@@ -311,7 +318,7 @@ def get_request_auth_optional(
 			# Catch any other exceptions (e.g., Firebase SDK not available, network errors)
 			print(f"[auth optional] Firebase verification exception, falling back to X-User-ID: {str(exc)}")
 
-	if x_user_id:
+	if x_user_id and isinstance(x_user_id, str):
 		# Try resolving legacy firebase_uid -> internal user_id (UUID) so
 		# downstream DB queries that expect UUIDs don't fail.
 		def _is_uuid(val: str) -> bool:
@@ -372,13 +379,14 @@ def get_request_auth_optional(
 
 
 def get_request_auth_required(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
  	x_device_id=Header(None, alias="X-Device-ID"),
 	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
 ) -> RequestAuth:
-	if x_worker_token:
+	if x_worker_token and isinstance(x_worker_token, str):
 		expected_worker_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
 		if expected_worker_token and x_worker_token == expected_worker_token:
 			if not x_user_id or not x_company_id:
@@ -400,23 +408,38 @@ def get_request_auth_required(
 			)
 			return auth_result
 
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str):
+			validate_device_session(cached_auth.user_id, x_device_id)
+		return cached_auth
+
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")
 
 	claims = _verify_token(token)
 	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
-	if x_device_id:
+	if x_device_id and isinstance(x_device_id, str):
 		validate_device_session(auth_ctx.user_id, x_device_id)
 
 	return auth_ctx
      
 
 def get_request_auth_jwt_required(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
 	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
+			validate_device_session(str(cached_auth.user_id), str(x_device_id))
+		return cached_auth
+
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")  
@@ -428,7 +451,6 @@ def get_request_auth_jwt_required(
 		str(token_user_id) if token_user_id else "",
 		claims,
 	)
-
 
 	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")

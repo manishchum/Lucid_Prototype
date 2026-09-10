@@ -158,23 +158,32 @@ async def supabase_auth_context_middleware(request: Request, call_next):
 
         if token:
             try:
-                from utils.auth import _verify_token, _resolve_internal_user_context
+                from utils.auth import _verify_token, _resolve_internal_user_context, RequestAuth
                 claims = _verify_token(token)
                 token_user_id = claims.get("uid") or claims.get("user_id") or claims.get("sub")
                 email = claims.get("email")
                 uid, cid = _resolve_internal_user_context(email, token_user_id, claims)
                 if uid:
+                    resolved_company = cid or x_company_id
                     set_current_user_context(
                         user_id=uid,
-                        company_id=cid or x_company_id,
+                        company_id=resolved_company,
                         email=email,
                         endpoint=str(request.url.path),
                         method=request.method,
                     )
+                    request.state.auth_ctx = RequestAuth(
+                        user_id=str(uid),
+                        email=str(email) if email else None,
+                        source="firebase",
+                        claims=claims,
+                        company_id=str(resolved_company) if resolved_company else None,
+                    )
+                    request.state.claims = claims
             except Exception:
                 pass
 
-        if x_user_id:
+        if x_user_id and not getattr(request.state, "auth_ctx", None):
             set_current_user_context(
                 user_id=x_user_id,
                 company_id=x_company_id,

@@ -198,9 +198,10 @@ async def update_processed_module_route(
         auth_claims=auth_ctx.claims
     )
     
+    existing_data = existing_module.get("data") if isinstance(existing_module, dict) else None
     original_module_id = (
-        existing_module["data"].get("original_module_id")
-        if existing_module["data"]
+        existing_data.get("original_module_id")
+        if isinstance(existing_data, dict)
         else None
     )
     
@@ -211,6 +212,11 @@ async def update_processed_module_route(
             status_code=403 if "Permission denied" in result["error"] else 404,
             detail=result["error"]
         )
+    
+    if not original_module_id and result.get("data"):
+        data_item = result["data"][0] if isinstance(result["data"], list) and result["data"] else result["data"]
+        if isinstance(data_item, dict):
+            original_module_id = data_item.get("original_module_id")
     
     redis_client.delete(f"processed_module:{processed_module_id}")
     
