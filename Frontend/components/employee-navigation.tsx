@@ -380,7 +380,7 @@ const EmployeeNavigation = ({
 
 
 
-          {<div className="relative group">
+          {/* {<div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/lucid-tools')}
               className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
@@ -396,7 +396,7 @@ const EmployeeNavigation = ({
               )}
             </button>
             {isCollapsed && <NavTooltip label="Lucid Tools" />}
-          </div> }
+          </div> } */}
           
           {/* Console - visible for manager and higher roles */}
           {canAccessConsole && (
