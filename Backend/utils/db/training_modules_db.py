@@ -517,30 +517,43 @@ async def update_module_review_stage(
 ) -> Dict[str, Any]:
     """
     Update the review stage of a training module.
-    Permission: Manager+ in the same company.
+    Permission: Manager+ in the same company, OR uploader, OR assigned reviewer.
     """
-    # Get the module to check company
+    # Get the module to check company, uploader, and reviewer
     try:
         db = get_service_supabase_client()
-        module_response = db.table('training_modules').select('company_id').eq(
+        module_response = db.table('training_modules').select('company_id, uploaded_by, reviewer_id').eq(
             'module_id', module_id
-        ).single().execute()
+        ).maybe_single().execute()
         
         if not module_response.data:
             return {"data": None, "error": "Training module not found"}
     except Exception as e:
         return {"data": None, "error": "Training module not found"}
     
-    company_id = module_response.data['company_id']
+    module_row = module_response.data
+    company_id = module_row.get('company_id')
+    uploaded_by = module_row.get('uploaded_by')
+    current_reviewer_id = module_row.get('reviewer_id')
     
     # Check permissions
+    is_uploader = str(requesting_user_id) == str(uploaded_by) if uploaded_by else False
+    is_reviewer = str(requesting_user_id) == str(current_reviewer_id) if current_reviewer_id else False
     has_permission = await check_user_permission(requesting_user_id, 'manager')
-    has_access = await check_company_access(requesting_user_id, company_id)
+    has_access = await check_company_access(requesting_user_id, company_id) if company_id else False
     
-    if not has_permission or not has_access:
+    can_update = False
+    if is_uploader and review_stage in ('in_review', 'pending'):
+        can_update = True
+    elif is_reviewer and review_stage in ('approved', 'rejected', 'in_review'):
+        can_update = True
+    elif has_permission and has_access:
+        can_update = True
+    
+    if not can_update:
         return {
             "data": None,
-            "error": "Permission denied: Manager access required"
+            "error": "Permission denied: Must be manager, uploader, or assigned reviewer"
         }
     
     updates = {'review_stage': review_stage}
