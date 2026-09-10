@@ -196,20 +196,38 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
       key,
       async () => {
         const empData = await fetchUserByEmail(authUser.email)
-        // console.log(
-        //   "EMPLOYEE DATA",
-        //   empData
-        // )
+        if (!empData) {
+          throw new Error("Access denied. Your email is not in the allowed users list.")
+        }
 
-        // console.log(
-        //   "USER ID",
-        //   empData?.user_id
-        // )
-        if (!empData) return null
+        if (empData.is_active === false) {
+          throw new Error("Your account has been deactivated. Please contact your administrator.")
+        }
+
+        // Validate company status
+        if (empData.company_id) {
+          const companyRes = await fetchWithAuth(
+            `${API_BASE}/api/companies/${empData.company_id}`
+          )
+
+          if (!companyRes.ok) {
+            throw new Error("Your organization is no longer available. Please contact your administrator.")
+          }
+
+          const companyPayload = await companyRes.json()
+
+          if (!companyPayload?.data) {
+            throw new Error("Your organization is no longer available. Please contact your administrator.")
+          }
+
+          if (companyPayload.data.is_company_active === false) {
+            throw new Error("Your organization account has been deactivated. Please contact your administrator.")
+          }
+        }
 
         const resolvedUserId = (empData.user_id || '').toString().trim()
         if (!resolvedUserId || resolvedUserId === 'undefined' || resolvedUserId === 'null') {
-          return null
+          throw new Error("Access denied. Your email is not in the allowed users list.")
         }
 
         const rolesData = await fetchUserRoles(resolvedUserId)
@@ -250,9 +268,16 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
     )
 
     return result.data
-  } catch (error) {
+  } catch (error: any) {
     console.error("[auth-context] Profile fetch failed:", error)
-    return undefined // Use undefined to explicitly indicate a failure/error (vs null = not found)
+    if (error.message && (
+      error.message.includes("Access denied") ||
+      error.message.includes("deactivated") ||
+      error.message.includes("organization")
+    )) {
+      throw error
+    }
+    return undefined // Use undefined to explicitly indicate non-access system failure
   }
 }
 
@@ -527,63 +552,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login function for email/password authentication
   const login = async (userData: any) => {
     try {
-      // Set user data in state for email/password login
-      // This simulates what Firebase does automatically for Google sign-in
       setUser(userData as User)
-      await fetchWithAuth(
+      const sessionRes = await fetchWithAuth(
         `${API_BASE}/api/auth/session`,
         {
           method: "POST",
           registerSession: true as any,
         } as any
       );
+
+      if (!sessionRes.ok) {
+        throw new Error("Failed to register session after login.")
+      }
       
       if (userData?.email && userData?.uid) {
-        writeManualAuthUser({
+        const authUserObj = {
           uid: userData.uid,
           email: userData.email,
           displayName: userData.displayName ?? userData.name ?? null,
           name: userData.name ?? userData.displayName ?? null,
-        })
-
-        let profile = readCachedProfile();
-
-        if (!profile) {
-            profile = await loadCachedFullProfile({
-                  uid: userData.uid,
-                  email: userData.email,
-                  displayName: userData.displayName ?? userData.name ?? null,
-                  name: userData.name ?? userData.displayName ?? null,
-                })
-
-            if (profile) {
-                writeCachedProfile(profile);
-            }
         }
 
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-            setIsManager(Boolean(profile.isManager))
-            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
-            setRolesLoaded(true)
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-            setIsManager(false)
-            setIsManagerofUsers(false)
-            setRolesLoaded(false)
-          }
+        writeManualAuthUser(authUserObj)
+
+        // Invalidate stale cache for fresh login validation
+        sharedDataClient.invalidateByPrefix("v1|auth")
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+        }
+
+        const profile = await loadCachedFullProfile(authUserObj)
+
+        if (profile) {
+          writeCachedProfile(profile)
+          setEmployeeData(profile.employeeData)
+          setUserId(profile.userId)
+          setUserRoles(profile.userRoles)
+          setIsAdmin(profile.isAdmin)
+          setIsSuperAdmin(profile.isSuperAdmin)
+          setIsDeveloper(Boolean(profile.isDeveloper))
+          setIsManager(Boolean(profile.isManager))
+          setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+          setRolesLoaded(true)
+        } else {
+          setEmployeeData(null)
+          setUserId(null)
+          setUserRoles([])
+          setIsAdmin(false)
+          setIsSuperAdmin(false)
+          setIsDeveloper(false)
+          setIsManager(false)
+          setIsManagerofUsers(false)
+          setRolesLoaded(false)
+          throw new Error("Access denied. Your email is not in the allowed users list.")
         }
       }
       
