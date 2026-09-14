@@ -593,7 +593,28 @@ async def assign_scenario_to_targets(
         
         # Insert assignments
         insert_result = roleplay_db.create_scenario_assignments(assignments)
-        
+
+        # Dispatch roleplay assignment notifications asynchronously
+        try:
+            from utils.notification_dispatcher import dispatch_roleplay_assignment_notification
+            from utils.supabase_client import supabase
+
+            scenario_res = supabase.table("scenarios").select("title").eq("scenario_id", scenario_id).single().execute()
+            scenario_title = (scenario_res.data or {}).get("title", "Roleplay Scenario")
+
+            target_user_ids = []
+            if assignment_type == 'user':
+                target_user_ids = [t for t in effective_target_ids if t]
+            elif assignment_type in ('function', 'sub_function'):
+                col_name = "function_id" if assignment_type == "function" else "sub_function_id"
+                users_res = supabase.table("users").select("user_id").eq("company_id", company_id).in_(col_name, effective_target_ids).eq("is_active", True).execute()
+                target_user_ids = [u.get("user_id") for u in (users_res.data or []) if u.get("user_id")]
+
+            if target_user_ids:
+                asyncio.create_task(dispatch_roleplay_assignment_notification(target_user_ids, scenario_id, scenario_title))
+        except Exception as notif_err:
+            logger.error(f"[Roleplay] Failed to dispatch assignment notification: {notif_err}")
+
         return {
             'success': True,
             'data': insert_result.data or [],

@@ -207,3 +207,104 @@ async def dispatch_bulk_hybrid_notifications(
         except Exception as e:
             logger.error(f"[Dispatcher] Failed bulk dispatch for user {uid}: {e}")
     return count
+
+
+NOTIFICATION_REGISTRY = {
+    "task_assigned": {
+        "title": "New Task Assigned",
+        "message_template": "You have been assigned a new task: '{title}'",
+        "category": "task",
+    },
+    "sprint_assigned": {
+        "title": "New Sprint Assigned",
+        "message_template": "You have been assigned to sprint '{title}'",
+        "category": "sprint",
+    },
+    "roleplay_assigned": {
+        "title": "New Roleplay Assigned",
+        "message_template": "You have been assigned a new roleplay scenario: '{title}'",
+        "category": "roleplay",
+    },
+}
+
+
+async def dispatch_task_assignment_notification(
+    user_ids: List[str],
+    task_id: str,
+    assignment_id: str,
+    title: str,
+) -> int:
+    """
+    Centralized dispatcher for task assignment notifications.
+    Pushes FCM, DB row, Redis unread count, and WebSocket toast/badge to target users.
+    """
+    if not user_ids:
+        return 0
+    config = NOTIFICATION_REGISTRY["task_assigned"]
+    notif_title = config["title"]
+    notif_message = config["message_template"].format(title=title)
+    metadata = {
+        "task_id": task_id,
+        "assignment_id": assignment_id,
+        "title": title,
+    }
+    return await dispatch_bulk_hybrid_notifications(
+        user_ids=list(set(user_ids)),
+        title=notif_title,
+        message=notif_message,
+        notif_type="task_assigned",
+        metadata=metadata,
+    )
+
+
+async def dispatch_sprint_assignment_notification(
+    user_ids: List[str],
+    sprint_id: str,
+    title: str,
+) -> int:
+    """
+    Centralized dispatcher for sprint assignment notifications.
+    """
+    if not user_ids:
+        return 0
+    config = NOTIFICATION_REGISTRY["sprint_assigned"]
+    notif_title = config["title"]
+    notif_message = config["message_template"].format(title=title)
+    metadata = {
+        "sprint_id": sprint_id,
+        "title": title,
+    }
+    return await dispatch_bulk_hybrid_notifications(
+        user_ids=list(set(user_ids)),
+        title=notif_title,
+        message=notif_message,
+        notif_type="sprint_assigned",
+        metadata=metadata,
+    )
+
+
+async def dispatch_roleplay_assignment_notification(
+    user_ids: List[str],
+    scenario_id: str,
+    title: str,
+) -> int:
+    """
+    Centralized dispatcher for roleplay assignment notifications.
+    """
+    if not user_ids:
+        return 0
+    config = NOTIFICATION_REGISTRY["roleplay_assigned"]
+    notif_title = config["title"]
+    notif_message = config["message_template"].format(title=title)
+    metadata = {
+        "scenario_id": scenario_id,
+        "title": title,
+    }
+    return await dispatch_bulk_hybrid_notifications(
+        user_ids=list(set(user_ids)),
+        title=notif_title,
+        message=notif_message,
+        notif_type="roleplay_assigned",
+        metadata=metadata,
+    )
+

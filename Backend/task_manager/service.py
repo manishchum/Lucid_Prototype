@@ -748,6 +748,55 @@ async def resolve_audience_count(payload: TaskCreate, company_id: str, requestin
     return 0
 
 
+async def resolve_target_user_ids(
+    level: str,
+    company_id: str,
+    target_module_id: Optional[str] = None,
+    target_function_id: Optional[str] = None,
+    target_sub_function_id: Optional[str] = None,
+    target_user_ids: Optional[list] = None,
+) -> list:
+    db = get_service_supabase_client()
+    base = (
+        db.table("users")
+        .select("user_id")
+        .eq("company_id", company_id)
+        .eq("is_active", True)
+        .eq("employment_status", "ACTIVE")
+    )
+
+    if level == "cohort" and is_valid_uuid(target_module_id):
+        learning_plan = (
+            db.table("learning_plan")
+            .select("user_id")
+            .eq("module_id", target_module_id)
+            .in_("status", ["ASSIGNED", "IN_PROGRESS"])
+            .execute()
+        ).data or []
+        ids = [row["user_id"] for row in learning_plan if is_valid_uuid(row.get("user_id"))]
+        if not ids:
+            return []
+        res = base.in_("user_id", ids).execute()
+        return [r["user_id"] for r in (res.data or []) if r.get("user_id")]
+
+    if level == "function" and is_valid_uuid(target_function_id):
+        res = base.eq("function_id", target_function_id).execute()
+        return [r["user_id"] for r in (res.data or []) if r.get("user_id")]
+
+    if level == "sub_function" and is_valid_uuid(target_sub_function_id):
+        res = base.eq("sub_function_id", target_sub_function_id).execute()
+        return [r["user_id"] for r in (res.data or []) if r.get("user_id")]
+
+    if level == "individual" and target_user_ids:
+        return [u for u in target_user_ids if is_valid_uuid(u)]
+
+    if level == "org":
+        res = base.execute()
+        return [r["user_id"] for r in (res.data or []) if r.get("user_id")]
+
+    return []
+
+
 async def create_task_and_assignment(payload: TaskCreate, company_id: str, requesting_user_id: str) -> dict:
     if not await check_user_permission(requesting_user_id, 'manager'):
         raise AuthorizationError("Permission denied: Manager role required to create tasks")
@@ -826,6 +875,32 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
             })
         if child_inserts:
             db.table("child_tasks").insert(child_inserts).execute()
+
+    # Dispatch notifications to assigned target users via Centralized Dispatcher
+    try:
+        import asyncio
+        from utils.notification_dispatcher import dispatch_task_assignment_notification
+
+        assigned_uids = await resolve_target_user_ids(
+            level=payload.level,
+            company_id=company_id,
+            target_module_id=target_module_id,
+            target_function_id=target_function_id,
+            target_sub_function_id=target_sub_function_id,
+            target_user_ids=target_user_ids,
+        )
+        if assigned_uids:
+            asyncio.create_task(
+                dispatch_task_assignment_notification(
+                    user_ids=assigned_uids,
+                    task_id=task_id,
+                    assignment_id=assignment_id,
+                    title=payload.title,
+                )
+            )
+    except Exception as notif_err:
+        print(f"[task-manager] Warning: Task assignment notification dispatch failed: {notif_err}")
+
 
 
     returned_submission_format = payload.submission_format
@@ -1578,6 +1653,33 @@ async def reassign_task_assignment(
 
         audience_display_name = target_sprints[0] if target_sprints else db_level
         primary_task = new_tasks[0] if new_tasks else {}
+
+        # Dispatch notifications to assigned target users via Centralized Dispatcher
+        try:
+            import asyncio
+            from utils.notification_dispatcher import dispatch_task_assignment_notification
+
+            assigned_uids = await resolve_target_user_ids(
+                level=db_level,
+                company_id=company_id,
+                target_module_id=target_module_id,
+                target_function_id=target_function_id,
+                target_sub_function_id=target_sub_function_id,
+                target_user_ids=target_user_ids,
+            )
+            if assigned_uids and new_tasks:
+                for t in new_tasks:
+                    asyncio.create_task(
+                        dispatch_task_assignment_notification(
+                            user_ids=assigned_uids,
+                            task_id=t.get("task_id", new_assignment_id),
+                            assignment_id=new_assignment_id,
+                            title=t.get("title", "Task"),
+                        )
+                    )
+        except Exception as notif_err:
+            print(f"[task-manager] Warning: Existing task re-assignment notification failed: {notif_err}")
+
         return {
             "task_id": primary_task.get("task_id"),
             "assignment_id": new_assignment_id,
