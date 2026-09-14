@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 import { ChevronLeft, Save, Play, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -52,6 +52,7 @@ interface CustomRoleplayData {
 const CreateRoleplayComponent = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast } = useToast();
   const isEditMode = searchParams.get('edit') === 'true';
   const { user, loading: authLoading, logout, employeeData } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
