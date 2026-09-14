@@ -48,53 +48,15 @@ function LoginContent() {
     }
   }, [searchParams])
 
-  const checkUserAccess = async (userEmail: string) => {
-    try{
-      const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(userEmail)}`)
-      if (!res.ok) {
-        throw new Error("Access denied. Your email is not in the allowed users list.")
-      }
-    
-      const payload = await res.json();
-      let employeeData = payload?.user ?? payload;
-      if (Array.isArray(employeeData)) employeeData = employeeData[0];
-      if (!employeeData) {
-        throw new Error("Access denied. Your email is not in the allowed users list.")
-      }
-      if (employeeData.is_active === false) {
-        throw new Error("Your account has been deactivated. Please contact your administrator.")
-      }
-
-      // Company must exist
-      const companyRes = await fetchWithAuth(
-        `${API_BASE}/api/companies/${employeeData.company_id}`
-      )
-
-      if (!companyRes.ok) {
-        throw new Error("Your organization is no longer available. Please contact your administrator.")
-      }
-
-      const companyPayload = await companyRes.json()
-
-      if (!companyPayload?.data) {
-        throw new Error("Your organization is no longer available. Please contact your administrator.")
-      }
-
-      if (companyPayload.data.is_company_active === false) {
-        throw new Error("Your organization account has been deactivated. Please contact your administrator.")
-      }
-      return employeeData;
-    } catch (error: any) {
-      throw new Error(error.message || "Failed to verify user access.")
-    }
-  }
-
   const mapLoginErrorMessage = (err: any): string => {
     const code = err?.code || ""
     const message = err?.message || ""
 
     if (message.includes("Access denied")) {
       return "Access denied. Your email is not in the allowed users list."
+    }
+    if (message.includes("deactivated") || message.includes("organization")) {
+      return message
     }
 
     switch (code) {
@@ -119,18 +81,6 @@ function LoginContent() {
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
-      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
-        {
-          method: 'POST',
-          registerSession: true as any,
-        } as any
-      );
-      if(!sessionRes.ok) {
-        throw new Error("Failed to register session after login.")
-      }
-      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
-      await checkUserAccess(email)
-
       await login(emailAuthResult.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
@@ -194,26 +144,15 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
-      const sessionRes = await fetchWithAuth(`${API_BASE}/api/auth/session`,
-        {
-          method: 'POST',
-          registerSession: true as any,
-        } as any
-      );
-      if(!sessionRes.ok) {
-        throw new Error("Failed to register session after login.")
-      }
-      await new Promise(resolve => setTimeout(resolve, 750)); // Wait for session to be registered
-      const userData = await checkUserAccess(result.user.email!)
       await login(result.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
     } catch (error: any) {
-      if (error.message.includes("Access denied")) {
+      if (error?.message?.includes("Access denied")) {
         setError("Access denied. Your Google account email is not in the allowed users list.")
       } else {
-        setError(error.message)
+        setError(mapLoginErrorMessage(error))
       }
       try {
         await fetchWithAuth('/api/logs', {
