@@ -1,3 +1,4 @@
+"""
 from PIL import Image
 import torch
 from transformers import CLIPProcessor, CLIPModel
@@ -58,3 +59,4 @@ def validate_image_with_task(image_path: str, task: str):
             "matched": False,
             "error": str(e)
         }
+"""

@@ -4,10 +4,12 @@ import re
 from google import genai
 from google.genai import types
 from utils.supabase_client import supabase
-from analysis.text_analyzer import analyze_text, analyze_mcq
-from analysis.image_analyzer import analyze_image
-from analysis.audio_analyzer import analyze_audio
-from analysis.video_analyzer import analyze_video
+from .text import analyze_text, analyze_mcq
+from .vision import analyze_image
+from .audio import analyze_audio
+from .vision import analyze_video
+import time
+from .gemini_usage import extract_gemini_usage
 
 from enum import Enum
 from typing import List, Dict, Any
@@ -101,7 +103,7 @@ TYPE_CONFIGS = {
     }
 }
 
-def generate_task_insights(task_title: str, task_description: str, expected_answer: str | None, submission_type: str, submission_content: dict | str | list, evaluation_result: dict) -> dict:
+def generate_task_insights(task_title: str, task_description: str, expected_answer: str | None, analyzing_parameters: str | None, submission_type: str, submission_content: dict | str | list, evaluation_result: dict) -> dict:
     """
     Generate business/task outcomes (insights) dynamically using Gemini structured outputs.
     """
@@ -182,6 +184,7 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
     Task: {task_title}
     Description: {task_description}
     Expected Answer/Behavior: {expected_answer or "N/A"}
+    Analyzing Parameters (Evaluation Criteria): {analyzing_parameters or "N/A"}
     Submission Type: {stype.upper()}
 
     ANALYSIS FOCUS:
@@ -206,6 +209,7 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
     """
 
     try:
+        start_time = time.time()
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
@@ -215,15 +219,15 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
                 temperature=0.2
             )
         )
+        end_time = time.time()
 
-        if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            meta = response.usage_metadata
-            print("\n========== GEMINI TOKEN USAGE (analysis/background.py - generate_task_insights) ==========")
-            print(f"  Input tokens:    {getattr(meta, 'prompt_token_count', 'N/A')}")
-            print(f"  Output tokens:   {getattr(meta, 'candidates_token_count', 'N/A')}")
-            print(f"  Thinking tokens: {getattr(meta, 'thoughts_token_count', 'N/A')}")
-            print(f"  TOTAL tokens:    {getattr(meta, 'total_token_count', 'N/A')}")
-            print("=========================================================================================\n")
+        usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
+        print(f"\n========== GEMINI USAGE: pipeline.py (generate_task_insights) ==========")
+        print(f"Model: {usage['model']} | Duration: {usage['duration_ms']}ms")
+        print(f"Tokens: Input {usage['prompt_tokens']} | Output {usage['output_tokens']} | Total {usage['total_tokens']}")
+        if usage['pricing_available']:
+            print(f"Cost: ${usage['total_cost_usd']} | INR ₹{usage['total_cost_inr']}")
+        print("========================================================================\n")
 
         text = response.text.strip()
         insights = json.loads(text)
@@ -300,6 +304,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
                 expected_answer=task.get("expected_answer"),
+                analyzing_parameters=task.get("analyzing_parameters"),
                 employee_response=input_data  # text_response
             )
             extracted_content["raw_employee_response"] = input_data
@@ -478,7 +483,18 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             raise ValueError(f"Unknown submission type: {submission_type}")
 
         # 4. Generate task insights
-        if stype == "audio" and not result.get("metrics", {}).get("transcript", "").strip():
+        if stype == "text":
+            task_insights = {
+                "summary": result.get("summary", ""),
+                "measurable_outcomes": result.get("measurable_outcomes", []),
+                "actions_taken": result.get("actions_taken", []),
+                "unique_methods": result.get("unique_methods", []),
+                "challenges": result.get("challenges", []),
+                "learnings": result.get("learnings", []),
+                "missing_information": result.get("missing_information", []),
+                "extraction_confidence": result.get("extraction_confidence", "high")
+            }
+        elif stype == "audio" and not result.get("metrics", {}).get("transcript", "").strip():
               task_insights = {
             "summary": "No transcript could be extracted from the audio.",
             "measurable_outcomes": [],
@@ -496,6 +512,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             task_title=task.get("title", ""),
             task_description=task.get("description", ""),
             expected_answer=task.get("expected_answer"),
+            analyzing_parameters=task.get("analyzing_parameters"),
             submission_type=stype,
             submission_content=text_inputs_for_insights,
             evaluation_result=result

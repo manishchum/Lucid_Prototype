@@ -1,3 +1,146 @@
+from datetime import date
+from typing import List, Optional, Literal
+
+from pydantic import BaseModel, Field
+from typing import Union
+
+class QuizQuestion(BaseModel):
+    id: str
+    question: str
+    type: Literal[
+        "single",
+        "multiple",
+    ] = "single"
+    options: List[str] = []
+    correctAnswer: Optional[str] = None
+    correctAnswers: List[str] = []
+    writtenAnswer: Optional[str] = None
+
+
+class ChildTask(BaseModel):
+    child_task_id: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    submission_format: str
+    expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
+    questions: Optional[List[QuizQuestion]] = []
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(..., min_length=5)
+    description: Optional[str] = None
+    expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
+    submission_format: Union[str, List[str]]
+    questions: Optional[List[QuizQuestion]] = []
+    bundle_tasks: Optional[List[ChildTask]] = []
+    level: str
+    target_module_id: Optional[str] = None
+    target_function_id: Optional[str] = None
+    target_sub_function_id: Optional[str] = None
+    target_user_ids: Optional[List[str]] = []
+    due_date: date
+    recurrence: str = "none"
+    created_by: Optional[str] = None
+
+
+class TaskResponse(BaseModel):
+    task_id: str
+    assignment_id: str
+    company_id: str
+    title: str
+    description: Optional[str]
+    expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
+    submission_format: List[str]
+    questions: List[dict]
+    bundle_tasks: Optional[List[dict]] = []
+    status: str
+    due_date: str
+    recurrence: str
+    level: str
+    audience_display_name: str
+    total_target_count: int
+    completion_count: int
+    created_at: str
+    submitted: Optional[bool] = False
+    submission: Optional[dict] = None
+
+
+class TaskListResponse(BaseModel):
+    tasks: List[TaskResponse]
+    total: int
+
+class SubmissionCreate(BaseModel):
+    # ids
+    task_id: str
+    user_id: str
+    assignment_id: Optional[str] = None
+    child_task_id: Optional[str] = None
+
+    # text/image/audio/quiz (video hidden per request)
+    submission_type: Literal[
+        "text",
+        "image",
+        "audio",
+        "multiple_choice"
+    ]
+
+    # submission data
+    text_response: Optional[str] = None
+
+    image_url: Optional[str] = None
+
+    audio_url: Optional[str] = None
+
+    video_url: Optional[str] = None
+
+
+    # quiz answers
+    answers: Optional[List[dict]] = []
+
+
+    # AI evaluation result
+    score: Optional[int] = None
+
+    max_score: Optional[int] = None
+
+    ai_validation_pass: Optional[bool] = None
+
+    ai_validation_verdict: Optional[str] = None
+
+    ai_validation_reason: Optional[str] = None
+
+    ai_validation_suggestion: Optional[str] = None
+
+    ai_validation_confidence: Optional[
+        Literal[
+            "high",
+            "medium",
+            "low"
+        ]
+    ] = None
+
+
+    status: str = "submitted"
+
+    ai_status: Optional[str] = None
+
+
+class TaskReassignPayload(BaseModel):
+    original_assignment_id: str
+    mode: Literal["modify", "copy"]
+    level: str
+    target_sprints: Optional[List[str]] = []
+    target_orgs: Optional[List[str]] = []
+    target_functions: Optional[List[str]] = []
+    target_sub_functions: Optional[List[str]] = []
+    target_individuals: Optional[List[str]] = []
+    due_date: date
+    recurrence: str = "none"
+
+
 import base64
 import json
 import os
@@ -14,7 +157,6 @@ def is_valid_uuid(val: any) -> bool:
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
-from .models import SubmissionCreate, TaskCreate
 # from audio_analysis.scoring import generate_audio_score
 # from audio_analysis.services.acoustic_analysis import analyze_audio_features
 # from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
@@ -349,7 +491,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
         tasks = (
             db.table("tasks")
             .select(
-                "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
+                "task_id, assignment_id, title, description, expected_answer, analyzing_parameters, submission_format, questions, status, bundle_tasks"
             )
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
@@ -361,7 +503,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             tasks = (
                 db.table("tasks")
                 .select(
-                    "task_id, assignment_id, title, description, expected_answer, submission_format, questions, status, bundle_tasks"
+                    "task_id, assignment_id, title, description, expected_answer, analyzing_parameters, submission_format, questions, status, bundle_tasks"
                 )
                 .in_("assignment_id", assignment_ids)
                 .execute()
@@ -481,6 +623,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
                 "title": task.get("title", ""),
                 "description": task.get("description", ""),
                 "expected_answer": task.get("expected_answer"),
+                "analyzing_parameters": task.get("analyzing_parameters"),
                 "submission_format": submission_format_list,
                 "questions": task.get("questions") or [],
                 "bundle_tasks": task.get("bundle_tasks") or [],
@@ -589,7 +732,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
     try:
         tasks_res = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer")
+            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer, analyzing_parameters")
             .in_("assignment_id", list(assigned_ids))
             .eq("company_id", company_id)
             .execute()
@@ -665,6 +808,8 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             safe_bt = dict(bt)
             if not caller_is_admin and "expected_answer" in safe_bt:
                 del safe_bt["expected_answer"]
+            if not caller_is_admin and "analyzing_parameters" in safe_bt:
+                del safe_bt["analyzing_parameters"]
             safe_bundle_tasks.append(safe_bt)
 
         row = {
@@ -687,10 +832,13 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             "target_sub_function_id": assignment.get("target_sub_function_id"),
             "target_module_id": assignment.get("target_module_id"),
             "expected_answer": task.get("expected_answer"),
+            "analyzing_parameters": task.get("analyzing_parameters"),
         }
         
         if caller_is_admin and "expected_answer" in task:
             row["expected_answer"] = task["expected_answer"]
+        if caller_is_admin and "analyzing_parameters" in task:
+            row["analyzing_parameters"] = task["analyzing_parameters"]
             
         filtered.append(row)
 
@@ -797,6 +945,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
         "title": payload.title,
         "description": payload.description,
         "expected_answer": payload.expected_answer,
+        "analyzing_parameters": payload.analyzing_parameters,
         "submission_format": db_submission_format,
         "questions": [q.model_dump() for q in (payload.questions or [])],
         "status": "active",
@@ -813,6 +962,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
                 "description": ct.get("description", ""),
                 "submission_format": ct.get("submission_format", "text"),
                 "expected_answer": ct.get("expected_answer", ""),
+                "analyzing_parameters": ct.get("analyzing_parameters", ""),
                 "questions": ct.get("questions") or [],
                 "order_index": idx
             })
@@ -846,7 +996,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
 
 async def submit_task_response(payload: SubmissionCreate, company_id: str, background_tasks, requesting_user_id: str) -> dict:
     from datetime import datetime
-    from analysis.background import run_ai_pipeline_bg
+    from task_manager.analyzer.pipeline import run_ai_pipeline_bg
 
     if not await check_company_access(requesting_user_id, company_id):
         raise AuthorizationError("Access denied to this company")
@@ -1352,7 +1502,7 @@ async def fetch_task_submissions(
         tasks_map = {}
         if task_ids:
             try:
-                task_res = db.table("tasks").select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, bundle_tasks").in_("task_id", task_ids).execute()
+                task_res = db.table("tasks").select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, analyzing_parameters, bundle_tasks").in_("task_id", task_ids).execute()
                 for t in (task_res.data or []):
                     tasks_map[t["task_id"]] = t
             except Exception as e:
@@ -1508,7 +1658,7 @@ async def reassign_task_assignment(
 
         orig_tasks = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, bundle_tasks")
+            .select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, analyzing_parameters, bundle_tasks")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
             .execute()
@@ -1559,6 +1709,7 @@ async def reassign_task_assignment(
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
             "expected_answer": primary_task.get("expected_answer"),
+            "analyzing_parameters": primary_task.get("analyzing_parameters"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1593,7 +1744,7 @@ async def reassign_task_assignment(
 
         updated_tasks = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, bundle_tasks")
+            .select("task_id, assignment_id, company_id, created_by, title, description, submission_format, questions, status, created_at, updated_at, expected_answer, analyzing_parameters, bundle_tasks")
             .eq("assignment_id", original_assignment_id)
             .eq("company_id", company_id)
             .execute()
@@ -1608,6 +1759,7 @@ async def reassign_task_assignment(
             "title": primary_task.get("title", ""),
             "description": primary_task.get("description", ""),
             "expected_answer": primary_task.get("expected_answer"),
+            "analyzing_parameters": primary_task.get("analyzing_parameters"),
             "submission_format": _normalize_submission_format(primary_task.get("submission_format", "text")),
             "questions": primary_task.get("questions") or [],
             "bundle_tasks": primary_task.get("bundle_tasks") or [],
@@ -1624,3 +1776,267 @@ async def reassign_task_assignment(
             "completion_count": 0,
             "created_at": "",
         }
+
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
+
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
+from utils.exceptions import ApiException
+
+router = APIRouter(dependencies=[Depends(require_addon("task_management"))])
+
+
+@router.get("/task-manager/tasks", response_model=TaskListResponse)
+async def list_tasks(
+    request: Request,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        tasks = await get_active_tasks(company_id, auth_ctx.user_id)
+        return {"tasks": tasks, "total": len(tasks)}
+    except ApiException:
+        raise
+    except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
+        try:
+            headers = {k: v for k, v in request.headers.items()}
+        except Exception:
+            headers = {}
+        print("[task-manager] list_tasks exception:\n", tb)
+        print("[task-manager] request headers:", headers)
+        raise HTTPException(status_code=500, detail="Internal Server Error") from exc
+
+
+@router.get("/task-manager/tasks/user/{user_id}")
+async def list_tasks_for_user(
+    user_id: str,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        tasks = await get_tasks_for_user(user_id, company_id, auth_ctx.user_id)
+        return {"tasks": tasks, "total": len(tasks)}
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/task-manager/tasks", status_code=201)
+async def create_task(
+    payload: TaskCreate,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        if not payload.created_by and auth_ctx.user_id:
+            payload.created_by = auth_ctx.user_id
+        created = await create_task_and_assignment(payload, company_id, auth_ctx.user_id)
+        return created
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/task-manager/tasks/submit", status_code=201)
+async def submit_task(
+    payload: SubmissionCreate,
+    background_tasks: BackgroundTasks,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    if auth_ctx.user_id and str(payload.user_id) != str(auth_ctx.user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="user_id does not match authenticated token"
+        )
+
+    try:
+        result = await submit_task_response(
+            payload,
+            company_id,
+            background_tasks,
+            auth_ctx.user_id
+        )
+        return result
+    except ApiException:
+        raise
+    except Exception as exc:
+        if "already submitted" in str(exc).lower() or "already completed" in str(exc).lower():
+            raise HTTPException(
+                status_code=409,
+                detail=str(exc)
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc)
+        )
+
+
+@router.get("/task-manager/tasks/report/{assignment_id}")
+async def get_report(
+    assignment_id: str,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        return await get_report_summary(assignment_id, company_id, auth_ctx.user_id)
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/task-manager/tasks/submissions")
+async def list_submissions(
+    assignment_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    caller_is_admin = await is_user_admin(auth_ctx.user_id)
+    try:
+        rows = await fetch_task_submissions(
+            company_id=company_id,
+            assignment_id=assignment_id,
+            user_id=user_id,
+            caller_is_admin=caller_is_admin,
+            requesting_user_id=auth_ctx.user_id
+        )
+        return {"submissions": rows, "total": len(rows)}
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+
+@router.get("/task-manager/audience/functions")
+async def list_functions(
+    company_id: str = Depends(get_effective_company_id), 
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        return await get_audience_functions(company_id, auth_ctx.user_id)
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/task-manager/audience/sub-functions/{function_id}")
+async def list_sub_functions(
+    function_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        return await get_audience_sub_functions(function_id, auth_ctx.user_id)
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc)
+        )
+
+
+@router.get("/task-manager/audience/cohorts")
+async def list_cohorts(
+    company_id: str = Depends(get_effective_company_id), 
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        return await get_audience_cohorts(company_id, auth_ctx.user_id)
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/task-manager/audience/members")
+async def list_members(
+    company_id: str = Depends(get_effective_company_id), 
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        return await get_audience_members(company_id, auth_ctx.user_id)
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/task-manager/tasks/{assignment_id}", status_code=200)
+async def delete_task(
+    assignment_id: str,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        success = await delete_task_assignment(assignment_id, company_id, auth_ctx.user_id)
+        return {"success": success}
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/task-manager/tasks/reassign", status_code=200)
+async def reassign_task(
+    payload: TaskReassignPayload,
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        updated = await reassign_task_assignment(
+            company_id=company_id,
+            original_assignment_id=payload.original_assignment_id,
+            mode=payload.mode,
+            level=payload.level,
+            target_sprints=payload.target_sprints,
+            target_orgs=payload.target_orgs,
+            target_functions=payload.target_functions,
+            target_sub_functions=payload.target_sub_functions,
+            target_individuals=payload.target_individuals,
+            due_date=str(payload.due_date),
+            recurrence=payload.recurrence,
+            created_by=auth_ctx.user_id,
+        )
+        return updated
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+
+import asyncio
+
+@router.get("/task-manager/dashboard")
+async def get_dashboard(
+    company_id: str = Depends(get_effective_company_id),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    try:
+        tasks_task = asyncio.create_task(get_active_tasks(company_id, auth_ctx.user_id))
+        cohorts_task = asyncio.create_task(get_audience_cohorts(company_id, auth_ctx.user_id))
+        members_task = asyncio.create_task(get_audience_members(company_id, auth_ctx.user_id))
+        functions_task = asyncio.create_task(get_audience_functions(company_id, auth_ctx.user_id))
+        
+        await asyncio.gather(tasks_task, cohorts_task, members_task, functions_task)
+        
+        return {
+            "tasks": tasks_task.result(),
+            "cohorts": cohorts_task.result(),
+            "members": members_task.result(),
+            "functions": functions_task.result()
+        }
+    except ApiException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

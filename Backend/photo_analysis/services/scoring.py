@@ -1,7 +1,8 @@
+"""
 def apply_verification_rules(ai_result, object_validation):
-    """
+    '''
     Final authority layer after Gemini.
-    """
+    '''
 
     if not object_validation.get("object_check_passed", True):
 
@@ -18,3 +19,4 @@ def apply_verification_rules(ai_result, object_validation):
         )
 
     return ai_result
+"""

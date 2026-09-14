@@ -1,9 +1,10 @@
+"""
 from analysis.models import yolo_model as model
 def detect_objects(image_path: str):
-    """
+    '''
     Detect objects from image using YOLO.
     Always return safe JSON.
-    """
+    '''
 
     try:
         results = model(image_path)
@@ -38,3 +39,4 @@ def detect_objects(image_path: str):
             "objects": [],
             "error": "YOLO unavailable"
         }
+"""

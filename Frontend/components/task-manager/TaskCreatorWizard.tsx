@@ -103,6 +103,7 @@ export default function TaskCreatorWizard({
         title: t.title,
         description: t.description || '',
         expectedAnswer: t.expectedAnswer || '',
+        analyzingParameters: t.analyzingParameters || '',
         submissionFormat: t.submissionFormat,
         questions: t.questions || []
       }));
@@ -113,6 +114,7 @@ export default function TaskCreatorWizard({
         title: '',
         description: '',
         expectedAnswer: '',
+        analyzingParameters: '',
         submissionFormat: 'text',
         questions: []
       }
@@ -173,6 +175,7 @@ export default function TaskCreatorWizard({
             title: bt.title || '',
             description: bt.description || '',
             expectedAnswer: bt.expected_answer || bt.expectedAnswer || (initialTask.tasks?.[idx]?.expectedAnswer) || (initialTask as any).expected_answer || '',
+            analyzingParameters: bt.analyzing_parameters || bt.analyzingParameters || (initialTask.tasks?.[idx]?.analyzingParameters) || (initialTask as any).analyzing_parameters || '',
             submissionFormat: bt.submission_format || 'text',
             questions: bt.questions || [],
           }))
@@ -184,6 +187,7 @@ export default function TaskCreatorWizard({
             title: t.title || initialTask.title || '',
             description: t.description || initialTask.description || '',
             expectedAnswer: t.expectedAnswer || (t as any).expected_answer || (initialTask as any).expected_answer || '',
+            analyzingParameters: t.analyzingParameters || (t as any).analyzing_parameters || (initialTask as any).analyzing_parameters || '',
             submissionFormat: t.submissionFormat || 'text',
             questions: t.questions || [],
           }))
@@ -215,6 +219,7 @@ export default function TaskCreatorWizard({
         title: '',
         description: '',
         expectedAnswer: '',
+        analyzingParameters: '',
         submissionFormat: 'text',
         questions: []
       }
@@ -547,7 +552,7 @@ const toggleCorrectAnswer = (
         if (!bundleDescription.trim()) errors.push("Task Description is required.");
         tasks.forEach((t, i) => {
           if (t.title.trim().length < 5) errors.push(`Task Block #${i + 1}: Sub Task Name must be at least 5 characters.`);
-          if (!t.expectedAnswer?.trim()) errors.push(`Task Block #${i + 1}: AI Analyzing Parameters are required.`);
+          if (!t.analyzingParameters?.trim()) errors.push(`Task Block #${i + 1}: AI Analyzing Parameters are required.`);
           
           const hasQuiz = Array.isArray(t.submissionFormat) ? t.submissionFormat.includes('multiple_choice') : t.submissionFormat === 'multiple_choice';
           if (hasQuiz) {
@@ -568,7 +573,7 @@ const toggleCorrectAnswer = (
         const t = tasks[0];
         if (t.title.trim().length < 5) errors.push("Task Name must be at least 5 characters.");
         if (!t.description.trim()) errors.push("Task Description is required.");
-        if (!t.expectedAnswer?.trim()) errors.push("AI Analyzing Parameters are required.");
+        if (!t.analyzingParameters?.trim()) errors.push("AI Analyzing Parameters are required.");
 
         const hasQuiz = Array.isArray(t.submissionFormat) ? t.submissionFormat.includes('multiple_choice') : t.submissionFormat === 'multiple_choice';
         if (hasQuiz) {
@@ -665,6 +670,7 @@ const toggleCorrectAnswer = (
               title: t.title.trim(),
               description: t.description.trim(),
               expected_answer: t.expectedAnswer?.trim() || null,
+              analyzing_parameters: t.analyzingParameters?.trim() || null,
               submission_format: normalizeFormat(t.submissionFormat),
               questions: (t.submissionFormat === 'multiple_choice' || (Array.isArray(t.submissionFormat) && t.submissionFormat.includes('multiple_choice')))
                 ? t.questions.map(q => ({
@@ -697,6 +703,7 @@ const toggleCorrectAnswer = (
             title: primaryTask.title.trim(),
             description: primaryTask.description.trim(),
             expected_answer: primaryTask.expectedAnswer?.trim() || null,
+            analyzing_parameters: primaryTask.analyzingParameters?.trim() || null,
             submission_format: normalizeFormat(primaryTask.submissionFormat),
             questions: (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
               ? primaryTask.questions.map(q => ({
@@ -1086,8 +1093,8 @@ const toggleCorrectAnswer = (
                             
                             <textarea
                               rows={2}
-                              value={taskItem.expectedAnswer || ''}
-                              onChange={(e) => updateTaskField(taskItem.id, 'expectedAnswer', e.target.value)}
+                              value={taskItem.analyzingParameters || ''}
+                              onChange={(e) => updateTaskField(taskItem.id, 'analyzingParameters', e.target.value)}
                               placeholder="e.g., The photo must clearly show the equipment serial number and no blurry edges."
                               className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
                             />
