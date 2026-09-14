@@ -1066,6 +1066,27 @@ export default function EditModulePage() {
     }
   };
 
+  const logToErrorLogs = async (error: any, action: string) => {
+    try {
+      const errorMsg = error?.message || String(error);
+      const stackTrace = error?.stack || null;
+      await fetch('/api/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_id: user?.email || null,
+          error: errorMsg,
+          stack_trace: stackTrace,
+          error_type: 'ExpertInTheLoopError',
+          action: action,
+          page_url: typeof window !== 'undefined' ? window.location.href : null,
+        })
+      }).catch(() => {});
+    } catch (e) {
+      console.warn('Failed to dispatch error log:', e);
+    }
+  };
+
   // ADMIN: Save edits locally (no DB write yet, just prepare for request approval)
   const handleSaveChanges = () => {
     if (!selectedSubModule || !contentEditableRef.current) return;
@@ -1105,13 +1126,16 @@ export default function EditModulePage() {
         throw new Error(error.detail || 'Failed to create history entry');
       }
 
-      // Update the training module review_stage to in_review
-      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
-        method: 'PUT',
+      // Update the training module review_stage to in_review using PATCH /review-stage
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}/review-stage`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ review_stage: 'in_review' })
       });
-      if (!updateResponse.ok) throw new Error('Failed to update training module status');
+      if (!updateResponse.ok) {
+        const errJson = await updateResponse.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to update training module status');
+      }
 
       setHasUnsavedChanges(false);
 
@@ -1130,15 +1154,17 @@ export default function EditModulePage() {
       const updatedSubModules = subModules.map(sm =>
         sm.processed_module_id === selectedSubModule.processed_module_id
           ? { ...sm, content: newContent }
-          : sm)
+          : sm);
 
       setSubModules(updatedSubModules);
     } catch (error) {
       console.error('Error submitting for approval:', error);
+      await logToErrorLogs(error, `RequestApproval:module:${moduleId}`);
       alert('Failed to submit for review');
     } finally {
       setSubmitting(false);
-    }  };
+    }
+  };
      
   // REVIEWER: Save reviewer edits to history (overwrite the in_review entry)
   const handleReviewerSave = async () => {
@@ -1183,7 +1209,6 @@ export default function EditModulePage() {
           })
         });
 
-        // console.log(response)
         if (!response.ok) {
           const error = await response.json();
           throw new Error(error.detail || 'Failed to create history entry');
@@ -1195,6 +1220,7 @@ export default function EditModulePage() {
       await fetchPendingHistory();
     } catch (error) {
       console.error('Error saving reviewer edits:', error);
+      await logToErrorLogs(error, `ReviewerSave:module:${moduleId}`);
       alert('Failed to save edits');
     } finally {
       setSubmitting(false);
@@ -1225,10 +1251,7 @@ export default function EditModulePage() {
       }
 
       const data = await response.json();
-     
-     
-      // console.log(data)
-      const pendingEntries = data.history || data.data.history || [];
+      const pendingEntries = data.history || data.data?.history || [];
 
       if (!pendingEntries || pendingEntries.length === 0) {
         alert('No pending changes to approve.');
@@ -1244,18 +1267,20 @@ export default function EditModulePage() {
         }
       }
 
-      // Push each approved content to processed_modules
+      // Push each approved content to processed_modules and verify every update
       for (const [processedModuleId, historyEntry] of Object.entries(latestPerModule)) {
-        const response = await fetchWithAuth(`${API_BASE}/api/processed-modules/${processedModuleId}`, {
+        const updatePmResponse = await fetchWithAuth(`${API_BASE}/api/processed-modules/${processedModuleId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: historyEntry.content })
         });
 
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
+        if (!updatePmResponse.ok) {
+          const errData = await updatePmResponse.json().catch(() => ({}));
+          const errMsg = errData.detail || `Failed to update submodule ${processedModuleId}`;
           console.error(`Failed to update processed_module ${processedModuleId}:`, errData);
-          continue;
+          await logToErrorLogs(new Error(errMsg), `FinalApproval:update_processed_module:${processedModuleId}`);
+          throw new Error(errMsg);
         }
       }
 
@@ -1275,23 +1300,42 @@ export default function EditModulePage() {
 
         if (!statusResponse.ok) {
           console.error(`Failed to update status for ${entry.content_generation_history_id}`);
+          await logToErrorLogs(new Error(`Failed to update status for ${entry.content_generation_history_id}`), `FinalApproval:update_history_status:${entry.content_generation_history_id}`);
         }
       }
 
-      // Update training module review_stage to approved
-      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
-        method: 'PUT',
+      // Update training module review_stage to approved via PATCH
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}/review-stage`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ review_stage: 'approved' })
       });
 
-      if (!updateResponse.ok) throw new Error('Failed to update training module status');
+      if (!updateResponse.ok) {
+        const errJson = await updateResponse.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to update training module status');
+      }
+
+      // Update local state immediately with approved content
+      const updatedSubModules = subModules.map(sm => {
+        const approvedEntry = latestPerModule[sm.processed_module_id];
+        return approvedEntry ? { ...sm, content: approvedEntry.content } : sm;
+      });
+      setSubModules(updatedSubModules);
+      if (selectedSubModule && latestPerModule[selectedSubModule.processed_module_id]) {
+        const newApproved = latestPerModule[selectedSubModule.processed_module_id].content;
+        setSelectedSubModule(prev => prev ? { ...prev, content: newApproved } : prev);
+        setEditedContent(newApproved);
+      }
+      setPendingHistoryMap({});
+      setHasPendingReview(false);
 
       alert('All changes approved and pushed to live!');
       router.push('/admin/dashboard/human-in-the-loop');
     } catch (error) {
       console.error('Error approving changes:', error);
-      alert('Failed to approve changes');
+      await logToErrorLogs(error, `FinalApproval:module:${moduleId}`);
+      alert(`Failed to approve changes: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSubmitting(false);
     }
@@ -1320,7 +1364,7 @@ export default function EditModulePage() {
       }
 
       const data = await response.json();
-      const pendingEntries = data.history || [];
+      const pendingEntries = data.history || data.data?.history || [];
 
       // Mark all in_review entries as rejected
       for (const entry of pendingEntries) {
@@ -1338,22 +1382,30 @@ export default function EditModulePage() {
 
         if (!statusResponse.ok) {
           console.error(`Failed to reject ${entry.content_generation_history_id}`);
+          await logToErrorLogs(new Error(`Failed to reject ${entry.content_generation_history_id}`), `Reject:update_history_status:${entry.content_generation_history_id}`);
         }
       }
 
-      // Update training module review_stage to rejected
-      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
-        method: 'PUT',
+      // Update training module review_stage to rejected via PATCH
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}/review-stage`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ review_stage: 'rejected' })
       });
 
-      if (!updateResponse.ok) throw new Error('Failed to update training module status');
+      if (!updateResponse.ok) {
+        const errJson = await updateResponse.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to update training module status');
+      }
+
+      setPendingHistoryMap({});
+      setHasPendingReview(false);
 
       alert('Changes rejected.');
       router.push('/admin/dashboard/human-in-the-loop');
     } catch (error) {
       console.error('Error rejecting:', error);
+      await logToErrorLogs(error, `Reject:module:${moduleId}`);
       alert('Failed to reject');
     } finally {
       setSubmitting(false);
@@ -1362,15 +1414,19 @@ export default function EditModulePage() {
 
   const handleRequestChanges = async () => {
     try {
-      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}`, {
-        method: 'PUT',
+      const updateResponse = await fetchWithAuth(`${API_BASE}/api/training-modules/${moduleId}/review-stage`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ review_stage: 'in_review' })
       });
-      if (!updateResponse.ok) throw new Error('Failed to update module status');
+      if (!updateResponse.ok) {
+        const errJson = await updateResponse.json().catch(() => ({}));
+        throw new Error(errJson.detail || 'Failed to update module status');
+      }
       alert('Module moved to In Review status');
     } catch (error) {
       console.error('Error updating module:', error);
+      await logToErrorLogs(error, `RequestChanges:module:${moduleId}`);
       alert('Failed to update module status');
     }
   };

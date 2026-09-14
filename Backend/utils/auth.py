@@ -141,8 +141,9 @@ def _resolve_internal_user_context(
 	# Legacy fallback: direct lookup by email in users table.
 	if email:
 		try:
+			_admin_client = get_service_supabase_client()
 			res = (
-				supabase
+				_admin_client
 				.table("users")
 				.select("user_id, company_id")
 				.eq("email", email)
@@ -196,13 +197,22 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 		source="firebase",
 	)
 
-	return RequestAuth(
+	auth_result = RequestAuth(
 		user_id=str(user_id),
 		email=str(email) if email else None,
 		source="firebase",
 		claims=claims,
 		company_id=str(company_id) if company_id else None,
 	)
+
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_result.user_id,
+		company_id=auth_result.company_id,
+		email=auth_result.email,
+	)
+
+	return auth_result
 
 def validate_device_session(
     user_id: str,
@@ -263,23 +273,30 @@ def validate_device_session(
     )
 
 def get_request_auth_optional(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
-	
 ) -> RequestAuth:
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str):
+			validate_device_session(cached_auth.user_id, x_device_id)
+		return cached_auth
+
 	token = _extract_bearer_token(authorization)
 
 	if token:
 		try:
 			claims = _verify_token(token)
-			auth_ctx = _build_request_auth_from_verified_claims(claims,x_device_id)
+			auth_ctx = _build_request_auth_from_verified_claims(claims, x_device_id if isinstance(x_device_id, str) else None)
 			print(
 				f"[auth optional] Bearer verified successfully; "
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
-			if x_device_id:
+			if x_device_id and isinstance(x_device_id, str):
 				validate_device_session(auth_ctx.user_id, x_device_id)
 			return auth_ctx
 		except HTTPException as exc:
@@ -301,7 +318,7 @@ def get_request_auth_optional(
 			# Catch any other exceptions (e.g., Firebase SDK not available, network errors)
 			print(f"[auth optional] Firebase verification exception, falling back to X-User-ID: {str(exc)}")
 
-	if x_user_id:
+	if x_user_id and isinstance(x_user_id, str):
 		# Try resolving legacy firebase_uid -> internal user_id (UUID) so
 		# downstream DB queries that expect UUIDs don't fail.
 		def _is_uuid(val: str) -> bool:
@@ -315,10 +332,10 @@ def get_request_auth_optional(
 			if _is_uuid(val):
 				return val
 			try:
-
+				_admin_client = get_service_supabase_client()
 				# NEW: lookup through mapping table first
 				mapping_resp = (
-					supabase
+					_admin_client
 					.table("user_firebase_uids")
 					.select("user_id")
 					.eq("firebase_uid", val)
@@ -333,7 +350,7 @@ def get_request_auth_optional(
 
 				# Fallback to legacy users.firebase_uid
 				resp = (
-					supabase
+					_admin_client
 					.table("users")
 					.select("user_id")
 					.eq("firebase_uid", val)
@@ -352,19 +369,24 @@ def get_request_auth_optional(
 
 		resolved = _resolve_firebase_uid_to_user_id(x_user_id)
 		print(f"[auth optional] Using X-User-ID fallback; x_user_id={x_user_id}; resolved_user_id={resolved}")
-		return RequestAuth(user_id=resolved, email=None, source="legacy-x-user-id", claims=None)
+		auth_result = RequestAuth(user_id=resolved, email=None, source="legacy-x-user-id", claims=None)
+		if resolved:
+			from utils.supabase_client import set_current_user_context
+			set_current_user_context(user_id=resolved)
+		return auth_result
 
 	return RequestAuth(user_id=None, email=None, source="anonymous", claims=None)
 
 
 def get_request_auth_required(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
  	x_device_id=Header(None, alias="X-Device-ID"),
 	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
 ) -> RequestAuth:
-	if x_worker_token:
+	if x_worker_token and isinstance(x_worker_token, str):
 		expected_worker_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
 		if expected_worker_token and x_worker_token == expected_worker_token:
 			if not x_user_id or not x_company_id:
@@ -372,13 +394,26 @@ def get_request_auth_required(
 					status_code=401,
 					detail="Worker authentication requires X-User-ID and X-Company-ID",
 				)
-			return RequestAuth(
+			auth_result = RequestAuth(
 				user_id=str(x_user_id),
 				email=None,
 				source="internal-worker",
 				claims=None,
 				company_id=str(x_company_id),
 			)
+			from utils.supabase_client import set_current_user_context
+			set_current_user_context(
+				user_id=auth_result.user_id,
+				company_id=auth_result.company_id,
+			)
+			return auth_result
+
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str):
+			validate_device_session(cached_auth.user_id, x_device_id)
+		return cached_auth
 
 	token = _extract_bearer_token(authorization)
 	if not token:
@@ -386,17 +421,25 @@ def get_request_auth_required(
 
 	claims = _verify_token(token)
 	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
-	if x_device_id:
+	if x_device_id and isinstance(x_device_id, str):
 		validate_device_session(auth_ctx.user_id, x_device_id)
 
 	return auth_ctx
      
 
 def get_request_auth_jwt_required(
+	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
 	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
+	# 1. Fast path: reuse already-verified auth context from middleware
+	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
+		cached_auth: RequestAuth = request.state.auth_ctx
+		if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
+			validate_device_session(str(cached_auth.user_id), str(x_device_id))
+		return cached_auth
+
 	token = _extract_bearer_token(authorization)
 	if not token:
 		raise HTTPException(status_code=401, detail="Missing bearer token")  
@@ -408,7 +451,6 @@ def get_request_auth_jwt_required(
 		str(token_user_id) if token_user_id else "",
 		claims,
 	)
-
 
 	if not user_id or (token_user_id and str(user_id) == str(token_user_id) and not _is_valid_uuid(str(user_id))):
 		raise HTTPException(status_code=401, detail="Authenticated Firebase user is not linked to an app user")
@@ -425,13 +467,22 @@ def get_request_auth_jwt_required(
 	if (x_device_id and x_register_session != "true"):
 		validate_device_session(str(user_id), str(x_device_id))
 
-	return RequestAuth(
+	auth_result = RequestAuth(
 		user_id=str(user_id),
 		email=str(email) if email else None,
 		source="firebase",
 		claims=claims,
 		company_id=str(company_id) if company_id else None,
 	)
+
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_result.user_id,
+		company_id=auth_result.company_id,
+		email=auth_result.email,
+	)
+
+	return auth_result
 
 
 def get_request_auth_jwt_required_from_request(request: Request) -> RequestAuth:
@@ -472,6 +523,14 @@ async def get_effective_company_id(
 		except Exception:
 			pass
 
+	from utils.supabase_client import set_current_user_context
+	if auth_ctx.user_id and home_company_id:
+		set_current_user_context(
+			user_id=auth_ctx.user_id,
+			company_id=home_company_id,
+			email=auth_ctx.email,
+		)
+
 	if not requested_company_id:
 		if not home_company_id:
 			raise HTTPException(status_code=400, detail="User has no associated company and no override provided")
@@ -489,6 +548,11 @@ async def get_effective_company_id(
 		is_admin = False
 
 	if is_developer or is_admin:
+		set_current_user_context(
+			user_id=auth_ctx.user_id,
+			company_id=str(requested_company_id),
+			email=auth_ctx.email,
+		)
 		return str(requested_company_id)
 
 	# Forged or unauthorized override => constrain to actual company
@@ -543,6 +607,12 @@ async def get_roleplay_context(
 	auth_ctx: RequestAuth = Depends(get_request_auth_required),
 	company_id: str = Depends(get_effective_company_id),
 ) -> RoleplayContext:
+	from utils.supabase_client import set_current_user_context
+	set_current_user_context(
+		user_id=auth_ctx.user_id,
+		company_id=company_id,
+		email=auth_ctx.email,
+	)
 	return RoleplayContext(
 		user_id=auth_ctx.user_id,
 		company_id=company_id,

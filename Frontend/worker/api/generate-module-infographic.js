@@ -355,7 +355,7 @@ async function generateModuleInfographic({ moduleId = null, processedModuleId = 
 
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, title, content, infographic_data')
+      .select('processed_module_id, original_module_id, title, content, infographic_data')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
@@ -370,7 +370,12 @@ async function generateModuleInfographic({ moduleId = null, processedModuleId = 
 
     const results = [];
     for (const row of rows) {
-      results.push(await processProcessedModuleRow(row));
+      try {
+        results.push(await processProcessedModuleRow(row));
+      } catch (err) {
+        console.error(`[INFOGRAPHIC WORKER] Failed to process row ${row.processed_module_id}:`, err);
+        results.push({ ok: false, processedModuleId: row.processed_module_id, error: err.message });
+      }
     }
 
     return { ok: true, processedCount: rows.length, results };

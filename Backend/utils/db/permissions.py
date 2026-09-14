@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional
 from ..auth_bridge import get_service_supabase_client
 import uuid as _uuid
 from ..supabase_client import supabase
+from utils.redis_client import get_cache, set_cache
 
 # ==================== PERMISSION HELPERS ====================
 
@@ -88,6 +89,14 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
         if not resolved_user_id:
             return False
 
+        cache_key = f"user_max_role_level:{resolved_user_id}"
+        cached_level = get_cache(cache_key)
+        if cached_level is not None:
+            try:
+                return int(cached_level) >= req_level
+            except Exception:
+                pass
+
         # fetch active role assignments for the user with joined role level
         resp = service_supabase.table('user_role_assignments').select('is_active, role:roles(level,name)').eq(
             'user_id', resolved_user_id
@@ -96,6 +105,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
         # Backward compatibility: NULL is_active is treated as active.
         assignments = [a for a in (resp.data or []) if a.get('is_active') is not False]
         if not assignments:
+            set_cache(cache_key, 0, ttl=300)
             return False
 
         # compute max level from assigned roles
@@ -110,6 +120,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
             if level > max_level:
                 max_level = level
 
+        set_cache(cache_key, max_level, ttl=300)
         return max_level >= req_level
     except Exception as e:
         print(f"[check_user_permission] exception: {e}")

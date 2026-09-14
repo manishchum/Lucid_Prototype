@@ -4,8 +4,9 @@ Handles leaderboard calculations, rankings, and user statistics.
 """
 
 from typing import Dict, Any, Optional, List
-from ..supabase_client import supabase
+from ..supabase_client import supabase, get_user_supabase_client
 from .permissions import check_company_access
+from utils.redis_client import get_cache, set_cache
 
 
 def is_plan_completed(p: dict, completed_proc_ids: Optional[set] = None) -> bool:
@@ -38,19 +39,21 @@ def is_valid_plan(p: dict, completed_proc_ids: Optional[set] = None) -> bool:
     return True
 
 
-async def get_user_total_points(user_id: str, company_id: str) -> int:
+async def get_user_total_points(user_id: str, company_id: str, requesting_user_id: Optional[str] = None) -> int:
     """
     Calculate total points earned by a user in a company.
     Points are awarded for completed learning plans.
     """
     try:
+        active_user_id = requesting_user_id or user_id
+        client = get_user_supabase_client(user_id=active_user_id, company_id=company_id) if active_user_id else supabase
         # Get all learning plans for this user
-        all_plans_resp = supabase.table('learning_plan').select(
+        all_plans_resp = client.table('learning_plan').select(
             'learning_plan_id, module_id, processed_module_ids, overall_status, status, completed_at'
         ).eq('user_id', user_id).execute()
         
         # Get progress records for quiz completion check
-        progress_resp = supabase.table('module_progress').select(
+        progress_resp = client.table('module_progress').select(
             'processed_module_id, quiz_score'
         ).eq('user_id', user_id).execute()
 
@@ -70,7 +73,7 @@ async def get_user_total_points(user_id: str, company_id: str) -> int:
         if not module_ids:
             return 0
         
-        modules_resp = supabase.table('training_modules').select(
+        modules_resp = client.table('training_modules').select(
             'module_id, points'
         ).in_('module_id', module_ids).execute()
         
@@ -87,14 +90,21 @@ async def get_user_total_points(user_id: str, company_id: str) -> int:
 
 async def get_company_leaderboard(
     company_id: str,
-    limit: int = 50
+    limit: int = 50,
+    requesting_user_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Get leaderboard for a company, ranking users by completion percentage.
     """
+    cache_key = f"company_leaderboard:{company_id}"
+    cached = get_cache(cache_key)
+    if cached:
+        return {"data": cached[:limit], "error": None}
+
     try:
+        client = get_user_supabase_client(user_id=requesting_user_id, company_id=company_id) if requesting_user_id else supabase
         # Get all active users in the company
-        users_resp = supabase.table('users').select(
+        users_resp = client.table('users').select(
             'user_id, name, avatar_url, email'
         ).eq('company_id', company_id).eq('is_active', True).execute()
         
@@ -104,12 +114,12 @@ async def get_company_leaderboard(
         company_user_ids = [u['user_id'] for u in users_resp.data]
         
         # Get all learning plans for these users
-        all_plans_resp = supabase.table('learning_plan').select(
+        all_plans_resp = client.table('learning_plan').select(
             'user_id, learning_plan_id, module_id, processed_module_ids, overall_status, status, completed_at, baseline_assessment'
         ).in_('user_id', company_user_ids).execute()
 
         # Get all completed module progress for these users
-        all_progress_resp = supabase.table('module_progress').select(
+        all_progress_resp = client.table('module_progress').select(
             'user_id, processed_module_id, quiz_score'
         ).in_('user_id', company_user_ids).execute()
         
@@ -165,6 +175,7 @@ async def get_company_leaderboard(
             entry['rank'] = idx
             ranked_leaderboard.append(entry)
         
+        set_cache(cache_key, ranked_leaderboard, ttl=120)
         return {"data": ranked_leaderboard[:limit], "error": None}
     except Exception as e:
         import traceback
@@ -175,7 +186,8 @@ async def get_company_leaderboard(
 
 async def get_user_rank(
     user_id: str,
-    company_id: str
+    company_id: str,
+    requesting_user_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Get a specific user's rank and percentile in their company's leaderboard.
@@ -189,8 +201,10 @@ async def get_user_rank(
     - users_ahead: Number of users with more points
     """
     try:
+        active_user_id = requesting_user_id or user_id
+        client = get_user_supabase_client(user_id=active_user_id, company_id=company_id) if active_user_id else supabase
         # Verify user belongs to the company
-        user_resp = supabase.table('users').select(
+        user_resp = client.table('users').select(
             'user_id, name, avatar_url, email, company_id'
         ).eq('user_id', user_id).single().execute()
         
@@ -202,17 +216,17 @@ async def get_user_rank(
             return {"data": None, "error": "User does not belong to this company"}
         
         # Get user's points
-        user_points = await get_user_total_points(user_id, company_id)
+        user_points = await get_user_total_points(user_id, company_id, requesting_user_id=active_user_id)
         
         # Get user's completed modules count
-        plans_resp = supabase.table('learning_plan').select(
+        plans_resp = client.table('learning_plan').select(
             'learning_plan_id'
         ).eq('user_id', user_id).eq('overall_status', True).execute()
         
         modules_completed = len(plans_resp.data) if plans_resp.data else 0
         
         # Get full leaderboard for the company to calculate rank
-        leaderboard_resp = await get_company_leaderboard(company_id, limit=10000)
+        leaderboard_resp = await get_company_leaderboard(company_id, limit=10000, requesting_user_id=active_user_id)
         
         if leaderboard_resp["error"]:
             return {"data": None, "error": leaderboard_resp["error"]}
@@ -281,12 +295,13 @@ async def get_user_rank_simple(
 
 async def get_company_leaderboard_top(
     company_id: str,
-    limit: int = 10
+    limit: int = 10,
+    requesting_user_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Get top performers in a company (convenience function with default limit).
     """
-    return await get_company_leaderboard(company_id, limit=limit)
+    return await get_company_leaderboard(company_id, limit=limit, requesting_user_id=requesting_user_id)
 
 
 async def get_leaderboard_with_user_highlight(
@@ -304,8 +319,9 @@ async def get_leaderboard_with_user_highlight(
     - total_users: Total users in company
     """
     try:
+        client = get_user_supabase_client(user_id=requesting_user_id, company_id=company_id) if requesting_user_id else supabase
         # Get top performers
-        top_resp = await get_company_leaderboard(company_id, limit=top_limit)
+        top_resp = await get_company_leaderboard(company_id, limit=top_limit, requesting_user_id=requesting_user_id)
         if top_resp["error"]:
             return {"data": None, "error": top_resp["error"]}
         
@@ -317,12 +333,12 @@ async def get_leaderboard_with_user_highlight(
         user_rank_info = None
         if not user_in_top:
             # Get user's rank info
-            rank_resp = await get_user_rank(requesting_user_id, company_id)
+            rank_resp = await get_user_rank(requesting_user_id, company_id, requesting_user_id=requesting_user_id)
             if not rank_resp["error"]:
                 user_rank_info = rank_resp.get("data")
         
         # Get total users count
-        total_users_resp = supabase.table('users').select(
+        total_users_resp = client.table('users').select(
             'user_id', count='exact'
         ).eq('company_id', company_id).eq('is_active', True).execute()
         

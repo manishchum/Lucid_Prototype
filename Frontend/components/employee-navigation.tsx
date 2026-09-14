@@ -250,6 +250,20 @@ const EmployeeNavigation = ({
             {isCollapsed && <NavTooltip label="Home" />}
           </div>
 
+          {/* Arena */}
+          {hasFeature(FEATURES.GAMIFICATION) && (
+            <div className="relative group">
+              <button 
+                onClick={() => handleNavigate('/employee/gamified-arena')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/gamified-arena') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              >
+                <Zap size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-bold">Arena</span>}
+              </button>
+              {isCollapsed && <NavTooltip label="Arena" />}
+            </div>
+          )}
+
           {/* { Training Plan (Dropdown) */}
           {/* <div className="relative group">
              <button 
@@ -366,7 +380,7 @@ const EmployeeNavigation = ({
 
 
 
-          {<div className="relative group">
+          {/* {<div className="relative group">
             <button 
               onClick={() => handleNavigate('/employee/lucid-tools')}
               className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
@@ -382,7 +396,7 @@ const EmployeeNavigation = ({
               )}
             </button>
             {isCollapsed && <NavTooltip label="Lucid Tools" />}
-          </div> }
+          </div> } */}
           
           {/* Console - visible for manager and higher roles */}
           {canAccessConsole && (

@@ -177,7 +177,7 @@ async def get_dashboard_summary(
         task_submissions = task_submissions_res.data if task_submissions_res.data else []
 
         # 10. True user rank calculation from leaderboard service
-        rank_res = await get_user_rank(user_id, x_company_id)
+        rank_res = await get_user_rank(user_id, x_company_id, requesting_user_id=user_id)
         rank_info = rank_res.get("data") if (rank_res and not rank_res.get("error")) else None
 
         user_rank_data = {

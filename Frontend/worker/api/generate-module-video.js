@@ -160,6 +160,7 @@ async function callVideoGeneration(processedModuleId, companyId, userId) {
           'X-Company-ID': companyId,
         },
         body: JSON.stringify({ processed_module_id: processedModuleId }),
+        timeout: 15 * 60 * 1000, // 15 minutes
       });
 
       const text = await response.text();
@@ -171,7 +172,8 @@ async function callVideoGeneration(processedModuleId, companyId, userId) {
       }
 
       if (!response.ok) {
-        if ([502, 503, 504].includes(response.status)) {
+        const isNginxTimeout = [502, 503, 504].includes(response.status) && (!payload || payload.raw || !payload.error);
+        if (isNginxTimeout) {
           //   console.log(`[VIDEO WORKER] HTTP ${response.status} from ${baseUrl}. Waiting for DB video_url update...`);
           console.log(`[VIDEO WORKER] Video generation running in background. Waiting for DB video_url update...`);
           const recoveredUrl = await waitForVideoUrlInDb(processedModuleId);
@@ -328,7 +330,7 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null }
 
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, content, video_url')
+      .select('processed_module_id, original_module_id, content, video_url')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
@@ -343,7 +345,12 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null }
 
     const results = [];
     for (const row of rows) {
-      results.push(await processProcessedModuleRow(row));
+      try {
+        results.push(await processProcessedModuleRow(row));
+      } catch (err) {
+        console.error(`[VIDEO WORKER] Failed to process row ${row.processed_module_id}:`, err);
+        results.push({ ok: false, processedModuleId: row.processed_module_id, error: err.message });
+      }
     }
 
     return { ok: true, processedCount: rows.length, results };

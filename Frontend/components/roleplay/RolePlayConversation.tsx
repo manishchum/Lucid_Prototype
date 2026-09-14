@@ -43,82 +43,137 @@ export default function RolePlayConversation({
   isGeneratingAssessment = false,
 }: RolePlayConversationProps) {
   const [conversationActive, setConversationActive] = useState(false);
-  const [isRecording, setIsRecording]     = useState(false);
-  const [isProcessing, setIsProcessing]   = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
-  const [limitPopup, setLimitPopup]       = useState<{ open: boolean; message: string }>({ open: false, message: "" });
-  const [videoStream, setVideoStream]     = useState<MediaStream | null>(null);
-  const [isCameraOn, setIsCameraOn]       = useState(true);
-  const [isMicOn, setIsMicOn]             = useState(true);
+  const [limitPopup, setLimitPopup] = useState<{ open: boolean; message: string }>({ open: false, message: "" });
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
+  const [isCameraOn, setIsCameraOn] = useState(true);
+  const [isMicOn, setIsMicOn] = useState(true);
 
-  const videoRef                  = useRef<HTMLVideoElement>(null);
-  const containerRef              = useRef<HTMLDivElement>(null);
-  const mediaRecorderRef          = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef         = useRef<Blob[]>([]);
-  const wsRef                     = useRef<WebSocket | null>(null);
-  const audioInputRef             = useRef<AudioContext | null>(null);
-  const audioOutputRef            = useRef<AudioContext | null>(null);
-  const sessionIdRef              = useRef<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioInputRef = useRef<AudioContext | null>(null);
+  const audioOutputRef = useRef<AudioContext | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const conversationTranscriptRef = useRef<Array<{ role: string; text: string }>>([]);
-  const processorRef              = useRef<ScriptProcessorNode | AudioWorkletNode | null>(null);
-  const nextPlayTimeRef           = useRef<number>(0);
-  const isBotSpeakingRef          = useRef<boolean>(false);
-  const sessionEndedRef           = useRef<boolean>(false);
-  const sessionEndedResolverRef   = useRef<(() => void) | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | AudioWorkletNode | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const isBotSpeakingRef = useRef<boolean>(false);
+  const sessionEndedRef = useRef<boolean>(false);
+  const sessionEndedResolverRef = useRef<(() => void) | null>(null);
+  const isStartingRef = useRef<boolean>(false);
+  const isSessionActiveRef = useRef<boolean>(false);
+  const activeAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   const setBotSpeaking = (val: boolean) => {
     isBotSpeakingRef.current = val;
     setIsBotSpeaking(val);
   };
 
-  useEffect(() => { return () => stopAllMedia(); }, []);
+  useEffect(() => {
+    const handleNavigationEnd = () => {
+      if (isSessionActiveRef.current) {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          try { wsRef.current.send(JSON.stringify({ type: "end_session" })); } catch {}
+        }
+        stopAllMedia();
+      }
+    };
+
+    window.addEventListener("popstate", handleNavigationEnd);
+    window.addEventListener("beforeunload", handleNavigationEnd);
+
+    return () => {
+      window.removeEventListener("popstate", handleNavigationEnd);
+      window.removeEventListener("beforeunload", handleNavigationEnd);
+      handleNavigationEnd();
+    };
+  }, []);
 
   const stopAllMedia = () => {
+    isSessionActiveRef.current = false;
+    isStartingRef.current = false;
+
+    // 1. Immediately stop all playing and queued audio sources
+    activeAudioSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch { }
+    });
+    activeAudioSourcesRef.current.clear();
+
+    // 2. Disconnect processor node
     if (processorRef.current) {
-      try { (processorRef.current as any).disconnect(); } catch {}
+      try { (processorRef.current as any).disconnect(); } catch { }
       processorRef.current = null;
     }
 
+    // 3. Stop MediaRecorder
     if (mediaRecorderRef.current?.state !== "inactive") {
-      try { mediaRecorderRef.current?.stop(); } catch {}
+      try { mediaRecorderRef.current?.stop(); } catch { }
     }
     mediaRecorderRef.current = null;
 
+    // 4. Stop video/audio stream tracks
     setVideoStream((prev) => {
       if (prev) prev.getTracks().forEach(t => t.stop());
       return null;
     });
 
+    // 5. Forcefully close WebSocket and unbind event handlers so late frames are ignored
     if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
+      const ws = wsRef.current;
       wsRef.current = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      try { ws.close(); } catch { }
     }
 
+    // 6. Close AudioContexts
     if (audioInputRef.current) {
-      try { audioInputRef.current.close(); } catch {}
+      try { audioInputRef.current.close(); } catch { }
       audioInputRef.current = null;
     }
 
     if (audioOutputRef.current) {
-      try { audioOutputRef.current.close(); } catch {}
+      try { audioOutputRef.current.close(); } catch { }
       audioOutputRef.current = null;
     }
+
+    setBotSpeaking(false);
   };
 
   // ✅ Reset audio output context cleanly when bot is interrupted
   const resetAudioOutput = () => {
+    activeAudioSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch { }
+    });
+    activeAudioSourcesRef.current.clear();
+
     if (audioOutputRef.current) {
-      try { audioOutputRef.current.close(); } catch {}
+      try { audioOutputRef.current.close(); } catch { }
       audioOutputRef.current = null;
     }
     nextPlayTimeRef.current = 0;
   };
 
   const handleBotAudio = async (audioData: string) => {
+    // 🛡️ If session is no longer active, reject late audio chunks immediately
+    if (!isSessionActiveRef.current) return;
+
     try {
       setBotSpeaking(true);
 
-      if (!audioOutputRef.current) {
+      if (!audioOutputRef.current || audioOutputRef.current.state === "closed") {
         audioOutputRef.current = new (window.AudioContext ||
           (window as any).webkitAudioContext)({ sampleRate: 24000 });
       }
@@ -130,16 +185,18 @@ export default function RolePlayConversation({
         await ctx.resume();
       }
 
+      if (!isSessionActiveRef.current) return;
+
       // Anchor queue to real time on first chunk
       if (nextPlayTimeRef.current === 0) {
         nextPlayTimeRef.current = ctx.currentTime;
       }
 
       const binary = atob(audioData);
-      const bytes  = new Uint8Array(binary.length);
+      const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      const pcm16   = new Int16Array(bytes.buffer);
+      const pcm16 = new Int16Array(bytes.buffer);
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
 
@@ -151,16 +208,19 @@ export default function RolePlayConversation({
       const source = ctx.createBufferSource();
       source.buffer = buf;
       source.connect(ctx.destination);
-      source.start(startTime);
 
-      nextPlayTimeRef.current = startTime + buf.duration;
+      activeAudioSourcesRef.current.add(source);
 
       source.onended = () => {
-        if (ctx.currentTime >= nextPlayTimeRef.current - 0.1) {
+        activeAudioSourcesRef.current.delete(source);
+        if (activeAudioSourcesRef.current.size === 0 || ctx.currentTime >= nextPlayTimeRef.current - 0.1) {
           setBotSpeaking(false);
           nextPlayTimeRef.current = 0;
         }
       };
+
+      source.start(startTime);
+      nextPlayTimeRef.current = startTime + buf.duration;
 
     } catch (err) {
       console.error("Audio playback error:", err);
@@ -170,8 +230,8 @@ export default function RolePlayConversation({
 
   const connectToRealtime = async (stream: MediaStream) => {
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const apiHost    = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "");
-    
+    const apiHost = API_URL?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+
     // Grab the token and put it in the URL
     const token = await getFirebaseIdToken();
     const wsUrl = `${wsProtocol}//${apiHost}/api/roleplay/realtime?token=${token}`;
@@ -190,15 +250,15 @@ export default function RolePlayConversation({
 
       ws.send(JSON.stringify({
         scenarioTitle: scenario.title,
-        scenarioRole:  scenario.role,
-        userRole:      scenario.userRole || "Learner",
+        scenarioRole: scenario.role,
+        userRole: scenario.userRole || "Learner",
         initialPrompt: scenario.initialPrompt,
         aiPersonality: scenario.aiPersonality,
-        aiObjectives:  scenario.aiObjectives,
-        learnerBrief:  scenario.learnerBrief,
-        tone:          scenario.tone || "Neutral",
+        aiObjectives: scenario.aiObjectives,
+        learnerBrief: scenario.learnerBrief,
+        tone: scenario.tone || "Neutral",
         employeeId,
-        sessionId:     sessionIdRef.current,
+        sessionId: sessionIdRef.current,
         voiceGender,
       }));
 
@@ -215,7 +275,7 @@ export default function RolePlayConversation({
 
         const pcm16 = new Int16Array(audioData.length);
         let sumSq = 0;
-        
+
         for (let i = 0; i < audioData.length; i++) {
           sumSq += audioData[i] * audioData[i];
           const s = Math.max(-1, Math.min(1, audioData[i]));
@@ -301,7 +361,7 @@ export default function RolePlayConversation({
           if (data.text) {
             const transcript = conversationTranscriptRef.current;
             if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
-                transcript.pop(); // Remove the ongoing chunk now that we have the final text
+              transcript.pop(); // Remove the ongoing chunk now that we have the final text
             }
             conversationTranscriptRef.current.push({ role: "bot", text: data.text });
           }
@@ -326,7 +386,7 @@ export default function RolePlayConversation({
         case "session_ended":
           // console.log("[RolePlay] session_ended received, transcript length:", data.transcript?.length ?? 0);
           // console.log("[RolePlay] Current transcript before merge:", conversationTranscriptRef.current.length);
-          
+
           // ✅ MERGE transcripts instead of replacing - backend might have updated transcripts
           if (data.transcript && Array.isArray(data.transcript) && data.transcript.length > 0) {
             // console.log("[RolePlay] Using backend transcript with", data.transcript.length, "messages");
@@ -334,7 +394,7 @@ export default function RolePlayConversation({
           } else {
             // console.log("[RolePlay] Backend transcript empty, keeping local transcript with", conversationTranscriptRef.current.length, "messages");
           }
-          
+
           sessionEndedRef.current = true;
           sessionEndedResolverRef.current?.();
           sessionEndedResolverRef.current = null;
@@ -365,43 +425,60 @@ export default function RolePlayConversation({
   };
 
   const startConversation = async () => {
+    // 🛡️ Prevent double clicks and concurrent session initialization
+    if (isStartingRef.current || isSessionActiveRef.current) {
+      console.warn("[RolePlay] Session start request locked. Ignoring duplicate click.");
+      return;
+    }
+
+    isStartingRef.current = true;
+    setIsProcessing(true);
+
+    // Stop any leftover media/connections first
+    stopAllMedia();
+
     conversationTranscriptRef.current = [];
+
     if (employeeId) {
       try {
         const { data, error } = await createRolePlaySessionAPI(
-            employeeId,
-            scenario.scenario_id,
-            scenario.title,
-            scenario.role,
-            scenario.difficulty,
-            moduleId
+          employeeId,
+          scenario.scenario_id,
+          scenario.title,
+          scenario.role,
+          scenario.difficulty,
+          moduleId
         );
         if (data && !error) {
           sessionIdRef.current = data.id;
         } else {
           setLimitPopup({ open: true, message: error?.message || "Unable to start session." });
+          isStartingRef.current = false;
+          setIsProcessing(false);
           return;
         }
       } catch {
         setLimitPopup({ open: true, message: "Unable to start session. Please try again." });
+        isStartingRef.current = false;
+        setIsProcessing(false);
         return;
       }
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true, 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true
-        } 
+        }
       });
       setVideoStream(stream);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch(() => { });
       }
 
       const videoRecorder = new MediaRecorder(stream);
@@ -412,78 +489,41 @@ export default function RolePlayConversation({
       videoRecorder.start();
       mediaRecorderRef.current = videoRecorder;
 
-      // // Start Web Speech API as fallback for user transcription (with auto-restart)
-      // const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      // if (SpeechRecognition) {
-      //   let isStopped = false;
-      //   const recognition = new SpeechRecognition();
-      //   recognition.continuous = true;
-      //   recognition.interimResults = false;
-        
-      //   recognition.onresult = (event: any) => {
-      //     // Explicitly ignore interim (incomplete) results to prevent cascading duplicates
-      //     const latestResult = event.results[event.results.length - 1];
-      //     if (!latestResult.isFinal) return;
-
-      //     const transcript = latestResult[0].transcript.trim();
-      //     if (transcript && !isBotSpeakingRef.current) {
-      //       // Only add if we didn't just receive this exact text
-      //       const currentTranscript = conversationTranscriptRef.current;
-      //       const lastUserMsg = currentTranscript.slice().reverse().find(m => m.role === "user");
-      //       if (!lastUserMsg || lastUserMsg.text !== transcript) {
-      //          conversationTranscriptRef.current.push({ role: "user", text: transcript });
-      //       }
-      //     }
-      //   };
-        
-      //   recognition.onend = () => {
-      //     if (!isStopped) {
-      //       try { recognition.start(); } catch {}
-      //     }
-      //   };
-
-      //   try {
-      //     recognition.start();
-      //     (speechRecognitionRef as any).current = { stop: () => { isStopped = true; recognition.stop(); } };
-      //   } catch (e) {
-      //     console.warn("Speech recognition failed to start", e);
-      //   }
-      // }
-
+      isSessionActiveRef.current = true;
       connectToRealtime(stream);
       setConversationActive(true);
-      setIsProcessing(true);
 
     } catch (err) {
       console.error("[RolePlay] Error starting conversation:", err);
       alert("Microphone/Camera permission is required to start.");
+      stopAllMedia();
+    } finally {
+      isStartingRef.current = false;
+      setIsProcessing(false);
     }
   };
 
   const handleEndSession = async () => {
-    // console.log("[handleEndSession] Ending session...");
+    isSessionActiveRef.current = false;
     sessionEndedRef.current = false;
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "end_session" }));
-      // console.log("[handleEndSession] Sent end_session, waiting for session_ended...");
+      try {
+        wsRef.current.send(JSON.stringify({ type: "end_session" }));
+      } catch { }
 
       await new Promise<void>((resolve) => {
         sessionEndedResolverRef.current = resolve;
         setTimeout(() => {
           if (sessionEndedResolverRef.current) {
-            console.warn("[handleEndSession] ⏱️ Timeout — using local transcript");
             sessionEndedResolverRef.current = null;
             resolve();
           }
-        }, 3000);
+        }, 1500);
       });
-    } else {
-      console.warn("[handleEndSession] WebSocket not open, using local transcript");
     }
 
-    await new Promise(resolve => setTimeout(resolve, 200));
-
+    // Forcefully stop and release all audio/video/WebSockets immediately
     stopAllMedia();
     setConversationActive(false);
     setIsRecording(false);
@@ -499,8 +539,8 @@ export default function RolePlayConversation({
     const messages: Message[] = transcript
       .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
       .map((item, idx) => ({
-        text:      item.text,
-        sender:    item.role === "user" ? "user" : "avatar",
+        text: item.text,
+        sender: item.role === "user" ? "user" : "avatar",
         timestamp: new Date(
           Date.now() - (transcript.length - idx) * 1000
         ).toISOString(),
@@ -553,9 +593,8 @@ export default function RolePlayConversation({
       {/* Header */}
       <div className="bg-gray-800 border-b border-gray-700 px-3 sm:px-6 py-2 sm:py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className={`w-2 h-2 rounded-full animate-pulse ${
-            isBotSpeaking ? "bg-orange-500" : isRecording ? "bg-red-500" : "bg-green-500"
-          }`} />
+          <div className={`w-2 h-2 rounded-full animate-pulse ${isBotSpeaking ? "bg-orange-500" : isRecording ? "bg-red-500" : "bg-green-500"
+            }`} />
           <span className="text-white font-medium text-xs sm:text-sm truncate">{scenario.title}</span>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto flex-wrap">
@@ -634,7 +673,7 @@ export default function RolePlayConversation({
                 muted
                 playsInline
                 className="w-full h-full object-cover transform scale-x-[-1]"
-                onLoadedMetadata={() => videoRef.current?.play().catch(() => {})}
+                onLoadedMetadata={() => videoRef.current?.play().catch(() => { })}
               />
               {!videoStream && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
@@ -680,7 +719,7 @@ export default function RolePlayConversation({
             <Button
               onClick={startConversation}
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-sm sm:text-base lg:text-lg px-6 sm:px-8 py-4 sm:py-3 lg:py-6 w-full sm:w-auto h-auto flex items-center justify-center gap-2 mx-auto"
-              disabled={isProcessing}
+              disabled={isProcessing || conversationActive}
             >
               {isProcessing ? (
                 <>

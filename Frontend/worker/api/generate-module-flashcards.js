@@ -347,7 +347,7 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
 
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, title, content, flashcard_data')
+      .select('processed_module_id, original_module_id, title, content, flashcard_data')
       .eq('original_module_id', moduleId)
       .order('created_at', { ascending: true });
 
@@ -362,7 +362,12 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
 
     const results = [];
     for (const row of rows) {
-      results.push(await processProcessedModuleRow(row));
+      try {
+        results.push(await processProcessedModuleRow(row));
+      } catch (err) {
+        console.error(`[FLASHCARD WORKER] Failed to process row ${row.processed_module_id}:`, err);
+        results.push({ ok: false, processedModuleId: row.processed_module_id, error: err.message });
+      }
     }
 
     return { ok: true, processedCount: rows.length, results };

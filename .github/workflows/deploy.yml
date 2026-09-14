@@ -36,4 +36,4 @@ jobs:
             -i ~/.ssh/id_ed25519 \
             -o StrictHostKeyChecking=yes \
             ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} \
-              "head -20 /home/serviceaccount/deploy.sh && echo '-----' && /home/serviceaccount/deploy.sh"
+              "head -20 /home/manish_chum/deploy.sh && echo '-----' && /home/manish_chum/deploy.sh"

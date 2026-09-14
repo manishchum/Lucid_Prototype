@@ -6,13 +6,15 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
+from ..auth_bridge import get_service_supabase_client
 
 
 async def check_module_access(requesting_user_id: str, original_module_id: str) -> bool:
     """Check if user has access to the original training module"""
     try:
+        db = get_service_supabase_client()
         # Get the training module's company
-        module_resp = supabase.table('training_modules').select('company_id').eq(
+        module_resp = db.table('training_modules').select('company_id').eq(
             'module_id', original_module_id
         ).single().execute()
         
@@ -40,8 +42,9 @@ async def get_content_generation_history_by_id(
     Permission: User must have access to the original training module.
     """
     try:
+        db = get_service_supabase_client()
         # Get the content generation history record
-        response = supabase.table('content_generation_history').select('*').eq(
+        response = db.table('content_generation_history').select('*').eq(
             'content_generation_history_id', content_generation_history_id
         ).maybe_single().execute()
         
@@ -80,7 +83,8 @@ async def list_content_generation_history_by_original_module(
         }
     
     try:
-        query = supabase.table('content_generation_history').select('*').eq(
+        db = get_service_supabase_client()
+        query = db.table('content_generation_history').select('*').eq(
             'original_module_id', original_module_id
         )
         
@@ -106,8 +110,9 @@ async def list_content_generation_history_by_processed_module(
     Optional filter by status.
     """
     try:
+        db = get_service_supabase_client()
         # First get the processed module to find the original_module_id
-        processed_module = supabase.table('processed_modules').select('original_module_id').eq(
+        processed_module = db.table('processed_modules').select('original_module_id').eq(
             'processed_module_id', processed_module_id
         ).maybe_single().execute()
         
@@ -124,7 +129,7 @@ async def list_content_generation_history_by_processed_module(
             return {"data": None, "error": "Permission denied: No access to this module"}
         
         # Get content generation history
-        query = supabase.table('content_generation_history').select('*').eq(
+        query = db.table('content_generation_history').select('*').eq(
             'processed_module_id', processed_module_id
         )
         
@@ -149,15 +154,16 @@ async def list_all_content_generation_history(
     Optional filter by status.
     """
     try:
+        db = get_service_supabase_client()
         # Check if user is super admin
         is_super_admin = await check_user_permission(requesting_user_id, 'super_admin')
         
         if is_super_admin:
             # Super admin can see all
-            query = supabase.table('content_generation_history').select('*')
+            query = db.table('content_generation_history').select('*')
         else:
             # Get user's company_id
-            user_resp = supabase.table('users').select('company_id').eq(
+            user_resp = db.table('users').select('company_id').eq(
                 'user_id', requesting_user_id
             ).single().execute()
             
@@ -167,7 +173,7 @@ async def list_all_content_generation_history(
             user_company_id = user_resp.data['company_id']
             
             # Join with training_modules to filter by company
-            query = supabase.table('content_generation_history').select(
+            query = db.table('content_generation_history').select(
                 '*, training_modules!content_generation_history_original_module_id_fkey(company_id)'
             ).eq('training_modules.company_id', user_company_id)
         
@@ -206,7 +212,8 @@ async def create_content_generation_history(
         history_data['status'] = 'pending'
     
     try:
-        response = supabase.table('content_generation_history').insert(history_data).execute()
+        db = get_service_supabase_client()
+        response = db.table('content_generation_history').insert(history_data).execute()
         return {"data": response.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -236,7 +243,8 @@ async def update_content_generation_history(
     update_data.pop('created_at', None)
     
     try:
-        response = supabase.table('content_generation_history').update(update_data).eq(
+        db = get_service_supabase_client()
+        response = db.table('content_generation_history').update(update_data).eq(
             'content_generation_history_id', content_generation_history_id
         ).execute()
         
@@ -267,7 +275,8 @@ async def delete_content_generation_history(
         return {"data": None, "error": "Permission denied: Admin access required"}
     
     try:
-        response = supabase.table('content_generation_history').delete().eq(
+        db = get_service_supabase_client()
+        response = db.table('content_generation_history').delete().eq(
             'content_generation_history_id', content_generation_history_id
         ).execute()
         

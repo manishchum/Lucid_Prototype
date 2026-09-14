@@ -43,6 +43,8 @@ class UpdateTrainingModuleRequest(BaseModel):
     threshold_value: Optional[int] = None
     points: Optional[int] = None
     additional_readings: Optional[dict] = None
+    review_stage: Optional[str] = None
+    reviewer_id: Optional[str] = None
 
 
 class UpdateProcessingStatusRequest(BaseModel):
@@ -247,37 +249,43 @@ async def update_module(
     Permission: Manager+ in same company OR the uploader themselves.
     """
     updates = request.dict(exclude_unset=True)
-    result = await update_training_module(user_id, module_id, updates)
+    review_stage = updates.pop("review_stage", None)
+    reviewer_id = updates.pop("reviewer_id", None)
     
-    if result["error"]:
+    if review_stage:
+        stage_res = await update_module_review_stage(
+            user_id, module_id, review_stage, reviewer_id
+        )
+        if stage_res.get("error") and not updates:
+            status_code = 404 if stage_res["error"] == "Training module not found" else 403
+            raise HTTPException(status_code=status_code, detail=stage_res["error"])
+
+    result = await update_training_module(user_id, module_id, updates) if updates else {"data": None, "error": None}
+    
+    if result.get("error"):
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
-        
-    redis_client.delete(
-            f"training_module:{module_id}"
-        )
+    redis_client.delete(f"training_module:{module_id}")
+    for key in redis_client.scan_iter(f"processed_modules:original_module:{module_id}:*"):
+        redis_client.delete(key)
 
     module = (
         result["data"][0]
-        if result["data"]
-        else None
+        if isinstance(result.get("data"), list) and result["data"]
+        else result.get("data")
     )
 
-    company_id = (
-        module.get("company_id")
-        if module
-        else None
-    )
+    company_id = module.get("company_id") if isinstance(module, dict) else None
     
     if company_id:
-            redis_client.delete(
-                f"company_modules:{company_id}:None:None"
-            )
+        for key in redis_client.scan_iter(f"company_modules:*"):
+            if str(company_id) in key:
+                redis_client.delete(key)
             
     return {
         "message": "Training module updated successfully",
-        "module": result["data"]
+        "module": result.get("data")
     }
 
 
@@ -295,7 +303,6 @@ async def update_processing_status(
     processing_status = request.processing_status
     additional_updates = request.dict(exclude={'processing_status'}, exclude_unset=True)
     
-    
     result = await update_module_processing_status(
         user_id, 
         module_id, 
@@ -307,9 +314,7 @@ async def update_processing_status(
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
-    redis_client.delete(
-        f"training_module:{module_id}"
-    )
+    redis_client.delete(f"training_module:{module_id}")
 
     module = (
         result["data"][0]
@@ -317,17 +322,12 @@ async def update_processing_status(
         else result["data"]
     )
 
-    company_id = (
-        module.get("company_id")
-        if module
-        else None
-    )
+    company_id = module.get("company_id") if isinstance(module, dict) else None
 
     if company_id:
-        redis_client.delete(
-            f"company_modules:{company_id}:None:None"
-        )
-    
+        for key in redis_client.scan_iter(f"company_modules:*"):
+            if str(company_id) in key:
+                redis_client.delete(key)
     
     return {
         "message": "Processing status updated successfully",
@@ -344,7 +344,7 @@ async def update_review_stage(
     user_id = auth_ctx.user_id
     """
     Update the review stage of a training module.
-    Permission: Manager+ in the same company.
+    Permission: Manager+ in the same company, or uploader, or assigned reviewer.
     """
     result = await update_module_review_stage(
         user_id,
@@ -357,18 +357,22 @@ async def update_review_stage(
         status_code = 404 if result["error"] == "Training module not found" else 403
         raise HTTPException(status_code=status_code, detail=result["error"])
     
-    redis_client.delete(
-        f"training_module:{module_id}"
+    redis_client.delete(f"training_module:{module_id}")
+    for key in redis_client.scan_iter(f"processed_modules:original_module:{module_id}:*"):
+        redis_client.delete(key)
+
+    module = (
+        result["data"][0]
+        if isinstance(result["data"], list) and result["data"]
+        else result["data"]
     )
 
-    module = result["data"]
-
-    company_id = module.get("company_id")
+    company_id = module.get("company_id") if isinstance(module, dict) else None
 
     if company_id:
-        redis_client.delete(
-            f"company_modules:{company_id}:None:None"
-        )
+        for key in redis_client.scan_iter(f"company_modules:*"):
+            if str(company_id) in key:
+                redis_client.delete(key)
         
     return {
         "message": "Review stage updated successfully",
