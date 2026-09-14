@@ -186,6 +186,7 @@ def build_system_prompt(scenario_context: dict) -> str:
     initial_prompt = scenario_context.get("initial_prompt") or ""
     ai_personality = scenario_context.get("ai_personality") or ""
     ai_objectives = scenario_context.get("ai_objectives") or ""
+    initial_line_info = f"YOUR INITIAL OPENING LINE: {initial_prompt}" if initial_prompt else ""
 
     return f"""You are an AI actor in a role-play simulation.
 
@@ -203,7 +204,8 @@ CRITICAL INSTRUCTIONS:
 
 CHARACTER TONE: {tone_instruction}
 AI character personality/context: {ai_personality}
-AI character objective: {ai_objectives}"""
+AI character objective: {ai_objectives}
+{initial_line_info}"""
 
 
 # ============================================================
@@ -1501,9 +1503,11 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
             logger.info(f"[Realtime] ✅ Session configured — voice: {voice}")
 
             # Trigger the opening greeting without overriding the session system prompt
-            if scenario_context.get("initial_prompt"):
-                # 1. Add a system message telling it to start WITH THE FULL PROMPT
+            initial_prompt_val = scenario_context.get("initial_prompt")
+            if initial_prompt_val and str(initial_prompt_val).strip():
+                # 1. Add a system message telling it to start WITH THE FULL PROMPT and speak the exact initial line
                 full_prompt = build_system_prompt(scenario_context)
+                opening_line = str(initial_prompt_val).strip()
                 await openai_ws.send(json.dumps({
                     "type": "conversation.item.create",
                     "item": {
@@ -1512,7 +1516,13 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                         "content": [
                             {
                                 "type": "input_text",
-                                "text": f"{full_prompt}\n\nPlease begin the roleplay now. Say your opening line based on this context: {scenario_context['initial_prompt']}"
+                                "text": (
+                                    f"{full_prompt}\n\n"
+                                    f"ROLEPLAY START INSTRUCTION:\n"
+                                    f"Begin the roleplay now. Your opening line to speak to the user is:\n"
+                                    f"\"{opening_line}\"\n"
+                                    f"Say this exact line now to open the conversation."
+                                )
                             }
                         ]
                     }
@@ -1522,7 +1532,7 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                 await openai_ws.send(json.dumps({
                     "type": "response.create"
                 }))
-                logger.info("[Realtime] 🎤 Requested opening greeting")
+                logger.info(f"[Realtime] 🎤 Requested opening greeting: {opening_line}")
 
             # --- Bidirectional tasks ---
 
