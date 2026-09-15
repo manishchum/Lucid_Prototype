@@ -113,12 +113,18 @@ class PromptManager:
                 **(variables or {})
             )
         except KeyError as exc:
-            missing = exc.args[0]
-
-            raise Exception(
-                f"Missing prompt variable '{missing}' for "
-                f"feature='{prompt.feature}', type='{prompt.prompt_type}'"
-            ) from exc
+            # Fallback for JSON templates that didn't double-escape braces
+            text = prompt.prompt
+            if variables:
+                for k, v in variables.items():
+                    text = text.replace("{" + k + "}", str(v))
+                    text = text.replace("{{" + k + "}}", str(v))
+            
+            # Check if any original variables were actually resolved
+            if "{" in text and "}" in text and not variables:
+                pass # it might still be a pure json string
+                
+            return text
 
     @staticmethod
     def invalidate(

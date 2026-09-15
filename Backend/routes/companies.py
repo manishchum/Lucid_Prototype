@@ -328,6 +328,7 @@ async def update_company_route(
         "role_play",
         "reports",
         "sprintverse",
+        "gamification",
     }
     allowed_language_codes = {
         "en",
