@@ -33,6 +33,7 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
+from gamification.route import router as gamification_router
 from module_chat.route import router as module_chat
 # from assistant.route import router as assistant_router
 # from assistant.chat.route import router as assistant_chat_router
@@ -280,6 +281,7 @@ app.include_router(gpt_video_generation_router, prefix="/api", tags=["gpt-video-
 app.include_router(generate_infographic_router, prefix="/api", tags=["generate-infographic"])
 app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-generation"])
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
+app.include_router(gamification_router)
 # app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 # # app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 # app.include_router(roleplay_scenario_router, prefix="/api", tags=["roleplay-scenarios"])

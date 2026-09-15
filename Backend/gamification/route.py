@@ -9,11 +9,12 @@ import json
 from ai.ai_gateway import AI
 from ai.types import AIRequest
 from utils.auth_bridge import get_service_supabase_client
-from utils.db.gamification_db import get_module_sprints, create_sprint_and_drills, submit_user_drill_progress
-from utils.auth import RequestAuth, get_request_auth_jwt_required, require_addon
+from utils.db.gamification_db import get_module_sprints, get_user_assigned_sprints, create_sprint_and_drills, submit_user_drill_progress, get_drill_base_xp, get_leaderboard_users, get_user_gamification_profile, get_user_completed_drills
+from utils.auth import RequestAuth, get_request_auth_required, require_addon
+from gamification.service import GamificationService
 
 router = APIRouter(
-    prefix="/api/v1/gamification",
+    prefix="/api/gamification",
     tags=["Gamification"],
     dependencies=[Depends(require_addon("gamification"))]
 )
@@ -21,12 +22,13 @@ router = APIRouter(
 class GenerateDrillsRequest(BaseModel):
     module_id: str
     company_id: str
-    # other contextual info like content summary might be needed
+    user_id: str
+    content: str
 
 @router.post("/generate")
 async def generate_drills(
     request: GenerateDrillsRequest,
-    auth: RequestAuth = Depends(get_request_auth_jwt_required)
+    auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Why we need this: This endpoint is the core of the AI drill synthesis. 
@@ -38,14 +40,11 @@ async def generate_drills(
         raise HTTPException(status_code=403, detail="Company ID mismatch.")
 
     try:
-        # 1. Fetch content from the module (gpt_summary)
-        db = get_service_supabase_client()
-        module_resp = db.table('training_modules').select('gpt_summary').eq('module_id', request.module_id).single().execute()
-        
-        if not module_resp.data or not module_resp.data.get('gpt_summary'):
-            raise HTTPException(status_code=400, detail="Module content/summary not found. Ensure the module has been processed.")
+        # 1. Use the synthesized content passed from the worker
+        if not request.content or not request.content.strip():
+            raise HTTPException(status_code=400, detail="Module content not provided or empty.")
             
-        module_content = module_resp.data['gpt_summary']
+        module_content = request.content
 
         # 2. Call AI Gateway via AIRequest (Gateway handles prompt loading from DB)
         ai_response = await AI.execute(
@@ -56,34 +55,52 @@ async def generate_drills(
                 route="/generate",
                 prompt_type="default",
                 variables={
-                    "moduleContent": module_content
+                    "moduleContent": module_content,
+                    "sprint_title": "Module Review Sprint"
                 },
                 response_format="json",
             )
         )
 
-        response_text = str(ai_response.content or "")
+        response_text = str(ai_response.content or "").strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        response_text = response_text.strip()
 
         # 3. Parse the massive JSON response
         try:
             drills_data = json.loads(response_text)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Failed to parse AI output into JSON.")
+            if not isinstance(drills_data, dict):
+                raise ValueError("AI response is not a JSON object")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse AI output into JSON: {e}")
         
         # We assume the parsed data has 'sprint_title', 'sprint_description', 'sprint_number', and a list of 'drills'
-        sprint_title = drills_data.get("sprint_title", "Gamification Sprint")
-        sprint_description = drills_data.get("sprint_description", "")
-        sprint_number = drills_data.get("sprint_number", 1)
-        drills = drills_data.get("drills", [])
+        # Map AI drill format to DB schema
+        mapped_drills = []
+        for idx, d in enumerate(drills_data.get("drills", [])):
+            format_type = d.get("drill_type", "VIBE_CHECK").upper()
+            
+            mapped_drills.append({
+                "format_type": format_type,
+                "title": d.get("title", f"Drill {idx+1}"),
+                "base_xp": 200,
+                "order_index": idx + 1,
+                "content_payload": d.get("content", {})
+            })
 
         # 4. Save to DB
         result = create_sprint_and_drills(
-            module_id=request.module_id, 
-            company_id=request.company_id,
-            sprint_title=sprint_title,
-            sprint_description=sprint_description,
-            sprint_number=sprint_number,
-            drills=drills
+            company_id=str(request.company_id),
+            module_id=str(request.module_id),
+            sprint_title=drills_data.get("sprint_title", drills_data.get("title", "Module Review Sprint")),
+            sprint_description=drills_data.get("sprint_description", drills_data.get("description", "")),
+            sprint_number=1,
+            drills=mapped_drills
         )
 
         if not result:
@@ -95,47 +112,143 @@ async def generate_drills(
     except Exception as e:
         print(f"[gamification route] Error generating drills: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Internal Server Error during drill generation")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error during drill generation: {str(e)}")
 
-@router.get("/sprints/{module_id}")
-async def fetch_sprints(
-    module_id: str, 
-    auth: RequestAuth = Depends(get_request_auth_jwt_required)
+@router.get("/sprints")
+async def get_user_sprints(
+    auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Why we need this: Frontend needs to list available sprints for a training module 
-    so the user can start playing them.
+    Returns all active gamification sprints for all modules assigned to the authenticated user.
     """
-    sprints = get_module_sprints(module_id, auth.company_id)
-    return {"status": "success", "data": sprints}
+    try:
+        print(f"[route/sprints] Called by auth.user_id: {auth.user_id}, auth.company_id: {auth.company_id}")
+        sprints = get_user_assigned_sprints(auth.user_id, auth.company_id)
+        return {"status": "success", "data": sprints}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/leaderboard")
+async def get_leaderboard(
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """
+    Returns the leaderboard for the company based on XP.
+    """
+    try:
+        users = get_leaderboard_users(auth.company_id)
+        
+        # Format for frontend
+        formatted_users = []
+        for row in users:
+            user_data = row.get("users", {}) or {}
+            formatted_users.append({
+                "id": row.get("user_id"),
+                "name": user_data.get("name", "Unknown"),
+                "role": user_data.get("role", "Employee"),
+                "sprints_completed": row.get("sprints_completed", 0),
+                "xp": row.get("total_xp", 0),
+                "badges_count": row.get("badges_count", 0),
+                "avatar_color": user_data.get("avatar_color", "bg-indigo-600"),
+                "is_current_user": row.get("user_id") == auth.user_id
+            })
+            
+        return {"status": "success", "data": formatted_users}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class DrillProgressRequest(BaseModel):
     sprint_id: str
     drill_id: str
     completed: bool
-    earned_xp: int
     wrong_attempts: int
     completion_time_seconds: int
 
 @router.post("/progress")
 async def record_progress(
     request: DrillProgressRequest, 
-    auth: RequestAuth = Depends(get_request_auth_jwt_required)
+    auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
     Why we need this: When a user completes or fails a game drill, the frontend sends 
     the result here. We store it in DB, which triggers XP calculation via Postgres triggers.
     """
+    # 1. Fetch the drill's base XP
+    base_xp = get_drill_base_xp(request.drill_id, auth.company_id)
+    
+    # 2. Fetch the user's current streak multiplier
+    multiplier = GamificationService.get_user_streak_multiplier(auth.user_id, auth.company_id)
+    
+    # 3. Calculate dynamic XP (Base - (Mistakes * 25), min 50, * multiplier)
+    earned_xp = 0
+    if request.completed:
+        earned_xp = GamificationService.calculate_earned_xp(
+            base_xp=base_xp, 
+            wrong_attempts=request.wrong_attempts, 
+            streak_multiplier=multiplier
+        )
+
     res = submit_user_drill_progress(
         user_id=auth.user_id,
         company_id=auth.company_id,
         sprint_id=request.sprint_id,
         drill_id=request.drill_id,
         completed=request.completed,
-        earned_xp=request.earned_xp,
+        earned_xp=earned_xp,
         wrong_attempts=request.wrong_attempts,
         completion_time_seconds=request.completion_time_seconds
     )
     if not res:
         raise HTTPException(status_code=500, detail="Failed to record progress")
-    return {"status": "success", "data": res}
+    return {"status": "success", "data": {"progress": res, "earned_xp": earned_xp, "streak_multiplier": multiplier}}
+
+@router.get("/profile")
+def fetch_user_profile(auth: RequestAuth = Depends(get_request_auth_required)):
+    """
+    Fetches the authenticated user's gamification profile (XP, streaks, etc).
+    """
+    try:
+        profile = get_user_gamification_profile(user_id=auth.user_id)
+        completed_drills = get_user_completed_drills(user_id=auth.user_id)
+        
+        if not profile:
+            return {"status": "success", "data": {"total_xp": 0, "current_streak_days": 0, "best_streak_days": 0, "drills_completed_count": 0, "completed_drills": completed_drills}}
+        
+        profile["completed_drills"] = completed_drills
+        return {"status": "success", "data": profile}
+    except Exception as e:
+        print(f"[gamification] Profile endpoint error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch user profile")
+
+@router.get("/leaderboard")
+def fetch_leaderboard(auth: RequestAuth = Depends(get_request_auth_required)):
+    """
+    Fetches the company leaderboard and formats it for the frontend.
+    """
+    try:
+        if not auth.company_id:
+            raise HTTPException(status_code=400, detail="Company ID missing")
+        
+        raw_leaderboard = get_leaderboard_users(company_id=auth.company_id)
+        
+        formatted = []
+        for row in raw_leaderboard:
+            user_data = row.get("users", {})
+            formatted.append({
+                "id": row.get("user_id"),
+                "name": user_data.get("name", "Unknown User"),
+                "role": user_data.get("role", "Employee"),
+                "sprints_completed": row.get("drills_completed_count", 0), # Fallback mapping since sprints aren't fully tracked yet
+                "xp": row.get("total_xp", 0),
+                "badges_count": len(row.get("earned_badges", [])) if row.get("earned_badges") else 0,
+                "avatar_color": user_data.get("avatar_color", "bg-slate-500"),
+                "is_current_user": row.get("user_id") == auth.user_id
+            })
+            
+        return {"status": "success", "data": formatted}
+    except Exception as e:
+        print(f"[gamification] Leaderboard endpoint error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch leaderboard")

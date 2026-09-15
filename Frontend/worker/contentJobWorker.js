@@ -22,6 +22,7 @@ const { generateModuleMindmap } = require(path.join(__dirname, 'api/generate-mod
 const { generateModuleInfographic } = require(path.join(__dirname, 'api/generate-module-infographic'));
 // console.log('Loading generate-module-flashcards...');
 const { generateModuleFlashcards } = require(path.join(__dirname, 'api/generate-module-flashcards'));
+const { generateModuleGamification } = require(path.join(__dirname, 'api/generate-module-gamification'));
 // console.log('All modules loaded successfully.');
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -118,6 +119,7 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
     { name: 'mindmap', generator: generateModuleMindmap, addon: 'lucid_studio_mindmap' },
     { name: 'infographic', generator: generateModuleInfographic, addon: 'lucid_studio_infographic' },
     { name: 'flashcards', generator: generateModuleFlashcards, addon: 'lucid_studio_flashcard' },
+    { name: 'gamification', generator: generateModuleGamification, addon: 'gamification' },
   ];
 
   const enabledTasks = tasks.filter((task) => enabledAddonSet.has(task.addon));
