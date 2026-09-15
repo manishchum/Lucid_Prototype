@@ -346,12 +346,12 @@
 //     let voice;
 //     if (language === 'hinglish') {
 //       voice = (segment.speaker === 'pooja')
-//         ? { languageCode: 'hi-IN', name: 'hi-IN-Chirp3-HD-Autonoe', ssmlGender: 'FEMALE' }  // Pooja - female voice (Indian English for Hinglish)
-//         : { languageCode: 'hi-IN', name: 'hi-IN-Chirp3-HD-Enceladus', ssmlGender: 'MALE' };   // Rahul - male voice (Indian English for Hinglish)
+//         ? { languageCode: 'hi-IN', name: 'hi-IN-Chirp-HD-F', ssmlGender: 'FEMALE' }  // Pooja - female voice (Indian English for Hinglish)
+//         : { languageCode: 'hi-IN', name: 'hi-IN-Chirp-HD-D', ssmlGender: 'MALE' };   // Rahul - male voice (Indian English for Hinglish)
 //     } else {
 //       voice = (segment.speaker === 'sarah')
-//         ? { languageCode: 'en-US', name: 'en-US-Neural2-F', ssmlGender: 'FEMALE' }  // Sarah - female voice (English)
-//         : { languageCode: 'en-US', name: 'en-US-Neural2-J', ssmlGender: 'MALE' };   // Mark - male voice (English)
+//         ? { languageCode: 'en-US', name: 'en-US-Chirp-HD-F', ssmlGender: 'FEMALE' }  // Sarah - female voice (English)
+//         : { languageCode: 'en-US', name: 'en-US-Chirp-HD-D', ssmlGender: 'MALE' };   // Mark - male voice (English)
 //     }
     
 //     const requestBody = {
