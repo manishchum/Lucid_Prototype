@@ -3,19 +3,23 @@ import argparse
 import asyncio
 import os
 import sys
+import warnings
 from pathlib import Path
+
+# Suppress the deprecation warning for google.generativeai
+warnings.filterwarnings("ignore", message=".*google.generativeai.*", category=FutureWarning)
 from typing import Any, Dict
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT))
 
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin as supabase
 from interactive_video.pipeline import run_pipeline
 
 
 def fetch_processed_module(module_id: str) -> Dict[str, Any]:
     res = supabase.table("processed_modules").select("processed_module_id,title").eq("processed_module_id", module_id).maybe_single().execute()
-    if not res.data:
+    if res is None or not getattr(res, 'data', None):
         raise RuntimeError(f"Processed module {module_id} not found")
     return res.data
 
@@ -26,7 +30,7 @@ def create_job(module_id: str) -> str:
         "status": "pending",
         "current_worker": 1,
     }).execute()
-    if not resp.data:
+    if resp is None or not getattr(resp, 'data', None):
         raise RuntimeError("Failed to create interactive video job")
     return resp.data[0]["id"]
 

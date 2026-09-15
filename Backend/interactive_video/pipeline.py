@@ -9,7 +9,7 @@ import tempfile
 import traceback
 import datetime
 from typing import Any, Dict, Optional
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin as supabase
 
 from .workers import (
     w1_document_parser,

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.append(str(ROOT))
 
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin as supabase
 
 FPS = 24
 SLIDE_SECONDS = 4

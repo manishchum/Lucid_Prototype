@@ -248,7 +248,7 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
 
     # 4. Save manifest in interactive_video_courses table
     # Upsert course manifest
-    course_resp = supabase.table("interactive_video_courses").upsert({
+    course_resp = supabase_admin.table("interactive_video_courses").upsert({
         "processed_module_id": processed_module_id,
         "manifest": manifest,
         "updated_at": datetime.datetime.utcnow().isoformat()
@@ -267,7 +267,7 @@ async def run(video_data: Dict[str, Any], tmp_dir: str) -> Dict[str, Any]:
     if backup_video_url_hi:
         update_data["video_url_hinglish"] = backup_video_url_hi
 
-    supabase.table("processed_modules").update(update_data).eq("processed_module_id", processed_module_id).execute()
+    supabase_admin.table("processed_modules").update(update_data).eq("processed_module_id", processed_module_id).execute()
 
     print(
         f"[W9][Cost] Course totals: "

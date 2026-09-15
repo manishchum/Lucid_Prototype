@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from utils.auth import RequestAuth, get_request_auth_required
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin as supabase
 
 from .models import StartJobRequest, SubmitQuizRequest, QuizResult
 from .pipeline import run_pipeline, WORKER_NAMES
