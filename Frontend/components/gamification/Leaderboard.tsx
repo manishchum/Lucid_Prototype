@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Trophy, Shield, Flame, Zap, Sparkles, BookOpen, Check, Lock, Search, Loader2 } from "lucide-react";
 import { fetchLeaderboard } from "@/lib/api/gamification";
 
@@ -21,8 +21,12 @@ export function GamificationLeaderboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
     async function loadData() {
+      if (hasFetched.current) return;
+      hasFetched.current = true;
       try {
         const data = await fetchLeaderboard();
         setLeaderboardData(data);

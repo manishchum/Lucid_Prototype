@@ -160,7 +160,7 @@ def get_leaderboard_users(company_id: str) -> List[Dict[str, Any]]:
     """
     try:
         res = supabase_admin.table("user_gamification_profiles") \
-            .select("*, users!inner(name, role, avatar_color)") \
+            .select("*, users!inner(name)") \
             .eq("company_id", company_id) \
             .order("total_xp", desc=True) \
             .limit(50) \

@@ -221,3 +221,34 @@ def fetch_user_profile(auth: RequestAuth = Depends(get_request_auth_required)):
         print(f"[gamification] Profile endpoint error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to fetch user profile")
+
+@router.get("/leaderboard")
+def fetch_leaderboard(auth: RequestAuth = Depends(get_request_auth_required)):
+    """
+    Fetches the company leaderboard and formats it for the frontend.
+    """
+    try:
+        if not auth.company_id:
+            raise HTTPException(status_code=400, detail="Company ID missing")
+        
+        raw_leaderboard = get_leaderboard_users(company_id=auth.company_id)
+        
+        formatted = []
+        for row in raw_leaderboard:
+            user_data = row.get("users", {})
+            formatted.append({
+                "id": row.get("user_id"),
+                "name": user_data.get("name", "Unknown User"),
+                "role": user_data.get("role", "Employee"),
+                "sprints_completed": row.get("drills_completed_count", 0), # Fallback mapping since sprints aren't fully tracked yet
+                "xp": row.get("total_xp", 0),
+                "badges_count": len(row.get("earned_badges", [])) if row.get("earned_badges") else 0,
+                "avatar_color": user_data.get("avatar_color", "bg-slate-500"),
+                "is_current_user": row.get("user_id") == auth.user_id
+            })
+            
+        return {"status": "success", "data": formatted}
+    except Exception as e:
+        print(f"[gamification] Leaderboard endpoint error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch leaderboard")
