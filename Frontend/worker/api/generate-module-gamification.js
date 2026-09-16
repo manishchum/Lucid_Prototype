@@ -218,7 +218,7 @@ async function processModule(mod) {
 
 async function generateModuleGamification({ moduleId = null } = {}) {
   if (moduleId) {
-    if (!(await moduleSupportsAddon(moduleId, 'gamification'))) {
+    if (!(await moduleSupportsAddon(moduleId, ['gamification', 'lucid_studio_gamification']))) {
       return { ok: true, skipped: true, reason: 'Gamification addon disabled for this module company' };
     }
 
@@ -238,11 +238,70 @@ async function generateModuleGamification({ moduleId = null } = {}) {
   throw new Error('Missing moduleId');
 }
 
+async function fetchCompletedModuleIds() {
+  // Fetch recently completed jobs
+  const { data, error } = await supabase
+    .from('content_jobs')
+    .select('module_id')
+    .eq('status', 'completed')
+    .order('updated_at', { ascending: false })
+    .limit(20);
+
+  if (error) {
+    throw new Error(`Completed jobs fetch failed: ${error.message}`);
+  }
+  return [...new Set((data || []).map((row) => row.module_id).filter(Boolean))];
+}
+
+async function fetchNextPendingModule() {
+  const completedModuleIds = await fetchCompletedModuleIds();
+  if (completedModuleIds.length === 0) return null;
+
+  // Find modules that don't have gamification sprints yet
+  const { data: existingSprints, error: sprintError } = await supabase
+    .from('gamification_sprints')
+    .select('module_id')
+    .in('module_id', completedModuleIds);
+
+  if (sprintError) throw new Error(`Sprint fetch failed: ${sprintError.message}`);
+  
+  const modulesWithSprints = new Set((existingSprints || []).map(s => s.module_id));
+  
+  for (const moduleId of completedModuleIds) {
+    if (!modulesWithSprints.has(moduleId)) {
+      if (await moduleSupportsAddon(moduleId, ['gamification', 'lucid_studio_gamification'])) {
+        return moduleId;
+      }
+    }
+  }
+  
+  return null;
+}
+
 async function pollLoop() {
-  console.log('[GAMIFICATION WORKER] Polling disabled. Gamification is triggered via contentJobWorker for new modules or manually via --module for existing ones.');
-  // The sweeping logic is removed per request to prevent generating gamification for ALL existing modules.
+  console.log('[GAMIFICATION WORKER] Polling for completed modules missing gamification sprints...');
+  let idleCount = 0;
+  const MIN_POLL_MS = 15000;
+  const MAX_POLL_MS = 120000;
+
   while (true) {
-    await sleep(60000);
+    try {
+      const moduleId = await fetchNextPendingModule();
+
+      if (!moduleId) {
+        idleCount++;
+        console.log('[GAMIFICATION WORKER] No eligible completed modules right now.');
+      } else {
+        idleCount = 0;
+        console.log(`[GAMIFICATION WORKER] Found eligible module: ${moduleId}`);
+        await generateModuleGamification({ moduleId });
+      }
+    } catch (error) {
+      console.error('[GAMIFICATION WORKER] Poll loop error:', error.message || error);
+    }
+
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idleCount), MAX_POLL_MS);
+    await sleep(backoff);
   }
 }
 
