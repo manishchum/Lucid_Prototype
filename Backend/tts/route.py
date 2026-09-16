@@ -455,11 +455,11 @@ def getGoogleTtsVoiceConfig(language: str, speaker: str) -> Dict[str, Any]:
     }
 
     if normalized == "en":
-        voice_config["languageCode"] = "en-US"
+        voice_config["languageCode"] = "en-IN"
         voice_config["name"] = (
-            "en-US-Neural2-F"
+            "en-IN-Chirp3-HD-Callirrhoe"
             if speaker in {"sarah", "pooja"}
-            else "en-US-Neural2-J"
+            else "en-IN-Chirp3-HD-Iapetus"
         )
     elif normalized == "hinglish":
         voice_config["languageCode"] = "hi-IN"
