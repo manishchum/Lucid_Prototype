@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from typing import List, Optional
 import re
 import uuid
-from utils.supabase_client import supabase_admin
+from utils.supabase_client import supabase as supabase_admin
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.redis_client import get_cache, set_cache, delete_cache_pattern
 
@@ -100,10 +100,10 @@ async def upload_content(
         # Read file bytes
         file_bytes = await file.read()
         
-        # Unique file path to avoid collisions
+        # Unique file path to avoid collisions (satisfies RLS storage policy: company_id/uploads/...)
         file_name = getattr(file, "filename", None) or "upload"
         file_name_clean = _safe_storage_file_name(file_name)
-        storage_path = f"raw_content/{effective_company_id}/{uuid.uuid4()}_{file_name_clean}"
+        storage_path = f"{effective_company_id}/uploads/{uuid.uuid4()}_{file_name_clean}"
         
         # Upload to Supabase Storage Bucket
         bucket_name = "content library"
@@ -119,12 +119,11 @@ async def upload_content(
         url_res = supabase_admin.storage.from_(bucket_name).get_public_url(storage_path)
         public_url = url_res
 
-        # Get the auth.users id from token claims (usually 'sub' or 'uid')
-        auth_user_id = None
+        # Resolve user ID for attribution
+        auth_user_id = auth_ctx.user_id
         if auth_ctx.claims:
             claim_id = auth_ctx.claims.get("sub") or auth_ctx.claims.get("uid")
             if claim_id:
-                # Check if it's a valid UUID (Supabase Auth). If it's a Firebase UID, leave as None.
                 try:
                     uuid.UUID(str(claim_id))
                     auth_user_id = claim_id
@@ -175,15 +174,12 @@ async def delete_content(
         # Delete from DB
         supabase_admin.table("content_library_items").delete().eq("id", item_id).execute()
         
-        # Optionally, delete from storage if we can parse the path
-        # Assuming file_url looks like: https://<project>.supabase.co/storage/v1/object/public/content library/company_id/uuid_filename.ext
-        # But URLs encode spaces as %20. So check both string formats just in case.
+        # Delete from storage
+        import urllib.parse
         bucket_name = "content library"
-        if f"/public/{bucket_name}/" in item["file_url"]:
-            path = item["file_url"].split(f"/public/{bucket_name}/")[-1]
-            supabase_admin.storage.from_(bucket_name).remove([path])
-        elif f"/public/content%20library/" in item["file_url"]:
-            path = item["file_url"].split(f"/public/content%20library/")[-1]
+        unquoted_url = urllib.parse.unquote(item["file_url"])
+        if f"/public/{bucket_name}/" in unquoted_url:
+            path = unquoted_url.split(f"/public/{bucket_name}/")[-1]
             supabase_admin.storage.from_(bucket_name).remove([path])
             
         delete_cache_pattern(f"content_library:{effective_company_id}:*")
