@@ -102,17 +102,17 @@ export default function AdminContentLibrary() {
 
   const handleFileUpload = async () => {
     if (!uploadFile) {
-      toast.error("Please select a file first.");
+      toast({ title: "Please select a file first.", variant: "destructive" });
       return;
     }
     
     if (!uploadCategoryId) {
-      toast.error("Please select a Target Category.");
+      toast({ title: "Please select a Target Category.", variant: "destructive" });
       return;
     }
 
     if (!uploadTitle.trim()) {
-      toast.error("Please provide a title.");
+      toast({ title: "Please provide a title.", variant: "destructive" });
       return;
     }
 
@@ -123,7 +123,7 @@ export default function AdminContentLibrary() {
     formData.append("description", uploadDescription);
     
     setIsUploading(true);
-    toast.info("Publishing asset...");
+    toast({ title: "Publishing asset..." });
 
     try {
       const res = await fetchWithAuth(`${API_BASE}/api/content-library/upload`, {
@@ -132,7 +132,7 @@ export default function AdminContentLibrary() {
       });
 
       if (res.ok) {
-        toast.success("Asset published successfully!");
+        toast({ title: "Asset published successfully!" });
         setUploadFile(null);
         setUploadTitle("");
         setUploadDescription("");
@@ -141,10 +141,10 @@ export default function AdminContentLibrary() {
         loadItems(null);
       } else {
         const err = await res.json();
-        toast.error(`Publish failed: ${err.detail || "Unknown error"}`);
+        toast({ title: `Publish failed: ${err.detail || "Unknown error"}`, variant: "destructive" });
       }
     } catch (error) {
-      toast.error("Publish failed due to network error");
+      toast({ title: "Publish failed due to network error", variant: "destructive" });
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -161,8 +161,9 @@ export default function AdminContentLibrary() {
       const MAX_SIZE = 50 * 1024 * 1024;
       if (file.size > MAX_SIZE) {
         const exceededBy = (file.size - MAX_SIZE) / (1024 * 1024);
-        toast.error(`Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`, {
-          style: { background: '#EF4444', color: 'white', border: 'none' }
+        toast({
+          title: `Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`,
+          variant: "destructive"
         });
         if (e.target) e.target.value = "";
         return;
@@ -185,14 +186,14 @@ export default function AdminContentLibrary() {
         method: "DELETE"
       });
       if (res.ok) {
-        toast.success("File deleted");
+        toast({ title: "File deleted" });
         setItems(items.filter(i => i.id !== itemId));
         setSelectedItem(null);
       } else {
-        toast.error("Failed to delete file");
+        toast({ title: "Failed to delete file", variant: "destructive" });
       }
     } catch (e) {
-      toast.error("Failed to delete file");
+      toast({ title: "Failed to delete file", variant: "destructive" });
     }
   };
 
@@ -272,8 +273,9 @@ export default function AdminContentLibrary() {
                     const MAX_SIZE = 50 * 1024 * 1024;
                     if (file.size > MAX_SIZE) {
                       const exceededBy = (file.size - MAX_SIZE) / (1024 * 1024);
-                      toast.error(`Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`, {
-                        style: { background: '#EF4444', color: 'white', border: 'none' }
+                      toast({
+                        title: `Upload failed: File exceeds the 50 MB limit by ${exceededBy.toFixed(2)} MB.`,
+                        variant: "destructive"
                       });
                       return;
                     }
