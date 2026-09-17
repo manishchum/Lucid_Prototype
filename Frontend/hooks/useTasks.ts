@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { fetchActiveTasks, fetchUserTasks, Task } from "@/lib/taskApi";
 
+const inFlightPromisesMap = new Map<string, Promise<Task[]>>();
+const taskCacheMap = new Map<string, { data: Task[]; timestamp: number }>();
+const STALE_TIME_MS = 15000;
+
 export function useTasks(
   userId?: string,
   isAdmin?: boolean,
@@ -12,49 +16,63 @@ export function useTasks(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-  if (!enabled) {
-    setTasks([]);
-    setLoading(false);
-    setError(null);
-    return;
-  }
+  const load = useCallback(
+    async (force: boolean = false) => {
+      if (!enabled || !userId) {
+        if (!enabled) setTasks([]);
+        setLoading(false);
+        setError(null);
+        return;
+      }
 
-  // console.log("useTasks called with:", {
-  //   userId,
-  //   companyId,
-  //   isAdmin
-  // });
+      const cacheKey = `${userId}_${companyId || ""}_${Boolean(isAdmin)}`;
+      const cached = taskCacheMap.get(cacheKey);
+      const now = Date.now();
 
-  if (!userId) {
-    console.log("NO USER ID - stopping");
-    return;
-  }
+      // Return cached data immediately if fresh and not forced
+      if (!force && cached && now - cached.timestamp < STALE_TIME_MS) {
+        setTasks(cached.data);
+        setLoading(false);
+        return;
+      }
 
-  setLoading(true);
-  setError(null);
+      // If cached data exists, seed UI with cached data while refetching in background
+      if (cached) {
+        setTasks(cached.data);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
 
-  try {
-    const data = isAdmin
-      ? await fetchActiveTasks({ userId, companyId })
-      : await fetchUserTasks(userId, companyId);
+      try {
+        let promise = inFlightPromisesMap.get(cacheKey);
+        if (!promise) {
+          promise = isAdmin
+            ? fetchActiveTasks({ userId, companyId })
+            : fetchUserTasks(userId, companyId);
+          inFlightPromisesMap.set(cacheKey, promise);
+        }
 
-    // console.log("TASK API RESPONSE:", data);
-
-    setTasks(data);
-
-  } catch (err: any) {
-    console.error("TASK ERROR:", err);
-    setError(err?.message ?? "Failed to load tasks");
-  } finally {
-    setLoading(false);
-  }
-
-}, [userId, isAdmin, companyId, enabled]);
+        const data = await promise;
+        taskCacheMap.set(cacheKey, { data, timestamp: Date.now() });
+        setTasks(data);
+      } catch (err: any) {
+        console.error("TASK ERROR:", err);
+        setError(err?.message ?? "Failed to load tasks");
+      } finally {
+        inFlightPromisesMap.delete(cacheKey);
+        setLoading(false);
+      }
+    },
+    [userId, isAdmin, companyId, enabled]
+  );
 
   useEffect(() => {
-    load();
+    load(false);
   }, [load]);
 
-  return { tasks, loading, error, refetch: load };
+  const refetch = useCallback(() => load(true), [load]);
+
+  return { tasks, loading, error, refetch };
 }
+
