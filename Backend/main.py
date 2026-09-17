@@ -4,37 +4,13 @@ import os
 import logging
 import re
 
-
-class SensitiveTokenMaskingFilter(logging.Filter):
-    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.args:
-            new_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
-                new_args.append(arg)
-            record.args = tuple(new_args)
-
-        if isinstance(record.msg, str):
-            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
-
-        return True
-
-
-_token_mask_filter = SensitiveTokenMaskingFilter()
-for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
-
-
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
 
 # Import FastAPI and middleware Routes
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
 from config import FRONTEND_URL
@@ -90,6 +66,29 @@ from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_r
 from ingestion.embedder import router as embed_router
 from routes import functions
 from config import IS_PRODUCTION
+
+class SensitiveTokenMaskingFilter(logging.Filter):
+    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args:
+            new_args = []
+            for arg in record.args:
+                if isinstance(arg, str):
+                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
+                new_args.append(arg)
+            record.args = tuple(new_args)
+
+        if isinstance(record.msg, str):
+            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
+
+        return True
+
+
+_token_mask_filter = SensitiveTokenMaskingFilter()
+for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -163,6 +162,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Enable GZip response compression for payloads >= 1KB
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.middleware("http")

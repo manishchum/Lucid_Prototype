@@ -66,3 +66,13 @@ def delete_cache_pattern(pattern: str):
 
     except Exception:
         return None
+
+
+def invalidate_dashboard_cache(user_id: str):
+    """Invalidates employee dashboard cache instantly upon write mutation (< 1s freshness)."""
+    if not user_id:
+        return
+    try:
+        redis_client.delete(f"dashboard_summary:{user_id}")
+    except Exception as e:
+        print(f"[Redis] Failed to invalidate dashboard_summary:{user_id}: {e}")
