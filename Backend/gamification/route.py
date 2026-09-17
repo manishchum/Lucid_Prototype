@@ -122,8 +122,28 @@ async def get_user_sprints(
     Returns all active gamification sprints for all modules assigned to the authenticated user.
     """
     try:
-        print(f"[route/sprints] Called by auth.user_id: {auth.user_id}, auth.company_id: {auth.company_id}")
         sprints = get_user_assigned_sprints(auth.user_id, auth.company_id)
+        completed_drills = get_user_completed_drills(user_id=auth.user_id)
+        
+        # Determine unlock status sequentially
+        for idx, sprint in enumerate(sprints):
+            if idx == 0:
+                sprint["is_locked"] = False
+            else:
+                prev_sprint = sprints[idx - 1]
+                prev_drills = prev_sprint.get("gamification_drills", [])
+                
+                prev_completed = True
+                if not prev_drills:
+                    prev_completed = False
+                
+                for d in prev_drills:
+                    if str(d.get("drill_id")) not in completed_drills:
+                        prev_completed = False
+                        break
+                        
+                sprint["is_locked"] = not prev_completed
+
         return {"status": "success", "data": sprints}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

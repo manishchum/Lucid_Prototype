@@ -11,9 +11,9 @@ router = APIRouter()
 
 
 async def _verify_current_password_with_firebase(email: str, current_password: str) -> bool:
-    api_key = os.getenv("FIREBASE_WEB_API_KEY") or os.getenv("NEXT_PUBLIC_FIREBASE_API_KEY")
+    api_key = os.getenv("NEXT_PUBLIC_FIREBASE_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing FIREBASE_WEB_API_KEY or NEXT_PUBLIC_FIREBASE_API_KEY")
+        raise RuntimeError("Missing NEXT_PUBLIC_FIREBASE_API_KEY")
 
     endpoint = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
     payload = {

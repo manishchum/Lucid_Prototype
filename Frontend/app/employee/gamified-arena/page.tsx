@@ -23,7 +23,8 @@ import {
   Check,
   ListOrdered,
   FileSearch,
-  Clock
+  Clock,
+  Info
 } from "lucide-react";
 
 import { fetchAssignedSprints, submitDrillProgress, fetchUserProfile, Sprint, Drill, DrillProgressPayload } from "@/lib/api/gamification";
@@ -85,6 +86,7 @@ export default function EmployeeGamifiedArenaPage() {
 
   const [activeTab, setActiveTab] = useState<"sprints" | "leaderboard" | "vault" | "drill">("sprints");
   const [soundMuted, setSoundMuted] = useState<boolean>(false);
+  const [showDrillInstructions, setShowDrillInstructions] = useState<boolean>(false);
 
   // Arena State
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -107,7 +109,7 @@ export default function EmployeeGamifiedArenaPage() {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        
+
         // Optimize: Fetch profile and sprints concurrently
         const [profile, data] = await Promise.all([
           fetchUserProfile(),
@@ -141,6 +143,17 @@ export default function EmployeeGamifiedArenaPage() {
     const currentDrill = activeSprint.gamification_drills[activeDrillIndex];
     if (!currentDrill) return;
 
+    const estimatedXp = Math.max(50, 200 - (payload.wrong_attempts * 25));
+
+    // 1. Optimistic UI Update for instant feedback
+    setCompletedDrills(prev => ({
+      ...prev,
+      [currentDrill.drill_id]: estimatedXp
+    }));
+    setUserXp(prev => prev + estimatedXp);
+    playSound("complete");
+
+    // 2. Background Sync
     try {
       const data: DrillProgressPayload = {
         sprint_id: activeSprint.sprint_id,
@@ -150,19 +163,18 @@ export default function EmployeeGamifiedArenaPage() {
         completion_time_seconds: payload.completion_time_seconds
       };
 
-      const result = await submitDrillProgress(data);
-
-      // Update UI with calculated XP & Streak from backend
-      if (result.earned_xp) setUserXp(prev => prev + result.earned_xp);
-      if (result.new_streak !== undefined) setStreakDays(result.new_streak);
-
-      // Add to completed drills state
-      setCompletedDrills(prev => ({
-        ...prev,
-        [activeSprint.gamification_drills[activeDrillIndex].drill_id]: result.earned_xp || 200
-      }));
-
-      playSound("complete");
+      submitDrillProgress(data).then(result => {
+        // Reconcile Exact XP & Streak
+        if (result.earned_xp && result.earned_xp !== estimatedXp) {
+          const diff = result.earned_xp - estimatedXp;
+          setUserXp(prev => prev + diff);
+          setCompletedDrills(prev => ({
+            ...prev,
+            [currentDrill.drill_id]: result.earned_xp
+          }));
+        }
+        if (result.new_streak !== undefined) setStreakDays(result.new_streak);
+      }).catch(console.error);
     } catch (e) {
       console.error(e);
     }
@@ -312,23 +324,38 @@ export default function EmployeeGamifiedArenaPage() {
               <div className="flex justify-center py-20 text-slate-500 font-bold">No gamification sprints found for this module.</div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {sprints.map((sprint, idx) => (
-                  <div
-                    key={sprint.sprint_id}
-                    className="p-6 rounded-3xl border flex flex-col justify-between transition-all relative overflow-hidden bg-white border-indigo-500 ring-2 ring-indigo-500/10 shadow-md"
-                  >
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          SPRINT {idx + 1}
-                        </span>
-                        <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
-                      </div>
+                {sprints.map((sprint, idx) => {
+                  let isLocked = sprint.is_locked;
+                  if (idx > 0) {
+                     const prevSprint = sprints[idx - 1];
+                     const prevDrillIds = prevSprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+                     const prevCompletedCount = prevDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+                     isLocked = (prevDrillIds.length === 0 || prevCompletedCount < prevDrillIds.length);
+                  } else {
+                     isLocked = false;
+                  }
 
-                      <div>
-                        <h3 className="text-base font-black text-slate-900">{sprint.title}</h3>
-                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">{sprint.description}</p>
-                      </div>
+                  return (
+                    <div
+                      key={sprint.sprint_id}
+                      className="p-6 rounded-3xl border flex flex-col justify-between transition-all relative overflow-hidden bg-white border-indigo-500 ring-2 ring-indigo-500/10 shadow-md"
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border ${isLocked ? "bg-slate-50 text-slate-500 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}>
+                            SPRINT {idx + 1}
+                          </span>
+                          {isLocked ? (
+                            <Lock className="w-5 h-5 text-slate-400" />
+                          ) : (
+                            <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
+                          )}
+                        </div>
+
+                        <div>
+                          <h3 className="text-base font-black text-slate-900">{sprint.title}</h3>
+                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">{sprint.description}</p>
+                        </div>
 
                       <div className="flex flex-wrap items-center gap-3 text-xs font-bold pt-2 border-t border-slate-100">
                         <span className="text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
@@ -338,20 +365,57 @@ export default function EmployeeGamifiedArenaPage() {
                     </div>
 
                     <div className="mt-6">
-                      <button
-                        onClick={() => {
-                          playSound("tap");
-                          setActiveSprint(sprint);
-                          setActiveDrillIndex(0);
-                          setActiveTab("drill");
-                        }}
-                        className="w-full py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        Start Sprint <ArrowRight className="w-4 h-4" />
-                      </button>
+                      {(() => {
+                        const sprintDrillIds = sprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+                        const completedCount = sprintDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+                        const totalDrills = sprintDrillIds.length;
+                        const isCompleted = totalDrills > 0 && completedCount === totalDrills;
+                        const isInProgress = completedCount > 0 && completedCount < totalDrills;
+
+                        let btnText = "Let's Cook 🚀"; // Start Sprint
+                        let btnStyle = "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20";
+                        let statusText = "0% Rizz";
+
+                        if (isLocked) {
+                          btnText = "Locked 🔒";
+                          btnStyle = "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed";
+                          statusText = "Complete Previous Sprint To Unlock";
+                        } else if (isCompleted) {
+                          btnText = "Flex Review 👀"; // Review
+                          btnStyle = "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20";
+                          statusText = "Completed / Big W 👑";
+                        } else if (isInProgress) {
+                          btnText = "Keep Grinding 💪"; // Resume
+                          btnStyle = "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20";
+                          statusText = `${Math.round((completedCount / totalDrills) * 100)}% Cooked`;
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1">
+                              <span>Status:</span>
+                              <span className={isLocked ? "text-slate-400" : isCompleted ? "text-emerald-600" : isInProgress ? "text-amber-600" : "text-slate-400"}>{statusText}</span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                if (isLocked) return;
+                                playSound("tap");
+                                setActiveSprint(sprint);
+                                setActiveDrillIndex(isCompleted ? 0 : completedCount);
+                                setActiveTab("drill");
+                                setShowDrillInstructions(false);
+                              }}
+                              disabled={isLocked}
+                              className={`w-full py-3 px-4 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 ${btnStyle} ${!isLocked ? "shadow-md cursor-pointer" : ""}`}
+                            >
+                              {btnText} {!isLocked && <ArrowRight className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>
@@ -361,15 +425,43 @@ export default function EmployeeGamifiedArenaPage() {
           <div className="rounded-3xl bg-white border border-slate-200/90 p-6 sm:p-8 shadow-sm space-y-6">
             <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
-                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider">
+                <span className="px-3.5 py-1.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
                   DRILL {activeDrillIndex + 1}: {activeSprint.gamification_drills[activeDrillIndex]?.format_type.replace("_", " ")}
+                  <button 
+                    onClick={() => {
+                      playSound("tap");
+                      setShowDrillInstructions(!showDrillInstructions);
+                    }}
+                    className="hover:bg-indigo-200 p-0.5 rounded-full transition-colors cursor-pointer"
+                    title="How to play"
+                  >
+                    <Info className="w-4 h-4 text-indigo-500" />
+                  </button>
                 </span>
-                <span className="text-xs font-bold text-slate-500">{activeSprint.gamification_drills[activeDrillIndex]?.title}</span>
+                <span className="text-xs font-bold text-slate-500 hidden sm:inline-block">{activeSprint.gamification_drills[activeDrillIndex]?.title}</span>
               </div>
               <span className="px-3.5 py-1.5 rounded-full bg-rose-50 text-rose-600 border border-rose-100 text-xs font-black flex items-center gap-1">
                 <Flame className="w-3.5 h-3.5 text-rose-500" /> Base XP: {activeSprint.gamification_drills[activeDrillIndex]?.base_xp || 200}
               </span>
             </div>
+
+            {showDrillInstructions && (
+              <div className="mb-6 p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex gap-3 text-sm text-indigo-800 animate-in fade-in slide-in-from-top-2">
+                <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold mb-1">How to play</h4>
+                  <p className="opacity-90 leading-relaxed">
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "FILL_BLANKS" && "Read the scenario and select the correct terms from the dropdown menus to complete the paragraph."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "VIBE_CHECK" && "Review the scenario and determine if it's a 'Green Flag' (Safe/Compliant) or 'Red Flag' (Violation/Risk)."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "RISK_RIZZ" && "Match the related pairs! Select an item on the left, then click its corresponding match on the right."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "CODE_BREAKER" && "Decipher the scrambled sequence or text and type the exact hidden meaning to unlock it."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "FLOW_MASTER" && "Drag and drop the procedure steps into the correct chronological order."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "AUDIT_SPOTTER" && "Carefully review the checklist and click on any hidden compliance violations or errors."}
+                    {activeSprint.gamification_drills[activeDrillIndex]?.format_type === "SPEED_RUN" && "Answer the multiple-choice questions as fast as you can before the timer runs out."}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {renderActiveDrill()}
 
