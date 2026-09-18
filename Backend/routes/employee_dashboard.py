@@ -14,6 +14,8 @@ import traceback
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
+from task_manager.service import get_tasks_for_user
+
 @router.get("/dashboard_summary/{user_id}")
 async def get_dashboard_summary(
     user_id: str,
@@ -62,15 +64,16 @@ async def get_dashboard_summary(
         print(f"Dashboard Summary Cache Miss for user {user_id}")
         start_time = datetime.now()
 
-        # Batch 1: Execute single Postgres RPC stored function and leaderboard rank concurrently
-        rpc_res, rank_res = await asyncio.gather(
+        # Batch 1: Execute single Postgres RPC, leaderboard rank, and assigned tasks concurrently
+        rpc_res, rank_res, tasks_res = await asyncio.gather(
             asyncio.to_thread(
                 lambda: service_supabase.rpc(
                     "get_employee_dashboard_summary",
                     {"p_user_id": user_id, "p_company_id": x_company_id}
                 ).execute()
             ),
-            get_user_rank(user_id, x_company_id, requesting_user_id=user_id)
+            get_user_rank(user_id, x_company_id, requesting_user_id=user_id),
+            get_tasks_for_user(user_id, x_company_id, requesting_user_id=user_id),
         )
 
         summary_data = rpc_res.data if isinstance(rpc_res.data, dict) else {}
@@ -85,6 +88,23 @@ async def get_dashboard_summary(
         task_submissions = summary_data.get("task_submissions") or []
         all_processed_modules = summary_data.get("processed_modules") or []
         assessment_details = summary_data.get("assessments") or []
+
+        # Feature Gating: Off by default. Only enabled if company.subscription_addons specifically contains "tasks" or "task_manager"
+        company_addons = company_data.get("subscription_addons") or []
+        if isinstance(company_addons, str):
+            try:
+                company_addons = json.loads(company_addons)
+            except Exception:
+                company_addons = [company_addons]
+        if not isinstance(company_addons, list):
+            company_addons = []
+
+        tasks_enabled = any(
+            str(addon).strip().lower() in ("tasks", "task_manager", "task-manager", "task_management")
+            for addon in company_addons
+        )
+
+        assigned_tasks = tasks_res if tasks_enabled else []
 
         rank_info = rank_res.get("data") if (rank_res and not rank_res.get("error")) else None
         user_rank_data = {
@@ -213,6 +233,8 @@ async def get_dashboard_summary(
             "baseline_evidence_by_module_id": baseline_evidence_by_module_id,
             "task_submissions": task_submissions,
             "processed_modules": processed_modules,
+            "assigned_tasks": assigned_tasks,
+            "tasks_enabled": tasks_enabled,
         }
 
         elapsed_ms = round((datetime.now() - start_time).total_seconds() * 1000, 2)
