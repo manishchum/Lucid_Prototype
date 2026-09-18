@@ -17,6 +17,9 @@ BEGIN
             SELECT jsonb_build_object(
                 'company_id', company_id,
                 'name', name,
+                'company_logo', company_logo,
+                'subscription_tier', subscription_tier,
+                'subscription_addons', subscription_addons,
                 'learning_style', learning_style,
                 'created_at', created_at
             )

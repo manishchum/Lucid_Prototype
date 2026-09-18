@@ -119,11 +119,13 @@ async def get_dashboard_summary(
             plan_modules = plan_json.get("modules") if isinstance(plan_json, dict) else []
 
             if isinstance(plan_modules, list):
-                for m in plan_modules:
+                for idx, m in enumerate(plan_modules):
                     if isinstance(m, dict) and not m.get("processed_module_id"):
                         m_title = (m.get("title") or "").strip().lower()
                         if m_title in title_to_pm_id:
                             m["processed_module_id"] = title_to_pm_id[m_title]
+                        elif idx < len(matching_pms) and matching_pms[idx].get("processed_module_id"):
+                            m["processed_module_id"] = str(matching_pms[idx]["processed_module_id"])
 
             embedded_ids = [
                 str(m.get("processed_module_id"))
@@ -210,6 +212,7 @@ async def get_dashboard_summary(
             "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
             "baseline_evidence_by_module_id": baseline_evidence_by_module_id,
             "task_submissions": task_submissions,
+            "processed_modules": processed_modules,
         }
 
         elapsed_ms = round((datetime.now() - start_time).total_seconds() * 1000, 2)
