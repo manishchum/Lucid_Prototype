@@ -139,7 +139,7 @@ export function GamificationLeaderboard() {
   );
 }
 
-export function BadgesVault({ completedCount, streakDays, userXp }: { completedCount: number, streakDays: number, userXp: number }) {
+export function BadgesVault({ unlockedBadges, streakDays, userXp }: { unlockedBadges: any[], streakDays: number, userXp: number }) {
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -152,44 +152,58 @@ export function BadgesVault({ completedCount, streakDays, userXp }: { completedC
           </p>
         </div>
         <div className="px-4 py-2 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-black shrink-0">
-          {[
-            completedCount >= 1,
-            completedCount >= 3,
-            completedCount >= 5,
-            streakDays >= 3,
-            streakDays >= 7,
-            userXp >= 1000,
-          ].filter(Boolean).length} / 6 Badges Unlocked
+          {unlockedBadges.length} Badges Unlocked
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-        {[
-          {
-            id: "badge_1", title: "Main Character 🎯", category: "Drill Milestone", desc: "Complete your 1st drill",
-            icon: BookOpen, unlocked: completedCount >= 1, iconBg: "bg-indigo-50 text-indigo-600 border-indigo-100",
-          },
-          {
-            id: "badge_2", title: "Locked In 🔒", category: "Drill Milestone", desc: "Complete 3 drills",
-            icon: Shield, unlocked: completedCount >= 3, iconBg: "bg-blue-50 text-blue-600 border-blue-100",
-          },
-          {
-            id: "badge_3", title: "G.O.A.T. Certified 🏆", category: "Sprint Milestone", desc: "Complete 5 drills",
-            icon: Trophy, unlocked: completedCount >= 5, iconBg: "bg-amber-50 text-amber-600 border-amber-100",
-          },
-          {
-            id: "badge_4", title: "On Fire 🔥", category: "Streak Milestone", desc: "Maintain a 3-day active streak",
-            icon: Flame, unlocked: streakDays >= 3, iconBg: "bg-rose-50 text-rose-600 border-rose-100",
-          },
-          {
-            id: "badge_5", title: "Unstoppable ⚡", category: "Streak Milestone", desc: "Maintain a 7-day active streak",
-            icon: Zap, unlocked: streakDays >= 7, iconBg: "bg-purple-50 text-purple-600 border-purple-100",
-          },
-          {
-            id: "badge_6", title: "XP Billionaire 🌟", category: "XP Milestone", desc: "Reach 1,000+ total earned XP",
-            icon: Sparkles, unlocked: userXp >= 1000, iconBg: "bg-emerald-50 text-emerald-600 border-emerald-100",
-          },
-        ].map((badge) => {
+        {(() => {
+          const unlockedKeys = new Set(unlockedBadges.map(b => b.badge_key));
+          const coreBadges = [
+            {
+              id: "badge_1", title: "Main Character 🎯", category: "Drill Milestone", desc: "Complete your 1st drill",
+              icon: BookOpen, iconBg: "bg-indigo-50 text-indigo-600 border-indigo-100",
+            },
+            {
+              id: "badge_2", title: "Locked In 🔒", category: "Drill Milestone", desc: "Complete 10 drills",
+              icon: Shield, iconBg: "bg-blue-50 text-blue-600 border-blue-100",
+            },
+            {
+              id: "badge_3", title: "G.O.A.T. Certified 🏆", category: "Drill Milestone", desc: "Complete 25 drills",
+              icon: Trophy, iconBg: "bg-amber-50 text-amber-600 border-amber-100",
+            },
+            {
+              id: "badge_4", title: "On Fire 🔥", category: "Streak Milestone", desc: "Maintain a 7-day active streak",
+              icon: Flame, iconBg: "bg-rose-50 text-rose-600 border-rose-100",
+            },
+            {
+              id: "badge_5", title: "Unstoppable ⚡", category: "Streak Milestone", desc: "Maintain a 14-day active streak",
+              icon: Zap, iconBg: "bg-purple-50 text-purple-600 border-purple-100",
+            },
+            {
+              id: "badge_6", title: "XP Billionaire 🌟", category: "XP Milestone", desc: "Reach 5,000+ total earned XP",
+              icon: Sparkles, iconBg: "bg-emerald-50 text-emerald-600 border-emerald-100",
+            }
+          ];
+
+          const renderedBadges = coreBadges.map(b => ({ ...b, unlocked: unlockedKeys.has(b.id) }));
+          
+          // Append any special/limited-time badges that the user unlocked but aren't in the core list
+          unlockedBadges.forEach(b => {
+            if (!coreBadges.some(core => core.id === b.badge_key)) {
+              renderedBadges.push({
+                id: b.badge_key,
+                title: b.badge_title || "Special Badge",
+                category: b.metadata?.category || "Event Milestone",
+                desc: b.badge_description || "You unlocked a special badge!",
+                icon: Trophy, // Fallback icon
+                iconBg: "bg-fuchsia-50 text-fuchsia-600 border-fuchsia-100",
+                unlocked: true
+              });
+            }
+          });
+
+          return renderedBadges.map((badge) => {
           const Icon = badge.icon;
           return (
             <div
@@ -223,7 +237,7 @@ export function BadgesVault({ completedCount, streakDays, userXp }: { completedC
               </span>
             </div>
           );
-        })}
+        })})()}
       </div>
     </div>
   );

@@ -60,7 +60,12 @@ export async function submitDrillProgress(payload: DrillProgressPayload) {
     });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
-    return data?.data;
+    return data?.data as {
+      progress: any;
+      earned_xp: number;
+      streak_multiplier: number;
+      new_badges?: any[];
+    };
   } catch (error) {
     console.error("Failed to submit drill progress:", error);
     throw error;
@@ -90,9 +95,31 @@ export async function fetchUserProfile() {
     const response = await fetchWithAuth(`${API_URL}/api/gamification/profile`);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const data = await response.json();
-    return data?.data || null;
+    return data?.data as {
+      total_xp: number;
+      current_streak_days: number;
+      best_streak_days: number;
+      drills_completed_count: number;
+      completed_drills: any[];
+      unlocked_badges: any[];
+    } | null;
   } catch (error) {
     console.error("Failed to fetch user profile:", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches the distinct dates the user was active in the last 7 days.
+ */
+export async function fetchActivityCalendar(): Promise<string[]> {
+  try {
+    const response = await fetchWithAuth(`${API_URL}/api/gamification/activity-calendar`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+    return data?.data || [];
+  } catch (error) {
+    console.error("Failed to fetch activity calendar:", error);
     throw error;
   }
 }
