@@ -64,6 +64,10 @@ async def get_dashboard_summary(
         print(f"Dashboard Summary Cache Miss for user {user_id}")
         start_time = datetime.now()
 
+        # Check Redis for company-wide static data cache
+        company_cache_key = f"company_static:{x_company_id}"
+        company_static_data = get_cache(company_cache_key)
+
         # Batch 1: Execute single Postgres RPC, leaderboard rank, and assigned tasks concurrently
         rpc_res, rank_res, tasks_res = await asyncio.gather(
             asyncio.to_thread(
@@ -78,16 +82,27 @@ async def get_dashboard_summary(
 
         summary_data = rpc_res.data if isinstance(rpc_res.data, dict) else {}
 
-        company_data = summary_data.get("company") or {}
-        total_users = summary_data.get("total_users") or 0
+        # If company static data was not in Redis, populate it directly from summary_data (Zero extra DB calls!)
+        if not company_static_data and summary_data:
+            company_static_data = {
+                "company": summary_data.get("company"),
+                "total_users": summary_data.get("total_users"),
+                "training_modules": summary_data.get("training_modules"),
+                "processed_modules": summary_data.get("processed_modules"),
+                "assessments": summary_data.get("assessments"),
+            }
+            set_cache(company_cache_key, company_static_data, ttl=3600)  # 1 hour cache
+
+        company_data = (company_static_data or {}).get("company") or summary_data.get("company") or {}
+        total_users = (company_static_data or {}).get("total_users") or summary_data.get("total_users") or 0
         learning_style = summary_data.get("learning_style")
         plans = summary_data.get("learning_plans") or []
-        modules = summary_data.get("training_modules") or []
+        modules = (company_static_data or {}).get("training_modules") or summary_data.get("training_modules") or []
         progress = summary_data.get("module_progress") or []
         employee_assessments = summary_data.get("employee_assessments") or []
         task_submissions = summary_data.get("task_submissions") or []
-        all_processed_modules = summary_data.get("processed_modules") or []
-        assessment_details = summary_data.get("assessments") or []
+        all_processed_modules = (company_static_data or {}).get("processed_modules") or summary_data.get("processed_modules") or []
+        assessment_details = (company_static_data or {}).get("assessments") or summary_data.get("assessments") or []
 
         # Feature Gating: Off by default. Only enabled if company.subscription_addons specifically contains "tasks" or "task_manager"
         company_addons = company_data.get("subscription_addons") or []
