@@ -91,4 +91,4 @@ def invalidate_company_dashboard_cache(company_id: str):
         delete_cache_pattern(f"dashboard_summary:*")
     except Exception as e:
         print(f"[Redis] Failed to invalidate company_static:{company_id}: {e}")
-
+
