@@ -3,6 +3,8 @@ import json
 import os
 import re
 import tempfile
+import time
+import asyncio
 from typing import Optional
 from uuid import uuid4
 
@@ -511,11 +513,70 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     return result
 
 
+_USER_TASKS_CACHE = {}
+_USER_TASKS_LOCKS = {}
+_USER_TASKS_GLOBAL_LOCK = asyncio.Lock()
+_CACHE_TTL_SECONDS = 5.0
+
+
+def invalidate_user_tasks_cache(user_id: str | None = None) -> None:
+    """Invalidate task cache for a given user or all users on task mutation."""
+    global _USER_TASKS_CACHE
+    if user_id:
+        keys_to_del = [k for k in _USER_TASKS_CACHE if str(user_id) in k]
+        for k in keys_to_del:
+            _USER_TASKS_CACHE.pop(k, None)
+    else:
+        _USER_TASKS_CACHE.clear()
+
+
 async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: str | None = None) -> list:
-    """Employee view — tasks assigned to this user."""
+    """Employee view — tasks assigned to this user with in-memory TTL caching and singleflight protection."""
+    cache_key = f"{user_id}:{company_id}:{requesting_user_id or ''}"
+    now = time.time()
+
+    cached = _USER_TASKS_CACHE.get(cache_key)
+    if cached and (now - cached["timestamp"] < _CACHE_TTL_SECONDS):
+        return cached["data"]
+
+    async with _USER_TASKS_GLOBAL_LOCK:
+        if cache_key not in _USER_TASKS_LOCKS:
+            _USER_TASKS_LOCKS[cache_key] = asyncio.Lock()
+        lock = _USER_TASKS_LOCKS[cache_key]
+
+    async with lock:
+        # Double-check cache after acquiring lock (Singleflight pattern)
+        cached = _USER_TASKS_CACHE.get(cache_key)
+        if cached and (now - cached["timestamp"] < _CACHE_TTL_SECONDS):
+            return cached["data"]
+
+        data = await _fetch_tasks_for_user_uncached(user_id, company_id, requesting_user_id)
+        _USER_TASKS_CACHE[cache_key] = {
+            "data": data,
+            "timestamp": time.time(),
+        }
+        return data
+
+
+async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesting_user_id: str | None = None) -> list:
+    """Employee view — tasks assigned to this user (uncached database query)."""
     req_uid = requesting_user_id or user_id
     if not await check_company_access(req_uid, company_id):
         raise AuthorizationError("Access denied to this company")
+
+    # ── Normalize & resolve user_id ──────────────────────────────────────
+    if not user_id or str(user_id).strip().lower() == "me":
+        user_id = req_uid
+    elif not is_valid_uuid(user_id):
+        db_client = get_service_supabase_client()
+        try:
+            user_match = db_client.table("users").select("user_id").eq("email", user_id).maybe_single().execute()
+            if user_match and user_match.data and user_match.data.get("user_id"):
+                user_id = str(user_match.data["user_id"])
+            else:
+                user_id = req_uid
+        except Exception:
+            user_id = req_uid
 
     if req_uid != user_id:
         if not await check_user_permission(req_uid, 'manager'):
@@ -907,7 +968,7 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
     if not isinstance(returned_submission_format, list):
         returned_submission_format = [returned_submission_format]
 
-    return {
+    ret = {
         "task_id": task_id,
         "assignment_id": assignment_id,
         "company_id": company_id,
@@ -921,10 +982,11 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
         "recurrence": payload.recurrence,
         "level": payload.level,
         "audience_display_name": payload.level,
-        "total_target_count": audience_count,
         "completion_count": 0,
         "created_at": "",
     }
+    invalidate_user_tasks_cache()
+    return ret
 
 
 async def submit_task_response(payload: SubmissionCreate, company_id: str, background_tasks, requesting_user_id: str) -> dict:
@@ -1164,6 +1226,7 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         is_bundle_submission=is_bundle_submission
     )
 
+    invalidate_user_tasks_cache(payload.user_id)
     return {
         "status": "success",
         "message": "Task submitted successfully",

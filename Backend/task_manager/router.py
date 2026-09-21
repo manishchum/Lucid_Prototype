@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Backgrou
 
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 from utils.exceptions import ApiException
+from utils.redis_client import invalidate_dashboard_cache
 from .models import SubmissionCreate, TaskCreate, TaskListResponse, TaskReassignPayload
 from . import service
 
@@ -85,6 +86,8 @@ async def submit_task(
             background_tasks,
             auth_ctx.user_id
         )
+        if auth_ctx.user_id:
+            invalidate_dashboard_cache(auth_ctx.user_id)
         return result
     except ApiException:
         raise

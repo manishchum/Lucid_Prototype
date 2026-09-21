@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from pydantic import BaseModel
 from typing import Optional
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
-from utils.redis_client import redis_client, set_cache, get_cache
+from utils.redis_client import redis_client, set_cache, get_cache, invalidate_dashboard_cache
 
 from utils.db.module_progress_db import (
     get_progress_by_id,
@@ -254,6 +254,8 @@ async def create_or_update_progress_record(
         f"{request.processed_module_id}"
     )
 
+    invalidate_dashboard_cache(target_user_id)
+
     action = result.get("action", "updated")
     message_map = {
         "created": "Module progress created successfully",
@@ -305,6 +307,8 @@ async def update_progress_record(
         redis_client.delete(
             f"module_progress:{target_user_id}:True"
         )
+
+        invalidate_dashboard_cache(target_user_id)
 
     if target_user_id and processed_module_id:
 
