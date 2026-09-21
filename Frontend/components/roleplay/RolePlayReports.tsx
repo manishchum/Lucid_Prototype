@@ -218,11 +218,11 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
             <Card key={session.id} className="overflow-hidden">
               {/* Header */}
               <div
-                className="p-6 cursor-pointer hover:bg-slate-50 transition-colors"
+                className="p-4 sm:p-6 cursor-pointer hover:bg-slate-50 transition-colors"
                 onClick={() => setExpandedSession(isExpanded ? null : session.id)}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
+                <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-4">
+                  <div className="flex-1 w-full">
                     <div className="flex items-center gap-3 mb-2">
                       <h4 className="text-lg font-bold text-slate-900">{session.scenario_title}</h4>
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${getDifficultyColor(session.scenario_difficulty)}`}>
@@ -248,26 +248,27 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                     </div>
                   </div>
 
-                  {assessment && (
-                    <div className="flex flex-col items-end gap-2">
-                      <div className={`px-4 py-2 rounded-lg border-2 ${getScoreColor(assessment.overall_score, passingScore)}`}>
-                        <p className="text-3xl font-bold">{assessment.overall_score}</p>
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start w-full sm:w-auto gap-2">
+                    {assessment && (
+                      <div className="flex items-center sm:flex-col gap-2 sm:gap-1">
+                        <div className={`px-3 py-1 sm:px-4 sm:py-2 rounded-lg border-2 ${getScoreColor(assessment.overall_score, passingScore)}`}>
+                          <p className="text-xl sm:text-3xl font-bold">{assessment.overall_score}</p>
+                        </div>
+                        <span className="text-xs sm:text-sm font-medium text-slate-600">
+                          {getScoreBadge(assessment.overall_score, passingScore)}
+                        </span>
                       </div>
-                      <span className="text-sm font-medium text-slate-600">
-                        {getScoreBadge(assessment.overall_score, passingScore)}
-                      </span>
-                    </div>
-                  )}
-
-                  <Button variant="ghost" size="sm">
-                    {isExpanded ? <ChevronUp /> : <ChevronDown />}
-                  </Button>
+                    )}
+                    <Button variant="ghost" size="sm" className="ml-auto sm:ml-0">
+                      {isExpanded ? <ChevronUp /> : <ChevronDown />}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
               {/* Expanded Content */}
               {isExpanded && (
-                <div className="border-t border-slate-200 bg-slate-50 p-6 space-y-6">
+                <div className="border-t border-slate-200 bg-slate-50 p-4 sm:p-6 space-y-6">
                   {/* Summary */}
                   {assessment && (
                     <>
