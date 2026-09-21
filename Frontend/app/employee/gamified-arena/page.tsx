@@ -27,7 +27,7 @@ import {
   Info
 } from "lucide-react";
 
-import { fetchAssignedSprints, submitDrillProgress, fetchUserProfile, Sprint, Drill, DrillProgressPayload } from "@/lib/api/gamification";
+import { fetchAssignedSprints, submitDrillProgress, fetchUserProfile, fetchActivityCalendar, Sprint, Drill, DrillProgressPayload } from "@/lib/api/gamification";
 
 import FillBlanksSolver from "@/components/gamification/drills/FillBlanksSolver";
 import VibeCheckSolver from "@/components/gamification/drills/VibeCheckSolver";
@@ -72,6 +72,18 @@ const playSound = (type: "tap" | "correct" | "incorrect" | "complete") => {
   }
 };
 
+const getBadgeIcon = (iconName: string) => {
+  switch (iconName) {
+    case "BookOpen": return <BookOpen className="w-6 h-6 text-indigo-600" />;
+    case "Shield": return <Shield className="w-6 h-6 text-blue-600" />;
+    case "Trophy": return <Trophy className="w-6 h-6 text-amber-600" />;
+    case "Flame": return <Flame className="w-6 h-6 text-rose-600" />;
+    case "Zap": return <Zap className="w-6 h-6 text-purple-600" />;
+    case "Sparkles": return <Sparkles className="w-6 h-6 text-emerald-600" />;
+    default: return <Trophy className="w-6 h-6 text-fuchsia-600" />;
+  }
+};
+
 export default function EmployeeGamifiedArenaPage() {
   const { hasFeature } = useTenant();
   const { user, userId, employeeData } = useAuth();
@@ -98,7 +110,10 @@ export default function EmployeeGamifiedArenaPage() {
   const [userXp, setUserXp] = useState<number>(0);
   const [streakDays, setStreakDays] = useState<number>(0);
   const [streakModalOpen, setStreakModalOpen] = useState<boolean>(false);
+  const [activeDates, setActiveDates] = useState<string[]>([]);
   const [completedDrills, setCompletedDrills] = useState<Record<string, number>>({});
+  const [unlockedBadges, setUnlockedBadges] = useState<any[]>([]);
+  const [newBadgesAlert, setNewBadgesAlert] = useState<any[]>([]);
 
   const initialLoadDone = useRef(false);
 
@@ -110,11 +125,14 @@ export default function EmployeeGamifiedArenaPage() {
       try {
         setIsLoading(true);
 
-        // Optimize: Fetch profile and sprints concurrently
-        const [profile, data] = await Promise.all([
+        // Optimize: Fetch profile, sprints, and calendar concurrently
+        const [profile, data, calendar] = await Promise.all([
           fetchUserProfile(),
-          fetchAssignedSprints()
+          fetchAssignedSprints(),
+          fetchActivityCalendar()
         ]);
+        
+        setActiveDates(calendar || []);
 
         if (profile) {
           setUserXp(profile.total_xp || 0);
@@ -125,6 +143,9 @@ export default function EmployeeGamifiedArenaPage() {
               drillsRecord[d.drill_id] = d.earned_xp;
             });
             setCompletedDrills(drillsRecord);
+          }
+          if (profile.unlocked_badges) {
+            setUnlockedBadges(profile.unlocked_badges);
           }
         }
 
@@ -164,7 +185,6 @@ export default function EmployeeGamifiedArenaPage() {
       };
 
       submitDrillProgress(data).then(result => {
-        // Reconcile Exact XP & Streak
         if (result.earned_xp && result.earned_xp !== estimatedXp) {
           const diff = result.earned_xp - estimatedXp;
           setUserXp(prev => prev + diff);
@@ -174,6 +194,19 @@ export default function EmployeeGamifiedArenaPage() {
           }));
         }
         if (result.new_streak !== undefined) setStreakDays(result.new_streak);
+        
+        // Handle new badges
+        if (result.new_badges && result.new_badges.length > 0) {
+          setUnlockedBadges(prev => [...prev, ...result.new_badges!]);
+          setNewBadgesAlert(result.new_badges);
+          playSound("complete");
+        }
+        
+        // Optimistically update calendar for today
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (!activeDates.includes(todayStr)) {
+          setActiveDates(prev => [...prev, todayStr]);
+        }
       }).catch(console.error);
     } catch (e) {
       console.error(e);
@@ -272,15 +305,21 @@ export default function EmployeeGamifiedArenaPage() {
                 <span>Leaderboard</span>
               </button>
 
-              <button
+              <button 
                 onClick={() => {
                   playSound("tap");
                   setActiveTab("vault");
                 }}
-                className="px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all bg-indigo-50 text-indigo-900 border-indigo-200/80 hover:bg-indigo-100 cursor-pointer flex items-center gap-2"
+                className="px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all bg-blue-50 text-blue-900 border-blue-200/80 hover:bg-blue-100 cursor-pointer flex items-center gap-2 relative"
               >
-                <Shield className="w-4 h-4 text-indigo-600" />
-                <span>Badges</span>
+                <Shield className="w-4 h-4 text-blue-500" />
+                <span>Badges <span className="ml-1 bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded-md text-[10px]">{unlockedBadges.length}</span></span>
+                {newBadgesAlert.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full animate-ping"></span>
+                )}
+                {newBadgesAlert.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white"></span>
+                )}
               </button>
 
               <div
@@ -504,9 +543,100 @@ export default function EmployeeGamifiedArenaPage() {
         )}
 
         {activeTab === "vault" && (
-          <BadgesVault completedCount={3} streakDays={streakDays} userXp={userXp} />
+          <BadgesVault 
+            unlockedBadges={unlockedBadges} 
+            userXp={userXp} 
+            streakDays={streakDays} 
+          />
         )}
       </div>
+
+      {/* New Badges Modal/Toast */}
+      {newBadgesAlert.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center space-y-6 shadow-2xl scale-in-center">
+            <div className="text-5xl mb-2">🎉</div>
+            <h2 className="text-2xl font-black text-slate-900">New Badges Unlocked!</h2>
+            <div className="space-y-4 max-h-60 overflow-y-auto p-2">
+              {newBadgesAlert.map((badge, idx) => (
+                <div key={idx} className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center gap-4 text-left">
+                  <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-indigo-50 flex items-center justify-center text-xl shrink-0">
+                    {getBadgeIcon(badge.icon_symbol)}
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black uppercase text-indigo-600 mb-0.5">{badge.metadata?.category || "Milestone"}</div>
+                    <div className="text-sm font-bold text-slate-900">{badge.badge_title || badge.title}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setNewBadgesAlert([]);
+                setActiveTab("vault");
+              }}
+              className="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold transition-all shadow-md active:scale-[0.98]"
+            >
+              View in Vault
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Streak Calendar Modal */}
+      {streakModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-6 shadow-2xl scale-in-center relative overflow-hidden">
+            <button 
+              onClick={() => setStreakModalOpen(false)}
+              className="absolute top-4 right-4 p-2 bg-slate-100 rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="w-16 h-16 mx-auto bg-rose-50 rounded-2xl flex items-center justify-center mb-2">
+              <Flame className="w-8 h-8 text-rose-500 fill-rose-500 animate-pulse" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-slate-900">Your Streak</h2>
+              <p className="text-sm text-slate-500 mt-1 font-medium">Keep completing drills daily to grow your streak!</p>
+            </div>
+            
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              <div className="flex justify-between text-xs font-bold text-slate-400 mb-3 px-1">
+                {Array.from({length: 7}).map((_, i) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - (6 - i));
+                  return <span key={i} className="w-8">{d.toLocaleDateString('en-US', {weekday: 'narrow'})}</span>;
+                })}
+              </div>
+              <div className="flex justify-between">
+                {Array.from({length: 7}).map((_, i) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() - (6 - i));
+                  const dateStr = d.toISOString().split('T')[0];
+                  const isActive = activeDates.includes(dateStr);
+                  
+                  return (
+                    <div 
+                      key={i} 
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black transition-all ${
+                        isActive 
+                          ? "bg-rose-500 text-white shadow-md shadow-rose-200" 
+                          : "bg-white text-slate-300 border border-slate-200"
+                      }`}
+                    >
+                      {isActive ? <Flame className="w-3.5 h-3.5 fill-white" /> : d.getDate()}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-rose-600 font-black text-lg bg-rose-50 p-3 rounded-2xl">
+              <Flame className="w-5 h-5 fill-rose-500" /> {streakDays} Days
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
