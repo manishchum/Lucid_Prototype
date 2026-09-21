@@ -1160,7 +1160,6 @@ export default function EmployeeWelcome() {
                   Open Voice Agent
                 </Button> */}
           </div>
-        </div>
 
         <div className="grid gap-2 md:gap-4">
           {/* Progress Nudge Card */}
