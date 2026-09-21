@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from utils.supabase_client import supabase, supabase_admin
 from utils.badge_registry import BadgeRegistry
+from utils.redis_client import get_cache, set_cache, redis_client, delete_cache_pattern
 
 def get_module_sprints(module_id: str, company_id: str) -> List[Dict[str, Any]]:
     """
@@ -25,6 +26,14 @@ def get_user_assigned_sprints(user_id: str, company_id: str) -> List[Dict[str, A
     """
     Fetches all active sprints for all modules assigned to the user in their learning plan.
     """
+    cache_key = f"gamification:assigned_sprints:{user_id}"
+    print(f"[DEBUG] Fetching assigned sprints for {user_id}. Cache key: {cache_key}")
+    cached_data = get_cache(cache_key)
+    if cached_data is not None:
+        print(f"[DEBUG] Cache HIT for {cache_key}")
+        return cached_data
+        
+    print(f"[DEBUG] Cache MISS for {cache_key}, hitting DB...")
     try:
         # 1. Fetch assigned modules from learning_plan
         plan_res = supabase.table("learning_plan") \
@@ -43,10 +52,15 @@ def get_user_assigned_sprints(user_id: str, company_id: str) -> List[Dict[str, A
             .eq("company_id", company_id) \
             .eq("is_active", True) \
             .order("sprint_number") \
+            .limit(10) \
             .execute()
         
         print(f"[gamification_db] user_id: {user_id} | company_id: {company_id} | module_ids assigned: {module_ids} | sprints found: {len(res.data) if res.data else 0}")
-        return res.data if res.data else []
+        data = res.data if res.data else []
+        print(f"[DEBUG] Attempting to set cache for {cache_key} with data length {len(data)}")
+        set_cache(cache_key, data, ttl=1800)  # 30 mins
+        print(f"[DEBUG] set_cache completed for {cache_key}")
+        return data
     except Exception as e:
         print(f"[gamification_db] Error fetching assigned sprints for user {user_id}: {e}")
         traceback.print_exc()
@@ -134,6 +148,21 @@ def submit_user_drill_progress(
         if completed:
             payload["completed_at"] = datetime.utcnow().isoformat()
             
+            # Invalidate caches
+            try:
+                redis_client.delete(f"gamification:profile:{user_id}")
+                
+                # Fetch profile strictly to check last_activity_date
+                # Using direct DB call since cache was just wiped
+                profile_res = supabase_admin.table("user_gamification_profiles").select("last_activity_date").eq("user_id", user_id).execute()
+                if profile_res.data:
+                    last_activity = profile_res.data[0].get("last_activity_date")
+                    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+                    if last_activity != today_str:
+                        redis_client.delete(f"gamification:activity:{user_id}")
+            except Exception as e:
+                print(f"[gamification_db] Error invalidating cache: {e}")
+            
         res = supabase_admin.table("user_gamification_progress").upsert(
             payload, on_conflict="user_id, drill_id"
         ).execute()
@@ -167,6 +196,11 @@ def get_leaderboard_users(company_id: str) -> List[Dict[str, Any]]:
     """
     Fetches the top users for the company leaderboard.
     """
+    cache_key = f"gamification:leaderboard:{company_id}"
+    cached_data = get_cache(cache_key)
+    if cached_data is not None:
+        return cached_data
+        
     try:
         res = supabase_admin.table("user_gamification_profiles") \
             .select("*, users!inner(name)") \
@@ -174,7 +208,9 @@ def get_leaderboard_users(company_id: str) -> List[Dict[str, Any]]:
             .order("total_xp", desc=True) \
             .limit(50) \
             .execute()
-        return res.data if res.data else []
+        data = res.data if res.data else []
+        set_cache(cache_key, data, ttl=120)  # 2 mins
+        return data
     except Exception as e:
         print(f"[gamification_db] Error fetching leaderboard for company {company_id}: {e}")
         traceback.print_exc()
@@ -184,12 +220,37 @@ def get_user_gamification_profile(user_id: str) -> Optional[Dict[str, Any]]:
     """
     Fetches the gamification profile for a specific user.
     """
+    cache_key = f"gamification:profile:{user_id}"
+    print(f"[DEBUG] Fetching gamification profile for {user_id}. Cache key: {cache_key}")
+    cached_data = get_cache(cache_key)
+    if cached_data is not None:
+        print(f"[DEBUG] Cache HIT for {cache_key}")
+        return cached_data
+        
+    print(f"[DEBUG] Cache MISS for {cache_key}, hitting DB...")
     try:
         res = supabase_admin.table("user_gamification_profiles") \
             .select("*") \
             .eq("user_id", user_id) \
             .execute()
-        return res.data[0] if res.data else None
+            
+        if not res.data:
+            return None
+            
+        profile = res.data[0]
+        
+        # Effective streak logic: If the user didn't play yesterday or today, their streak is broken.
+        last_active_str = profile.get("last_activity_date")
+        if last_active_str:
+            last_active = datetime.strptime(last_active_str, "%Y-%m-%d").date()
+            yesterday = (datetime.utcnow() - timedelta(days=1)).date()
+            
+            if last_active < yesterday:
+                profile["current_streak_days"] = 0
+                
+        print(f"[DEBUG] Attempting to set cache for {cache_key}")
+        set_cache(cache_key, profile, ttl=3600)  # 1 hour
+        return profile
     except Exception as e:
         print(f"[gamification_db] Error fetching profile for user {user_id}: {e}")
         return None
@@ -278,9 +339,14 @@ def check_and_award_badges(user_id: str, company_id: str) -> List[Dict[str, Any]
 
 def get_user_activity_calendar(user_id: str) -> List[str]:
     """
-    Fetches the distinct dates (in ISO format) the user was active in the last 7 days.
-    An active day is defined as a day where a drill was completed.
+    Fetches a list of dates (YYYY-MM-DD format) where the user was active
+    (completed at least one drill) in the last 7 days.
     """
+    cache_key = f"gamification:activity:{user_id}"
+    cached_data = get_cache(cache_key)
+    if cached_data is not None:
+        return cached_data
+        
     try:
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         
@@ -304,7 +370,9 @@ def get_user_activity_calendar(user_id: str) -> List[str]:
                 dt_str = date_val.split("T")[0]
                 active_dates.add(dt_str)
                 
-        return sorted(list(active_dates))
+        data = sorted(list(active_dates))
+        set_cache(cache_key, data, ttl=43200)  # 12 hours
+        return data
     except Exception as e:
         import traceback
         print(f"[gamification_db] Error fetching activity calendar for {user_id}: {e}")

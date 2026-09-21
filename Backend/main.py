@@ -164,7 +164,7 @@ app.add_middleware(
 )
 
 # Enable GZip response compression for payloads >= 1KB
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(GZipMiddleware, minimum_size=900)
 
 
 @app.middleware("http")

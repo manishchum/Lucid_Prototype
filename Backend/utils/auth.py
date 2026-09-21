@@ -563,23 +563,34 @@ async def get_effective_company_id(
 
 def require_addon(addon_name):
 	async def _verify_addon(company_id: str = Depends(get_effective_company_id)):
-		from utils.auth_bridge import get_service_supabase_client
-		supabase_client = get_service_supabase_client()
-		resp = (
-			supabase_client
-			.table('companies')
-			.select('subscription_addons')
-			.eq('company_id', company_id)
-			.maybe_single()
-			.execute()
-		)
-		if not resp.data:
-			raise HTTPException(status_code=403, detail="Company not found")
+		from utils.redis_client import get_cache, set_cache
+		cache_key = f"company_addons:{company_id}"
 		
-		addons = {
-			str(addon).strip().lower()
-			for addon in (resp.data.get('subscription_addons') or [])
-		}
+		# 1. Check Redis Cache
+		cached_addons = get_cache(cache_key)
+		if cached_addons is not None:
+			addons = set(cached_addons)
+		else:
+			# 2. Fetch from DB if not cached
+			from utils.auth_bridge import get_service_supabase_client
+			supabase_client = get_service_supabase_client()
+			resp = (
+				supabase_client
+				.table('companies')
+				.select('subscription_addons')
+				.eq('company_id', company_id)
+				.maybe_single()
+				.execute()
+			)
+			if not resp.data:
+				raise HTTPException(status_code=403, detail="Company not found")
+			
+			addons = {
+				str(addon).strip().lower()
+				for addon in (resp.data.get('subscription_addons') or [])
+			}
+			set_cache(cache_key, list(addons), ttl=3600)  # Cache for 1 hour
+
 		required_addons = (
 			[addon_name]
 			if isinstance(addon_name, str)

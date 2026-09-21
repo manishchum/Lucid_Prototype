@@ -67,7 +67,12 @@ export function GamificationLeaderboard() {
           <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
             <Trophy className="w-5 h-5 text-amber-500" /> Enterprise Governance Leaderboard
           </h2>
-          <p className="text-xs text-slate-500 mt-1">Top statutory compliance performers across enterprise divisions</p>
+          <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+            Top statutory compliance performers across enterprise divisions
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[9px] font-bold uppercase tracking-wider ml-2 border border-amber-200">
+              <Clock className="w-2.5 h-2.5" /> Updates every 2 mins
+            </span>
+          </p>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -82,12 +87,26 @@ export function GamificationLeaderboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {filteredLeaderboard.slice(0, 3).map((user, idx) => {
-          const crowns = ["🥇 1st Place", "🥈 2nd Place", "🥉 3rd Place"];
-          const borderColors = ["border-amber-300 bg-amber-50/40", "border-slate-300 bg-slate-50", "border-amber-600/20 bg-amber-50/20"];
+        {filteredLeaderboard.slice(0, 3).map((user) => {
+          const actualRank = leaderboardData.findIndex((u) => u.id === user.id) + 1;
+          
+          let rankLabel = `#${actualRank} Place`;
+          let borderColor = "border-slate-200 bg-white";
+          
+          if (actualRank === 1) {
+            rankLabel = "🥇 1st Place";
+            borderColor = "border-amber-300 bg-amber-50/40";
+          } else if (actualRank === 2) {
+            rankLabel = "🥈 2nd Place";
+            borderColor = "border-slate-300 bg-slate-50";
+          } else if (actualRank === 3) {
+            rankLabel = "🥉 3rd Place";
+            borderColor = "border-amber-600/20 bg-amber-50/20";
+          }
+          
           return (
-            <div key={user.id} className={`p-5 rounded-3xl border ${borderColors[idx]} text-center flex flex-col items-center justify-between shadow-sm relative`}>
-              <span className="text-xs font-black text-amber-700 mb-2">{crowns[idx]}</span>
+            <div key={user.id} className={`p-5 rounded-3xl border ${borderColor} text-center flex flex-col items-center justify-between shadow-sm relative`}>
+              <span className={`text-xs font-black mb-2 ${actualRank <= 3 ? 'text-amber-700' : 'text-slate-600'}`}>{rankLabel}</span>
               <div className={`w-14 h-14 rounded-full ${user.avatar_color} text-white font-black text-lg flex items-center justify-center border-2 border-white mb-3 shadow-xs`}>
                 {user.name.split(" ").map((n) => n[0]).join("")}
               </div>
@@ -117,7 +136,7 @@ export function GamificationLeaderboard() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {(searchQuery ? filteredLeaderboard : filteredLeaderboard.slice(3)).map((user, index) => {
-              const actualRank = searchQuery ? filteredLeaderboard.findIndex((u) => u.id === user.id) + 1 : index + 4;
+              const actualRank = leaderboardData.findIndex((u) => u.id === user.id) + 1;
               return (
                 <tr
                   key={user.id}
