@@ -1152,13 +1152,26 @@ export default function EmployeeWelcome() {
               <CompanySelector showLabel />
             </div> */}
 
-            {/* <Button
-                  onClick={() => router.push("/employee/voice-notes")}
-                  className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
-                >
-                  <Mic className="mr-2 h-4 w-4" />
-                  Open Voice Agent
-                </Button> */}
+            <div className="flex items-end gap-3">
+              {/* <Button
+                onClick={() => router.push("/employee/voice-notes")}
+                className="h-10 w-10 shrink-0 rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center justify-center"
+                title="Open Voice Agent"
+                size="icon"
+              >
+                <Mic className="h-5 w-5" />
+              </Button> */}
+
+              <Button
+                onClick={() => setShowLeaderboard(true)}
+                variant="outline"
+                className="h-10 w-10 shrink-0 rounded-[8px] border border-slate-200 bg-white shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
+                title="View leaderboard"
+                size="icon"
+              >
+                <Trophy className="w-5 h-5 text-amber-500" />
+              </Button>
+            </div>
           </div>
 
         <div className="grid gap-2 md:gap-4">
