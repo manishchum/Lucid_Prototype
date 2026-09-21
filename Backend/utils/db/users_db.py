@@ -7,7 +7,7 @@ from .permissions import check_user_permission, check_company_access
 import os
 
 # Default password for new users
-DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD", "password123")
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
