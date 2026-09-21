@@ -9,7 +9,19 @@ import json
 from ai.ai_gateway import AI
 from ai.types import AIRequest
 from utils.auth_bridge import get_service_supabase_client
-from utils.db.gamification_db import get_module_sprints, get_user_assigned_sprints, create_sprint_and_drills, submit_user_drill_progress, get_drill_base_xp, get_leaderboard_users, get_user_gamification_profile, get_user_completed_drills
+from utils.db.gamification_db import (
+    get_module_sprints,
+    get_user_assigned_sprints,
+    create_sprint_and_drills,
+    get_user_completed_drills,
+    submit_user_drill_progress,
+    get_user_gamification_profile,
+    get_leaderboard_users,
+    get_drill_base_xp,
+    check_and_award_badges,
+    get_user_badges,
+    get_user_activity_calendar
+)
 from utils.auth import RequestAuth, get_request_auth_required, require_addon
 from gamification.service import GamificationService
 
@@ -221,7 +233,21 @@ async def record_progress(
     )
     if not res:
         raise HTTPException(status_code=500, detail="Failed to record progress")
-    return {"status": "success", "data": {"progress": res, "earned_xp": earned_xp, "streak_multiplier": multiplier}}
+        
+    # 4. Check for new badges
+    new_badges = []
+    if request.completed:
+        new_badges = check_and_award_badges(user_id=auth.user_id, company_id=auth.company_id)
+        
+    return {
+        "status": "success", 
+        "data": {
+            "progress": res, 
+            "earned_xp": earned_xp, 
+            "streak_multiplier": multiplier,
+            "new_badges": new_badges
+        }
+    }
 
 @router.get("/profile")
 def fetch_user_profile(auth: RequestAuth = Depends(get_request_auth_required)):
@@ -232,15 +258,42 @@ def fetch_user_profile(auth: RequestAuth = Depends(get_request_auth_required)):
         profile = get_user_gamification_profile(user_id=auth.user_id)
         completed_drills = get_user_completed_drills(user_id=auth.user_id)
         
+        # Fetch unlocked badges
+        unlocked_badges = get_user_badges(user_id=auth.user_id)
+        
         if not profile:
-            return {"status": "success", "data": {"total_xp": 0, "current_streak_days": 0, "best_streak_days": 0, "drills_completed_count": 0, "completed_drills": completed_drills}}
+            return {
+                "status": "success", 
+                "data": {
+                    "total_xp": 0, 
+                    "current_streak_days": 0, 
+                    "best_streak_days": 0, 
+                    "drills_completed_count": 0, 
+                    "completed_drills": completed_drills,
+                    "unlocked_badges": unlocked_badges
+                }
+            }
         
         profile["completed_drills"] = completed_drills
+        profile["unlocked_badges"] = unlocked_badges
         return {"status": "success", "data": profile}
     except Exception as e:
         print(f"[gamification] Profile endpoint error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to fetch user profile")
+
+@router.get("/activity-calendar")
+def fetch_activity_calendar(auth: RequestAuth = Depends(get_request_auth_required)):
+    """
+    Fetches the distinct dates the user was active in the last 7 days.
+    """
+    try:
+        active_dates = get_user_activity_calendar(user_id=auth.user_id)
+        return {"status": "success", "data": active_dates}
+    except Exception as e:
+        print(f"[gamification] Activity calendar endpoint error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to fetch activity calendar")
 
 @router.get("/leaderboard")
 def fetch_leaderboard(auth: RequestAuth = Depends(get_request_auth_required)):
