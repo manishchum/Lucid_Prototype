@@ -1058,9 +1058,9 @@ const [companyId, setCompanyId] = useState<string>("")
                   {/* KPI Grid */}
                   <div className="space-y-5">
                     {filteredKpis.map((kpi) => (
-                      <Card key={kpi.kpi_id} className="border border-gray-200 p-8 bg-white hover:border-blue-400 hover:shadow-lg transition-all duration-300">
-                        <div className="grid grid-cols-12 gap-8 items-center">
-                          <div className="col-span-3">
+                      <Card key={kpi.kpi_id} className="border border-gray-200 p-6 md:p-8 bg-white hover:border-blue-400 hover:shadow-lg transition-all duration-300">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-center">
+                          <div className="md:col-span-3">
                             <div className="space-y-3">
                               <h3 className="text-xl font-bold text-gray-900">{kpi.name}</h3>
                               <div className="flex flex-wrap items-center gap-2">
@@ -1087,7 +1087,7 @@ const [companyId, setCompanyId] = useState<string>("")
                             </div>
                           </div>
 
-                          <div className="col-span-5">
+                          <div className="md:col-span-5">
                             <div className="space-y-3">
                               <p className="text-sm text-gray-700 leading-relaxed">{kpi.description?.split('\n\n')[0]}</p>
                               {kpi.description?.includes('Formula:') && (
@@ -1101,7 +1101,7 @@ const [companyId, setCompanyId] = useState<string>("")
                             </div>
                           </div>
 
-                          <div className="col-span-2 flex items-center justify-center">
+                          <div className="md:col-span-2 flex items-center md:justify-center">
                             <div className="relative w-28 h-28">
                               <svg className="w-28 h-28 transform -rotate-90">
                                 <circle
@@ -1137,7 +1137,7 @@ const [companyId, setCompanyId] = useState<string>("")
                             </div>
                           </div>
 
-                          <div className="col-span-2">
+                          <div className="md:col-span-2">
                             <div className="flex flex-col items-center justify-center p-6 bg-green-50 rounded-xl border border-green-200">
                               <Target className="w-6 h-6 text-green-600 mb-2" />
                               <div className="text-3xl font-bold text-gray-900">{kpi.target}%</div>

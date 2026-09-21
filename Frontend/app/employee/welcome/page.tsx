@@ -1169,13 +1169,13 @@ const handleGenerateCertificate = (sprintId: string) => {
                   <CompanySelector showLabel />
                 </div>
 
-                <Button
+                {/* <Button
                   onClick={() => router.push("/employee/voice-notes")}
                   className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
                 >
                   <Mic className="mr-2 h-4 w-4" />
                   Open Voice Agent
-                </Button>
+                </Button> */}
               </div>
           </div>
 
