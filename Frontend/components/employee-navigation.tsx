@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -21,7 +21,7 @@ interface EmployeeNavigationProps {
   forceCollapsed?: boolean;
 }
 
-const EmployeeNavigation = ({ 
+const EmployeeNavigation = ({
   onLogout: providedOnLogout,
   forceCollapsed = false
 }: EmployeeNavigationProps) => {
@@ -29,7 +29,7 @@ const EmployeeNavigation = ({
   const pathname = usePathname();
   const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData, loading, rolesLoaded } = useAuth();
   const { activeCompany, hasFeature } = useTenant();
-  
+
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -67,14 +67,14 @@ const EmployeeNavigation = ({
   useEffect(() => {
     // Print payloads to help debug why components are hidden
     // console.log("[EmployeeNavigation] Current Auth State Payload:", {
-    //   mounted,
-    //   user_email: authUser?.email,
-    //   isAdmin,
-    //   isSuperAdmin,
-    //   userRoles,
-    //   normalizedRoleSet: Array.from(normalizedRoleSet),
-    //   computed_hasAdminAccess: hasAdminAccess,
-    //   computed_hasSuperAdminAccess: hasSuperAdminAccess
+    // mounted,
+    // user_email: authUser?.email,
+    // isAdmin,
+    // isSuperAdmin,
+    // userRoles,
+    // normalizedRoleSet: Array.from(normalizedRoleSet),
+    // computed_hasAdminAccess: hasAdminAccess,
+    // computed_hasSuperAdminAccess: hasSuperAdminAccess
     // });
   }, [mounted, authUser, isAdmin, isSuperAdmin, userRoles, hasAdminAccess, hasSuperAdminAccess]);
   const companyDisplayName = activeCompany?.name || displayUser?.company_name || 'Company';
@@ -104,17 +104,17 @@ const EmployeeNavigation = ({
   // Existing Data Fetching Logic
   useEffect(() => {
     if (pathname && pathname.startsWith('/employee/courses')) {
-        setCoursesOpen(true);
+      setCoursesOpen(true);
     }
     if (pathname && pathname.startsWith("/admin/dashboard")) {
-        setAdminDropdownOpen(true);
+      setAdminDropdownOpen(true);
     }
 
     if (pathname && pathname.startsWith("/kpi")) {
       setKpiDropdownOpen(true);
     }
   }, [pathname]);
-    
+
   useEffect(() => {
     setIsNavigating(false);
   }, [pathname]);
@@ -140,9 +140,9 @@ const EmployeeNavigation = ({
   useEffect(() => {
     try {
       document.documentElement.style.setProperty('--sidebar-width', isCollapsed ? '5rem' : '17.5rem');
-    } catch (e) {}
+    } catch (e) { }
     return () => {
-      try { document.documentElement.style.removeProperty('--sidebar-width'); } catch (e) {}
+      try { document.documentElement.style.removeProperty('--sidebar-width'); } catch (e) { }
     };
   }, [isCollapsed]);
 
@@ -164,7 +164,7 @@ const EmployeeNavigation = ({
   if (loading || !rolesLoaded) {
     return null
   }
-  
+
   return (
     <>
       {/* Loading Overlay */}
@@ -184,15 +184,15 @@ const EmployeeNavigation = ({
 
       {/* Mobile Toggle */}
       <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-lg">
+        <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-[8px]">
           {isMobileOpen ? <X size={20} /> : <Menu size={20} />}
         </Button>
       </div>
 
       <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col overflow-visible
-        ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
-        ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
-        
+ ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
+ ${isCollapsed ? 'lg:w-20' : 'lg:w-[280px]'}`}>
+
         {/* Header */}
         <div className="p-6 pb-4 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('/employee/welcome')}>
@@ -200,10 +200,10 @@ const EmployeeNavigation = ({
               <img
                 src={companyLogo}
                 alt={`${companyDisplayName} logo`}
-                className="w-10 h-10 rounded-xl object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
+                className="w-10 h-10 rounded-[8px] object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
               />
             ) : (
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+              <div className="w-10 h-10 bg-[#eff4ff] rounded-[8px] flex items-center justify-center shrink-0 shadow-sm">
                 <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
                   <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
@@ -220,9 +220,9 @@ const EmployeeNavigation = ({
         {/* Profile */}
         {!isCollapsed && (
           <div className="px-4 mb-4">
-            <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+            <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-sm">
               <div className="w-10 h-10 rounded-full bg-[#E0E9FF] flex items-center justify-center text-[#3B66F5] font-bold text-sm relative shrink-0">
-                {mounted ? (displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U') : 'U'}
+                {mounted ? (displayUser?.name ? displayUser.name.split(' ').map((n: any) => n[0]).join('').toUpperCase() : 'U') : 'U'}
                 <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-white rounded-full"></div>
               </div>
               <div className="overflow-hidden">
@@ -240,7 +240,7 @@ const EmployeeNavigation = ({
         <nav className="flex-1 px-3 min-h-0 overflow-y-auto overflow-x-visible space-y-1 custom-scrollbar pt-2">
           {/* Home */}
           <div className="relative group">
-            <button 
+            <button
               onClick={() => handleNavigate('/employee/welcome')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/welcome') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -253,7 +253,7 @@ const EmployeeNavigation = ({
           {/* Arena */}
           {hasFeature(FEATURES.GAMIFICATION) && (
             <div className="relative group">
-              <button 
+              <button
                 onClick={() => handleNavigate('/employee/gamified-arena')}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/gamified-arena') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
               >
@@ -266,68 +266,68 @@ const EmployeeNavigation = ({
 
           {/* { Training Plan (Dropdown) */}
           {/* <div className="relative group">
-             <button 
-              onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
-              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
-            >
-              <div className="flex items-center gap-3.5">
-                <BookOpen size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
-              </div>
-              {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
-            </button>
-            {isCollapsed && <NavTooltip label="Performance Sprint" />}
-            
-            {coursesOpen && !isCollapsed && (
-              <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
-                {[
-                  { href: '/employee/welcome', label: 'In Progress', icon: Play },
-                  { href: '/employee/welcome', label: 'Completed', icon: Check },
-                  { href: '/content-library', label: 'All Sprints', icon: List }
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => handleNavigate(item.href)}
-                    className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                  >
-                    <item.icon size={18} className="shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                ))}
-              </div> )}
-            
-          </div> */}
+ <button 
+ onClick={() => isCollapsed ? handleNavigate('/employee/welcome') : setCoursesOpen(!coursesOpen)} 
+ className={`w-full flex items-center justify-between px-4 py-2.5 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50`}
+ >
+ <div className="flex items-center gap-3.5">
+ <BookOpen size={20} className="shrink-0" />
+ {!isCollapsed && <span className="text-[15px] font-bold">Performance Sprint</span>}
+ </div>
+ {!isCollapsed && <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${coursesOpen ? '' : '-rotate-90'}`} />}
+ </button>
+ {isCollapsed && <NavTooltip label="Performance Sprint" />}
+ 
+ {coursesOpen && !isCollapsed && (
+ <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
+ {[
+ { href: '/employee/welcome', label: 'In Progress', icon: Play },
+ { href: '/employee/welcome', label: 'Completed', icon: Check },
+ { href: '/content-library', label: 'All Sprints', icon: List }
+ ].map((item) => (
+ <button
+ key={item.label}
+ onClick={() => handleNavigate(item.href)}
+ className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+ >
+ <item.icon size={18} className="shrink-0" />
+ <span className="truncate">{item.label}</span>
+ </button>
+ ))}
+ </div> )}
+ 
+ </div> */}
 
           {/* Reports */}
           {hasFeature(FEATURES.REPORTS) && (
-          <div className="relative group">
-            <button 
-              onClick={() => handleNavigate('/employee/score-history')}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/score-history') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
-            >
-              <FileText size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px] font-bold">Reports</span>}
-            </button>
-            {isCollapsed && <NavTooltip label="Reports" />}
-            {/* One-shot toast shown to the right of Reports when an assessment/quiz result was just produced */}
-            {!isCollapsed && showReportToast && (
-              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[60]">
-                <div
-                  className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-lg shadow-lg cursor-pointer select-none"
-                  onClick={() => { setShowReportToast(false); handleNavigate('/employee/score-history'); }}
-                >
-                  <span>Click for detailed report</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+            <div className="relative group">
+              <button
+                onClick={() => handleNavigate('/employee/score-history')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/score-history') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              >
+                <FileText size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-bold">Reports</span>}
+              </button>
+              {isCollapsed && <NavTooltip label="Reports" />}
+              {/* One-shot toast shown to the right of Reports when an assessment/quiz result was just produced */}
+              {!isCollapsed && showReportToast && (
+                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[60]">
+                  <div
+                    className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-[8px] shadow-lg cursor-pointer select-none"
+                    onClick={() => { setShowReportToast(false); handleNavigate('/employee/score-history'); }}
+                  >
+                    <span>Click for detailed report</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           )}
           {/* Content Library */}
           <div className="relative group">
-            <button 
+            <button
               onClick={() => handleNavigate('/admin/content-library')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/admin/content-library') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -338,26 +338,26 @@ const EmployeeNavigation = ({
           </div>
           {/* SprintVerse - always available (tier 1) */}
           {hasFeature(FEATURES.SPRINTVERSE) && (
-          <div className="relative group">
-            <button 
-              onClick={() => handleNavigate('/employee/skill-upgrade')}
-              className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
-            >
-              <Award size={20} className="shrink-0" />
-              {!isCollapsed && <span className="text-[15px] font-bold">SprintVerse</span>}
-            </button>
-            {isCollapsed && <NavTooltip label="SprintVerse" />}
-          </div>
+            <div className="relative group">
+              <button
+                onClick={() => handleNavigate('/employee/skill-upgrade')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/skill-upgrade') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              >
+                <Award size={20} className="shrink-0" />
+                {!isCollapsed && <span className="text-[15px] font-bold">SprintVerse</span>}
+              </button>
+              {isCollapsed && <NavTooltip label="SprintVerse" />}
+            </div>
           )}
 
           {/* Role Play - gated by role_play addon */}
           {hasFeature(FEATURES.ROLE_PLAY) && (
             <div className="relative group">
-              <button 
+              <button
                 onClick={() => handleNavigate('/employee/roleplay')}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
               >
-                <UsersRound size={20} className="shrink-0" />
+                <Headset size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
               </button>
               {isCollapsed && <NavTooltip label="Role-Play" />}
@@ -366,49 +366,49 @@ const EmployeeNavigation = ({
 
           {/* Role Play - gated by role_play addon */}
           {/*{hasFeature(FEATURES.ROLE_PLAY) && (
-            <div className="relative group">
-              <button 
-                onClick={() => handleNavigate('/employee/roleplay')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
-              >
-                <UsersRound size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
-              </button>
-              {isCollapsed && <NavTooltip label="Role-Play" />}
-            </div>
-          )}*/}
+ <div className="relative group">
+ <button 
+ onClick={() => handleNavigate('/employee/roleplay')}
+ className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+ >
+ <Headset size={20} className="shrink-0" />
+ {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
+ </button>
+ {isCollapsed && <NavTooltip label="Role-Play" />}
+ </div>
+ )}*/}
 
 
 
           {/* {<div className="relative group">
-            <button 
-              onClick={() => handleNavigate('/employee/lucid-tools')}
-              className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-3.5">
-                <Sparkles size={20} className="shrink-0" />
-                {!isCollapsed && <span className="text-[15px] font-bold">Lucid Tools </span>}
-              </div>
-              {!isCollapsed && (
-                <span className="text-[10px] font-bold bg-[#E8E6FF] text-[#7857FF] px-2 py-0.5 rounded-full tracking-wide">
-                  NEW
-                </span>
-              )}
-            </button>
-            {isCollapsed && <NavTooltip label="Lucid Tools" />}
-          </div> } */}
-          
+ <button 
+ onClick={() => handleNavigate('/employee/lucid-tools')}
+ className={`w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/lucid-tools') ? 'bg-[#F2EDFF] text-[#5B3DF8] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+ >
+ <div className="flex items-center gap-3.5">
+ <Sparkles size={20} className="shrink-0" />
+ {!isCollapsed && <span className="text-[15px] font-bold">Lucid Tools </span>}
+ </div>
+ {!isCollapsed && (
+ <span className="text-[10px] font-bold bg-[#E8E6FF] text-[#7857FF] px-2 py-0.5 rounded-full tracking-wide">
+ NEW
+ </span>
+ )}
+ </button>
+ {isCollapsed && <NavTooltip label="Lucid Tools" />}
+ </div> } */}
+
           {/* Console - visible for manager and higher roles */}
           {canAccessConsole && (
             <div className="relative group">
-              <button 
+              <button
                 onClick={() => {
                   if (isCollapsed || isManagerOnlyConsole) {
                     handleNavigate('/admin/dashboard/analytics');
                     return;
                   }
                   setAdminDropdownOpen(!adminDropdownOpen)
-                }} 
+                }}
                 className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
               >
                 <span className="flex items-center gap-3.5">
@@ -421,36 +421,36 @@ const EmployeeNavigation = ({
               {((adminDropdownOpen && !isCollapsed) || isManagerOnlyConsole) && (
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
-                      { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
-                      ...(isDeveloper ? [{ href: "/admin/dashboard/company-access", label: "Company Access", icon: Building2 }] : []),
-                      // Task Management - only if tier_3
-                      ...(hasFeature(FEATURES.TASK_MANAGEMENT) ? [{ href: "/task-manager", label: "Task Management", icon: ListChecks }] : []),
-                      ...(isManagerOnlyConsole ? [] : [
-                        // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
-                        { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
-                        { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
-                        { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
-                        { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
-                      ]),
+                    { href: "/admin/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+                    ...(isDeveloper ? [{ href: "/admin/dashboard/company-access", label: "Company Access", icon: Building2 }] : []),
+                    // Task Management - only if tier_3
+                    ...(hasFeature(FEATURES.TASK_MANAGEMENT) ? [{ href: "/task-manager", label: "Task Management", icon: ListChecks }] : []),
+                    ...(isManagerOnlyConsole ? [] : [
+                      // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
+                      { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
+                      { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
+                      { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
+                      { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
+                    ]),
                   ].map((item) => (
-                      <button
-                          key={item.label}
-                          onClick={() => handleNavigate(item.href)}
-                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                      >
-                          <item.icon size={18} className="shrink-0" />
-                          <span className="truncate">{item.label}</span>
-                      </button>
+                    <button
+                      key={item.label}
+                      onClick={() => handleNavigate(item.href)}
+                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                    >
+                      <item.icon size={18} className="shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
                   ))}
                   {/* Notify Button */}
                   <button
-                      onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
-                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
+                    onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
+                    className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
                   >
-                      <Bell size={18} className="shrink-0" />
-                      <span className="truncate">Notify</span>
-                      {/* Notification badge */}
-                      <span className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
+                    <Bell size={18} className="shrink-0" />
+                    <span className="truncate">Notify</span>
+                    {/* Notification badge */}
+                    <span className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
                   </button>
                 </div>
               )}
@@ -458,10 +458,10 @@ const EmployeeNavigation = ({
           )}
 
           {/* KPI Panel - visible only when KPI add-on is enabled */}
-          {hasFeature(FEATURES.KPI) && mounted && isSuperAdmin &&(
+          {hasFeature(FEATURES.KPI) && mounted && isSuperAdmin && (
             <div className="relative group">
-              <button 
-                onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)} 
+              <button
+                onClick={() => isCollapsed ? handleNavigate('/kpi/intelligence') : setKpiDropdownOpen(!kpiDropdownOpen)}
                 className="w-full flex items-center justify-between px-4 py-2.5 text-[#1E293B] hover:bg-slate-50 rounded-[12px] transition-all"
               >
                 <span className="flex items-center gap-3.5">
@@ -474,27 +474,27 @@ const EmployeeNavigation = ({
               {kpiDropdownOpen && !isCollapsed && (
                 <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-100 pl-1">
                   {[
-                      { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
-                      { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
-                      { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
-                      { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
+                    { href: "/kpi/intelligence", label: "KPI Intelligence", icon: TrendingUp },
+                    { href: "/kpi/configuration", label: "KPI Configuration", icon: SettingsIcon },
+                    { href: "/kpi/turbocharge", label: "KPI TurboCharge", icon: Zap },
+                    { href: "/kpi/workforce-overview", label: "Workforce Overview", icon: UsersRound },
                   ].map((item) => (
-                      <button
-                          key={item.label}
-                          onClick={() => handleNavigate(item.href)}
-                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
-                      >
-                          <item.icon size={18} className="shrink-0" />
-                          <span className="truncate">{item.label}</span>
-                      </button>
+                    <button
+                      key={item.label}
+                      onClick={() => handleNavigate(item.href)}
+                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                    >
+                      <item.icon size={18} className="shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
                   ))}
                 </div>
               )}
             </div>
           )}
 
-        <div className="relative group">
-            <button 
+          <div className="relative group">
+            <button
               onClick={() => handleNavigate('/employee/account')}
               className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/account') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
             >
@@ -509,19 +509,19 @@ const EmployeeNavigation = ({
         {/* Logout */}
         <div className="p-4 border-t border-slate-50 mt-auto space-y-2">
           {/* Lucid Assistant Button - COMMENTED OUT
-          <button onClick={handleOpenAssistant} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#3B66F5] font-bold text-[15px] hover:bg-blue-50 rounded-xl transition-all duration-200">
-            <MessageSquare size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
-            {!isCollapsed && <span>Lucid Assistant</span>}
-            {isCollapsed && (
-              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
-                Lucid Assistant
-              </div>
-            )}
-          </button>
-          */}
+ <button onClick={handleOpenAssistant} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#3B66F5] font-bold text-[15px] hover:bg-[#eff4ff] rounded-[8px] transition-all duration-200">
+ <MessageSquare size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
+ {!isCollapsed && <span>Lucid Assistant</span>}
+ {isCollapsed && (
+ <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-[#2563eb] text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
+ Lucid Assistant
+ </div>
+ )}
+ </button>
+ */}
 
           {/* Logout Button */}
-          <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-xl transition-all duration-200">
+          <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-[8px] transition-all duration-200">
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}
             {isCollapsed && (
