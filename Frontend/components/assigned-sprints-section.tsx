@@ -81,17 +81,17 @@ export function AssignedSprintsSection({
 
     try {
       // const headers = {
-      //   "X-User-ID": userId,
-      //   "X-Company-ID": companyId,
+      // "X-User-ID": userId,
+      // "X-Company-ID": companyId,
       // };
 
       // // Fetch learning plans to get due dates
       // const plansRes = await fetchWithAuth(
-      //   `${API_BASE}/api/learning-plans/?user_id=${userId}`,
-      //   { headers }
+      // `${API_BASE}/api/learning-plans/?user_id=${userId}`,
+      // { headers }
       // );
       // const plans = plansRes.ok ? await plansRes.json() : { plans: [] };
-      const plansResponse = {plans: plans || []}
+      const plansResponse = { plans: plans || [] }
       const plansByModuleId: Record<string, any> = {};
       plansResponse.plans?.forEach((plan: any) => {
         plansByModuleId[plan.module_id] = plan;
@@ -247,9 +247,9 @@ export function AssignedSprintsSection({
 
   if (loading) {
     return (
-      <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+      <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
         <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
-          <CardTitle className="text-sm md:text-base font-black text-slate-900">
+          <CardTitle className="text-sm md:text-base font-bold text-[#0f172a]">
             Assigned Sprints
           </CardTitle>
         </CardHeader>
@@ -264,18 +264,18 @@ export function AssignedSprintsSection({
 
   if (isLocked) {
     return (
-      <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+      <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
         <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
-          <CardTitle className="text-sm md:text-base font-black text-slate-900">
+          <CardTitle className="text-sm md:text-base font-bold text-[#0f172a]">
             Assigned Sprints
           </CardTitle>
         </CardHeader>
         <CardContent className="p-4 md:p-6">
           <div className="py-8 sm:py-12 flex flex-col items-center text-center px-4">
-            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400 mb-3">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-slate-100 rounded-[8px] flex items-center justify-center text-slate-400 mb-3">
               <List size={24} className="sm:w-7 sm:h-7" />
             </div>
-            <h5 className="text-sm sm:text-base font-bold text-slate-900">
+            <h5 className="text-sm sm:text-base font-bold text-[#0f172a]">
               Modules are currently locked
             </h5>
             <p className="text-xs sm:text-sm text-slate-500 max-w-xs mt-1 font-medium">
@@ -289,9 +289,9 @@ export function AssignedSprintsSection({
 
   if (sprints.length === 0) {
     return (
-      <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+      <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
         <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4">
-          <CardTitle className="text-sm md:text-base font-black text-slate-900">
+          <CardTitle className="text-sm md:text-base font-bold text-[#0f172a]">
             Assigned Sprints
           </CardTitle>
         </CardHeader>
@@ -307,31 +307,29 @@ export function AssignedSprintsSection({
   }
 
   return (
-    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+    <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
       <CardHeader className="bg-slate-50/50 border-b border-slate-50 px-4 md:px-6 py-3 md:py-4 flex flex-col gap-4">
         <div className="flex flex-row items-center justify-between">
-          <CardTitle className="text-sm md:text-base font-black text-slate-900">
+          <CardTitle className="text-sm md:text-base font-bold text-[#0f172a]">
             Assigned Sprints
           </CardTitle>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setViewType("grid")}
-              className={`p-2 rounded-lg transition-colors ${
-                viewType === "grid"
-                  ? "bg-blue-100 text-blue-600"
+              className={`p-2 rounded-[8px] transition-colors ${viewType === "grid"
+                  ? "bg-blue-100 text-[#2563eb]"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+                }`}
               title="Grid view"
             >
               <LayoutGrid size={18} />
             </button>
             <button
               onClick={() => setViewType("table")}
-              className={`p-2 rounded-lg transition-colors ${
-                viewType === "table"
-                  ? "bg-blue-100 text-blue-600"
+              className={`p-2 rounded-[8px] transition-colors ${viewType === "table"
+                  ? "bg-blue-100 text-[#2563eb]"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+                }`}
               title="Table view"
             >
               <List size={18} />
@@ -348,13 +346,13 @@ export function AssignedSprintsSection({
               placeholder="Search Sprints..."
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-[8px] border border-slate-200 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
           <select
             value={sortBy}
             onChange={(e) => { setSortBy(e.target.value as "title" | "due_date" | "progress"); setCurrentPage(1); }}
-            className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-4 py-2 rounded-[8px] border border-slate-200 text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="title">Sort by Title</option>
             <option value="due_date">Sort by Due Date</option>
@@ -371,12 +369,12 @@ export function AssignedSprintsSection({
               {filteredSprints.map((sprint) => (
                 <div
                   key={sprint.id}
-                  className="border border-slate-200 rounded-xl p-4 hover:shadow-md transition-shadow"
+                  className="border border-slate-200 rounded-[8px] p-4 hover:shadow-md transition-shadow"
                 >
                   {/* Header with status */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
-                      <h4 className="text-sm font-bold text-slate-900 line-clamp-2">
+                      <h4 className="text-sm font-bold text-[#0f172a] line-clamp-2">
                         {sprint.title}
                       </h4>
 
@@ -401,15 +399,15 @@ export function AssignedSprintsSection({
                           sprint.dueDateExpired
                             ? "text-red-600 font-semibold"
                             : sprint.dueDate
-                            ? "text-slate-700 font-medium"
-                            : "text-slate-400"
+                              ? "text-slate-700 font-medium"
+                              : "text-slate-400"
                         }
                       >
                         {formatDate(sprint.dueDate)}
                       </span>
                     </div>
 
-{sprint.isDueDateLocked && (
+                    {sprint.isDueDateLocked && (
                       <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">
                         Locked
                       </Badge>
@@ -434,13 +432,13 @@ export function AssignedSprintsSection({
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-xs text-slate-600 font-medium">Completion</span>
-                      <span className="text-xs font-bold text-blue-600">
+                      <span className="text-xs font-bold text-[#2563eb]">
                         {sprint.completionPercentage}%
                       </span>
                     </div>
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-blue-600 transition-all"
+                        className="h-full bg-[#2563eb] transition-all"
                         style={{ width: `${sprint.completionPercentage}%` }}
                       />
                     </div>
@@ -449,7 +447,7 @@ export function AssignedSprintsSection({
                     </p>
                   </div>
 
-                                    {/* Action buttons */}
+                  {/* Action buttons */}
                   <div className="flex gap-2 w-full">
                     {sprint.hasBaseline && (
                       <button
@@ -462,7 +460,7 @@ export function AssignedSprintsSection({
                           sprint.baselineCompleted || sprint.isDueDateLocked
                         }
                         className={[
-                          "flex-1 px-3 py-2 rounded-lg text-xs border font-bold transition-colors",
+                          "flex-1 px-3 py-2 rounded-[8px] text-xs border font-bold transition-colors",
                           sprint.baselineCompleted || sprint.isDueDateLocked
                             ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
                             : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
@@ -484,34 +482,33 @@ export function AssignedSprintsSection({
                         (sprint.hasBaseline && !sprint.baselineCompleted) ||
                         sprint.isDueDateLocked
                       }
-                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white transition-colors ${
-                        sprint.status === "Completed"
+                      className={`flex-1 px-3 py-2 rounded-[8px] text-xs font-bold text-white transition-colors ${sprint.status === "Completed"
                           ? "bg-slate-400 hover:bg-slate-500"
                           : sprint.isDueDateLocked
-                          ? "bg-blue-200 text-blue-600 cursor-not-allowed"
-                          : sprint.hasBaseline && !sprint.baselineCompleted
-                          ? "bg-blue-300 cursor-not-allowed"
-                          : "bg-blue-600 hover:bg-blue-700"
-                      }`}
+                            ? "bg-blue-200 text-[#2563eb] cursor-not-allowed"
+                            : sprint.hasBaseline && !sprint.baselineCompleted
+                              ? "bg-blue-300 cursor-not-allowed"
+                              : "bg-[#2563eb] hover:bg-[#1d4ed8]"
+                        }`}
                     >
                       {sprint.status === "Completed"
                         ? "Review"
                         : sprint.status === "In Progress"
-                        ? "Resume"
-                        : "Start"}
+                          ? "Resume"
+                          : "Start"}
                     </button>
 
                     <button
                       onClick={() => onGenerateCertificate(sprint.id)}
                       disabled={!sprint.certificateEarned}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                      className="flex-1 px-3 py-2 rounded-[8px] text-xs font-bold transition-colors border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                     >
                       Certificate
                     </button>
                   </div>
-                  </div>
+                </div>
 
-                
+
               ))}
             </div>
 
@@ -562,7 +559,7 @@ export function AssignedSprintsSection({
                   <tr key={sprint.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="px-4 md:px-6 py-4">
                       <div className="flex flex-col gap-0.5">
-                        <p className="text-sm font-bold text-slate-900 line-clamp-1">
+                        <p className="text-sm font-bold text-[#0f172a] line-clamp-1">
                           {sprint.title}
                         </p>
                         {sprint.moduleName && (
@@ -579,11 +576,10 @@ export function AssignedSprintsSection({
                     </td>
                     <td className="px-4 md:px-6 py-4">
                       <Badge
-                        className={`text-xs font-semibold ${
-                          sprint.isDueDateLocked
+                        className={`text-xs font-semibold ${sprint.isDueDateLocked
                             ? "bg-red-100 text-red-700"
                             : getStatusColor(sprint.status)
-                        }`}
+                          }`}
                       >
                         {sprint.isDueDateLocked
                           ? "Locked"
@@ -594,7 +590,7 @@ export function AssignedSprintsSection({
                       <div className="flex flex-col gap-1.5">
                         <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-blue-600 transition-all"
+                            className="h-full bg-[#2563eb] transition-all"
                             style={{ width: `${sprint.completionPercentage}%` }}
                           />
                         </div>
@@ -602,7 +598,7 @@ export function AssignedSprintsSection({
                           <span className="text-xs text-slate-600">
                             {sprint.completedModules} / {sprint.totalModules}
                           </span>
-                          <span className="text-xs font-bold text-blue-600">
+                          <span className="text-xs font-bold text-[#2563eb]">
                             {sprint.completionPercentage}%
                           </span>
                         </div>
@@ -610,7 +606,7 @@ export function AssignedSprintsSection({
                     </td>
                     <td className="px-4 md:px-6 py-4">
                       <div className="flex gap-2 justify-center flex-wrap">
-                        
+
                         <button
                           onClick={() => {
                             if (sprint.hasBaseline && !sprint.baselineCompleted) return;
@@ -621,21 +617,20 @@ export function AssignedSprintsSection({
                             (sprint.hasBaseline && !sprint.baselineCompleted) ||
                             sprint.isDueDateLocked
                           }
-                          className={`px-4 py-1.5 rounded text-xs font-semibold text-white transition-colors whitespace-nowrap ${
-                            sprint.status === "Completed"
+                          className={`px-4 py-1.5 rounded text-xs font-semibold text-white transition-colors whitespace-nowrap ${sprint.status === "Completed"
                               ? "bg-slate-400 hover:bg-slate-500"
                               : sprint.isDueDateLocked
-                              ? "bg-blue-200 text-blue-600 cursor-not-allowed"
-                              : sprint.hasBaseline && !sprint.baselineCompleted
-                              ? "bg-blue-300 cursor-not-allowed"
-                              : "bg-blue-600 hover:bg-blue-700"
-                          }`}
+                                ? "bg-blue-200 text-[#2563eb] cursor-not-allowed"
+                                : sprint.hasBaseline && !sprint.baselineCompleted
+                                  ? "bg-blue-300 cursor-not-allowed"
+                                  : "bg-[#2563eb] hover:bg-[#1d4ed8]"
+                            }`}
                         >
                           {sprint.status === "Completed"
                             ? "Review"
                             : sprint.status === "In Progress"
-                            ? "Resume"
-                            : "Start"}
+                              ? "Resume"
+                              : "Start"}
                         </button>
                       </div>
                     </td>

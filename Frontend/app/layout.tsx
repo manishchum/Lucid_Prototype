@@ -1,6 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { DM_Sans } from "next/font/google"
 import "./globals.css"
 import { AuthProvider } from "@/contexts/auth-context"
 import { TenantProvider } from "@/contexts/tenant-context"
@@ -9,7 +9,7 @@ import ErrorReporterInit from '@/components/ErrorReporterInit'
 // import LucidAssistant from '@/components/LucidAssistant'
 import LayoutWithNavigation from '@/components/layout-with-navigation'
 
-const inter = Inter({ subsets: ["latin"] })
+const dmSans = DM_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800", "900"] })
 
 export const metadata: Metadata = {
   title: "Lucid Learning Platform",
@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <body className={`${dmSans.className} antialiased bg-[#f8f9ff] text-slate-900`}>
         <AuthProvider>
           <TenantProvider>
             <ErrorReporterInit />

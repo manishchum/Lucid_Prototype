@@ -188,7 +188,7 @@ export function LeaderboardModal({
               // Loading skeleton
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg">
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-[8px]">
                     <Skeleton className="h-10 w-10 rounded-full" />
                     <div className="flex-1">
                       <Skeleton className="h-4 w-24 mb-2" />
@@ -213,11 +213,10 @@ export function LeaderboardModal({
                   {leaderboard.map((entry) => (
                     <div
                       key={entry.user_id}
-                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                        entry.user_id === employee?.user_id
-                          ? "bg-blue-50 border border-blue-200"
+                      className={`flex items-center gap-3 p-3 rounded-[8px] transition-colors ${entry.user_id === employee?.user_id
+                          ? "bg-[#eff4ff] border border-blue-200"
                           : "bg-slate-50 hover:bg-slate-100"
-                      }`}
+                        }`}
                     >
                       {/* Rank and medal */}
                       <div className="flex items-center justify-center w-8">
@@ -260,7 +259,7 @@ export function LeaderboardModal({
 
                       {/* Completion Percentage */}
                       <div className="flex-shrink-0 text-right">
-                        <p className="text-sm font-bold text-blue-600">
+                        <p className="text-sm font-bold text-[#2563eb]">
                           {entry.completion_percentage}%
                         </p>
                         <p className="text-xs text-gray-500">complete</p>
@@ -273,10 +272,10 @@ export function LeaderboardModal({
                 {userRank && !isUserInTop && (
                   <div className="mt-6 pt-4 border-t">
                     <p className="text-xs text-gray-500 mb-2">Your Position</p>
-                    <div className="flex items-center gap-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <div className="flex items-center gap-3 p-3 rounded-[8px] bg-[#eff4ff] border border-blue-200">
                       {/* User's rank */}
                       <div className="flex items-center justify-center w-8">
-                        <span className="text-sm font-semibold text-blue-600">
+                        <span className="text-sm font-semibold text-[#2563eb]">
                           #{userRank.rank}
                         </span>
                       </div>
@@ -312,7 +311,7 @@ export function LeaderboardModal({
 
                       {/* User's Completion Percentage */}
                       <div className="flex-shrink-0 text-right">
-                        <p className="text-sm font-bold text-blue-600">
+                        <p className="text-sm font-bold text-[#2563eb]">
                           {userRank.completion_percentage}%
                         </p>
                         <p className="text-xs text-gray-500">complete</p>
@@ -336,7 +335,7 @@ export function LeaderboardModal({
                 <p className="text-xs text-gray-500">Total Users</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-blue-600">
+                <p className="text-2xl font-bold text-[#2563eb]">
                   {currentUserRank?.completion_percentage || 0}%
                 </p>
                 <p className="text-xs text-gray-500">Your Completion</p>

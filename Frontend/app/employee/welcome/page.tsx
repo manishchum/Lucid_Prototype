@@ -12,6 +12,10 @@ import { useAuth } from "@/contexts/auth-context";
 import { useTenant } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
 import { LeaderboardModal } from "@/components/leaderboard-modal";
+import { Cormorant_Garamond } from "next/font/google";
+
+const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["700"] });
+
 // import { LeaderboardModal } from "@/components/leaderboard-modal";
 import { createCacheKey, sharedDataClient } from "@/lib/data-client";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
@@ -275,12 +279,12 @@ export default function EmployeeWelcome() {
     }
   };
 
-const handleGenerateCertificate = (sprintId: string) => {
-  const sprint = assignedModules.find((s) => s.id === sprintId);
-  if (sprint && sprint.certificateEarned) {
-    openCertificateModal(sprint);
-  }
-};
+  const handleGenerateCertificate = (sprintId: string) => {
+    const sprint = assignedModules.find((s) => s.id === sprintId);
+    if (sprint && sprint.certificateEarned) {
+      openCertificateModal(sprint);
+    }
+  };
 
   // ─── Utility helpers ──────────────────────────────────────────────────────
 
@@ -471,8 +475,8 @@ const handleGenerateCertificate = (sprintId: string) => {
       const nested = Array.isArray(entry?.processed_modules)
         ? entry.processed_modules
         : entry?.processed_modules
-        ? [entry.processed_modules]
-        : [];
+          ? [entry.processed_modules]
+          : [];
       for (const pm of nested) {
         addToIndex(pm?.original_module_id, entry);
         addToIndex(pm?.processed_module_id, entry);
@@ -482,7 +486,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     // ── Helper: pick the best progress entry for a set of candidate IDs ───
     // "Best" = has a completed_at, or a pass_status, or a quiz_score.
     const findBestProgress = (...ids: Array<string | null | undefined>): any | null => {
-    for (const id of ids) {
+      for (const id of ids) {
         if (!id) continue;
         const entries = progressByAnyId.get(String(id).trim()) || [];
         if (!entries.length) continue;
@@ -538,9 +542,9 @@ const handleGenerateCertificate = (sprintId: string) => {
       // ── Determine if the backend already says "COMPLETED" ─────────────
       const isBackendCompleted = Boolean(
         p.overall_status === true ||
-          p.overall_status === 1 ||
-          p.overall_status === "true" ||
-          normalizeStatus(p?.status) === "COMPLETED",
+        p.overall_status === 1 ||
+        p.overall_status === "true" ||
+        normalizeStatus(p?.status) === "COMPLETED",
       );
 
       const baselineEvidence = baselineEvidenceByModuleId?.[sprintId] || [];
@@ -551,9 +555,9 @@ const handleGenerateCertificate = (sprintId: string) => {
       const baselineScore =
         baselineEvidence.length > 0
           ? baselineEvidence
-              .map((ev) => ev.scorePercent)
-              .filter((value): value is number => typeof value === "number")
-              .at(-1) ?? null
+            .map((ev) => ev.scorePercent)
+            .filter((value): value is number => typeof value === "number")
+            .at(-1) ?? null
           : null;
       const baselineMaxScore = baselineEvidence.length > 0 ? 100 : null;
 
@@ -612,14 +616,14 @@ const handleGenerateCertificate = (sprintId: string) => {
         // Case 2: No modules array, but we have processed_module_ids
         sprintModules = processedModuleIds.map((pmId: string, index: number) => {
           const pr = findBestProgress(pmId);
-          
+
           // Compute score FIRST
           const fallbackAssessments = assessmentEvidenceByModuleId?.[pmId] || [];
           const fbMax =
             fallbackAssessments.length > 0
               ? Math.max(
-                  ...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity),
-                )
+                ...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity),
+              )
               : null;
           const quizScore =
             computePercentScore(pr) ??
@@ -635,8 +639,8 @@ const handleGenerateCertificate = (sprintId: string) => {
             id: pmId,
             name: String(
               pr?.processed_modules?.title ??
-                pr?.module_title ??
-                `Module ${index + 1}`,
+              pr?.module_title ??
+              `Module ${index + 1}`,
             ),
             completed,
             quizScore,
@@ -658,7 +662,7 @@ const handleGenerateCertificate = (sprintId: string) => {
         const relatedProgress = relatedRaw.filter((entry: any) => {
           const key = String(
             entry?.module_progress_id ??
-              `${entry?.processed_module_id || ""}-${entry?.user_id || ""}-${entry?.started_at || ""}`,
+            `${entry?.processed_module_id || ""}-${entry?.user_id || ""}-${entry?.started_at || ""}`,
           );
           if (seen.has(key)) return false;
           seen.add(key);
@@ -673,17 +677,17 @@ const handleGenerateCertificate = (sprintId: string) => {
             // - It has completed_at set AND
             // - It has passStatus === true OR quizScore >= threshold
             const completed = Boolean(pr?.completed_at) && (passStatus || (quizScore !== null && quizScore >= threshold));
-            
+
             return {
               id: String(
                 pr?.module_id ??
-                  pr?.processed_module_id ??
-                  `${sprintId}-${index + 1}`,
+                pr?.processed_module_id ??
+                `${sprintId}-${index + 1}`,
               ),
               name: String(
                 pr?.processed_modules?.title ??
-                  pr?.module_title ??
-                  `Module ${index + 1}`,
+                pr?.module_title ??
+                `Module ${index + 1}`,
               ),
               completed,
               quizScore,
@@ -698,8 +702,8 @@ const handleGenerateCertificate = (sprintId: string) => {
           const fbMax =
             fallbackAssessments.length > 0
               ? Math.max(
-                  ...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity),
-                )
+                ...fallbackAssessments.map((e) => e.scorePercent ?? -Infinity),
+              )
               : null;
 
           sprintModules = [
@@ -736,7 +740,7 @@ const handleGenerateCertificate = (sprintId: string) => {
       //   SIMPLE LOGIC: Certificate is ONLY earned when:
       //     ALL modules have completed === true
       //   OR the backend explicitly says COMPLETED
-      
+
       // Canonical progress rule: assigned IDs come only from
       // learning_plan.processed_module_ids; completed_at alone marks completion.
       // plan_json supplies display metadata, not assignment membership.
@@ -757,10 +761,10 @@ const handleGenerateCertificate = (sprintId: string) => {
           id: processedModuleId,
           name: String(
             mod?.name ??
-              mod?.title ??
-              pr?.processed_modules?.title ??
-              pr?.module_title ??
-              `Module ${index + 1}`,
+            mod?.title ??
+            pr?.processed_modules?.title ??
+            pr?.module_title ??
+            `Module ${index + 1}`,
           ),
           completed: Boolean(pr?.completed_at),
           quizScore: computePercentScore(pr),
@@ -781,10 +785,10 @@ const handleGenerateCertificate = (sprintId: string) => {
       //   Use the latest completedAt among modules; fall back to plan date.
       const completedDate = certificateEarned
         ? ([...sprintModules]
-            .map((mod) => mod.completedAt)
-            .filter((v): v is string => Boolean(v))
-            .sort()
-            .at(-1) ??
+          .map((mod) => mod.completedAt)
+          .filter((v): v is string => Boolean(v))
+          .sort()
+          .at(-1) ??
           toIso(p.completed_at) ??
           new Date().toISOString())
         : null;
@@ -946,7 +950,7 @@ const handleGenerateCertificate = (sprintId: string) => {
     effectiveCompanyId: string,
   ) => {
     const userId = employeeData.user_id || employeeData.id || "";
-    
+
     const result = await sharedDataClient.query(
       createCacheKey({
         namespace: "dashboard",
@@ -967,20 +971,20 @@ const handleGenerateCertificate = (sprintId: string) => {
         //   fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(employeeData.company_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         //   fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${encodeURIComponent(employeeData.user_id)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
         //   fetchWithAuth(`${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`, { headers }).then((r) => (r.ok ? r.json() : ({} as any))),
-        
+
         // ]);
-        
+
         const res = await fetchWithAuth(
-            `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
-            { headers }
+          `${API_BASE}/api/employee/dashboard_summary/${encodeURIComponent(userId)}`,
+          { headers }
         );
 
         if (!res.ok) {
-            throw new Error(await res.text());
+          throw new Error(await res.text());
         }
 
         const dashboard_summary = await res.json();
-        
+
         // console.log("Fetched dashboard data:", {
         //   plans: plansRes,
         //   modules: modulesRes,
@@ -991,8 +995,8 @@ const handleGenerateCertificate = (sprintId: string) => {
         // });
 
         // const dashBoardData = dashboard_summary;
-        
-     
+
+
         return {
           plans: dashboard_summary?.plans || [],
           modules: dashboard_summary?.modules || [],
@@ -1026,8 +1030,7 @@ const handleGenerateCertificate = (sprintId: string) => {
 
       setEmployee(emp);
 
-      const selectedCompanyId =
-        isDeveloperMode && activeCompanyId ? activeCompanyId : emp.company_id;
+      const selectedCompanyId = emp.company_id;
 
       if (!selectedCompanyId) {
         setLoading(false);
@@ -1106,13 +1109,13 @@ const handleGenerateCertificate = (sprintId: string) => {
     }
   }, [user, authLoading, activeCompanyId, isDeveloperMode]);
 
-   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
-     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
-     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
-     else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
-   };
+  const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
+    if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
+    if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");
+    else setNudgeMessage(`💪 One step in! Complete your sprints and stand among the top 5%.`);
+  };
 
-    if (showLoadingProgress) {
+  if (showLoadingProgress) {
     return (
       <LoadingProgress
         label="Loading your dashboard"
@@ -1131,267 +1134,241 @@ const handleGenerateCertificate = (sprintId: string) => {
           employee={employee}
         />
 
-        {/* Fixed Leaderboard Button (Positioned directly below the company logo pill for responsiveness) */}
-        <Button
-          onClick={() => setShowLeaderboard(true)}
-          variant="outline"
-          className="fixed top-[36px] right-4 z-50 rounded-xl border border-slate-200 bg-white/95 backdrop-blur shadow-sm hover:bg-amber-50 hover:border-amber-200 transition-colors flex items-center justify-center"
-          title="View leaderboard"
-          size="icon"
-        >
-          <Trophy className="w-5 h-5 text-amber-500" />
-        </Button>
 
         <div className="max-w-6xl mx-auto w-full">
           {/* Dashboard Header */}
-          <div className="mb-6 md:mb-10 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="mb-2 md:mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div className="flex items-center gap-3 sm:gap-4 min-w-0 w-full sm:w-auto">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center border border-slate-100 shrink-0">
-                <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
-              </div>
               <div className="min-w-0 flex-1">
-                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight break-words">
+                <h1 className={`text-3xl sm:text-4xl font-black text-[#0f172a] tracking-tight break-words ${cormorant.className}`}>
                   {employee?.name
                     ? `Welcome, ${employee.name.split(" ")[0]}`
                     : "Learner Dashboard"}
                 </h1>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium break-all sm:break-normal">
-                  {employee?.email || "Personalized learning hub"}
-                </p>
+
               </div>
             </div>
             {/* <div className="w-full md:w-[320px]">
               <CompanySelector showLabel />
             </div> */}
-            
-              <div className="flex items-end gap-3">
-                <div className="w-[220px]">
-                  <CompanySelector showLabel />
-                </div>
 
-                {/* <Button
+            {/* <Button
                   onClick={() => router.push("/employee/voice-notes")}
                   className="h-10 px-5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap"
                 >
                   <Mic className="mr-2 h-4 w-4" />
                   Open Voice Agent
                 </Button> */}
-              </div>
           </div>
+        </div>
 
-          <div className="grid gap-4 md:gap-8">
-            {/* Progress Nudge Card */}
-            {nudgeMessage && (
-              <Card className="rounded-3xl border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] bg-white overflow-hidden">
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-start gap-4 flex-1 min-w-0">
-                      <div className="w-10 h-10 sm:w-14 sm:h-14 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
-                        {progressPercentage === 100 ? (
-                          <Trophy className="text-blue-600 w-5 h-5 sm:w-6 sm:h-6" />
-                        ) : (
-                          <Zap className="text-blue-600 w-5 h-5 sm:w-6 sm:h-6" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-base sm:text-lg font-black text-slate-900">
-                          Your Progress
-                        </h3>
-                        <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm">
-                          {nudgeMessage}
-                        </p>
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          <Badge
-                            variant="secondary"
-                            className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
-                          >
-                            {companyStats.completedEmployees} COMPLETED
-                            {/* {companyStats.completedEmployees} COMPLETED */}
-                          </Badge>
-                        </div>
-                      </div>
+        <div className="grid gap-2 md:gap-4">
+          {/* Progress Nudge Card */}
+          {nudgeMessage && (
+            <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#eff4ff] rounded-[8px] flex items-center justify-center shrink-0">
+                      {progressPercentage === 100 ? (
+                        <Trophy className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
+                      ) : (
+                        <Zap className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
+                      )}
                     </div>
-                    <div className="flex flex-col items-center justify-center self-center sm:self-auto">
-                      <div
-                        className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center bg-white border-4 ${
-                          progressPercentage >= 100
-                            ? "border-green-100"
-                            : "border-blue-50"
-                        }`}
-                      >
-                        <span
-                          className={`text-lg sm:text-2xl font-black ${
-                            progressPercentage >= 100
-                              ? "text-green-600"
-                              : "text-blue-600"
-                          }`}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base sm:text-lg font-bold text-[#0f172a]">
+                        Your Progress
+                      </h3>
+                      <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm">
+                        {nudgeMessage}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <Badge
+                          variant="secondary"
+                          className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                         >
-                          {progressPercentage.toFixed(1)}%
-                          {/* {progressPercentage.toFixed(1)}% */}
-                        </span>
-                      </div>
-                      <div className="mt-2 text-[10px] sm:text-xs font-black uppercase tracking-[0.05em] text-slate-400 text-center">
-                        {companyStats.completedEmployees} of {assignedModules.length}
-                        {/* {companyStats.completedEmployees} of {assignedModules.length} */}
+                          {companyStats.completedEmployees} COMPLETED
+                          {/* {companyStats.completedEmployees} COMPLETED */}
+                        </Badge>
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Learning Style Card */}
-            {companyLearningStyleEnabled && (
-              <Card className="rounded-2xl border-none shadow-sm bg-white overflow-visible">
-                <CardContent className="p-4 sm:p-6">
-                  {learningStyle ? (
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl sm:text-2xl font-black shadow-xl shadow-blue-100 shrink-0">
-                        {learningStyle}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
-                          Your Learning Style
-                        </h4>
-                        <div className="mt-2 text-xs sm:text-sm text-slate-500">
-                          <LearningStyleBlurb styleCode={learningStyle} />
-                        </div>
-                        <Button
-                          variant="link"
-                          className="text-blue-600 font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
-                          onClick={() => router.push("/employee/score-history")}
-                        >
-                          Get full report <ArrowRight size={14} className="ml-1" />
-                        </Button>
-                      </div>
+                  <div className="flex flex-col items-center justify-center self-center sm:self-auto">
+                    <div
+                      className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center bg-white border-4 ${progressPercentage >= 100
+                        ? "border-green-100"
+                        : "border-[#eff4ff]"
+                        }`}
+                    >
+                      <span
+                        className={`text-lg sm:text-2xl font-black ${progressPercentage >= 100
+                          ? "text-green-600"
+                          : "text-[#2563eb]"
+                          }`}
+                      >
+                        {progressPercentage.toFixed(1)}%
+                        {/* {progressPercentage.toFixed(1)}% */}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
-                      <div className="w-full sm:max-w-md text-center sm:text-left">
-                        <h4 className="text-base md:text-lg font-black text-slate-900 mb-1">
-                          Discover Your Learning Style
-                        </h4>
-                        <p className="text-xs md:text-sm text-slate-500 font-medium">
-                          Take our 5-minute survey to unlock your personalized path.
-                        </p>
-                      </div>
-                      <div className="relative mt-2 sm:mt-0">
-                        <div className="hidden sm:block absolute -top-20 sm:-top-24 right-0 z-10 w-64 sm:w-72 animate-bounce">
-                          <div className="bg-blue-600 text-white rounded-2xl px-4 sm:px-5 py-2 sm:py-3 shadow-xl text-xs sm:text-sm">
-                            <p className="font-black text-xs sm:text-sm">
-                              Step 1: Start Here!
-                            </p>
-                            <p className="text-blue-100 text-[10px] sm:text-xs">
-                              Complete survey to unlock modules.
-                            </p>
-                            <div className="absolute right-8 -bottom-2 w-4 h-4 bg-blue-600 rotate-45"></div>
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() =>
-                            router.push("/employee/learning-style")
-                          }
-                          className="bg-slate-900 hover:bg-black text-white px-6 sm:px-8 py-2 sm:py-3 rounded-xl font-bold h-10 sm:h-11 text-xs sm:text-sm"
-                        >
-                          Take Survey
-                        </Button>
-                      </div>
+                    <div className="mt-2 text-[10px] sm:text-xs font-bold uppercase tracking-[0.05em] text-slate-400 text-center">
+                      {companyStats.completedEmployees} of {assignedModules.length}
+                      {/* {companyStats.completedEmployees} of {assignedModules.length} */}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-            
-             {/* Assigned Modules */}
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              <button
-                onClick={() => setActiveHomeTab("sprints")}
-                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
-                  activeHomeTab === "sprints"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+          {/* Learning Style Card */}
+          {companyLearningStyleEnabled && (
+            <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-visible">
+              <CardContent className="p-4 sm:p-6">
+                {learningStyle ? (
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#2563eb] text-white flex items-center justify-center text-xl sm:text-2xl font-bold shadow-xl shadow-blue-100 shrink-0">
+                      {learningStyle}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm sm:text-base font-extrabold text-[#0f172a]">
+                        Your Learning Style
+                      </h4>
+                      <div className="mt-2 text-xs sm:text-sm text-slate-500">
+                        <LearningStyleBlurb styleCode={learningStyle} />
+                      </div>
+                      <Button
+                        variant="link"
+                        className="text-[#2563eb] font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
+                        onClick={() => router.push("/employee/score-history")}
+                      >
+                        Get full report <ArrowRight size={14} className="ml-1" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
+                    <div className="w-full sm:max-w-md text-center sm:text-left">
+                      <h4 className="text-base md:text-lg font-bold text-[#0f172a] mb-1">
+                        Discover Your Learning Style
+                      </h4>
+                      <p className="text-xs md:text-sm text-slate-500 font-medium">
+                        Take our 5-minute survey to unlock your personalized path.
+                      </p>
+                    </div>
+                    <div className="relative mt-2 sm:mt-0">
+                      <div className="hidden sm:block absolute -top-20 sm:-top-24 right-0 z-10 w-64 sm:w-72 animate-bounce">
+                        <div className="bg-[#2563eb] text-white rounded-[8px] px-4 sm:px-5 py-2 sm:py-3 shadow-xl text-xs sm:text-sm">
+                          <p className="font-bold text-xs sm:text-sm">
+                            Step 1: Start Here!
+                          </p>
+                          <p className="text-blue-100 text-[10px] sm:text-xs">
+                            Complete survey to unlock modules.
+                          </p>
+                          <div className="absolute right-8 -bottom-2 w-4 h-4 bg-[#2563eb] rotate-45"></div>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() =>
+                          router.push("/employee/learning-style")
+                        }
+                        className="bg-slate-900 hover:bg-black text-white px-6 sm:px-8 py-2 sm:py-3 rounded-[8px] font-bold h-10 sm:h-11 text-xs sm:text-sm"
+                      >
+                        Take Survey
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+
+          {/* Assigned Modules */}
+          <div className="flex flex-wrap items-center gap-2 mb-0">
+            <button
+              onClick={() => setActiveHomeTab("sprints")}
+              className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "sprints"
+                ? "bg-[#eff4ff] text-[#2563eb] border-[#2563eb]"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                 }`}
-              >
-                Assigned Sprints
-                <span
-                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    activeHomeTab === "sprints"
-                      ? "bg-white/20 text-white"
-                      : "bg-slate-100 text-slate-700"
+            >
+              Sprints
+              <span
+                className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "sprints"
+                  ? "bg-[#2563eb] text-white"
+                  : "bg-slate-100 text-slate-700"
                   }`}
+              >
+                {assignedModules.length}
+              </span>
+            </button>
+
+            {/* Assigned Tasks - Only visible for Tier 3 */}
+            <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+              <button
+                onClick={() => setActiveHomeTab("tasks")}
+                className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "tasks"
+                  ? "bg-[#eff4ff] text-[#2563eb] border-[#2563eb]"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                  }`}
+              >
+                Tasks
+                <span
+                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "tasks"
+                    ? "bg-[#2563eb] text-white"
+                    : "bg-slate-100 text-slate-700"
+                    }`}
                 >
-                  {assignedModules.length}
+                  {tasks.length}
                 </span>
               </button>
-              
-              {/* Assigned Tasks - Only visible for Tier 3 */}
-              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
-                <button
-                  onClick={() => setActiveHomeTab("tasks")}
-                  className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold border transition-colors ${
-                    activeHomeTab === "tasks"
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  Assigned Tasks
-                  <span
-                    className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      activeHomeTab === "tasks"
-                        ? "bg-white/20 text-white"
-                        : "bg-slate-100 text-slate-700"
-                    }`}
-                  >
-                    {tasks.length}
-                  </span>
-                </button>
-              </FeatureGate>
-            </div>
+            </FeatureGate>
+          </div>
 
-            {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
+          {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
             <AssignedSprintsSection
               assignedModules={assignedModules}
               moduleProgress={moduleProgress}
-              plans ={plans}
+              plans={plans}
               userId={employee?.user_id || ""}
               companyId={effectiveCompanyId}
               isLocked={companyLearningStyleEnabled && !learningStyle}
               onGenerateCertificate={handleGenerateCertificate}
             />
-            ) : (
-              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
-                <div className="space-y-8">
-                  {tasksLoading ? (
-                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
-                    </Card>
-                  ) : tasksError ? (
-                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
-                    </Card>
-                  ) : assignedTaskItems.length === 0 ? (
-                    <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
-                    </Card>
-                  ) : (
-                    <TaskDashboard
-                      assignedTasks={assignedTaskItems}
-                      onStartCreateTask={() => {}}
-                      userRole="employee"
-                      onSubmitTaskResponse={handleTaskSubmitResponse}
-                      onTaskSubmitted={handleTaskSubmitted}
-                    />
-                  )}
+          ) : (
+            <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+              <div className="space-y-8">
+                {tasksLoading ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
+                  </Card>
+                ) : tasksError ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
+                  </Card>
+                ) : assignedTaskItems.length === 0 ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
+                  </Card>
+                ) : (
+                  <TaskDashboard
+                    assignedTasks={assignedTaskItems}
+                    onStartCreateTask={() => { }}
+                    userRole="employee"
+                    onSubmitTaskResponse={handleTaskSubmitResponse}
+                    onTaskSubmitted={handleTaskSubmitted}
+                  />
+                )}
 
-                </div>
-              </FeatureGate>
-            )}
+              </div>
+            </FeatureGate>
+          )}
 
-             {/* Progress History */}
-             {/* <Card className="rounded-2xl border-none shadow-sm bg-white overflow-hidden">
+          {/* Progress History */}
+          {/* <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
                <CardHeader className="px-8 py-6">
-                 <CardTitle className="text-lg font-black text-slate-900">Recent Activity</CardTitle>
+                 <CardTitle className="text-lg font-bold text-[#0f172a]">Recent Activity</CardTitle>
                </CardHeader>
                <CardContent className="px-8 pb-8">
                  <div className="space-y-4">
@@ -1399,12 +1376,12 @@ const handleGenerateCertificate = (sprintId: string) => {
                      <p className="text-slate-400 font-medium text-center py-4">No activity yet.</p>
                    ) : (
                      moduleProgress.map((mod) => (
-                       <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-xl bg-slate-50/50 border border-slate-100/50">
-                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                       <div key={mod.processed_module_id} className="flex items-center gap-4 p-4 rounded-[8px] bg-slate-50/50 border border-slate-100/50">
+                         <div className={`w-10 h-10 rounded-[8px] flex items-center justify-center ${mod.completed_at ? 'bg-green-100 text-green-600' : 'bg-[#eff4ff] text-[#2563eb]'}`}>
                            {mod.completed_at ? <CheckCircle2 size={20} /> : <Clock size={20} />}
                          </div>
                          <div className="flex-1 overflow-hidden">
-                           <p className="font-bold text-slate-900 truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
+                           <p className="font-bold text-[#0f172a] truncate">{mod.processed_modules?.title || `Module ${mod.processed_module_id}`}</p>
                            <p className="text-xs text-slate-500 font-medium">{mod.completed_at ? 'Finished' : 'In Progress'}</p>
                          </div>
                          {mod.quiz_score !== null && (
@@ -1416,92 +1393,94 @@ const handleGenerateCertificate = (sprintId: string) => {
                  </div>
                </CardContent>
              </Card> */}
+        </div>
+    </div>
+      </main >
+
+    {/* Certificate Modal */ }
+  {
+    selectedCertificateSprint && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-[8px] bg-white shadow-2xl">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-4">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-[#0f172a]">
+                Sprint Certificate
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 font-medium">
+                Preview and download your certificate
+              </p>
             </div>
+
+            <button
+              onClick={closeCertificateModal}
+              className="rounded-[8px] p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              aria-label="Close certificate modal"
+            >
+              <X size={20} />
+            </button>
           </div>
-        </main>
 
-      {/* Certificate Modal */}
-            {selectedCertificateSprint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-4">
-              <div>
-                <h3 className="text-lg sm:text-xl font-black text-slate-900">
-                  Sprint Certificate
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                  Preview and download your certificate
-                </p>
-              </div>
+          <div className="p-4 sm:p-6 space-y-6">
+            <CertificateTemplate
+              ref={certificateRef}
+              recipientName={employee?.name || employee?.email || "Learner"}
+              sprintName={selectedCertificateSprint.title}
+              completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
+            />
 
-              <button
-                onClick={closeCertificateModal}
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                aria-label="Close certificate modal"
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setLinkedinExpanded((prev) => !prev)}
+                className="rounded-[8px]"
               >
-                <X size={20} />
-              </button>
+                <Linkedin className="w-4 h-4 mr-2" />
+                Share on LinkedIn
+              </Button>
+
+              <Button
+                onClick={downloadCertificatePdf}
+                disabled={isExportingCertificate}
+                className="rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                {isExportingCertificate ? "Generating..." : "Download PDF"}
+              </Button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-6">
-              <CertificateTemplate
-                ref={certificateRef}
-                recipientName={employee?.name || employee?.email || "Learner"}
-                sprintName={selectedCertificateSprint.title}
-                completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
-              />
+            {linkedinExpanded && (
+              <div className="border border-slate-200 rounded-[8px] p-4 bg-slate-50">
+                <label className="block text-sm font-bold text-slate-700 mb-2">
+                  LinkedIn Profile URL
+                </label>
+                <input
+                  type="url"
+                  value={linkedinProfileUrl}
+                  onChange={(e) => setLinkedinProfileUrl(e.target.value)}
+                  placeholder="https://www.linkedin.com/in/your-profile"
+                  className="w-full rounded-[8px] border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {linkedinError && (
+                  <p className="mt-2 text-sm text-red-600 font-medium">{linkedinError}</p>
+                )}
 
-              <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                <Button
-                  variant="outline"
-                  onClick={() => setLinkedinExpanded((prev) => !prev)}
-                  className="rounded-xl"
-                >
-                  <Linkedin className="w-4 h-4 mr-2" />
-                  Share on LinkedIn
-                </Button>
-
-                <Button
-                  onClick={downloadCertificatePdf}
-                  disabled={isExportingCertificate}
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {isExportingCertificate ? "Generating..." : "Download PDF"}
-                </Button>
-              </div>
-
-              {linkedinExpanded && (
-                <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    LinkedIn Profile URL
-                  </label>
-                  <input
-                    type="url"
-                    value={linkedinProfileUrl}
-                    onChange={(e) => setLinkedinProfileUrl(e.target.value)}
-                    placeholder="https://www.linkedin.com/in/your-profile"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {linkedinError && (
-                    <p className="mt-2 text-sm text-red-600 font-medium">{linkedinError}</p>
-                  )}
-
-                  <div className="mt-3 flex justify-end">
-                    <Button
-                      onClick={shareOnLinkedIn}
-                      className="rounded-lg bg-slate-900 hover:bg-black text-white"
-                    >
-                      Post to LinkedIn
-                    </Button>
-                  </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    onClick={shareOnLinkedIn}
+                    className="rounded-[8px] bg-slate-900 hover:bg-black text-white"
+                  >
+                    Post to LinkedIn
+                  </Button>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    )
+  }
+    </div >
   );
 }
 // ─── SprintRow ─────────────────────────────────────────────────────────────────
@@ -1531,7 +1510,7 @@ function SprintRow({
     <div className="flex flex-col items-start gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 md:p-6 bg-white">
       {/* Sprint title */}
       <div className="flex-1 min-w-0 w-full sm:w-auto">
-        <p className="text-sm sm:text-base font-extrabold text-slate-900 break-words">
+        <p className="text-sm sm:text-base font-extrabold text-[#0f172a] break-words">
           {sprint.title || `Module ${sprint.id}`}
         </p>
         {sprint.moduleName && sprint.moduleName !== sprint.title && (
@@ -1559,7 +1538,7 @@ function SprintRow({
             }}
             disabled={sprint.baselineCompleted}
             className={[
-              "px-3 py-2 rounded-lg text-xs border font-bold flex-1 sm:flex-none h-10 transition-colors",
+              "px-3 py-2 rounded-[8px] text-xs border font-bold flex-1 sm:flex-none h-10 transition-colors",
               sprint.baselineCompleted
                 ? "border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed"
                 : "border-slate-200 text-slate-700 bg-white hover:bg-slate-50",
@@ -1573,7 +1552,7 @@ function SprintRow({
         {sprint.certificateEarned && (
           <button
             onClick={() => onViewCertificate(sprint)}
-            className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs border border-blue-600 text-blue-700 font-bold hover:bg-blue-50 flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 inline-flex items-center justify-center gap-1.5"
+            className="px-4 sm:px-5 py-1.5 sm:py-2 rounded-[8px] text-xs border border-blue-600 text-blue-700 font-bold hover:bg-[#eff4ff] flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 inline-flex items-center justify-center gap-1.5"
           >
             <Award size={16} />
             View Certificate
@@ -1593,23 +1572,23 @@ function SprintRow({
           }}
           disabled={sprint.hasBaseline && !sprint.baselineCompleted}
           className={[
-            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 disabled:cursor-not-allowed",
+            "px-4 sm:px-5 py-1.5 sm:py-2 rounded-[8px] text-xs font-bold flex-1 sm:flex-none h-9 sm:h-10 transition-all duration-200 disabled:cursor-not-allowed",
             sprint.certificateEarned
               ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
               : sprint.status === "in_progress"
-              ? "border border-blue-600 text-blue-700 hover:bg-blue-50"
-              : sprint.hasBaseline && !sprint.baselineCompleted
-              ? "bg-blue-300 text-white"
-              : "bg-blue-600 text-white hover:bg-blue-700",
+                ? "border border-blue-600 text-blue-700 hover:bg-[#eff4ff]"
+                : sprint.hasBaseline && !sprint.baselineCompleted
+                  ? "bg-blue-300 text-white"
+                  : "bg-[#2563eb] text-white hover:bg-[#1d4ed8]",
           ].join(" ")}
         >
           {sprint.certificateEarned
             ? "Review Sprint"
             : sprint.status === "in_progress"
-            ? "Continue"
-            : sprint.hasBaseline && !sprint.baselineCompleted
-            ? "Complete Baseline First"
-            : "Start your sprint"}
+              ? "Continue"
+              : sprint.hasBaseline && !sprint.baselineCompleted
+                ? "Complete Baseline First"
+                : "Start your sprint"}
         </button>
       </div>
     </div>
@@ -1629,11 +1608,11 @@ const CertificateTemplate = React.forwardRef<
   return (
     <div
       ref={ref}
-      className="relative bg-gradient-to-br from-white via-sky-50/40 to-blue-50/70 rounded-xl p-4 sm:p-8 border-4 border-sky-100"
+      className="relative bg-gradient-to-br from-white via-sky-50/40 to-blue-50/70 rounded-[8px] p-4 sm:p-8 border-4 border-sky-100"
     >
-      <div className="absolute inset-4 border-2 border-blue-100 rounded-lg pointer-events-none" />
+      <div className="absolute inset-4 border-2 border-blue-100 rounded-[8px] pointer-events-none" />
 
-      <div className="absolute inset-0 pointer-events-none opacity-40 rounded-xl overflow-hidden">
+      <div className="absolute inset-0 pointer-events-none opacity-40 rounded-[8px] overflow-hidden">
         <div className="absolute -top-10 -left-16 w-64 h-64 border border-blue-100 rounded-full" />
         <div className="absolute top-20 -right-16 w-56 h-56 border border-sky-100 rounded-full" />
         <div className="absolute bottom-6 left-1/3 w-40 h-40 border border-indigo-100 rounded-full" />
@@ -1642,7 +1621,7 @@ const CertificateTemplate = React.forwardRef<
       <div className="relative z-10">
         <div className="relative">
           <div className="text-center">
-            <h2 className="text-2xl sm:text-4xl font-black text-slate-900 mt-2 tracking-wide">
+            <h2 className="text-2xl sm:text-4xl font-bold text-[#0f172a] mt-2 tracking-wide">
               CERTIFICATE OF SPRINT COMPLETION
             </h2>
           </div>
@@ -1665,7 +1644,7 @@ const CertificateTemplate = React.forwardRef<
               <rect x="24" y="24" width="8" height="8" fill="#FFFFFF" />
               <rect x="34" y="48" width="12" height="12" fill="#8FAAE6" />
             </svg>
-            <span className="text-lg sm:text-xl font-black text-black leading-none">
+            <span className="text-lg sm:text-xl font-bold text-black leading-none">
               Lucid
             </span>
           </div>
@@ -1675,7 +1654,7 @@ const CertificateTemplate = React.forwardRef<
           <p className="text-sm sm:text-base text-slate-600 font-medium">
             This Certificate is Proudly Awarded to
           </p>
-          <h3 className="mt-3 text-2xl sm:text-4xl font-black text-blue-700 tracking-wide">
+          <h3 className="mt-3 text-2xl sm:text-4xl font-bold text-blue-700 tracking-wide">
             {recipientName}
           </h3>
 
@@ -1683,7 +1662,7 @@ const CertificateTemplate = React.forwardRef<
             In Recognition of Successfully Completing the
           </p>
 
-          <p className="mt-2 text-lg sm:text-2xl font-bold text-slate-900">
+          <p className="mt-2 text-lg sm:text-2xl font-bold text-[#0f172a]">
             "{sprintName}"
           </p>
 
@@ -1698,7 +1677,7 @@ const CertificateTemplate = React.forwardRef<
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
               Date
             </p>
-            <p className="text-base sm:text-lg font-black text-slate-900 mt-1">
+            <p className="text-base sm:text-lg font-bold text-[#0f172a] mt-1">
               {completionDate}
             </p>
           </div>
@@ -1707,7 +1686,7 @@ const CertificateTemplate = React.forwardRef<
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500 font-bold">
               Awarded by
             </p>
-            <p className="text-base sm:text-lg font-black text-blue-700 mt-1">
+            <p className="text-base sm:text-lg font-bold text-blue-700 mt-1">
               Lucid
             </p>
           </div>
@@ -1750,7 +1729,7 @@ function LearningStyleBlurb({ styleCode }: { styleCode: string }) {
   };
   return (
     <div className="text-xs sm:text-sm font-medium leading-relaxed">
-      <span className="font-black text-slate-900 block mb-1">{info.label}</span>
+      <span className="font-bold text-[#0f172a] block mb-1">{info.label}</span>
       {info.blurb}
     </div>
   );
@@ -1765,8 +1744,8 @@ function LoadingProgress({
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
-        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="w-full max-w-xl bg-white rounded-[8px] shadow-lg border border-slate-100 p-6 flex flex-col items-center justify-center space-y-4">
+        <div className="w-8 h-8 md:w-10 md:h-10 border-4 border-[#eff4ff]0 border-t-transparent rounded-full animate-spin"></div>
         <p className="text-sm font-semibold text-slate-700">{label}</p>
         <p className="text-xs text-slate-500 font-medium">
           Loading your data securely...
