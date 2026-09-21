@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Trophy, Shield, Flame, Zap, Sparkles, BookOpen, Check, Lock, Search, Loader2 } from "lucide-react";
+import { Trophy, Shield, Flame, Zap, Sparkles, BookOpen, Check, Lock, Search, Loader2, Clock } from "lucide-react";
 import { fetchLeaderboard } from "@/lib/api/gamification";
 
 interface UserStat {
