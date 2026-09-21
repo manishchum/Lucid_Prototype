@@ -644,8 +644,8 @@ export default function CompanyAccessPage() {
           </Alert>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] min-h-[720px] overflow-hidden">
-          <Card className="border-slate-200 shadow-lg h-[1360px] flex flex-col">
+        <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] min-h-[720px] lg:overflow-hidden w-full">
+          <Card className="border-slate-200 shadow-lg h-[500px] lg:h-[1360px] flex flex-col overflow-hidden min-w-0">
             <CardHeader className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -723,7 +723,7 @@ export default function CompanyAccessPage() {
             </CardContent>
           </Card>            
 
-          <Card className="border-slate-200 shadow-lg h-full overflow-hidden">
+          <Card className="border-slate-200 shadow-lg h-[800px] lg:h-full overflow-hidden flex flex-col min-w-0">
             <CardHeader className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -742,7 +742,7 @@ export default function CompanyAccessPage() {
             </CardHeader>
 
             <CardContent className="flex flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-400/60 scrollbar-track-slate-100">
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden pr-1 scrollbar-thin scrollbar-thumb-slate-400/60 scrollbar-track-slate-100">
                 <div className="grid gap-4 md:grid-cols-2">
                   {FEATURE_DEFINITIONS.map((feature) => {
                     const checked = draftAddons.includes(feature.id)
@@ -766,10 +766,10 @@ export default function CompanyAccessPage() {
                         key={feature.id}
                         className={`rounded-3xl border p-5 transition-all ${
                           checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
-                        } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
+                        } ${isLucidChild ? "md:ml-8" : ""}`}
                       >
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
+                        <div className="flex items-start sm:items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <Wand2 className={`h-4 w-4 ${checked ? "text-cyan-300" : "text-slate-500"}`} />
                               <p className="font-semibold">{feature.label}</p>
@@ -786,16 +786,17 @@ export default function CompanyAccessPage() {
                               {feature.description}
                             </p>
                           </div>
-                          <Switch
-                            checked={checked}
-                            onCheckedChange={(value) => {
-                              if (!isMandatory) {
-                                handleToggleAddon(feature.id, Boolean(value))
-                              }
-                            }}
-                            disabled={isMandatory || (isLucidChild && !parentEnabled)}
-                          />
-                        </div>
+                            <Switch
+                              checked={checked}
+                              onCheckedChange={(value) => {
+                                if (!isMandatory) {
+                                  handleToggleAddon(feature.id, Boolean(value))
+                                }
+                              }}
+                              disabled={isMandatory || (isLucidChild && !parentEnabled)}
+                              className="shrink-0"
+                            />
+                          </div>
                         {isLucidChild && !parentEnabled && (
                           <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
                         )}
@@ -867,7 +868,7 @@ export default function CompanyAccessPage() {
                         <>
                           <div>
                             <div className="text-xs font-semibold text-slate-500 mb-2">International</div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {grouped.international.map((lang) => (
                                 <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
                                   <input
@@ -889,7 +890,7 @@ export default function CompanyAccessPage() {
                           </div>
                           <div>
                             <div className="text-xs font-semibold text-slate-500 mb-2">Indian Languages</div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               {grouped.indian.map((lang) => (
                                 <label key={lang.code} className="inline-flex items-center gap-2 text-sm">
                                   <input
