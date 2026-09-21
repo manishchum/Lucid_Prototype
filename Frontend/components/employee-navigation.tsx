@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -184,7 +184,7 @@ const EmployeeNavigation = ({
 
       {/* Mobile Toggle */}
       <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-lg">
+        <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-[8px]">
           {isMobileOpen ? <X size={20} /> : <Menu size={20} />}
         </Button>
       </div>
@@ -200,10 +200,10 @@ const EmployeeNavigation = ({
               <img
                 src={companyLogo}
                 alt={`${companyDisplayName} logo`}
-                className="w-10 h-10 rounded-xl object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
+                className="w-10 h-10 rounded-[8px] object-contain shrink-0 border border-slate-100 bg-white p-1 shadow-sm"
               />
             ) : (
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 shadow-sm">
+              <div className="w-10 h-10 bg-[#eff4ff] rounded-[8px] flex items-center justify-center shrink-0 shadow-sm">
                 <svg className="w-5 h-5 text-[#3B66F5]" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <rect x="6" y="4" width="3" height="14" fill="#3B66F5" rx="0.5" />
                   <rect x="6" y="15" width="9" height="3" fill="#3B66F5" rx="0.5" />
@@ -220,7 +220,7 @@ const EmployeeNavigation = ({
         {/* Profile */}
         {!isCollapsed && (
           <div className="px-4 mb-4">
-            <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+            <div className="flex items-center gap-3 p-3.5 rounded-[18px] border border-slate-50 bg-white shadow-sm">
               <div className="w-10 h-10 rounded-full bg-[#E0E9FF] flex items-center justify-center text-[#3B66F5] font-bold text-sm relative shrink-0">
                 {mounted ? (displayUser?.name ? displayUser.name.split(' ').map((n:any)=>n[0]).join('').toUpperCase() : 'U') : 'U'}
                 <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-white rounded-full"></div>
@@ -288,7 +288,7 @@ const EmployeeNavigation = ({
                   <button
                     key={item.label}
                     onClick={() => handleNavigate(item.href)}
-                    className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                    className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
                   >
                     <item.icon size={18} className="shrink-0" />
                     <span className="truncate">{item.label}</span>
@@ -313,7 +313,7 @@ const EmployeeNavigation = ({
             {!isCollapsed && showReportToast && (
               <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 z-[60]">
                 <div
-                  className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-lg shadow-lg cursor-pointer select-none"
+                  className="flex items-center gap-3 bg-[#111827] text-white text-sm font-medium px-3 py-2 rounded-[8px] shadow-lg cursor-pointer select-none"
                   onClick={() => { setShowReportToast(false); handleNavigate('/employee/score-history'); }}
                 >
                   <span>Click for detailed report</span>
@@ -357,7 +357,7 @@ const EmployeeNavigation = ({
                 onClick={() => handleNavigate('/employee/roleplay')}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
               >
-                <UsersRound size={20} className="shrink-0" />
+                <Headset size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
               </button>
               {isCollapsed && <NavTooltip label="Role-Play" />}
@@ -371,7 +371,7 @@ const EmployeeNavigation = ({
                 onClick={() => handleNavigate('/employee/roleplay')}
                 className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/employee/roleplay') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
               >
-                <UsersRound size={20} className="shrink-0" />
+                <Headset size={20} className="shrink-0" />
                 {!isCollapsed && <span className="text-[15px] font-bold">Role-Play</span>}
               </button>
               {isCollapsed && <NavTooltip label="Role-Play" />}
@@ -436,7 +436,7 @@ const EmployeeNavigation = ({
                       <button
                           key={item.label}
                           onClick={() => handleNavigate(item.href)}
-                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
                       >
                           <item.icon size={18} className="shrink-0" />
                           <span className="truncate">{item.label}</span>
@@ -445,7 +445,7 @@ const EmployeeNavigation = ({
                   {/* Notify Button */}
                   <button
                       onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
-                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
+                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
                   >
                       <Bell size={18} className="shrink-0" />
                       <span className="truncate">Notify</span>
@@ -482,7 +482,7 @@ const EmployeeNavigation = ({
                       <button
                           key={item.label}
                           onClick={() => handleNavigate(item.href)}
-                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-lg transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                          className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
                       >
                           <item.icon size={18} className="shrink-0" />
                           <span className="truncate">{item.label}</span>
@@ -509,11 +509,11 @@ const EmployeeNavigation = ({
         {/* Logout */}
         <div className="p-4 border-t border-slate-50 mt-auto space-y-2">
           {/* Lucid Assistant Button - COMMENTED OUT
-          <button onClick={handleOpenAssistant} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#3B66F5] font-bold text-[15px] hover:bg-blue-50 rounded-xl transition-all duration-200">
+          <button onClick={handleOpenAssistant} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#3B66F5] font-bold text-[15px] hover:bg-[#eff4ff] rounded-[8px] transition-all duration-200">
             <MessageSquare size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Lucid Assistant</span>}
             {isCollapsed && (
-              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
+              <div className="absolute left-full ml-2 px-2.5 py-1.5 bg-[#2563eb] text-white text-xs font-medium rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible pointer-events-none transition-all duration-200 z-[9999] whitespace-nowrap shadow-lg top-1/2 -translate-y-1/2">
                 Lucid Assistant
               </div>
             )}
@@ -521,7 +521,7 @@ const EmployeeNavigation = ({
           */}
 
           {/* Logout Button */}
-          <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-xl transition-all duration-200">
+          <button onClick={handleLogout} className="relative group w-full flex items-center gap-3.5 px-4 py-3 text-[#EF4444] font-bold text-[15px] hover:bg-red-50 rounded-[8px] transition-all duration-200">
             <LogOut size={20} className="shrink-0 group-hover:translate-x-0.5 transition-transform" />
             {!isCollapsed && <span>Log Out</span>}
             {isCollapsed && (

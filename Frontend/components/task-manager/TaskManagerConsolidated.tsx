@@ -731,7 +731,7 @@ export function TaskCreatorWizard({
     <div className="flex flex-col xl:flex-row gap-6 w-full max-w-7xl mx-auto min-h-[580px]">
 
       {/* LEFT PORTION: The horizontal form container */}
-      <div className="flex-1 bg-white rounded-2xl border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden">
+      <div className="flex-1 bg-white rounded-[8px] border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden">
 
         {/* Banner with color matching photo */}
         <div className="bg-gradient-to-r from-[#2F63FF] via-indigo-600 to-purple-600 px-6 py-5 text-white flex items-center justify-between">
@@ -778,7 +778,7 @@ export function TaskCreatorWizard({
                       className="flex items-start space-x-4 text-left focus:outline-none cursor-pointer w-full relative z-10"
                     >
                       <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-display text-xs font-semibold border transition-all duration-300 shadow-sm ${isActive
-                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-transparent shadow-[0_0_15px_rgba(47,99,255,0.4)] ring-4 ring-indigo-50/50 scale-110'
+                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-transparent shadow-sm ring-4 ring-indigo-50/50 scale-110'
                           : isPast
                             ? 'bg-[#E1F9F0] text-[#10B981] border-[#10B981]'
                             : 'bg-white text-[#64748B] border-[#E2E8F0] group-hover:border-blue-300'
@@ -797,7 +797,7 @@ export function TaskCreatorWizard({
                     </button>
                     {index < stepsList.length - 1 && (
                       <div className="absolute top-8 left-4 w-[2px] h-[calc(100%+8px)] bg-[#E2E8F0] -z-10 ml-[-1px]">
-                        <div className={`w-full bg-[#2F63FF] transition-all duration-300 ${isPast ? 'h-full' : 'h-0'
+                        <div className={`w-full bg-[#2563eb] transition-all duration-300 ${isPast ? 'h-full' : 'h-0'
                           }`} />
                       </div>
                     )}
@@ -831,12 +831,12 @@ export function TaskCreatorWizard({
                       <button
                         type="button"
                         onClick={() => setAssociateWithSprint(true)}
-                        className={`p-5 rounded-2xl text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${associateWithSprint
+                        className={`p-5 rounded-[8px] text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${associateWithSprint
                             ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
                             : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
                           }`}
                       >
-                        <div className={`p-3 rounded-xl transition-all duration-300 ${associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
+                        <div className={`p-3 rounded-[8px] transition-all duration-300 ${associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
                           <Layers size={20} />
                         </div>
                         <div className="flex-1 relative z-10 pt-0.5">
@@ -854,12 +854,12 @@ export function TaskCreatorWizard({
                           setAssociateWithSprint(false);
                           setSelectedSprintIds([]);
                         }}
-                        className={`p-5 rounded-2xl text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${!associateWithSprint
+                        className={`p-5 rounded-[8px] text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${!associateWithSprint
                             ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
                             : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
                           }`}
                       >
-                        <div className={`p-3 rounded-xl transition-all duration-300 ${!associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
+                        <div className={`p-3 rounded-[8px] transition-all duration-300 ${!associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
                           <Users size={20} />
                         </div>
                         <div className="flex-1 relative z-10 pt-0.5">
@@ -875,7 +875,7 @@ export function TaskCreatorWizard({
                     {associateWithSprint && (
                       <div className="space-y-3 pt-2">
                         <label className="text-xs font-bold text-[#334155] block">Select Sprints to Link (Multi-Select)</label>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-slate-50/20">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-[8px] bg-slate-50/20">
                           {sprints.map((sprint) => {
                             const isSelected = selectedSprintIds.includes(sprint.id) || selectedSprintIds.includes(sprint.title);
                             return (
@@ -883,13 +883,13 @@ export function TaskCreatorWizard({
                                 type="button"
                                 key={sprint.id}
                                 onClick={() => toggleSelection(sprint.id, selectedSprintIds, setSelectedSprintIds)}
-                                className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex items-center justify-between bg-white ${isSelected
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 shadow-sm shadow-indigo-50/50'
+                                className={`p-4 rounded-[8px] border text-left cursor-pointer transition-all flex items-center justify-between bg-white ${isSelected
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 shadow-sm shadow-indigo-50/50'
                                     : 'border-[#E2E8F0] hover:bg-slate-50'
                                   }`}
                               >
                                 <div className="flex items-center space-x-3">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSelected ? 'bg-[#2F63FF] text-white' : 'bg-gray-100 text-[#475569]'
+                                  <div className={`w-8 h-8 rounded-[8px] flex items-center justify-center ${isSelected ? 'bg-[#2563eb] text-white' : 'bg-gray-100 text-[#475569]'
                                     }`}>
                                     <Layers3 size={15} />
                                   </div>
@@ -898,7 +898,7 @@ export function TaskCreatorWizard({
                                     <span className="text-[10px] font-mono text-gray-500">{sprint.code} • {sprint.status}</span>
                                   </div>
                                 </div>
-                                <div className={`w-5 h-5 rounded-md border flex items-center justify-center ${isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300'
+                                <div className={`w-5 h-5 rounded-md border flex items-center justify-center ${isSelected ? 'bg-[#2563eb] border-[#2F63FF] text-white' : 'border-gray-300'
                                   }`}>
                                   {isSelected && <Check size={12} className="stroke-[3]" />}
                                 </div>
@@ -913,9 +913,9 @@ export function TaskCreatorWizard({
                       <h3 className="text-sm font-semibold text-[#0F172A] mb-1 font-display">Work Module Structure</h3>
                       <p className="text-xs text-gray-500 font-sans mb-4">Determine if you would like to deploy a single primary action or a bundle containing multiple custom checklist actions.</p>
 
-                      <div className="relative flex p-1 bg-gray-100/80 backdrop-blur-md rounded-xl self-start max-w-[420px] border border-gray-200/50 shadow-inner overflow-hidden">
+                      <div className="relative flex p-1 bg-gray-100/80 backdrop-blur-md rounded-[8px] self-start max-w-[420px] border border-gray-200/50 shadow-inner overflow-hidden">
                         <div
-                          className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-[0_1px_4px_rgba(0,0,0,0.08)] transition-transform duration-300 ease-out border border-gray-200/60"
+                          className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-[8px] shadow-sm transition-transform duration-300 ease-out border border-gray-200/60"
                           style={{ transform: taskMode === 'multiple' ? 'translateX(100%)' : 'translateX(0)' }}
                         ></div>
 
@@ -926,7 +926,7 @@ export function TaskCreatorWizard({
                               setTasks([tasks[0]]);
                             }
                           }}
-                          className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${taskMode === 'single'
+                          className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-[8px] transition-colors cursor-pointer flex items-center justify-center space-x-2 ${taskMode === 'single'
                               ? 'text-indigo-700'
                               : 'text-[#64748B] hover:text-[#0F172A]'
                             }`}
@@ -938,7 +938,7 @@ export function TaskCreatorWizard({
                           onClick={() => {
                             setTaskMode('multiple');
                           }}
-                          className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${taskMode === 'multiple'
+                          className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-[8px] transition-colors cursor-pointer flex items-center justify-center space-x-2 ${taskMode === 'multiple'
                               ? 'text-indigo-700'
                               : 'text-[#64748B] hover:text-[#0F172A]'
                             }`}
@@ -963,7 +963,7 @@ export function TaskCreatorWizard({
                         <button
                           type="button"
                           onClick={addNewTaskDraft}
-                          className="inline-flex items-center space-x-1 px-3 py-1.5 h-8 bg-[#EEF2FF] text-[#2F63FF] hover:bg-[#E0E7FF] transition-all text-xs font-semibold rounded-lg cursor-pointer"
+                          className="inline-flex items-center space-x-1 px-3 py-1.5 h-8 bg-[#EEF2FF] text-[#2F63FF] hover:bg-[#E0E7FF] transition-all text-xs font-semibold rounded-[8px] cursor-pointer"
                         >
                           <Plus size={14} />
                           <span>Add Checklist Item</span>
@@ -973,7 +973,7 @@ export function TaskCreatorWizard({
 
                     <div className="space-y-6">
                       {taskMode === 'multiple' && (
-                        <div className="p-5 border border-[#E2E8F0] rounded-2xl bg-[#F8FAFC] space-y-4">
+                        <div className="p-5 border border-[#E2E8F0] rounded-[8px] bg-[#F8FAFC] space-y-4">
                           <div className="space-y-1">
                             <label className="text-xs font-bold text-[#334155] block">
                               Task Name <span className="text-red-500">*</span>
@@ -983,7 +983,7 @@ export function TaskCreatorWizard({
                               value={bundleTitle}
                               onChange={(e) => setBundleTitle(e.target.value)}
                               placeholder="e.g., Weekly Onboarding Checks"
-                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
+                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
                             />
                           </div>
                           <div className="space-y-1">
@@ -995,7 +995,7 @@ export function TaskCreatorWizard({
                               value={bundleDescription}
                               onChange={(e) => setBundleDescription(e.target.value)}
                               placeholder="Describe the overall instructions for this task."
-                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
                             />
                           </div>
                         </div>
@@ -1004,7 +1004,7 @@ export function TaskCreatorWizard({
                       {tasks.map((taskItem, idx) => (
                         <div
                           key={taskItem.id}
-                          className="p-5 border border-[#E2E8F0] rounded-2xl bg-[#FBFDFE] relative focus-within:ring-2 focus-within:ring-[#2F63FF]/20 focus-within:border-[#2F63FF] transition-all"
+                          className="p-5 border border-[#E2E8F0] rounded-[8px] bg-[#FBFDFE] relative focus-within:ring-2 focus-within:ring-[#2F63FF]/20 focus-within:border-[#2F63FF] transition-all"
                         >
                           {taskMode === 'multiple' && (
                             <div className="absolute top-4 right-4 flex items-center space-x-2">
@@ -1035,7 +1035,7 @@ export function TaskCreatorWizard({
                                 value={taskItem.title}
                                 onChange={(e) => updateTaskField(taskItem.id, 'title', e.target.value)}
                                 placeholder="e.g., Standard Operating Procedures Review / Code Quality Assurance Audit"
-                                className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
+                                className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
                                 id={`title-${taskItem.id}`}
                               />
                             </div>
@@ -1051,13 +1051,13 @@ export function TaskCreatorWizard({
                                   value={taskItem.description}
                                   onChange={(e) => updateTaskField(taskItem.id, 'description', e.target.value)}
                                   placeholder="Describe the instructions for this task."
-                                  className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                                  className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
                                 />
                               </div>
                             )}
 
                             {/* AI Evaluation Parameters */}
-                            <div className="space-y-1 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                            <div className="space-y-1 bg-indigo-50/50 p-3 rounded-[8px] border border-indigo-100">
                               <label className="text-[11px] font-bold text-indigo-900 block flex items-center justify-between">
                                 <span>
                                   Analyzing Parameters <span className="text-red-500">*</span>
@@ -1075,7 +1075,7 @@ export function TaskCreatorWizard({
                                   )
                                 }
                                 placeholder="e.g., Sentiment, clarity, relevance, action orientation, strengths, weaknesses, recommendations."
-                                className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
+                                className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
                               />
                             </div>
 
@@ -1092,8 +1092,8 @@ export function TaskCreatorWizard({
                                   <button
                                     type="button"
                                     onClick={() => toggleSubmissionFormat(taskItem.id, 'image')}
-                                    className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image')
-                                        ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image')
+                                        ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                         : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                       }`}
                                   >
@@ -1107,8 +1107,8 @@ export function TaskCreatorWizard({
                                   <button
                                     type="button"
                                     onClick={() => toggleSubmissionFormat(taskItem.id, 'text')}
-                                    className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text')
-                                        ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text')
+                                        ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                         : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                       }`}
                                   >
@@ -1122,8 +1122,8 @@ export function TaskCreatorWizard({
                                   <button
                                     type="button"
                                     onClick={() => toggleSubmissionFormat(taskItem.id, 'multiple_choice')}
-                                    className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice')
-                                        ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice')
+                                        ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                         : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                       }`}
                                   >
@@ -1137,8 +1137,8 @@ export function TaskCreatorWizard({
                                   <button
                                     type="button"
                                     onClick={() => toggleSubmissionFormat(taskItem.id, 'audio')}
-                                    className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio')
-                                        ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio')
+                                        ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                         : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                       }`}
                                   >
@@ -1152,8 +1152,8 @@ export function TaskCreatorWizard({
                                   <button
                                     type="button"
                                     onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
-                                    className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
-                                        ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
+                                        ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                         : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                       }`}
                                   >
@@ -1166,7 +1166,7 @@ export function TaskCreatorWizard({
 
                             {/* MULTIPLE CHOICE FORM BUILDER */}
                             {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
-                              <div className="bg-slate-50 rounded-xl p-4 border border-[#E2E8F0] space-y-4">
+                              <div className="bg-slate-50 rounded-[8px] p-4 border border-[#E2E8F0] space-y-4">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs font-bold text-[#0F172A] flex items-center space-x-2">
                                     <QuizIcon size={14} className="text-[#2F63FF]" />
@@ -1183,7 +1183,7 @@ export function TaskCreatorWizard({
                                 </div>
 
                                 {taskItem.questions.length === 0 ? (
-                                  <div className="text-center py-6 border border-dashed border-[#CBD5E1] rounded-lg bg-white">
+                                  <div className="text-center py-6 border border-dashed border-[#CBD5E1] rounded-[8px] bg-white">
                                     <QuizIcon className="mx-auto text-gray-300 mb-2" size={24} />
                                     <p className="text-xs text-gray-500">Configure multi-choice questions for verification</p>
                                     <button
@@ -1202,7 +1202,7 @@ export function TaskCreatorWizard({
                                 ) : (
                                   <div className="space-y-4">
                                     {taskItem.questions.map((quizQ, qIdx) => (
-                                      <div key={quizQ.id} className="p-3 bg-white border border-[#E2E8F0] rounded-lg space-y-3 relative">
+                                      <div key={quizQ.id} className="p-3 bg-white border border-[#E2E8F0] rounded-[8px] space-y-3 relative">
                                         <button
                                           type="button"
                                           onClick={() => deleteQuizQuestion(taskItem.id, quizQ.id)}
@@ -1236,7 +1236,7 @@ export function TaskCreatorWizard({
                                                 e.target.value as any
                                               )
                                             }
-                                            className="border rounded-lg text-xs p-2"
+                                            className="border rounded-[8px] text-xs p-2"
                                           >
                                             <option value="single">
                                               Single Answer
@@ -1412,7 +1412,7 @@ export function TaskCreatorWizard({
                           <button
                             type="button"
                             onClick={() => setAudienceDropdownOpen(prev => prev === 'dept' ? null : 'dept')}
-                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-white hover:bg-slate-50 transition-colors"
+                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-[8px] bg-white hover:bg-slate-50 transition-colors"
                           >
                             <div className="flex flex-col text-left">
                               <span className="text-xs font-bold text-[#334155]">Function</span>
@@ -1424,7 +1424,7 @@ export function TaskCreatorWizard({
                           </button>
 
                           {audienceDropdownOpen === 'dept' && (
-                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-xl p-2 max-h-60 overflow-y-auto">
+                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-[8px] p-2 max-h-60 overflow-y-auto">
                               <div className="space-y-1">
                                 {Array.from(new Set(corporateLevels.functions)).sort((a, b) => a.localeCompare(b)).map((func) => {
                                   const selected = selectedFunctions.includes(func);
@@ -1432,7 +1432,7 @@ export function TaskCreatorWizard({
                                     <button
                                       key={func}
                                       onClick={() => toggleSelection(func, selectedFunctions, setSelectedFunctions)}
-                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs leading-none cursor-pointer transition-colors ${selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
+                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-xs leading-none cursor-pointer transition-colors ${selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
                                         }`}
                                     >
                                       <span>{func}</span>
@@ -1450,7 +1450,7 @@ export function TaskCreatorWizard({
                           <button
                             type="button"
                             onClick={() => setAudienceDropdownOpen(prev => prev === 'unit' ? null : 'unit')}
-                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-white hover:bg-slate-50 transition-colors"
+                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-[8px] bg-white hover:bg-slate-50 transition-colors"
                           >
                             <div className="flex flex-col text-left">
                               <span className="text-xs font-bold text-[#334155]">Sub Function</span>
@@ -1462,9 +1462,9 @@ export function TaskCreatorWizard({
                           </button>
 
                           {audienceDropdownOpen === 'unit' && (
-                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-xl p-2 max-h-60 overflow-y-auto">
+                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-[8px] p-2 max-h-60 overflow-y-auto">
                               {selectedFunctions.length === 0 ? (
-                                <div className="p-4 text-center border border-dashed border-gray-100 rounded-lg">
+                                <div className="p-4 text-center border border-dashed border-gray-100 rounded-[8px]">
                                   <p className="text-[10px] text-gray-400">Pick a Function first to see focus teams!</p>
                                 </div>
                               ) : (
@@ -1475,7 +1475,7 @@ export function TaskCreatorWizard({
                                       <button
                                         key={subF}
                                         onClick={() => toggleSelection(subF, selectedSubFunctions, setSelectedSubFunctions)}
-                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs leading-none cursor-pointer transition-colors ${selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
+                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-xs leading-none cursor-pointer transition-colors ${selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
                                           }`}
                                       >
                                         <span>{subF}</span>
@@ -1491,7 +1491,7 @@ export function TaskCreatorWizard({
                       </div>
 
                       {/* 4. Filtered Individuals Selection */}
-                      <div className="border border-gray-200 rounded-xl p-4 bg-slate-50/50 space-y-3 mt-4">
+                      <div className="border border-gray-200 rounded-[8px] p-4 bg-slate-50/50 space-y-3 mt-4">
                         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-3 lg:space-y-0 gap-4">
                           <div className="flex-1 min-w-0">
                             <span className="text-xs font-bold text-[#334155] block truncate">Select Targeted Personnel ({selectedIndividualIds.length} Selected)</span>
@@ -1507,21 +1507,21 @@ export function TaskCreatorWizard({
                                 value={individualSearchQuery}
                                 onChange={(e) => setIndividualSearchQuery(e.target.value)}
                                 placeholder="Search personnel..."
-                                className="bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] w-40 sm:w-48"
+                                className="bg-white border border-gray-200 rounded-[8px] pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] w-40 sm:w-48"
                               />
                             </div>
 
                             <button
                               type="button"
                               onClick={handleSelectAllTeam}
-                              className="text-xs font-semibold text-[#2F63FF] border border-gray-200 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap shadow-sm"
+                              className="text-xs font-semibold text-[#2F63FF] border border-gray-200 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-[8px] cursor-pointer whitespace-nowrap shadow-sm"
                             >
                               Select All ({filteredTeamMembers.length})
                             </button>
                             <button
                               type="button"
                               onClick={() => handleSelectPresets('clear')}
-                              className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap shadow-sm"
+                              className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-[8px] transition-colors cursor-pointer whitespace-nowrap shadow-sm"
                             >
                               Reset
                             </button>
@@ -1529,7 +1529,7 @@ export function TaskCreatorWizard({
                         </div>
 
                         {filteredTeamMembers.length === 0 ? (
-                          <div className="p-8 text-center bg-white border border-dashed border-gray-200 rounded-lg">
+                          <div className="p-8 text-center bg-white border border-dashed border-gray-200 rounded-[8px]">
                             <p className="text-xs text-gray-400">No personnel match the current criteria.</p>
                           </div>
                         ) : (
@@ -1540,7 +1540,7 @@ export function TaskCreatorWizard({
                                 <button
                                   key={member.id}
                                   onClick={() => toggleSelection(member.id, selectedIndividualIds, setSelectedIndividualIds)}
-                                  className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex items-center justify-between ${isChecked
+                                  className={`p-2.5 rounded-[8px] border text-left cursor-pointer transition-all flex items-center justify-between ${isChecked
                                       ? 'border-[#2F63FF] bg-white shadow-sm ring-2 ring-indigo-50/50'
                                       : 'border-gray-200 hover:border-gray-300 bg-white'
                                     }`}
@@ -1563,7 +1563,7 @@ export function TaskCreatorWizard({
                                       <span className="text-[9px] text-[#2F63FF] font-mono block mt-1 uppercase tracking-tight">{member.function} • {member.subFunction}</span>
                                     </div>
                                   </div>
-                                  <div className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center ${isChecked ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300'
+                                  <div className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center ${isChecked ? 'bg-[#2563eb] border-[#2F63FF] text-white' : 'border-gray-300'
                                     }`}>
                                     {isChecked && <Check size={10} className="stroke-[3]" />}
                                   </div>
@@ -1588,7 +1588,7 @@ export function TaskCreatorWizard({
                       <p className="text-xs text-gray-500 mt-0.5 font-sans">Establish target completion deadlines and verify configurations on the pipeline summary panel.</p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-6 relative p-6 md:p-8 border border-indigo-100 rounded-3xl bg-gradient-to-br from-white via-indigo-50/40 to-blue-50/40 shadow-xl shadow-indigo-900/5 overflow-hidden">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-6 relative p-6 md:p-8 border border-indigo-100 rounded-[8px] bg-gradient-to-br from-white via-indigo-50/40 to-blue-50/40 shadow-xl shadow-indigo-900/5 overflow-hidden">
                       {/* Decorative Glowing Orbs */}
                       <div className="absolute top-0 right-0 -mt-12 -mr-12 w-48 h-48 bg-blue-400/20 rounded-full blur-3xl pointer-events-none"></div>
                       <div className="absolute bottom-0 left-0 -mb-12 -ml-12 w-48 h-48 bg-purple-400/15 rounded-full blur-3xl pointer-events-none"></div>
@@ -1604,18 +1604,18 @@ export function TaskCreatorWizard({
                               type="date"
                               value={dueDate}
                               onChange={(e) => setDueDate(e.target.value)}
-                              className="flex-1 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-xl py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
+                              className="flex-1 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-[8px] py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
                             />
                             <input
                               type="time"
                               value={dueTime}
                               onChange={(e) => setDueTime(e.target.value)}
-                              className="w-32 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-xl py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
+                              className="w-32 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-[8px] py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
                             />
                           </div>
 
                           {/* Strict Deadline Toggle */}
-                          <label className="flex items-start space-x-3 p-3 bg-white/60 border border-indigo-100/60 rounded-xl cursor-pointer hover:bg-white transition-all shadow-sm">
+                          <label className="flex items-start space-x-3 p-3 bg-white/60 border border-indigo-100/60 rounded-[8px] cursor-pointer hover:bg-white transition-all shadow-sm">
                             <div className="relative flex items-center mt-0.5">
                               <input
                                 type="checkbox"
@@ -1623,7 +1623,7 @@ export function TaskCreatorWizard({
                                 onChange={(e) => setStrictDeadline(e.target.checked)}
                                 className="sr-only peer"
                               />
-                              <div className="w-8 h-4.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-[#2F63FF]"></div>
+                              <div className="w-8 h-4.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-[#2563eb]"></div>
                             </div>
                             <div>
                               <span className="text-xs font-bold text-indigo-900 block">Strict Deadline Enforcement</span>
@@ -1640,7 +1640,7 @@ export function TaskCreatorWizard({
                                 d.setDate(d.getDate() + 1);
                                 setDueDate(d.toISOString().split('T')[0]);
                               }}
-                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                             >
                               Due Tomorrow
                             </button>
@@ -1651,7 +1651,7 @@ export function TaskCreatorWizard({
                                 d.setDate(d.getDate() + 7);
                                 setDueDate(d.toISOString().split('T')[0]);
                               }}
-                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                             >
                               7-Day Deadline
                             </button>
@@ -1662,7 +1662,7 @@ export function TaskCreatorWizard({
                                 d.setDate(d.getDate() + 14);
                                 setDueDate(d.toISOString().split('T')[0]);
                               }}
-                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                             >
                               14-Day Deadline
                             </button>
@@ -1672,7 +1672,7 @@ export function TaskCreatorWizard({
                                 // End of Sprint Mock
                                 setDueDate('2026-06-30');
                               }}
-                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                              className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                             >
                               End of Month
                             </button>
@@ -1704,7 +1704,7 @@ export function TaskCreatorWizard({
                                 key={item.id}
                                 type="button"
                                 onClick={() => setRecurrence(item.id as any)}
-                                className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all duration-300 flex flex-col justify-between ${isSelectedRec
+                                className={`p-3.5 rounded-[8px] border text-left cursor-pointer transition-all duration-300 flex flex-col justify-between ${isSelectedRec
                                     ? 'border-transparent bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 scale-[1.02]'
                                     : 'border-indigo-100/60 bg-white/60 hover:bg-white shadow-sm hover:shadow text-gray-700 hover:-translate-y-0.5'
                                   }`}
@@ -1722,7 +1722,7 @@ export function TaskCreatorWizard({
 
                     {/* Submission validation state message */}
                     {!isStepValid('details') && (
-                      <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl font-medium">
+                      <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-[8px] font-medium">
                         ⚠️ Note: Some tasks in Step 2 are incomplete! Please go back and write titles + instructions before sending.
                       </div>
                     )}
@@ -1731,7 +1731,7 @@ export function TaskCreatorWizard({
                       <button
                         type="button"
                         onClick={onCancel}
-                        className="px-5 py-2.5 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-xl text-gray-700 cursor-pointer"
+                        className="px-5 py-2.5 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-[8px] text-gray-700 cursor-pointer"
                       >
                         Save Draft
                       </button>
@@ -1739,8 +1739,8 @@ export function TaskCreatorWizard({
                         type="button"
                         onClick={handleLaunchFlow}
                         disabled={!isStepValid('details') || !isStepValid('audience')}
-                        className={`px-6 py-2.5 text-xs text-white font-semibold rounded-xl cursor-pointer transition-all flex items-center space-x-2 ${isStepValid('details') || isStepValid('audience') // Fallback to keep playground playful and accessible
-                            ? 'bg-[#2F63FF] hover:bg-blue-700 shadow-md shadow-blue-200'
+                        className={`px-6 py-2.5 text-xs text-white font-semibold rounded-[8px] cursor-pointer transition-all flex items-center space-x-2 ${isStepValid('details') || isStepValid('audience') // Fallback to keep playground playful and accessible
+                            ? 'bg-[#2563eb] hover:bg-[#1d4ed8] shadow-md shadow-blue-200'
                             : 'bg-gray-300 pointer-events-none opacity-60'
                           }`}
                       >
@@ -1774,7 +1774,7 @@ export function TaskCreatorWizard({
                   const idx = stepsList.findIndex(s => s.id === activeStep);
                   if (idx > 0) setActiveStep(stepsList[idx - 1].id);
                 }}
-                className="px-4 py-2 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-xl text-gray-700 cursor-pointer flex items-center space-x-1"
+                className="px-4 py-2 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-[8px] text-gray-700 cursor-pointer flex items-center space-x-1"
               >
                 <ChevronLeft size={14} />
                 <span>Previous Step</span>
@@ -1794,7 +1794,7 @@ export function TaskCreatorWizard({
                   const idx = stepsList.findIndex(s => s.id === activeStep);
                   if (idx < stepsList.length - 1) setActiveStep(stepsList[idx + 1].id);
                 }}
-                className="px-5 py-2 text-xs font-semibold rounded-xl transition-all flex items-center space-x-1 cursor-pointer bg-[#2F63FF] text-white hover:bg-blue-700 shadow-sm"
+                className="px-5 py-2 text-xs font-semibold rounded-[8px] transition-all flex items-center space-x-1 cursor-pointer bg-[#2563eb] text-white hover:bg-[#1d4ed8] shadow-sm"
               >
                 <span>Next Step</span>
                 <ChevronRight size={14} />
@@ -1806,7 +1806,7 @@ export function TaskCreatorWizard({
       </div>
 
       {/* RIGHT PORTION: Dynamic visual tablet preview device */}
-      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
+      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-[8px] border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
         <div>
           <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-mono">📱 MOBILE PREVIEW</span>
@@ -1825,10 +1825,10 @@ export function TaskCreatorWizard({
             {tasks.map((taskItem, tIdx) => (
               <div 
                 key={taskItem.id} 
-                className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm relative overflow-hidden"
+                className="bg-white rounded-[8px] p-4 border border-gray-200 shadow-sm relative overflow-hidden"
               > */}
       {/* Decorative status accent */}
-      {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
+      {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2563eb]"></div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1851,7 +1851,7 @@ export function TaskCreatorWizard({
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Required Validation Action:</span>
                     
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image') && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
+                      <div className="border border-dashed border-gray-200 rounded-[8px] p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <ImageIcon size={12} />
                         </span>
@@ -1861,7 +1861,7 @@ export function TaskCreatorWizard({
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text') && (
-                      <div className="border border-gray-200 rounded-lg p-2.5 bg-slate-50 relative cursor-not-allowed mb-2">
+                      <div className="border border-gray-200 rounded-[8px] p-2.5 bg-slate-50 relative cursor-not-allowed mb-2">
                         <div className="space-y-1">
                           <div className="h-1 bg-gray-200 rounded w-full"></div>
                           <div className="h-1 bg-gray-200 rounded w-5/6"></div>
@@ -1871,7 +1871,7 @@ export function TaskCreatorWizard({
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
-                      <div className="bg-slate-50 rounded-lg p-2.5 border border-gray-100 space-y-2 mb-2">
+                      <div className="bg-slate-50 rounded-[8px] p-2.5 border border-gray-100 space-y-2 mb-2">
                         {taskItem.questions.length === 0 ? (
                           <div className="text-center py-2 text-[10px] text-gray-400 font-sans">
                             Configure evaluation items in step 2.
@@ -1906,7 +1906,7 @@ export function TaskCreatorWizard({
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio') && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
+                      <div className="border border-dashed border-gray-200 rounded-[8px] p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <MicIcon size={12} />
                         </span>
@@ -2691,7 +2691,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
     <div className="space-y-6 max-w-7xl mx-auto">
 
 
-      <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm mb-4 space-y-4">
+      <div className="bg-white rounded-[8px] border border-gray-100 p-4 shadow-sm mb-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-[#0F172A] font-bold text-xl">Assigned Tasks</h2>
 
@@ -2700,7 +2700,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
               <button
                 type="button"
                 onClick={onStartCreateTask}
-                className="px-4 py-2 text-xs font-bold text-white bg-[#2F63FF] hover:bg-blue-600 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm mr-2"
+                className="px-4 py-2 text-xs font-bold text-white bg-[#2563eb] hover:bg-[#2563eb] rounded-[8px] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm mr-2"
               >
                 <Plus size={13} />
                 <span>Create Task</span>
@@ -2710,14 +2710,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
               <>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-lg transition-colors cursor-pointer ${viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                  className={`p-2 rounded-[8px] transition-colors cursor-pointer ${viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
                     }`}
                 >
                   <LayoutGrid size={18} />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-lg transition-colors cursor-pointer ${viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                  className={`p-2 rounded-[8px] transition-colors cursor-pointer ${viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
                     }`}
                 >
                   <List size={18} />
@@ -2730,21 +2730,21 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
         <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={() => { setStatusFilter('active'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            className={`px-4 py-1.5 text-xs font-bold rounded-[8px] transition-colors cursor-pointer ${statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
               }`}
           >
             Active
           </button>
           <button
             onClick={() => { setStatusFilter('completed'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            className={`px-4 py-1.5 text-xs font-bold rounded-[8px] transition-colors cursor-pointer ${statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
               }`}
           >
             Completed
           </button>
           <button
             onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+            className={`px-4 py-1.5 text-xs font-bold rounded-[8px] transition-colors cursor-pointer ${statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
               }`}
           >
             All
@@ -2760,13 +2760,13 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
               placeholder="Search Tasks..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
+              className="w-full pl-11 pr-4 py-3 bg-white border border-gray-200 rounded-[8px] text-sm focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
             />
           </div>
           <select
             value={sortBy}
             onChange={(e) => { setSortBy(e.target.value); setCurrentPage(1); }}
-            className="px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 outline-none w-full sm:w-48 cursor-pointer"
+            className="px-4 py-3 bg-white border border-gray-200 rounded-[8px] text-sm text-gray-600 outline-none w-full sm:w-48 cursor-pointer"
           >
             <option value="title">Sort by Title</option>
             <option value="recent">Recently Added</option>
@@ -2777,7 +2777,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
       {/* 4. Real Interactive Grid matching pixel colors from image */}
       {filteredTasks.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-[#E2E8F0] shadow-sm max-w-xl mx-auto">
+        <div className="text-center py-20 bg-white rounded-[8px] border border-[#E2E8F0] shadow-sm max-w-xl mx-auto">
           <Clock className="mx-auto text-gray-300 mb-3" size={48} />
           <h3 className="font-display font-medium text-[#0F172A] text-sm">No tasks assigned at this time</h3>
           <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto font-sans">
@@ -2787,14 +2787,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
             <button
               type="button"
               onClick={onStartCreateTask}
-              className="text-xs font-semibold text-[#2F63FF] border border-gray-100 hover:bg-slate-50 bg-white px-4 py-2 rounded-xl mt-4 inline-flex items-center space-x-1 cursor-pointer"
+              className="text-xs font-semibold text-[#2F63FF] border border-gray-100 hover:bg-slate-50 bg-white px-4 py-2 rounded-[8px] mt-4 inline-flex items-center space-x-1 cursor-pointer"
             >
               <Plus size={14} /> <span>Create Task Flow</span>
             </button>
           )}
         </div>
       ) : (
-        <div className={viewMode === 'list' ? "bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden mb-6 overflow-x-auto" : ""}>
+        <div className={viewMode === 'list' ? "bg-white rounded-[8px] border border-gray-100 shadow-sm overflow-hidden mb-6 overflow-x-auto" : ""}>
           <div className={viewMode === 'list' ? "min-w-[900px]" : ""}>
             {viewMode === 'list' && (
               <div className={`grid ${userRole === 'admin' ? 'grid-cols-[3fr_2fr_3fr]' : 'grid-cols-[3fr_1fr_1fr_2fr_2fr]'} gap-4 px-6 py-4 border-b border-gray-100 text-[11px] font-bold text-[#64748B] uppercase tracking-wider bg-white`}>
@@ -2846,7 +2846,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                         {userRole !== 'admin' && (
                           <div className="pr-4 pt-1">
                             <div className="h-[6px] w-full bg-gray-100 rounded-full overflow-hidden mb-1.5">
-                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2563eb] w-full' : 'bg-[#2563eb] w-0'}`} />
                             </div>
                             <div className="flex justify-between text-[11px] font-bold">
                               <span className="text-[#64748B]">{isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length}</span>
@@ -2858,7 +2858,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                           <div className="flex -space-x-1.5 mr-2">
                             {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
                             {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
-                            {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
+                            {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-[#2563eb] flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
                             {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
                             {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
                           </div>
@@ -2874,14 +2874,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                       }
                                       setConfirmDeleteTaskId(null);
                                     }}
-                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
+                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
                                   >
                                     Confirm Delete
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setConfirmDeleteTaskId(null)}
-                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
+                                    className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
                                   >
                                     Cancel
                                   </button>
@@ -2897,7 +2897,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                       setReportDuration('30_days');
                                       setReportEmail('');
                                     }}
-                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
+                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-[8px] border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
                                   >
                                     <span>Report</span>
                                   </button>
@@ -2908,14 +2908,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         onEditTaskRequest(task);
                                       }
                                     }}
-                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
+                                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-[8px] border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
                                   >
                                     <span>Reassign</span>
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setConfirmDeleteTaskId(task.id)}
-                                    className="text-xs font-semibold p-1.5 rounded-lg border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                                    className="text-xs font-semibold p-1.5 rounded-[8px] border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
                                     title="Delete Task"
                                   >
                                     <Trash2 size={13} />
@@ -2928,7 +2928,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                               <button
                                 type="button"
                                 onClick={() => setActiveSubmittingTaskId(task.id)}
-                                className="px-5 py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                                className="px-5 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-bold rounded-[8px] transition-colors cursor-pointer shadow-sm"
                               >
                                 Start
                               </button>
@@ -2940,7 +2940,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
                     {viewMode === 'grid' && userRole === 'admin' && (
                       <div
-                        className={`bg-white rounded-2xl border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${isCompletedByMe
+                        className={`bg-white rounded-[8px] border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${isCompletedByMe
                             ? 'border-emerald-300 ring-2 ring-emerald-50/50'
                             : isSubmittingActive
                               ? 'border-[#2F63FF] ring-4 ring-indigo-50'
@@ -2948,7 +2948,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                           }`}
                       >
                         {/* 1. Card Top Accent Color bar */}
-                        <div className={`h-1.5 w-full ${isCompletedByMe ? 'bg-[#10B981]' : 'bg-[#2F63FF]'}`} />
+                        <div className={`h-1.5 w-full ${isCompletedByMe ? 'bg-[#10B981]' : 'bg-[#2563eb]'}`} />
 
                         <div className="p-5 flex-1 flex flex-col justify-between">
                           <div>
@@ -2997,7 +2997,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                           </div>
 
                           {/* Task sub-items information displaying list of child tasks */}
-                          <div className="my-4 bg-slate-50 rounded-xl p-3 border border-[#F1F5F9]">
+                          <div className="my-4 bg-slate-50 rounded-[8px] p-3 border border-[#F1F5F9]">
                             <div className="space-y-2">
                               {task.tasks.map((sub, sIdx) => {
                                 return (
@@ -3049,14 +3049,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                           }
                                           setConfirmDeleteTaskId(null);
                                         }}
-                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
                                       >
                                         Confirm Delete
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => setConfirmDeleteTaskId(null)}
-                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
                                       >
                                         Cancel
                                       </button>
@@ -3072,7 +3072,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                           setReportDuration('30_days');
                                           setReportEmail('');
                                         }}
-                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
                                       >
                                         <span>Report</span>
                                       </button>
@@ -3084,14 +3084,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                             onEditTaskRequest(task);
                                           }
                                         }}
-                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-[8px] border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
                                       >
                                         <span>Reassign</span>
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => setConfirmDeleteTaskId(task.id)}
-                                        className="text-xs font-semibold p-1.5 rounded-lg border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                                        className="text-xs font-semibold p-1.5 rounded-[8px] border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
                                         title="Delete Task"
                                       >
                                         <Trash2 size={13} />
@@ -3108,7 +3108,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                 {isCompletedByMe ? (
                                   <div className="space-y-3">
                                     {userRole === 'employee' ? (
-                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                                      <div className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-4">
                                         <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
                                           <CheckCircle size={16} />
                                           <span>Completed</span>
@@ -3116,7 +3116,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         <p className="text-xs text-emerald-600 mt-1">Task submitted successfully</p>
                                       </div>
                                     ) : (
-                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                                      <div className="rounded-[8px] border border-emerald-200 bg-emerald-50 p-4 space-y-3">
                                         <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
                                           <CheckCircle size={16} />
                                           <span>Verified & Complete</span>
@@ -3125,13 +3125,13 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         {!isWelcomePage && (
                                           <>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                                              <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                              <div className="rounded-[8px] bg-white border border-emerald-100 p-3">
                                                 <div className="text-[10px] uppercase text-gray-400 font-bold">AI Score</div>
                                                 <div className="mt-1 font-semibold text-gray-900">
                                                   {latestSubmission?.score ?? latestSubmission?.ai_validation?.scores?.overall ?? 'N/A'} / 100
                                                 </div>
                                               </div>
-                                              <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                              <div className="rounded-[8px] bg-white border border-emerald-100 p-3">
                                                 <div className="text-[10px] uppercase text-gray-400 font-bold">Completed</div>
                                                 <div className="mt-1 font-semibold text-gray-900">
                                                   {latestSubmission?.submitted_at ? new Date(latestSubmission.submitted_at).toLocaleDateString() : 'Already submitted'}
@@ -3140,14 +3140,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                             </div>
                                             {latestSubmission?.ai_validation ? (
                                               <div className="grid grid-cols-1 gap-2 text-xs">
-                                                <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                <div className="rounded-[8px] bg-white border border-emerald-100 p-3">
                                                   <div className="text-[10px] uppercase text-gray-400 font-bold">AI Remark</div>
                                                   <div className="mt-1 text-gray-700">
                                                     {latestSubmission.ai_validation.reason || latestSubmission.ai_validation.feedback || 'Good work'}
                                                   </div>
                                                 </div>
                                                 {task.tasks[0]?.submissionFormat === 'audio' && latestSubmission.ai_validation.scores ? (
-                                                  <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                  <div className="rounded-[8px] bg-white border border-emerald-100 p-3">
                                                     <div className="text-[10px] uppercase text-gray-400 font-bold">Audio Scores</div>
                                                     <div className="mt-1 grid grid-cols-2 gap-1 text-gray-700">
                                                       <span>Clarity: {latestSubmission.ai_validation.scores.clarity ?? 'N/A'}</span>
@@ -3170,7 +3170,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                               ...latestSubmission,
                                               ...(latestSubmission.ai_validation || {})
                                             })}
-                                            className="w-full text-center py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md mt-2 flex items-center justify-center space-x-1"
+                                            className="w-full text-center py-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-semibold rounded-[8px] transition-all cursor-pointer shadow-md mt-2 flex items-center justify-center space-x-1"
                                           >
                                             <span>{isWelcomePage ? 'View Feedback' : 'View AI Feedback ✨'}</span>
                                           </button>
@@ -3183,7 +3183,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                   <button
                                     type="button"
                                     onClick={() => setActiveSubmittingTaskId(task.id)}
-                                    className="w-full flex items-center justify-center space-x-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition-all cursor-pointer shadow-sm mt-4"
+                                    className="w-full flex items-center justify-center space-x-2 bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-semibold py-2.5 rounded-[8px] transition-all cursor-pointer shadow-sm mt-4"
                                   >
                                     <Play size={12} fill="currentColor" />
                                     <span>Begin Verification</span>
@@ -3196,7 +3196,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                       </div>
                     )}
                     {viewMode === 'grid' && userRole !== 'admin' && (
-                      <div className="bg-white rounded-xl border border-gray-100 p-5 flex flex-col justify-between shadow-[0_2px_8px_rgb(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgb(0,0,0,0.06)] transition-all space-y-6">
+                      <div className="bg-white rounded-[8px] border border-gray-100 p-5 flex flex-col justify-between shadow-sm hover:shadow-sm transition-all space-y-6">
                         <div className="space-y-4">
                           <div className="flex justify-between items-start gap-4">
                             <h3 className="font-bold text-gray-900 text-[15px] leading-snug">
@@ -3218,7 +3218,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                               <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
                             </div>
                             <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2563eb] w-full' : 'bg-[#2563eb] w-0'}`} />
                             </div>
                             <div className="text-xs text-gray-400 font-medium mt-1">
                               {isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length} modules
@@ -3230,14 +3230,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                             <div className="flex -space-x-1.5">
                               {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
                               {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
-                              {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
+                              {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-[#2563eb] flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
                               {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
                               {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
                             </div>
                             <button
                               type="button"
                               onClick={() => setActiveSubmittingTaskId(task.id)}
-                              className="flex-1 py-2.5 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                              className="flex-1 py-2.5 bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-bold rounded-[8px] transition-colors cursor-pointer shadow-sm"
                             >
                               Start
                             </button>
@@ -3249,7 +3249,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                     {/* MODAL */}
                     {isSubmittingActive && (
                       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in font-sans" onClick={() => setActiveSubmittingTaskId(null)}>
-                        <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
+                        <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-[8px] p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
                           <div className="flex justify-between items-start pb-4 border-b border-gray-100">
                             <div className="space-y-1">
                               <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.title || task.tasks[0]?.title}</h3>
@@ -3261,10 +3261,10 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                           </div>
                           <div className="space-y-4 pt-1">
                             {task.tasks.map((subTask, index) => (
-                              <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-xl space-y-3">
+                              <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-[8px] space-y-3">
                                 <div className="flex justify-between items-start">
                                   <div className="flex space-x-2">
-                                    <span className="bg-[#2F63FF] text-white w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold mt-0.5">{index + 1}</span>
+                                    <span className="bg-[#2563eb] text-white w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold mt-0.5">{index + 1}</span>
                                     <div>
                                       <p className="text-[12px] font-bold text-[#0F172A] leading-tight">
                                         {subTask.title}
@@ -3310,7 +3310,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                     value={textResponses[subTask.id] || ''}
                                     onChange={(e) => handleTextAnswerChange(subTask.id, e.target.value)}
                                     placeholder="Write your answer here..."
-                                    className="w-full text-xs text-[#0F172A] bg-white border border-[#E2E8F0] rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
+                                    className="w-full text-xs text-[#0F172A] bg-white border border-[#E2E8F0] rounded-[8px] p-2.5 focus:outline-none focus:ring-1 focus:ring-[#2F63FF]"
                                   />
                                 )}
 
@@ -3318,12 +3318,12 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                   <div className="space-y-2">
                                     {imageFiles[subTask.id] ? (
                                       <>
-                                        <div className="p-1 border border-[#E2E8F0] bg-white rounded-xl relative overflow-hidden animate-fade-in">
+                                        <div className="p-1 border border-[#E2E8F0] bg-white rounded-[8px] relative overflow-hidden animate-fade-in">
                                           <img
                                             src={imageFiles[subTask.id]}
                                             alt="Captured/Simulated Content"
                                             referrerPolicy="no-referrer"
-                                            className="w-full h-40 object-cover rounded-lg"
+                                            className="w-full h-40 object-cover rounded-[8px]"
                                           />
                                           <button
                                             type="button"
@@ -3340,7 +3340,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         )}
 
                                         {imageAnalysis[subTask.id] && (userRole as string) === 'admin' && (
-                                          <div className="mt-3 p-3 border rounded-xl bg-white space-y-3">
+                                          <div className="mt-3 p-3 border rounded-[8px] bg-white space-y-3">
 
                                             {/* HEADER */}
                                             <div className="flex items-center justify-between">
@@ -3367,7 +3367,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
                                               <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
                                                 <div
-                                                  className="bg-[#2F63FF] h-2 rounded-full"
+                                                  className="bg-[#2563eb] h-2 rounded-full"
                                                   style={{
                                                     width: `${imageAnalysis[subTask.id].score}%`
                                                   }}
@@ -3381,7 +3381,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
 
                                             {/* FEEDBACK */}
-                                            <div className="bg-slate-50 p-2 rounded-lg">
+                                            <div className="bg-slate-50 p-2 rounded-[8px]">
                                               <p className="text-[12px]">
                                                 {imageAnalysis[subTask.id].feedback}
                                               </p>
@@ -3402,7 +3402,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                                       (obj: any, index: number) => (
                                                         <span
                                                           key={index}
-                                                          className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded-full"
+                                                          className="text-[10px] bg-[#eff4ff] text-blue-700 px-2 py-1 rounded-full"
                                                         >
                                                           {obj.label}
                                                           {" "}
@@ -3450,7 +3450,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         )}
                                       </>
                                     ) : activeCameraTaskId === subTask.id ? (
-                                      <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in mt-3">
+                                      <div className="relative bg-black rounded-[8px] overflow-hidden shadow-inner aspect-video animate-fade-in mt-3">
                                         <video
                                           ref={videoRef}
                                           autoPlay
@@ -3483,7 +3483,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                 {subTask.submissionFormat === 'audio' && (
                                   <div className="space-y-3">
                                     {audioFiles[subTask.id] ? (
-                                      <div className="p-3 bg-white border border-[#E2E8F0] rounded-xl space-y-2 animate-fade-in shadow-sm">
+                                      <div className="p-3 bg-white border border-[#E2E8F0] rounded-[8px] space-y-2 animate-fade-in shadow-sm">
                                         <div className="flex items-center justify-between">
                                           <span className="text-[10px] font-sans font-bold text-gray-500 uppercase tracking-wider flex items-center space-x-1">
                                             <VolumeIcon size={12} className="text-[#2F63FF]" />
@@ -3511,7 +3511,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                 {subTask.submissionFormat === 'video' && (
                                   <div className="space-y-3">
                                     {videoFiles[subTask.id] ? (
-                                      <div className="p-2 bg-white border border-[#E2E8F0] rounded-xl space-y-2 animate-fade-in shadow-sm">
+                                      <div className="p-2 bg-white border border-[#E2E8F0] rounded-[8px] space-y-2 animate-fade-in shadow-sm">
                                         <div className="flex items-center justify-between">
                                           <span className="text-[10px] font-sans font-bold text-gray-500 uppercase tracking-wider flex items-center space-x-1">
                                             <VideoIcon size={12} className="text-[#2F63FF]" />
@@ -3528,11 +3528,11 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         <video
                                           src={videoFiles[subTask.id]}
                                           controls
-                                          className="w-full h-40 object-cover rounded-lg"
+                                          className="w-full h-40 object-cover rounded-[8px]"
                                         />
                                       </div>
                                     ) : activeRecordingVideoTaskId === subTask.id ? (
-                                      <div className="bg-black rounded-xl overflow-hidden relative aspect-video flex flex-col justify-end p-3 animate-fade-in shadow-inner">
+                                      <div className="bg-black rounded-[8px] overflow-hidden relative aspect-video flex flex-col justify-end p-3 animate-fade-in shadow-inner">
                                         <video
                                           ref={liveVideoPlaybackRef}
                                           autoPlay
@@ -3548,7 +3548,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         <button
                                           type="button"
                                           onClick={() => stopVideoRecording()}
-                                          className="relative z-10 w-full py-2 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold font-sans uppercase rounded-lg cursor-pointer transition-colors mt-auto text-center"
+                                          className="relative z-10 w-full py-2 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold font-sans uppercase rounded-[8px] cursor-pointer transition-colors mt-auto text-center"
                                         >
                                           Stop Video Recording
                                         </button>
@@ -3558,7 +3558,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                         <button
                                           type="button"
                                           onClick={() => startVideoRecording(subTask.id)}
-                                          className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-xl cursor-pointer transition-all duration-150 active:scale-[0.98]"
+                                          className="w-full flex flex-col items-center justify-center text-center border border-dashed border-indigo-200 bg-indigo-50/20 hover:bg-indigo-50 hover:border-indigo-400 p-4 rounded-[8px] cursor-pointer transition-all duration-150 active:scale-[0.98]"
                                         >
                                           <VideoIcon className="text-indigo-600 mb-1.5 animate-pulse" size={20} />
                                           <span className="text-xs font-semibold text-indigo-950 block">Live Web Video</span>
@@ -3586,12 +3586,12 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                                 key={oIndex}
                                                 type="button"
                                                 onClick={() => handleAnswerQuiz(task.id, q.id, optionText, q.type)}
-                                                className={`w-full text-left p-2 rounded-lg text-sm transition-all flex items-center space-x-2 border-2 cursor-pointer shadow-sm active:scale-[0.99] ${isSelected
-                                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF] font-bold'
+                                                className={`w-full text-left p-2 rounded-[8px] text-sm transition-all flex items-center space-x-2 border-2 cursor-pointer shadow-sm active:scale-[0.99] ${isSelected
+                                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF] font-bold'
                                                     : 'border-gray-200 bg-white text-gray-700 hover:bg-slate-50 hover:border-gray-300 font-semibold'
                                                   }`}
                                               >
-                                                <span className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-black font-sans transition-colors ${isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400 bg-gray-50'
+                                                <span className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-bold font-sans transition-colors ${isSelected ? 'bg-[#2563eb] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400 bg-gray-50'
                                                   }`}>
                                                   {String.fromCharCode(65 + oIndex)}
                                                 </span>
@@ -3609,7 +3609,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
                             {/* State-based custom visual error display instead of blocked alert popups */}
                             {submitError[task.id] && (
-                              <div className="p-2.5 border border-red-200 bg-red-50 text-red-700 text-[11px] rounded-xl font-medium">
+                              <div className="p-2.5 border border-red-200 bg-red-50 text-red-700 text-[11px] rounded-[8px] font-medium">
                                 {submitError[task.id]}
                               </div>
                             )}
@@ -3619,7 +3619,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                                 type="button"
                                 onClick={() => handleSubmitVerification(task.id)}
                                 disabled={isSubmittingNow}
-                                className="text-center py-2.5 px-6 bg-[#2F63FF] hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-md cursor-pointer flex items-center justify-center space-x-1"
+                                className="text-center py-2.5 px-6 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-[8px] shadow-md cursor-pointer flex items-center justify-center space-x-1"
                               >
                                 <Send size={11} />
                                 <span>{isSubmittingNow ? 'Submitting...' : 'Submit'}</span>
@@ -3656,7 +3656,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
 
       {selectedReportTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in font-sans">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 border border-[#E2E8F0] shadow-xl space-y-6 relative animate-scale-in">
+          <div className="bg-white w-full max-w-md rounded-[8px] p-6 border border-[#E2E8F0] shadow-xl space-y-6 relative animate-scale-in">
             <div>
               <div className="flex items-center space-x-2">
                 <div>
@@ -3673,14 +3673,14 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                   type="text"
                   value={selectedReportTask.title || selectedReportTask.id}
                   disabled
-                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs text-gray-500 focus:outline-none"
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-[8px] px-3 py-2 text-xs text-gray-500 focus:outline-none"
                 />
               </div>              <div>
                 <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Duration</label>
                 <select
                   value={reportDuration}
                   onChange={(e) => setReportDuration(e.target.value)}
-                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-[8px] px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] cursor-pointer"
                 >
                   <option value="7_days">Last 7 days</option>
                   <option value="30_days">Last 30 days</option>
@@ -3696,13 +3696,13 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                   placeholder="admin@company.com"
                   value={reportEmail}
                   onChange={(e) => setReportEmail(e.target.value)}
-                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] placeholder-gray-400"
+                  className="w-full bg-[#FAFBFD] border border-[#E2E8F0] rounded-[8px] px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] text-[#0F172A] placeholder-gray-400"
                 />
               </div>
             </div>
 
             {reportFeedback && (
-              <div className={`p-2.5 border rounded-xl text-[11px] font-semibold text-center ${reportFeedback.includes('failed') || reportFeedback.includes('No submissions')
+              <div className={`p-2.5 border rounded-[8px] text-[11px] font-semibold text-center ${reportFeedback.includes('failed') || reportFeedback.includes('No submissions')
                   ? 'border-red-200 bg-red-50 text-red-650'
                   : 'border-emerald-200 bg-emerald-50 text-emerald-700'
                 }`}>
@@ -3717,7 +3717,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                   setSelectedReportTask(null);
                   setReportFeedback('');
                 }}
-                className="bg-white border border-gray-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-xl cursor-pointer transition-all shadow-sm"
+                className="bg-white border border-gray-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-4 py-2.5 rounded-[8px] cursor-pointer transition-all shadow-sm"
               >
                 Cancel
               </button>
@@ -3725,7 +3725,7 @@ export function TaskDashboard({ assignedTasks, onStartCreateTask, userRole, onSu
                 type="button"
                 onClick={handleGenerateAIReport}
                 disabled={generatingReport}
-                className="bg-[#2F63FF] hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs font-semibold px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-sm flex items-center space-x-1.5"
+                className="bg-[#2563eb] hover:bg-[#1d4ed8] disabled:bg-gray-300 text-white text-xs font-semibold px-5 py-2.5 rounded-[8px] transition-all cursor-pointer shadow-sm flex items-center space-x-1.5"
               >
                 <span>{generatingReport ? 'Generating...' : 'Generate Report'}</span>
               </button>
