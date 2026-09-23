@@ -64,16 +64,26 @@ async def get_user_by_email(requesting_user_id: Optional[str], email: str, auth_
     Return user by email. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        query_client = supabase
+        query_client = get_service_supabase_client()
         if auth_claims:
             token_email = (auth_claims.get("email") or "").strip().lower()
             requested_email = (email or "").strip().lower()
             if token_email and requested_email and token_email != requested_email:
                 return {"data": None, "error": "Permission denied"}
-            query_client = get_service_supabase_client()
 
         # Use select + limit(1) instead of .single() to avoid APIError on 0 rows
-        resp = query_client.table('users').select('*').eq('email', email).limit(1).execute()
+        resp = (
+            query_client
+            .table('users')
+            .select(
+                'user_id, company_id, name, email, phone, position, hire_date, '
+                'employment_status, function_id, sub_function_id, manager_id, avatar_url, '
+                'last_login, login_count, is_active, password, created_at, updated_at'
+            )
+            .eq('email', email)
+            .limit(1)
+            .execute()
+        )
         rows = resp.data if hasattr(resp, 'data') else []
         user = rows[0] if rows else None
         if not user:
@@ -119,9 +129,7 @@ async def get_user_by_phone(requesting_user_id: Optional[str], phone: str, auth_
     Return user by phone. If requesting_user_id is None, allow lookup for auth bootstrap.
     """
     try:
-        query_client = supabase
-        if auth_claims:
-            query_client = get_service_supabase_client()
+        query_client = get_service_supabase_client()
 
         # Strict single-indexed E.164 lookup for maximum performance
         normalized_phone = normalize_phone(phone)
@@ -181,7 +189,19 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
     Return single user. Permission: self OR manager+ in same company.
     """
     try:
-        resp = supabase.table('users').select().eq('user_id', target_user_id).single().execute()
+        service_client = get_service_supabase_client()
+        resp = (
+            service_client
+            .table('users')
+            .select(
+                'user_id, company_id, name, email, phone, position, hire_date, '
+                'employment_status, function_id, sub_function_id, manager_id, avatar_url, '
+                'last_login, login_count, is_active, created_at, updated_at'
+            )
+            .eq('user_id', target_user_id)
+            .single()
+            .execute()
+        )
         if not resp.data:
             return {"data": None, "error": "User not found"}
         user = resp.data
@@ -194,11 +214,14 @@ async def get_user_by_id(requesting_user_id: str, target_user_id: str) -> Dict[s
         company_id = user.get("company_id")
 
         if company_id:
-            company_resp = supabase.table("companies") \
-                .select("subscription_tier, subscription_addons") \
-                .eq("company_id", company_id) \
-                .limit(1) \
+            company_resp = (
+                service_client
+                .table("companies")
+                .select("subscription_tier, subscription_addons")
+                .eq("company_id", company_id)
+                .limit(1)
                 .execute()
+            )
 
             company_rows = company_resp.data if hasattr(company_resp, "data") else []
 
@@ -320,9 +343,15 @@ async def create_user(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = service_client.table('users').select('*').ilike('email', email).eq(
-                'company_id', company_id
-            ).eq('is_active', False).execute()
+            existing_resp = (
+                service_client
+                .table('users')
+                .select('user_id, email, company_id, is_active')
+                .ilike('email', email)
+                .eq('company_id', company_id)
+                .eq('is_active', False)
+                .execute()
+            )
             existing_data = existing_resp.data[0] if existing_resp.data else None
 
             if existing_data:
@@ -414,9 +443,16 @@ async def create_user_signup(
 
         # Check for an existing inactive user with the same email in this company
         if email:
-            existing_resp = supabase.table('users').select().ilike('email', email).eq(
-                'company_id', company_id
-            ).eq('is_active', False).maybe_single().execute()
+            existing_resp = (
+                supabase
+                .table('users')
+                .select('user_id, email, company_id, is_active')
+                .ilike('email', email)
+                .eq('company_id', company_id)
+                .eq('is_active', False)
+                .maybe_single()
+                .execute()
+            )
             # existing_data = existing_resp.data[0] if existing_resp.data else None
 
             # if existing_data:
@@ -563,7 +599,11 @@ async def delete_user(
 
 async def get_users_by_filter(filters: dict):
     try:
-        query = supabase.table("users").select()
+        query = supabase.table("users").select(
+            'user_id, company_id, name, email, phone, position, hire_date, '
+            'employment_status, function_id, sub_function_id, manager_id, avatar_url, '
+            'is_active, created_at, updated_at'
+        )
 
         if "function_id" in filters:
             query = query.eq("function_id", filters["function_id"])
