@@ -64,6 +64,7 @@ from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_r
 # from roleplay.page.route import router as roleplay_page_router
 # from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
+from routes.ingest_processed_module import router as ingest_processed_module_router
 from routes import functions
 from config import IS_PRODUCTION
 
@@ -319,6 +320,7 @@ app.include_router(gamification_router)
 app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
 app.include_router(roleplay_ws_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
+app.include_router(ingest_processed_module_router, tags=["processed-module-rag"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 # app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 # app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])
