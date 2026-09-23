@@ -606,11 +606,18 @@ export default function AdminContentLibrary() {
                     return <iframe src={url} className="w-full h-full rounded-xl shadow-sm border border-slate-200 bg-white" />;
                   }
                   
-                  const isOfficeDoc = type.includes('document') || type.includes('msword') || type.includes('spreadsheet') || type.includes('excel') || type.includes('presentation') || type.includes('powerpoint');
+                  const isOfficeDoc = 
+                    type.includes('document') || type.includes('msword') || 
+                    type.includes('spreadsheet') || type.includes('excel') || 
+                    type.includes('presentation') || type.includes('powerpoint') ||
+                    url.toLowerCase().includes('.doc') || url.toLowerCase().includes('.docx') ||
+                    url.toLowerCase().includes('.xls') || url.toLowerCase().includes('.xlsx') ||
+                    url.toLowerCase().includes('.ppt') || url.toLowerCase().includes('.pptx');
                   
                   if (isOfficeDoc && url.startsWith('http')) {
-                    const docViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
-                    return <iframe src={docViewerUrl} className="w-full h-full rounded-xl shadow-sm border border-slate-200 bg-white" />;
+                    // Use Microsoft Office Viewer for better compatibility with Word/Excel/PPT
+                    const officeViewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+                    return <iframe src={officeViewerUrl} className="w-full h-full rounded-xl shadow-sm border border-slate-200 bg-white" />;
                   }
 
                   return (
