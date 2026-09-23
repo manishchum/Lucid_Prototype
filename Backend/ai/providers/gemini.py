@@ -110,7 +110,7 @@ class GeminiProvider:
             **config_kwargs
         )
 
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model=model.model,
             contents=contents,
             config=config
