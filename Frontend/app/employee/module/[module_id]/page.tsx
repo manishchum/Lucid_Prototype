@@ -616,26 +616,7 @@ export default function ModuleContentPage({ params }: { params: Promise<{ module
                     )}
                   </div>
 
-                  {chatLevel === 'sprint' && module?.sprint_insights && module.sprint_insights.length > 0 && (
-                    <div className="p-3 sm:px-6 bg-blue-50/50 border-t border-slate-200 flex flex-wrap gap-2">
-                      <span className="text-xs font-medium text-slate-500 w-full mb-1 flex items-center gap-1">
-                        <Lightbulb className="w-3 h-3" /> Document Insights
-                      </span>
-                      {module.sprint_insights.map((insight: any, idx: number) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => {
-                            const newUserMessage = { role: 'user' as const, content: insight.question, isVoice: false };
-                            setUserChatHistory((prev) => [...prev, newUserMessage, { role: 'assistant', content: insight.answer }]);
-                          }}
-                          className="bg-white border border-blue-200 text-blue-700 text-xs px-3 py-1.5 rounded-full shadow-sm hover:bg-blue-50 transition-colors text-left"
-                        >
-                          {insight.question}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+
 
                   <div className="border-t border-slate-200 bg-white p-3 sm:p-4 lg:p-6">
                     <form onSubmit={handleSendChat} className="flex flex-col sm:flex-row gap-3">
@@ -2568,7 +2549,17 @@ function ContentTransformer({
               )}
 
               {selectedOption === 'chat' && (
-                <div className="rounded-xl border border-slate-200 bg-white p-12 text-left">
+                <div className="rounded-xl border border-slate-200 bg-white p-6 sm:p-12 text-left">
+                  {/* AI Safety Disclaimer Bar */}
+                  <div className="mb-4 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 shadow-sm">
+                    <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-amber-200 font-bold text-amber-900" title="Safety Disclaimer">
+                      i
+                    </div>
+                    <div className="flex-1 leading-relaxed">
+                      <strong>AI Safety Disclaimer:</strong> AI can make mistakes. Always double-check safety-critical instructions against original plant documentation before acting on equipment.
+                    </div>
+                  </div>
+
                   <div className="rounded-xl border p-4 mb-4 max-h-96 overflow-auto bg-white">
                     {userChatHistory.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-64 text-center">

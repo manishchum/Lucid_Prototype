@@ -218,55 +218,46 @@ def validate_device_session(
     user_id: str,
     device_id: str,
 ):
+    if not user_id or not device_id:
+        return
+
+    user_id_str = str(user_id)
+    device_id_str = str(device_id)
+
     try:
         existing_device = redis_client.get(
-            f"session:{user_id}"
+            f"session:{user_id_str}"
         )
-
     except Exception as e:
-        print("REDIS VALIDATION FAILED:", e)
+        print("REDIS VALIDATION WARNING:", e)
+        return
 
-        raise HTTPException(
-            status_code=503,
-            detail="Unable to validate session"
-        )
-
-    #
-    # First login
-    #
+    # First login or uninitialized session
     if existing_device is None:
-
         try:
             redis_client.set(
-                f"session:{user_id}",
-                device_id,
+                f"session:{user_id_str}",
+                device_id_str,
                 ex=60 * 60 * 24 * 30,
             )
         except Exception as e:
             print("REDIS INSERT FAILED:", e)
-
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to create session"
-            )
-
         return
 
-    #
+    existing_device_str = str(existing_device)
+
     # Same device
-    #
-    if existing_device == device_id:
-
-        redis_client.expire(
-            f"session:{user_id}",
-            60 * 60 * 24 * 30,
-        )
-
+    if existing_device_str == device_id_str:
+        try:
+            redis_client.expire(
+                f"session:{user_id_str}",
+                60 * 60 * 24 * 30,
+            )
+        except Exception:
+            pass
         return
 
-    #
     # Different device
-    #
     raise HTTPException(
         status_code=401,
         detail="Session_Replaced",
