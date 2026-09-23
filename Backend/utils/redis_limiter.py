@@ -28,7 +28,7 @@ LIMITS = {
         "window": 60,
     },
     "module-chat": {
-        "limit": 100,
+        "limit": 10,
         "window": 3600,
     },
     "speech-to-text": {

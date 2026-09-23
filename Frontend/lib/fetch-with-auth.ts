@@ -182,9 +182,23 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
       }
 
       if (response.status === 401) {
-        window.dispatchEvent(
-          new Event("lucid:auth:force-logout")
-        );
+        try {
+          const errText = await response.clone().text();
+          if (!auth?.currentUser || errText.includes("Session_Replaced")) {
+            console.warn("[fetch-with-auth] Unrecoverable 401 detected, dispatching force-logout", { url, errText });
+            window.dispatchEvent(
+              new Event("lucid:auth:force-logout")
+            );
+          } else {
+            console.warn("[fetch-with-auth] Retry returned 401, preserving user session", { url, errText });
+          }
+        } catch {
+          if (!auth?.currentUser) {
+            window.dispatchEvent(
+              new Event("lucid:auth:force-logout")
+            );
+          }
+        }
       }
     }
     catch (refreshErr) {
@@ -192,10 +206,11 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         "[fetch-with-auth] Retry token refresh failed",
         refreshErr
       );
-
-      window.dispatchEvent(
-        new Event("lucid:auth:force-logout")
-      );
+      if (!auth?.currentUser) {
+        window.dispatchEvent(
+          new Event("lucid:auth:force-logout")
+        );
+      }
     }
   }
 
