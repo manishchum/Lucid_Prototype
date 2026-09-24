@@ -237,8 +237,13 @@ async def health_check():
 
 @app.on_event("startup")
 async def startup_event():
+    import threading
     from analysis.models import load_all_models
-    load_all_models()
+    
+    # Run heavy AI model loading in a background thread 
+    # so Uvicorn can immediately bind to port 8080
+    print("[Startup] Starting AI models download/load in the background...")
+    threading.Thread(target=load_all_models, daemon=True).start()
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
