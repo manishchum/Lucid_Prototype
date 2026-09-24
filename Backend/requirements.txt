@@ -33,3 +33,4 @@ openai
 redis
 firebase-admin
 reportlab
+opencv-python-headless

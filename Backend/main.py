@@ -3,6 +3,8 @@ import sys
 import os
 import logging
 import re
+import static_ffmpeg
+static_ffmpeg.add_paths()
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
