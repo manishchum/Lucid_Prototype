@@ -1,3 +1,4 @@
+import { supabase } from "@/lib/supabase";
 import { fetchWithAuth } from "@/lib/fetch-with-auth";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
@@ -161,7 +162,30 @@ export async function submitTask(
     const err = await res.json().catch(() => ({}));
     throw new Error(formatApiError(err, `Failed to submit: ${res.statusText}`));
   }
-  return res.json();
+  const data = await res.json();
+
+  // Broadcast instant realtime completion event across Web & Mobile
+  try {
+    const userId = payload.user_id || params?.userId;
+    if (userId && supabase?.channel) {
+      const ch = supabase.channel(`realtime_tasks_${userId}_broadcast`);
+      await ch.subscribe();
+      await ch.send({
+        type: "broadcast",
+        event: "task_completed",
+        payload: { userId, taskId: payload.task_id, submissionId: data?.submission_id },
+      });
+      setTimeout(() => {
+        try {
+          supabase.removeChannel(ch);
+        } catch {}
+      }, 1000);
+    }
+  } catch (bErr) {
+    console.warn("[taskApi] Realtime broadcast failed:", bErr);
+  }
+
+  return data;
 }
 
 export async function submitTaskResponse(

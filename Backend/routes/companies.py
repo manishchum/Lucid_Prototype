@@ -19,7 +19,7 @@ from utils.db.companies_db import (
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
-from utils.redis_client import redis_client, set_cache, get_cache
+from utils.redis_client import redis_client, set_cache, get_cache, delete_cache_pattern
 from utils.db.permissions import check_user_permission
 from utils.auth import get_request_auth_required, get_request_auth_optional, RequestAuth
 
@@ -412,6 +412,8 @@ async def update_company_route(
     result = await update_company(user_id, company_id, update_data)
     
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
+    redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
+    delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None
     

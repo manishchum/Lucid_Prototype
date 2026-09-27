@@ -78,8 +78,10 @@ def invalidate_dashboard_cache(user_id: str):
         return
     try:
         redis_client.delete(f"dashboard_summary:{user_id}")
+        delete_cache_pattern(f"user_rank:*{user_id}*")
+        delete_cache_pattern(f"user_tasks:*{user_id}*")
     except Exception as e:
-        print(f"[Redis] Failed to invalidate dashboard_summary:{user_id}: {e}")
+        print(f"[Redis] Failed to invalidate dashboard caches for {user_id}: {e}")
 
 
 def invalidate_company_dashboard_cache(company_id: str):

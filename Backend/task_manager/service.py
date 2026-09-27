@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
+from utils.redis_client import get_cache, set_cache, delete_cache_pattern, redis_client
 from .models import SubmissionCreate, TaskCreate
 # from audio_analysis.scoring import generate_audio_score
 # from audio_analysis.services.acoustic_analysis import analyze_audio_features
@@ -89,31 +90,8 @@ def _media_suffix(mime_type: str, fallback: str) -> str:
     return fallback
 
 
-def _store_media(payload: SubmissionCreate, company_id: str, submission_id: str, media_input: str | None, media_type: str, default_mime: str, fallback_suffix: str) -> str | None:
-    if not media_input:
-        return None
-
-    # If already a valid public cloud URL from Supabase Storage / S3, keep it directly
-    trimmed_input = media_input.strip()
-    if (trimmed_input.startswith("http://") or trimmed_input.startswith("https://")) and (
-        "/storage/v1/object/public/" in trimmed_input or "supabase.co" in trimmed_input
-    ):
-        return trimmed_input
-
-    try:
-        media_bytes, mime_type = _extract_media_bytes(media_input, default_mime)
-    except Exception as exc:
-        print(f"[task-manager] {media_type} storage decode failed:", exc)
-        return None
-
-    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
-    path = "/".join([
-        str(company_id),
-        str(payload.assignment_id or "unassigned"),
-        str(payload.user_id),
-        f"{submission_id}{_media_suffix(mime_type, fallback_suffix)}",
-    ])
-
+def _upload_media_to_storage_bg(bucket: str, path: str, media_bytes: bytes, mime_type: str):
+    """Background task to upload media bytes to Supabase Storage asynchronously."""
     try:
         db = get_service_supabase_client()
         db.storage.from_(bucket).upload(
@@ -124,11 +102,65 @@ def _store_media(payload: SubmissionCreate, company_id: str, submission_id: str,
                 "upsert": "true",
             },
         )
-        public_url = db.storage.from_(bucket).get_public_url(path)
-        return str(public_url) if public_url else None
+        print(f"[task-manager] Background media upload completed: {path}")
     except Exception as exc:
-        print(f"[task-manager] {media_type} storage upload failed:", exc)
-        return None
+        print(f"[task-manager] Background media upload failed for {path}:", exc)
+
+
+def _store_media(
+    payload: SubmissionCreate,
+    company_id: str,
+    submission_id: str,
+    media_input: str | None,
+    media_type: str,
+    default_mime: str,
+    fallback_suffix: str,
+    background_tasks = None,
+) -> tuple[str | None, str | None, bytes | None]:
+    """
+    Instantly returns deterministic public cloud URL and schedules non-blocking storage upload in background.
+    Returns: (public_url, local_suffix, media_bytes)
+    """
+    if not media_input:
+        return None, None, None
+
+    # If already a valid public cloud URL from Supabase Storage / S3, keep it directly
+    trimmed_input = media_input.strip()
+    if (trimmed_input.startswith("http://") or trimmed_input.startswith("https://")) and (
+        "/storage/v1/object/public/" in trimmed_input or "supabase.co" in trimmed_input
+    ):
+        return trimmed_input, fallback_suffix, None
+
+    try:
+        media_bytes, mime_type = _extract_media_bytes(media_input, default_mime)
+    except Exception as exc:
+        print(f"[task-manager] {media_type} storage decode failed:", exc)
+        return None, None, None
+
+    suffix = _media_suffix(mime_type, fallback_suffix)
+    bucket = os.getenv("TASK_SUBMISSIONS_BUCKET") or os.getenv("SUPABASE_TASK_SUBMISSIONS_BUCKET") or "task-submissions"
+    path = "/".join([
+        str(company_id),
+        str(payload.assignment_id or "unassigned"),
+        str(payload.user_id),
+        f"{submission_id}{suffix}",
+    ])
+
+    try:
+        db = get_service_supabase_client()
+        public_url = str(db.storage.from_(bucket).get_public_url(path)) if hasattr(db, "storage") else None
+    except Exception:
+        public_url = None
+
+    # Offload the heavy network upload to BackgroundTasks so HTTP response returns in < 150ms!
+    if background_tasks:
+        background_tasks.add_task(_upload_media_to_storage_bg, bucket, path, media_bytes, mime_type)
+    else:
+        # Fallback to background thread
+        import threading
+        threading.Thread(target=_upload_media_to_storage_bg, args=(bucket, path, media_bytes, mime_type), daemon=True).start()
+
+    return public_url, suffix, media_bytes
 
 
 def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
@@ -137,30 +169,17 @@ def _extract_audio_bytes(audio_input: str | None) -> tuple[bytes, str]:
 def _audio_suffix(mime_type: str) -> str:
     return _media_suffix(mime_type, ".webm")
 
-def _store_audio_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
-    audio_input = payload.audio_url or payload.text_response
-    return _store_media(payload, company_id, submission_id, audio_input, "audio", "audio/webm", ".webm")
-
-
 def _extract_image_bytes(image_input: str | None) -> tuple[bytes, str]:
     return _extract_media_bytes(image_input, "image/jpeg")
 
 def _image_suffix(mime_type: str) -> str:
     return _media_suffix(mime_type, ".jpg")
 
-def _store_image_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
-    return _store_media(payload, company_id, submission_id, payload.image_url, "image", "image/jpeg", ".jpg")
-
-
 def _extract_video_bytes(video_input: str | None) -> tuple[bytes, str]:
     return _extract_media_bytes(video_input, "video/mp4")
 
 def _video_suffix(mime_type: str) -> str:
     return _media_suffix(mime_type, ".mp4")
-
-def _store_video_media(payload: SubmissionCreate, company_id: str, submission_id: str) -> str | None:
-    video_input = payload.video_url or payload.text_response
-    return _store_media(payload, company_id, submission_id, video_input, "video", "video/mp4", ".mp4")
 
 
 def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) -> Optional[str]:
@@ -195,6 +214,11 @@ def resolve_company_id(user_id: str | None, fallback_company_id: Optional[str]) 
 async def is_user_admin(user_id: str | None) -> bool:
     if not user_id:
         return False
+    cache_key = f"user_is_admin:{user_id}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return bool(cached)
+
     try:
         db = get_service_supabase_client()
         res = (
@@ -204,14 +228,17 @@ async def is_user_admin(user_id: str | None) -> bool:
             .eq("is_active", True)
             .execute()
         )
+        is_admin = False
         if res.data:
             for row in res.data:
                 role_dict = row.get("role")
                 if role_dict:
                     role_name = str(role_dict.get("name") or "").lower()
                     if role_name in ("admin", "manager", "super_admin", "developer"):
-                        return True
-        return False
+                        is_admin = True
+                        break
+        set_cache(cache_key, 1 if is_admin else 0, ttl=300)
+        return is_admin
     except Exception as exc:
         print("[task-manager] Error checking admin status:", exc)
         return False
@@ -381,15 +408,26 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
             tasks = []
 
     try:
+        active_sub_cols = (
+            "submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at"
+            if (user_id and caller_is_admin) else
+            "submission_id, assignment_id, company_id, user_id, task_id, submission_type, answers, status, submitted_at"
+        )
+        active_csub_cols = (
+            "submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at"
+            if (user_id and caller_is_admin) else
+            "submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, answers, status, submitted_at"
+        )
+
         submission_query = (
             db.table("task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select(active_sub_cols)
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
         child_submission_query = (
             db.table("child_task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select(active_csub_cols)
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
@@ -401,8 +439,8 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
     except Exception as submission_error:
         print("[task-manager] submissions query with company filter failed, retrying without company_id:", submission_error)
         try:
-            submission_query = db.table("task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
-            child_submission_query = db.table("child_task_submissions").select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").in_("assignment_id", assignment_ids)
+            submission_query = db.table("task_submissions").select(active_sub_cols).in_("assignment_id", assignment_ids)
+            child_submission_query = db.table("child_task_submissions").select(active_csub_cols).in_("assignment_id", assignment_ids)
             if user_id and not caller_is_admin:
                 submission_query = submission_query.eq("user_id", user_id)
                 child_submission_query = child_submission_query.eq("user_id", user_id)
@@ -519,19 +557,44 @@ _USER_TASKS_GLOBAL_LOCK = asyncio.Lock()
 _CACHE_TTL_SECONDS = 5.0
 
 
-def invalidate_user_tasks_cache(user_id: str | None = None) -> None:
-    """Invalidate task cache for a given user or all users on task mutation."""
+def invalidate_user_tasks_cache(user_id: str | None = None, company_id: str | None = None, background_tasks = None) -> None:
+    """Invalidate task cache for a given user or all users on task mutation with non-blocking pattern scan."""
     global _USER_TASKS_CACHE
     if user_id:
         keys_to_del = [k for k in _USER_TASKS_CACHE if str(user_id) in k]
         for k in keys_to_del:
             _USER_TASKS_CACHE.pop(k, None)
+        try:
+            pipe = redis_client.pipeline()
+            pipe.delete(f"dashboard_summary:{user_id}")
+            if company_id:
+                pipe.delete(f"user_tasks:{company_id}:{user_id}:")
+                pipe.delete(f"user_tasks:{company_id}:{user_id}:{user_id}")
+                pipe.delete(f"user_rank:{company_id}:{user_id}")
+            pipe.execute()
+        except Exception:
+            pass
+        if background_tasks:
+            background_tasks.add_task(delete_cache_pattern, f"user_tasks:*{user_id}*")
+        else:
+            import threading
+            threading.Thread(target=delete_cache_pattern, args=(f"user_tasks:*{user_id}*",), daemon=True).start()
     else:
         _USER_TASKS_CACHE.clear()
+        if background_tasks:
+            background_tasks.add_task(delete_cache_pattern, "user_tasks:*")
+        else:
+            import threading
+            threading.Thread(target=delete_cache_pattern, args=("user_tasks:*",), daemon=True).start()
 
 
 async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: str | None = None) -> list:
-    """Employee view — tasks assigned to this user with in-memory TTL caching and singleflight protection."""
+    """Employee view — tasks assigned to this user with multi-tier Redis + in-memory TTL caching and singleflight protection."""
+    redis_key = f"user_tasks:{company_id}:{user_id}:{requesting_user_id or ''}"
+    cached_redis = get_cache(redis_key)
+    if cached_redis is not None:
+        return cached_redis
+
     cache_key = f"{user_id}:{company_id}:{requesting_user_id or ''}"
     now = time.time()
 
@@ -546,6 +609,10 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
 
     async with lock:
         # Double-check cache after acquiring lock (Singleflight pattern)
+        cached_redis = get_cache(redis_key)
+        if cached_redis is not None:
+            return cached_redis
+
         cached = _USER_TASKS_CACHE.get(cache_key)
         if cached and (now - cached["timestamp"] < _CACHE_TTL_SECONDS):
             return cached["data"]
@@ -555,6 +622,7 @@ async def get_tasks_for_user(user_id: str, company_id: str, requesting_user_id: 
             "data": data,
             "timestamp": time.time(),
         }
+        set_cache(redis_key, data, ttl=180)
         return data
 
 
@@ -586,6 +654,30 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
 
     db = get_service_supabase_client()
     caller_is_admin = await is_user_admin(user_id)
+
+    # ── High-Performance RPC Fast-Path (Single Roundtrip) ───────────────
+    try:
+        rpc_res = db.rpc("get_user_assigned_tasks_v2", {
+            "p_user_id": user_id,
+            "p_company_id": company_id,
+            "p_is_admin": caller_is_admin
+        }).execute()
+        if rpc_res and rpc_res.data is not None:
+            rpc_tasks = rpc_res.data
+            module_ids = [str(t["target_module_id"]) for t in rpc_tasks if t.get("target_module_id")]
+            if module_ids:
+                try:
+                    m_res = db.table("training_modules").select("module_id, title").in_("module_id", module_ids).execute()
+                    m_map = {str(r["module_id"]): r.get("title") for r in (m_res.data or []) if "module_id" in r}
+                    for t in rpc_tasks:
+                        mid = str(t.get("target_module_id") or "")
+                        if mid and mid in m_map:
+                            t["audience_display_name"] = m_map[mid]
+                except Exception:
+                    pass
+            return rpc_tasks
+    except Exception as rpc_err:
+        print(f"[task-manager] get_user_assigned_tasks_v2 RPC unavailable, using optimized direct queries: {rpc_err}")
 
     # 1. Fetch active assignments to determine assigned_ids for the employee
     try:
@@ -655,10 +747,15 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
         return []
 
     # 2. Fetch tasks corresponding to assigned_ids directly from tasks table
+    task_cols = (
+        "task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer"
+        if caller_is_admin else
+        "task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks"
+    )
     try:
         tasks_res = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer")
+            .select(task_cols)
             .in_("assignment_id", list(assigned_ids))
             .eq("company_id", company_id)
             .execute()
@@ -669,10 +766,20 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
         tasks = []
 
     # 3. Fetch existing submissions for this user (group by assignment_id)
+    sub_cols = (
+        "submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at"
+        if caller_is_admin else
+        "submission_id, assignment_id, company_id, user_id, task_id, submission_type, answers, status, submitted_at"
+    )
+    csub_cols = (
+        "submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at"
+        if caller_is_admin else
+        "submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, answers, status, submitted_at"
+    )
     try:
         submissions_res = (
             db.table("task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select(sub_cols)
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .order("submitted_at", desc=True)
@@ -680,7 +787,7 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
         )
         child_submissions_res = (
             db.table("child_task_submissions")
-            .select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            .select(csub_cols)
             .eq("company_id", company_id)
             .eq("user_id", user_id)
             .order("submitted_at", desc=True)
@@ -755,12 +862,8 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
             "target_function_id": assignment.get("target_function_id"),
             "target_sub_function_id": assignment.get("target_sub_function_id"),
             "target_module_id": assignment.get("target_module_id"),
-            "expected_answer": task.get("expected_answer"),
+            "expected_answer": task.get("expected_answer") if caller_is_admin else None,
         }
-        
-        if caller_is_admin and "expected_answer" in task:
-            row["expected_answer"] = task["expected_answer"]
-            
         filtered.append(row)
 
     return filtered
@@ -993,9 +1096,6 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
     from datetime import datetime
     from analysis.background import run_ai_pipeline_bg
 
-    if not await check_company_access(requesting_user_id, company_id):
-        raise AuthorizationError("Access denied to this company")
-
     # Guard against local file:// URIs in submission payload
     for field_name, url_val in [
         ("image_url", payload.image_url),
@@ -1041,34 +1141,32 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                         import uuid
                         payload.child_task_id = str(uuid.uuid5(uuid.NAMESPACE_OID, cid))
                 else:
-                    # It's a single task with multiple formats (pseudo child task). Drop it.
                     payload.child_task_id = None
                     is_bundle_submission = False
-            else:
-                # cid is likely a raw UUID. If it's not found in child_tasks, we let the DB constraint handle it,
-                # or if we know it's a pseudo-child, we should drop it. 
-                # Since we already handled cid == task_id, we leave it as is.
-                pass
 
     table_name = "child_task_submissions" if is_bundle_submission else "task_submissions"
-    print(f"DEBUG: table_name={table_name}, is_bundle={is_bundle_submission}, cid={getattr(payload, 'child_task_id', None)}")
-    print("IN SERVICE, table_name:", table_name, "cid:", getattr(payload, "child_task_id", "None"))
 
-    # Fetch existing submission to check if already completed for this format
-    existing_row = None
+    # Concurrently execute permission check and duplicate lookup
+    def _fetch_existing():
+        sdb = get_service_supabase_client()
+        if is_bundle_submission:
+            q = sdb.table(table_name).select("submission_id, text_response, image_url, audio_url, video_url, answers").eq("user_id", payload.user_id).eq("child_task_id", payload.child_task_id).limit(1)
+        else:
+            q = sdb.table(table_name).select("submission_id, text_response, image_url, audio_url, video_url, answers").eq("user_id", payload.user_id).eq("task_id", resolved_task_id).limit(1)
+        res = q.execute()
+        return res.data[0] if res.data else None
+
     if payload.task_id and payload.user_id:
-        if is_bundle_submission:
-            query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
-        else:
-            query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
-        if is_bundle_submission:
-            query = query.eq("child_task_id", payload.child_task_id)
-        else:
-            query = query.eq("task_id", resolved_task_id)
-            
-        existing_res = query.execute()
-        rows = existing_res.data or []
-        existing_row = rows[0] if rows else None
+        has_access, existing_row = await asyncio.gather(
+            check_company_access(requesting_user_id, company_id),
+            asyncio.to_thread(_fetch_existing)
+        )
+    else:
+        has_access = await check_company_access(requesting_user_id, company_id)
+        existing_row = None
+
+    if not has_access:
+        raise AuthorizationError("Access denied to this company")
 
     if existing_row:
         is_completed = False
@@ -1083,13 +1181,10 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             is_completed = True
         elif stype == "multiple_choice" and existing_row.get("answers"):
             is_completed = True
-            
+
         if is_completed:
             return {"submission_id": "already_completed", "message": "Task already completed"}
 
-    # Fetch task details for AI evaluation (we don't strictly need it here unless checking questions)
-    # Background worker will fetch again anyway.
-    
     saved_dir = os.path.join(tempfile.gettempdir(), "lucid_saved_submissions")
     os.makedirs(saved_dir, exist_ok=True)
 
@@ -1101,42 +1196,36 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
     submission_type = (payload.submission_type or "").lower()
 
     if submission_type == "image" and payload.image_url:
-        try:
-            image_bytes, mime_type = _extract_image_bytes(payload.image_url)
-            suffix = _image_suffix(mime_type)
-            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+        stored_image_url, suffix, media_bytes = _store_media(
+            payload, company_id, submission_id, payload.image_url, "image", "image/jpeg", ".jpg", background_tasks
+        )
+        if media_bytes:
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix or '.jpg'}")
             with open(local_path, "wb") as f:
-                f.write(image_bytes)
+                f.write(media_bytes)
             input_data = local_path
-            stored_image_url = _store_image_media(payload, company_id, submission_id)
-        except Exception as e:
-            print("[task-manager] image extraction/storage failed:", e)
-            
+
     elif submission_type == "audio" and (payload.audio_url or payload.text_response):
-        try:
-            audio_input = payload.audio_url or payload.text_response
-            audio_bytes, mime_type = _extract_audio_bytes(audio_input)
-            suffix = _audio_suffix(mime_type)
-            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+        audio_input = payload.audio_url or payload.text_response
+        stored_audio_url, suffix, media_bytes = _store_media(
+            payload, company_id, submission_id, audio_input, "audio", "audio/webm", ".webm", background_tasks
+        )
+        if media_bytes:
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix or '.webm'}")
             with open(local_path, "wb") as f:
-                f.write(audio_bytes)
+                f.write(media_bytes)
             input_data = local_path
-            stored_audio_url = _store_audio_media(payload, company_id, submission_id)
-        except Exception as e:
-            print("[task-manager] audio extraction/storage failed:", e)
 
     elif submission_type == "video" and (payload.video_url or payload.text_response):
-        try:
-            video_input = payload.video_url or payload.text_response
-            video_bytes, mime_type = _extract_video_bytes(video_input)
-            suffix = _video_suffix(mime_type)
-            local_path = os.path.join(saved_dir, f"{submission_id}{suffix}")
+        video_input = payload.video_url or payload.text_response
+        stored_video_url, suffix, media_bytes = _store_media(
+            payload, company_id, submission_id, video_input, "video", "video/mp4", ".mp4", background_tasks
+        )
+        if media_bytes:
+            local_path = os.path.join(saved_dir, f"{submission_id}{suffix or '.mp4'}")
             with open(local_path, "wb") as f:
-                f.write(video_bytes)
+                f.write(media_bytes)
             input_data = local_path
-            stored_video_url = _store_video_media(payload, company_id, submission_id)
-        except Exception as e:
-            print("[task-manager] video extraction/storage failed:", e)
 
     elif submission_type == "text":
         input_data = payload.text_response
@@ -1173,7 +1262,7 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         "status": "submitted",
         "submitted_at": datetime.utcnow().isoformat()
     }
-    
+
     if is_bundle_submission:
         insert_data["child_task_id"] = payload.child_task_id
         insert_data["parent_task_id"] = resolved_task_id
@@ -1187,12 +1276,10 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             err_msg = str(e).lower()
             if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
                 if is_bundle_submission:
-                    query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, child_task_id, parent_task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
-                    query = query.eq("child_task_id", payload.child_task_id)
+                    query = db.table(table_name).select("submission_id").eq("user_id", payload.user_id).eq("child_task_id", payload.child_task_id).limit(1)
                 else:
-                    query = db.table(table_name).select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at").eq("user_id", payload.user_id)
-                    query = query.eq("task_id", resolved_task_id)
-                
+                    query = db.table(table_name).select("submission_id").eq("user_id", payload.user_id).eq("task_id", resolved_task_id).limit(1)
+
                 rows = query.execute().data or []
                 existing_row = rows[0] if rows else None
                 if not existing_row:
@@ -1209,24 +1296,32 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
             val = insert_data.get(field)
             if val is not None:
                 update_data[field] = val
-        
+
         db.table(table_name).update(update_data).eq("submission_id", existing_row["submission_id"]).execute()
         submission_id = existing_row["submission_id"]
 
     # Queue background task
     target_task_id = payload.child_task_id if is_bundle_submission else resolved_task_id
-    # run_ai_pipeline_bg.delay(
-    background_tasks.add_task(
-        run_ai_pipeline_bg,
-        submission_id,
-        company_id,
-        target_task_id,
-        submission_type,
-        input_data,
-        is_bundle_submission=is_bundle_submission
-    )
+    if background_tasks:
+        background_tasks.add_task(
+            run_ai_pipeline_bg,
+            submission_id,
+            company_id,
+            target_task_id,
+            submission_type,
+            input_data,
+            is_bundle_submission=is_bundle_submission
+        )
+    else:
+        import threading
+        threading.Thread(
+            target=run_ai_pipeline_bg,
+            args=(submission_id, company_id, target_task_id, submission_type, input_data),
+            kwargs={"is_bundle_submission": is_bundle_submission},
+            daemon=True
+        ).start()
 
-    invalidate_user_tasks_cache(payload.user_id)
+    invalidate_user_tasks_cache(payload.user_id, company_id=company_id, background_tasks=background_tasks)
     return {
         "status": "success",
         "message": "Task submitted successfully",
@@ -1243,7 +1338,7 @@ async def get_report_summary(assignment_id: str, company_id: str, requesting_use
     db = get_service_supabase_client()
     result = (
         db.table("task_report_summaries")
-        .select("assignment_id, company_id")
+        .select("summary_id, company_id, assignment_id, total_assigned, total_submitted, total_not_started, completion_rate, avg_score_pct, count_pass, count_borderline, count_needs_review, count_no_score, last_updated_at")
         .eq("assignment_id", assignment_id)
         .eq("company_id", company_id)
         .maybe_single()

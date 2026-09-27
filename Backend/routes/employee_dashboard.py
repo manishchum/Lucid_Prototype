@@ -1,20 +1,218 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response
-from typing import Optional, Dict, Any, List
 import asyncio
+from datetime import datetime
 import hashlib
 import json
-from datetime import datetime
-from utils.auth_bridge import get_service_supabase_client
-from utils.supabase_client import supabase
-from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
-from utils.db.permissions import check_user_permission
-from utils.db.leaderboard_db import get_user_rank
-from utils.redis_client import get_cache, set_cache, redis_client
 import traceback
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
+
+from task_manager.service import get_tasks_for_user
+from utils.auth import RequestAuth, get_effective_company_id, get_request_auth_required
+from utils.auth_bridge import get_service_supabase_client
+from utils.db.leaderboard_db import get_user_rank
+from utils.db.permissions import check_user_permission
+from utils.redis_client import get_cache, set_cache
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
-from task_manager.service import get_tasks_for_user
+TASK_ADDON_ALIASES = frozenset({"tasks", "task_manager", "task-manager", "task_management"})
+COMPANY_STATIC_TTL = 3600  # 1 hour
+USER_COMPANY_TTL = 3600    # 1 hour
+DASHBOARD_CACHE_TTL = 300  # 5 minutes
+
+
+# ==============================================================================
+# Helper Functions: Business Logic & Data Transformation
+# ==============================================================================
+
+def has_tasks_addon(addons: Any) -> bool:
+    """
+    Safely checks if tasks/task management addon is enabled for a company.
+    Supports JSON strings, lists, tuples, or sets.
+    """
+    if not addons:
+        return False
+    if isinstance(addons, str):
+        try:
+            addons = json.loads(addons)
+        except Exception:
+            addons = [addons]
+    if not isinstance(addons, (list, tuple, set)):
+        return False
+    return any(str(addon).strip().lower() in TASK_ADDON_ALIASES for addon in addons)
+
+
+def format_user_rank(rank_res: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Extracts and normalizes leaderboard rank details with safe fallbacks.
+    Guarantees no KeyError or crash even if leaderboard service fails.
+    """
+    rank_info = (
+        rank_res.get("data")
+        if (isinstance(rank_res, dict) and not rank_res.get("error"))
+        else None
+    )
+    return {
+        "rank": rank_info.get("rank", 1) if rank_info else 1,
+        "top_percentile": rank_info.get("percentile", 10) if rank_info else 10,
+        "modules_completed": rank_info.get("modules_completed", 0) if rank_info else 0,
+        "total_score": rank_info.get("total_points", 0) if rank_info else 0,
+    }
+
+
+def embed_processed_module_ids(
+    plans: List[Dict[str, Any]],
+    all_processed_modules: List[Dict[str, Any]],
+    modules: List[Dict[str, Any]],
+) -> None:
+    """
+    Pre-resolves and embeds processed_module_ids directly into learning plan objects
+    in-memory. Eliminates per-plan mobile client network requests.
+    """
+    company_module_ids = {
+        str(m.get("module_id"))
+        for m in modules
+        if isinstance(m, dict) and m.get("module_id")
+    }
+
+    # Group processed modules by original_module_id
+    pm_by_original: Dict[str, List[Dict[str, Any]]] = {}
+    for pm in all_processed_modules:
+        orig_id = str(pm.get("original_module_id") or "")
+        if orig_id and (not company_module_ids or orig_id in company_module_ids):
+            pm_by_original.setdefault(orig_id, []).append(pm)
+
+    for plan in plans:
+        orig_id = str(plan.get("module_id") or "")
+        matching_pms = pm_by_original.get(orig_id, [])
+        matching_pms.sort(key=lambda x: x.get("order") or x.get("order_index") or 0)
+
+        title_to_pm_id = {
+            (pm.get("title") or "").strip().lower(): str(pm.get("processed_module_id"))
+            for pm in matching_pms
+            if pm.get("processed_module_id")
+        }
+
+        plan_json = plan.get("plan_json") or {}
+        plan_modules = plan_json.get("modules") if isinstance(plan_json, dict) else []
+
+        if isinstance(plan_modules, list):
+            for idx, m in enumerate(plan_modules):
+                if isinstance(m, dict) and not m.get("processed_module_id"):
+                    m_title = (m.get("title") or "").strip().lower()
+                    if m_title in title_to_pm_id:
+                        m["processed_module_id"] = title_to_pm_id[m_title]
+                    elif idx < len(matching_pms) and matching_pms[idx].get("processed_module_id"):
+                        m["processed_module_id"] = str(matching_pms[idx]["processed_module_id"])
+
+        embedded_ids = [
+            str(m.get("processed_module_id"))
+            for m in (plan_modules if isinstance(plan_modules, list) else [])
+            if isinstance(m, dict) and m.get("processed_module_id")
+        ]
+        if not embedded_ids and matching_pms:
+            embedded_ids = [str(pm.get("processed_module_id")) for pm in matching_pms if pm.get("processed_module_id")]
+
+        plan["processed_module_ids"] = embedded_ids
+
+
+def build_assessment_evidence(
+    employee_assessments: List[Dict[str, Any]],
+    assessment_details: List[Dict[str, Any]],
+    processed_modules: List[Dict[str, Any]],
+) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]:
+    """Builds lookup tables for module assessment and baseline evidence scores."""
+    assessment_evidence: Dict[str, List[Dict[str, Any]]] = {}
+    baseline_evidence: Dict[str, List[Dict[str, Any]]] = {}
+
+    assessment_detail_by_id = {
+        str(d.get("assessment_id")): d for d in assessment_details if isinstance(d, dict)
+    }
+    processed_module_by_id = {
+        str(pm.get("processed_module_id")): pm for pm in processed_modules if isinstance(pm, dict)
+    }
+
+    for ea in employee_assessments:
+        if not isinstance(ea, dict):
+            continue
+        detail = assessment_detail_by_id.get(str(ea.get("assessment_id")))
+        if not detail:
+            continue
+
+        processed_module = processed_module_by_id.get(
+            str(detail.get("processed_module_id"))
+            )
+        original_module_id = str(
+            detail.get("original_module_id")
+            or (
+                processed_module.get("original_module_id")
+                if processed_module
+                else ""
+                )
+        )
+        if not original_module_id:
+            continue
+
+        score = ea.get("score")
+        max_score = ea.get("max_score")
+        score_percent = None
+
+        if score is not None:
+            if max_score and max_score > 0:
+                score_percent = round((score / max_score) * 100, 2)
+            else:
+                score_percent = score
+
+        entry = {
+            "scorePercent": score_percent,
+            "completedAt": ea.get("completed_at"),
+        }
+        assessment_evidence.setdefault(original_module_id, []).append(entry)
+
+        if detail.get("type") == "baseline":
+            baseline_evidence.setdefault(original_module_id, []).append(entry)
+
+    return assessment_evidence, baseline_evidence
+
+
+async def resolve_user_company_id(
+    service_supabase,
+    auth_ctx: RequestAuth,
+    user_id: str,
+) -> str:
+    """
+    Resolves the company ID for a given user using fast memory context or Redis cache,
+    falling back to database lookup only when cache misses.
+    """
+    if auth_ctx.user_id == user_id and auth_ctx.company_id:
+        return str(auth_ctx.company_id)
+
+    cache_key = f"user_company:{user_id}"
+    cached_company_id = get_cache(cache_key)
+    if cached_company_id:
+        return str(cached_company_id)
+
+    user_company_res = (
+        service_supabase
+        .table("users")
+        .select("company_id")
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    user_company_data = getattr(user_company_res, "data", None)
+    if not isinstance(user_company_data, dict) or not user_company_data.get("company_id"):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_company_id = str(user_company_data["company_id"])
+    set_cache(cache_key, user_company_id, ttl=USER_COMPANY_TTL)
+    return user_company_id
+
+
+# ==============================================================================
+# Endpoint: Employee Dashboard Summary
+# ==============================================================================
 
 @router.get("/dashboard_summary/{user_id}")
 async def get_dashboard_summary(
@@ -24,218 +222,153 @@ async def get_dashboard_summary(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id),
 ):
+    """
+    High-performance employee dashboard summary endpoint.
+    Aggregates learning plans, modules, progress, user rank, and assigned tasks
+    with multi-tier caching (Redis + HTTP ETag) and concurrent batch fetching.
+    """
+    t_entry = datetime.now()
     try:
         service_supabase = get_service_supabase_client()
 
+        # 1. Authorization & Tenant Security Checks
         if auth_ctx.user_id != user_id:
             is_manager = await check_user_permission(auth_ctx.user_id, "manager")
             if not is_manager:
                 raise HTTPException(status_code=403, detail="Permission denied")
 
-        def _get_data(res):
-            return getattr(res, "data", None)
-
-        user_company_res = (
-            service_supabase
-            .table("users")
-            .select("company_id")
-            .eq("user_id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        user_company_data = _get_data(user_company_res)
-        if not isinstance(user_company_data, dict) or not user_company_data.get("company_id"):
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user_company_id = str(user_company_data.get("company_id"))
+        user_company_id = await resolve_user_company_id(service_supabase, auth_ctx, user_id)
         if str(effective_company_id) != user_company_id:
             raise HTTPException(status_code=403, detail="User does not belong to this company")
 
         x_company_id = str(effective_company_id)
-        
-        cache_key = f"dashboard_summary:{user_id}"
-        cached = get_cache(cache_key)
-        
-        if cached:
-            print("Dashboard Summary Cache Hit", {"cache_key": cache_key, "user_id": user_id})
-            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
-            return cached
-        
-        print(f"Dashboard Summary Cache Miss for user {user_id}")
-        start_time = datetime.now()
 
-        # Check Redis for company-wide static data cache
+        # 2. Tier 1 Cache: Per-User Full Dashboard Cache Hit (< 15ms)
+        cache_key = f"dashboard_summary:{user_id}"
+        cached_dashboard = get_cache(cache_key)
+        if cached_dashboard:
+            latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
+            print(f"[Dashboard Summary] [CACHE HIT] Served in {latency_ms}ms for user {user_id}")
+            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+            return cached_dashboard
+
+        print(f"[Dashboard Summary] [CACHE MISS] Executing concurrent fetch for user {user_id}...")
+        start_fetch_time = datetime.now()
+
+        # 3. Tier 2 Cache: Check Company Static Metadata for Feature Gating
         company_cache_key = f"company_static:{x_company_id}"
         company_static_data = get_cache(company_cache_key)
 
-        # Batch 1: Execute single Postgres RPC, leaderboard rank, and assigned tasks concurrently
-        rpc_res, rank_res, tasks_res = await asyncio.gather(
-            asyncio.to_thread(
-                lambda: service_supabase.rpc(
-                    "get_employee_dashboard_summary",
-                    {"p_user_id": user_id, "p_company_id": x_company_id}
-                ).execute()
-            ),
-            get_user_rank(user_id, x_company_id, requesting_user_id=user_id),
-            get_tasks_for_user(user_id, x_company_id, requesting_user_id=user_id),
-        )
+        tasks_query_needed = True
+        if company_static_data and company_static_data.get("company"):
+            tasks_query_needed = has_tasks_addon(
+                company_static_data["company"].get("subscription_addons")
+            )
 
-        summary_data = rpc_res.data if isinstance(rpc_res.data, dict) else {}
-
-        # If company static data was not in Redis, populate it directly from summary_data (Zero extra DB calls!)
-        if not company_static_data and summary_data:
-            company_static_data = {
-                "company": summary_data.get("company"),
-                "total_users": summary_data.get("total_users"),
-                "training_modules": summary_data.get("training_modules"),
-                "processed_modules": summary_data.get("processed_modules"),
-                "assessments": summary_data.get("assessments"),
-            }
-            set_cache(company_cache_key, company_static_data, ttl=3600)  # 1 hour cache
-
-        company_data = (company_static_data or {}).get("company") or summary_data.get("company") or {}
-        total_users = (company_static_data or {}).get("total_users") or summary_data.get("total_users") or 0
-        learning_style = summary_data.get("learning_style")
-        plans = summary_data.get("learning_plans") or []
-        modules = (company_static_data or {}).get("training_modules") or summary_data.get("training_modules") or []
-        progress = summary_data.get("module_progress") or []
-        employee_assessments = summary_data.get("employee_assessments") or []
-        task_submissions = summary_data.get("task_submissions") or []
-        all_processed_modules = (company_static_data or {}).get("processed_modules") or summary_data.get("processed_modules") or []
-        assessment_details = (company_static_data or {}).get("assessments") or summary_data.get("assessments") or []
-
-        # Feature Gating: Off by default. Only enabled if company.subscription_addons specifically contains "tasks" or "task_manager"
-        company_addons = company_data.get("subscription_addons") or []
-        if isinstance(company_addons, str):
+        async def _safe_get_user_rank():
             try:
-                company_addons = json.loads(company_addons)
-            except Exception:
-                company_addons = [company_addons]
-        if not isinstance(company_addons, list):
-            company_addons = []
+                return await get_user_rank(user_id, x_company_id, requesting_user_id=user_id)
+            except Exception as e:
+                print(f"[Dashboard Summary] [WARN] get_user_rank failed gracefully: {e}")
+                return None
 
-        tasks_enabled = any(
-            str(addon).strip().lower() in ("tasks", "task_manager", "task-manager", "task_management")
-            for addon in company_addons
+        async def _safe_get_tasks():
+            if not tasks_query_needed:
+                return []
+            try:
+                return await get_tasks_for_user(user_id, x_company_id, requesting_user_id=user_id)
+            except Exception as e:
+                print(f"[Dashboard Summary] [WARN] get_tasks_for_user failed gracefully: {e}")
+                return []
+
+        async def _fetch_dashboard_data():
+            """
+            Executes Split-RPC pattern:
+            1. If company static data is in Redis, only fetches user dynamic data (<50ms).
+            2. If missing, fetches user dynamic data and company static data in parallel.
+            3. Gracefully falls back to get_employee_dashboard_summary if split RPCs are not yet deployed.
+            """
+            need_company_static = not (company_static_data and company_static_data.get("company"))
+            try:
+                if need_company_static:
+                    user_res, comp_res = await asyncio.gather(
+                        asyncio.to_thread(
+                            lambda: service_supabase.rpc(
+                                "get_user_dashboard_dynamic_data",
+                                {"p_user_id": user_id, "p_company_id": x_company_id},
+                            ).execute()
+                        ),
+                        asyncio.to_thread(
+                            lambda: service_supabase.rpc(
+                                "get_company_static_dashboard_data",
+                                {"p_company_id": x_company_id},
+                            ).execute()
+                        ),
+                    )
+                    u_data = user_res.data if isinstance(user_res.data, dict) else {}
+                    c_data = comp_res.data if isinstance(comp_res.data, dict) else {}
+                    return u_data, c_data
+                else:
+                    user_res = await asyncio.to_thread(
+                        lambda: service_supabase.rpc(
+                            "get_user_dashboard_dynamic_data",
+                            {"p_user_id": user_id, "p_company_id": x_company_id},
+                        ).execute()
+                    )
+                    u_data = user_res.data if isinstance(user_res.data, dict) else {}
+                    return u_data, company_static_data
+            except Exception as exc:
+                print(f"[Dashboard Summary] [SPLIT-RPC NOTICE] Falling back to get_employee_dashboard_summary: {exc}")
+                mono_res = await asyncio.to_thread(
+                    lambda: service_supabase.rpc(
+                        "get_employee_dashboard_summary",
+                        {"p_user_id": user_id, "p_company_id": x_company_id},
+                    ).execute()
+                )
+                m_data = mono_res.data if isinstance(mono_res.data, dict) else {}
+                return m_data, m_data
+
+        # 4. Batch Execution: Supabase DB + Leaderboard Rank + Assigned Tasks in Parallel
+        (user_data, comp_data), rank_res, tasks_res = await asyncio.gather(
+            _fetch_dashboard_data(),
+            _safe_get_user_rank(),
+            _safe_get_tasks(),
         )
 
-        assigned_tasks = tasks_res if tasks_enabled else []
-
-        rank_info = rank_res.get("data") if (rank_res and not rank_res.get("error")) else None
-        user_rank_data = {
-            "rank": rank_info.get("rank", 1) if rank_info else 1,
-            "top_percentile": rank_info.get("percentile", 10) if rank_info else 10,
-            "modules_completed": rank_info.get("modules_completed", 0) if rank_info else 0,
-            "total_score": rank_info.get("total_points", 0) if rank_info else 0,
-        }
-
-        # Pre-resolve processed_module_ids and embed into plans
-        company_module_ids = {str(m.get("module_id")) for m in modules if isinstance(m, dict) and m.get("module_id")}
-        pm_by_original = {}
-        for pm in all_processed_modules:
-            orig_id = str(pm.get("original_module_id") or "")
-            if orig_id and (not company_module_ids or orig_id in company_module_ids):
-                if orig_id not in pm_by_original:
-                    pm_by_original[orig_id] = []
-                pm_by_original[orig_id].append(pm)
-
-        for plan in plans:
-            orig_id = str(plan.get("module_id") or "")
-            matching_pms = pm_by_original.get(orig_id, [])
-            matching_pms.sort(key=lambda x: x.get("order") or x.get("order_index") or 0)
-
-            title_to_pm_id = {
-                (pm.get("title") or "").strip().lower(): str(pm.get("processed_module_id"))
-                for pm in matching_pms
-                if pm.get("processed_module_id")
+        # 5. Populate Company Static Cache if it was missing
+        if not company_static_data and comp_data:
+            company_static_data = {
+                "company": comp_data.get("company"),
+                "total_users": comp_data.get("total_users"),
+                "training_modules": comp_data.get("training_modules"),
+                "processed_modules": comp_data.get("processed_modules"),
+                "assessments": comp_data.get("assessments"),
             }
+            set_cache(company_cache_key, company_static_data, ttl=COMPANY_STATIC_TTL)
 
-            plan_json = plan.get("plan_json") or {}
-            plan_modules = plan_json.get("modules") if isinstance(plan_json, dict) else []
+        company_data = (company_static_data or {}).get("company") or comp_data.get("company") or user_data.get("company") or {}
+        total_users = (company_static_data or {}).get("total_users") or comp_data.get("total_users") or user_data.get("total_users") or 0
+        learning_style = user_data.get("learning_style")
+        plans = user_data.get("learning_plans") or []
+        modules = (company_static_data or {}).get("training_modules") or comp_data.get("training_modules") or user_data.get("training_modules") or []
+        progress = user_data.get("module_progress") or []
+        employee_assessments = user_data.get("employee_assessments") or []
+        task_submissions = user_data.get("task_submissions") or []
+        all_processed_modules = (company_static_data or {}).get("processed_modules") or comp_data.get("processed_modules") or user_data.get("processed_modules") or []
+        assessment_details = (company_static_data or {}).get("assessments") or comp_data.get("assessments") or user_data.get("assessments") or []
 
-            if isinstance(plan_modules, list):
-                for idx, m in enumerate(plan_modules):
-                    if isinstance(m, dict) and not m.get("processed_module_id"):
-                        m_title = (m.get("title") or "").strip().lower()
-                        if m_title in title_to_pm_id:
-                            m["processed_module_id"] = title_to_pm_id[m_title]
-                        elif idx < len(matching_pms) and matching_pms[idx].get("processed_module_id"):
-                            m["processed_module_id"] = str(matching_pms[idx]["processed_module_id"])
+        # 6. Feature Gating & Normalization
+        tasks_enabled = has_tasks_addon(company_data.get("subscription_addons"))
+        assigned_tasks = tasks_res if tasks_enabled else []
+        user_rank_data = format_user_rank(rank_res)
 
-            embedded_ids = [
-                str(m.get("processed_module_id"))
-                for m in (plan_modules if isinstance(plan_modules, list) else [])
-                if isinstance(m, dict) and m.get("processed_module_id")
-            ]
-            if not embedded_ids and matching_pms:
-                embedded_ids = [str(pm.get("processed_module_id")) for pm in matching_pms if pm.get("processed_module_id")]
+        # 7. In-Memory Transformations
+        embed_processed_module_ids(plans, all_processed_modules, modules)
+        assessment_evidence, baseline_evidence = build_assessment_evidence(
+            employee_assessments, assessment_details, all_processed_modules
+        )
 
-            plan["processed_module_ids"] = embedded_ids
-
-        processed_modules = all_processed_modules
-
-        # Construct assessmentEvidenceByModuleId and baselineEvidenceByModuleId
-        assessment_evidence_by_module_id = {}
-        baseline_evidence_by_module_id = {}
-
-        assessment_detail_by_id = {
-            str(d.get("assessment_id")): d for d in assessment_details
-        }
-        processed_module_by_id = {
-            str(pm.get("processed_module_id")): pm for pm in processed_modules
-        }
-
-        for ea in employee_assessments:
-            detail = assessment_detail_by_id.get(str(ea.get("assessment_id")))
-            if not detail:
-                continue
-
-            processed_module = processed_module_by_id.get(
-                str(detail.get("processed_module_id"))
-            )
-            original_module_id = str(
-                detail.get("original_module_id")
-                or (
-                    processed_module.get("original_module_id")
-                    if processed_module
-                    else ""
-                )
-            )
-
-            if not original_module_id:
-                continue
-
-            score = ea.get("score")
-            max_score = ea.get("max_score")
-            score_percent = None
-
-            if score is not None:
-                if max_score and max_score > 0:
-                    score_percent = round((score / max_score) * 100, 2)
-                else:
-                    score_percent = score
-
-            if original_module_id not in assessment_evidence_by_module_id:
-                assessment_evidence_by_module_id[original_module_id] = []
-
-            assessment_evidence_by_module_id[original_module_id].append(
-                {
-                    "scorePercent": score_percent,
-                    "completedAt": ea.get("completed_at"),
-                }
-            )
-
-            if detail.get("type") == "baseline":
-                if original_module_id not in baseline_evidence_by_module_id:
-                    baseline_evidence_by_module_id[original_module_id] = []
-                baseline_evidence_by_module_id[original_module_id].append(
-                    {
-                        "scorePercent": score_percent,
-                        "completedAt": ea.get("completed_at"),
-                    }
-                )
-
-        # Build response payload
+        # 8. Construct Response Payload
         response_payload = {
             "plans": plans,
             "modules": modules,
@@ -244,30 +377,30 @@ async def get_dashboard_summary(
             "total_users": total_users,
             "learning_style": learning_style,
             "user_rank": user_rank_data,
-            "assessment_evidence_by_module_id": assessment_evidence_by_module_id,
-            "baseline_evidence_by_module_id": baseline_evidence_by_module_id,
+            "assessment_evidence_by_module_id": assessment_evidence,
+            "baseline_evidence_by_module_id": baseline_evidence,
             "task_submissions": task_submissions,
-            "processed_modules": processed_modules,
+            "processed_modules": all_processed_modules,
             "assigned_tasks": assigned_tasks,
             "tasks_enabled": tasks_enabled,
         }
 
-        elapsed_ms = round((datetime.now() - start_time).total_seconds() * 1000, 2)
-        print(f"[Dashboard Summary] [OK] Concurrent fetch completed in {elapsed_ms}ms for user {user_id}")
+        elapsed_ms = round((datetime.now() - start_fetch_time).total_seconds() * 1000, 2)
+        print(f"[Dashboard Summary] [OK] Completed in {elapsed_ms}ms for user {user_id}")
 
-        set_cache(cache_key, response_payload, ttl=300)
-        
+        # 9. Cache Result & Set HTTP Headers
+        set_cache(cache_key, response_payload, ttl=DASHBOARD_CACHE_TTL)
         response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
         etag_val = f'"{hashlib.md5(json.dumps(response_payload, default=str).encode()).hexdigest()}"'
         response.headers["ETag"] = etag_val
 
         return response_payload
-          
-    # except Exception as e:
-    #     print(f"[Dashboard Summary Error] {e}")
-    #     raise HTTPException(status_code=500, detail=str(e))
+
+    except HTTPException:
+        raise
     except Exception:
         traceback.print_exc()
         raise
     finally:
-        print(f"[Dashboard Summary] Request completed for user {user_id}")
+        total_request_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
+        print(f"[Dashboard Summary] Request finished for {user_id} in {total_request_ms}ms")

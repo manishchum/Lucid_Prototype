@@ -175,7 +175,7 @@ async def get_company_leaderboard(
             entry['rank'] = idx
             ranked_leaderboard.append(entry)
         
-        set_cache(cache_key, ranked_leaderboard, ttl=120)
+        set_cache(cache_key, ranked_leaderboard, ttl=600)
         return {"data": ranked_leaderboard[:limit], "error": None}
     except Exception as e:
         import traceback
@@ -191,83 +191,64 @@ async def get_user_rank(
 ) -> Dict[str, Any]:
     """
     Get a specific user's rank and percentile in their company's leaderboard.
-    
-    Returns:
-    - rank: User's position (1 = top)
-    - total_points: User's total points
-    - modules_completed: Count of completed modules
-    - percentile: User's percentile (0-100) where 100 is top
-    - total_users: Total users in company
-    - users_ahead: Number of users with more points
+    Optimized with Redis caching and direct resolution from company leaderboard.
     """
+    if not user_id or not company_id:
+        return {"data": None, "error": "Missing user_id or company_id"}
+
+    cache_key = f"user_rank:{company_id}:{user_id}"
+    cached = get_cache(cache_key)
+    if cached:
+        return {"data": cached, "error": None}
+
     try:
         active_user_id = requesting_user_id or user_id
-        client = get_user_supabase_client(user_id=active_user_id, company_id=company_id) if active_user_id else supabase
-        # Verify user belongs to the company
-        user_resp = client.table('users').select(
-            'user_id, name, avatar_url, email, company_id'
-        ).eq('user_id', user_id).single().execute()
-        
-        if not user_resp.data:
-            return {"data": None, "error": "User not found"}
-        
-        user_company = user_resp.data.get('company_id')
-        if user_company != company_id:
-            return {"data": None, "error": "User does not belong to this company"}
-        
-        # Get user's points
-        user_points = await get_user_total_points(user_id, company_id, requesting_user_id=active_user_id)
-        
-        # Get user's completed modules count
-        plans_resp = client.table('learning_plan').select(
-            'learning_plan_id'
-        ).eq('user_id', user_id).eq('overall_status', True).execute()
-        
-        modules_completed = len(plans_resp.data) if plans_resp.data else 0
-        
-        # Get full leaderboard for the company to calculate rank
+        # Get full leaderboard for the company to calculate rank (cached in Redis)
         leaderboard_resp = await get_company_leaderboard(company_id, limit=10000, requesting_user_id=active_user_id)
         
-        if leaderboard_resp["error"]:
+        if leaderboard_resp.get("error"):
             return {"data": None, "error": leaderboard_resp["error"]}
         
-        leaderboard = leaderboard_resp.get("data", [])
-        
-        if not leaderboard:
-            return {"data": None, "error": "Could not calculate rank"}
-        
-        # Find user's rank in leaderboard
-        user_rank = None
-        for entry in leaderboard:
-            if entry['user_id'] == user_id:
-                user_rank = entry['rank']
-                break
-        
-        if user_rank is None:
-            # User not in leaderboard (no points yet), find their position
-            user_rank = len(leaderboard) + 1
-        
-        # Calculate percentile (100 = top, 0 = bottom)
+        leaderboard = leaderboard_resp.get("data", []) or []
         total_users = len(leaderboard)
-        users_ahead = user_rank - 1
         
+        # Find user's entry in leaderboard
+        user_entry = next((e for e in leaderboard if str(e.get('user_id')) == str(user_id)), None)
+        
+        if user_entry:
+            user_rank = user_entry.get('rank', 1)
+            modules_completed = user_entry.get('modules_completed', 0)
+            user_points = user_entry.get('total_points', modules_completed * 100)
+            name = user_entry.get('name')
+            avatar_url = user_entry.get('avatar_url')
+        else:
+            user_rank = total_users + 1
+            modules_completed = 0
+            user_points = 0
+            name = None
+            avatar_url = None
+        
+        users_ahead = max(0, user_rank - 1)
         if total_users > 1:
             percentile = int((total_users - user_rank) / (total_users - 1) * 100)
         else:
             percentile = 100
+
+        result_data = {
+            'user_id': user_id,
+            'name': name,
+            'avatar_url': avatar_url,
+            'rank': user_rank,
+            'total_points': user_points,
+            'modules_completed': modules_completed,
+            'percentile': percentile,
+            'total_users': total_users,
+            'users_ahead': users_ahead
+        }
+        set_cache(cache_key, result_data, ttl=300)
         
         return {
-            "data": {
-                'user_id': user_id,
-                'name': user_resp.data.get('name'),
-                'avatar_url': user_resp.data.get('avatar_url'),
-                'rank': user_rank,
-                'total_points': user_points,
-                'modules_completed': modules_completed,
-                'percentile': percentile,
-                'total_users': total_users,
-                'users_ahead': users_ahead
-            },
+            "data": result_data,
             "error": None
         }
     except Exception as e:

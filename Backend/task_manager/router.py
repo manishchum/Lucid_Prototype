@@ -87,7 +87,7 @@ async def submit_task(
             auth_ctx.user_id
         )
         if auth_ctx.user_id:
-            invalidate_dashboard_cache(auth_ctx.user_id)
+            background_tasks.add_task(invalidate_dashboard_cache, auth_ctx.user_id)
         return result
     except ApiException:
         raise

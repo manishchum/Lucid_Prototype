@@ -4,11 +4,6 @@ import re
 from google import genai
 from google.genai import types
 from utils.supabase_client import supabase
-from analysis.text_analyzer import analyze_text, analyze_mcq
-from analysis.image_analyzer import analyze_image
-from analysis.audio_analyzer import analyze_audio
-from analysis.video_analyzer import analyze_video
-
 from enum import Enum
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
@@ -296,6 +291,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
     try:
         stype = str(submission_type).lower()
         if stype == "text":
+            from analysis.text_analyzer import analyze_text
             result = analyze_text(
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
@@ -310,6 +306,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             quality_analysis["speech_quality"] = result.get("model_output", {}).get("speech_quality")
 
         elif stype == "multiple_choice":
+            from analysis.text_analyzer import analyze_mcq
             result = analyze_mcq(
                 questions=task.get("questions") or [],
                 answers=input_data  # list of answer items
@@ -329,6 +326,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             print("IMAGE PATH:", input_data)
             print("TASK DESCRIPTION:", task.get("description", ""))
 
+            from analysis.image_analyzer import analyze_image
             result = analyze_image(
             image_path=input_data,
             instruction=task.get("description", "")
@@ -416,6 +414,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
 
         elif stype == "audio":
             # input_data is saved audio file path
+            from analysis.audio_analyzer import analyze_audio
             result = analyze_audio(
                 audio_path=input_data,
                 task_title=task.get("title", ""),
@@ -442,6 +441,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
 
         elif stype == "video":
             # input_data is saved video file path
+            from analysis.video_analyzer import analyze_video
             result = analyze_video(
                 video_path=input_data,
                 task_title=task.get("title", ""),
