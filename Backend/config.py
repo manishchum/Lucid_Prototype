@@ -22,7 +22,7 @@ IS_DEVELOPMENT = APP_ENV == "development"
 
 # Server configuration
 HOST = os.getenv("HOST", "127.0.0.1")
-PORT = int(os.getenv("PORT", "8000"))
+PORT = int(os.getenv("PORT", "8080"))
 
 # Supabase configuration
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
