@@ -95,6 +95,7 @@ async def get_company_leaderboard(
 ) -> Dict[str, Any]:
     """
     Get leaderboard for a company, ranking users by completion percentage.
+    Checks Redis first. On cache miss, calls public.get_company_leaderboard_precomputed RPC (<25ms).
     """
     cache_key = f"company_leaderboard:{company_id}"
     cached = get_cache(cache_key)
@@ -102,6 +103,32 @@ async def get_company_leaderboard(
         return {"data": cached[:limit], "error": None}
 
     try:
+        import asyncio
+        from ..auth_bridge import get_service_supabase_client
+        service_client = get_service_supabase_client()
+        
+        # 1. High-Performance SQL RPC (Single roundtrip, <25ms)
+        try:
+            rpc_res = await asyncio.to_thread(
+                lambda: service_client.rpc(
+                    "get_company_leaderboard_precomputed",
+                    {"p_company_id": company_id}
+                ).execute()
+            )
+            if rpc_res and isinstance(rpc_res.data, list) and len(rpc_res.data) > 0:
+                ranked_leaderboard = rpc_res.data
+                # Cache full leaderboard in Redis
+                set_cache(cache_key, ranked_leaderboard, ttl=600)
+                # Cache individual user ranks in Redis in batch
+                for entry in ranked_leaderboard:
+                    u_id = entry.get("user_id")
+                    if u_id:
+                        set_cache(f"user_rank:{company_id}:{u_id}", entry, ttl=600)
+                return {"data": ranked_leaderboard[:limit], "error": None}
+        except Exception as rpc_err:
+            print(f"[leaderboard_db] get_company_leaderboard_precomputed RPC fallback: {rpc_err}")
+
+        # 2. Graceful fallback if RPC is not yet deployed
         client = get_user_supabase_client(user_id=requesting_user_id, company_id=company_id) if requesting_user_id else supabase
         # Get all active users in the company
         users_resp = client.table('users').select(
@@ -191,7 +218,7 @@ async def get_user_rank(
 ) -> Dict[str, Any]:
     """
     Get a specific user's rank and percentile in their company's leaderboard.
-    Optimized with Redis caching and direct resolution from company leaderboard.
+    Optimized with Redis caching and direct resolution from precomputed company leaderboard (<2ms).
     """
     if not user_id or not company_id:
         return {"data": None, "error": "Missing user_id or company_id"}
@@ -201,58 +228,87 @@ async def get_user_rank(
     if cached:
         return {"data": cached, "error": None}
 
+    # Check if company leaderboard is in Redis
+    company_cache_key = f"company_leaderboard:{company_id}"
+    cached_leaderboard = get_cache(company_cache_key)
+    if cached_leaderboard and isinstance(cached_leaderboard, list):
+        user_entry = next((e for e in cached_leaderboard if str(e.get('user_id')) == str(user_id)), None)
+        if user_entry:
+            set_cache(cache_key, user_entry, ttl=600)
+            return {"data": user_entry, "error": None}
+
     try:
         active_user_id = requesting_user_id or user_id
-        # Get full leaderboard for the company to calculate rank (cached in Redis)
         leaderboard_resp = await get_company_leaderboard(company_id, limit=10000, requesting_user_id=active_user_id)
-        
         if leaderboard_resp.get("error"):
             return {"data": None, "error": leaderboard_resp["error"]}
         
         leaderboard = leaderboard_resp.get("data", []) or []
-        total_users = len(leaderboard)
-        
-        # Find user's entry in leaderboard
         user_entry = next((e for e in leaderboard if str(e.get('user_id')) == str(user_id)), None)
         
         if user_entry:
-            user_rank = user_entry.get('rank', 1)
-            modules_completed = user_entry.get('modules_completed', 0)
-            user_points = user_entry.get('total_points', modules_completed * 100)
-            name = user_entry.get('name')
-            avatar_url = user_entry.get('avatar_url')
-        else:
-            user_rank = total_users + 1
-            modules_completed = 0
-            user_points = 0
-            name = None
-            avatar_url = None
-        
-        users_ahead = max(0, user_rank - 1)
-        if total_users > 1:
-            percentile = int((total_users - user_rank) / (total_users - 1) * 100)
-        else:
-            percentile = 100
+            set_cache(cache_key, user_entry, ttl=600)
+            return {"data": user_entry, "error": None}
 
-        result_data = {
+        total_users = len(leaderboard)
+        default_rank = {
             'user_id': user_id,
-            'name': name,
-            'avatar_url': avatar_url,
-            'rank': user_rank,
-            'total_points': user_points,
-            'modules_completed': modules_completed,
-            'percentile': percentile,
+            'name': None,
+            'avatar_url': None,
+            'rank': total_users + 1,
+            'total_points': 0,
+            'modules_completed': 0,
+            'percentile': 100,
             'total_users': total_users,
-            'users_ahead': users_ahead
+            'users_ahead': total_users
         }
-        set_cache(cache_key, result_data, ttl=300)
-        
-        return {
-            "data": result_data,
-            "error": None
-        }
+        set_cache(cache_key, default_rank, ttl=300)
+        return {"data": default_rank, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
+
+
+async def refresh_company_leaderboards() -> Dict[str, Any]:
+    """
+    Background cron job to precompute leaderboards for all active companies and store in Redis.
+    Runs every 5 minutes.
+    """
+    try:
+        import asyncio
+        from ..auth_bridge import get_service_supabase_client
+        service_client = get_service_supabase_client()
+        
+        # Get active companies
+        companies_res = await asyncio.to_thread(
+            lambda: service_client.table("companies").select("company_id").execute()
+        )
+        companies = companies_res.data or []
+        refreshed = 0
+        for comp in companies:
+            c_id = comp.get("company_id")
+            if not c_id:
+                continue
+            try:
+                rpc_res = await asyncio.to_thread(
+                    lambda: service_client.rpc(
+                        "get_company_leaderboard_precomputed",
+                        {"p_company_id": str(c_id)}
+                    ).execute()
+                )
+                if rpc_res and isinstance(rpc_res.data, list) and len(rpc_res.data) > 0:
+                    ranked = rpc_res.data
+                    set_cache(f"company_leaderboard:{c_id}", ranked, ttl=600)
+                    for entry in ranked:
+                        u_id = entry.get("user_id")
+                        if u_id:
+                            set_cache(f"user_rank:{c_id}:{u_id}", entry, ttl=600)
+                    refreshed += 1
+            except Exception as e:
+                print(f"[Cron Leaderboard] Error refreshing company {c_id}: {e}")
+        return {"success": True, "refreshed_companies": refreshed}
+    except Exception as exc:
+        print(f"[Cron Leaderboard] Failed to run cron: {exc}")
+        return {"success": False, "error": str(exc)}
 
 
 async def get_user_rank_simple(

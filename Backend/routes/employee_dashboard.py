@@ -20,6 +20,12 @@ TASK_ADDON_ALIASES = frozenset({"tasks", "task_manager", "task-manager", "task_m
 COMPANY_STATIC_TTL = 3600  # 1 hour
 USER_COMPANY_TTL = 3600    # 1 hour
 DASHBOARD_CACHE_TTL = 300  # 5 minutes
+DASHBOARD_L1_TTL = 30.0    # 30 seconds local in-memory L1 cache
+
+_DASHBOARD_L1_CACHE: Dict[str, Tuple[float, Any]] = {}
+_IN_FLIGHT_DASHBOARDS: Dict[str, asyncio.Future] = {}
+_IN_FLIGHT_LOCK = asyncio.Lock()
+
 
 
 # ==============================================================================
@@ -243,158 +249,139 @@ async def get_dashboard_summary(
 
         x_company_id = str(effective_company_id)
 
-        # 2. Tier 1 Cache: Per-User Full Dashboard Cache Hit (< 15ms)
+        # 2. Tier 0 Cache: In-Process L1 Memory Cache (< 1ms)
         cache_key = f"dashboard_summary:{user_id}"
+        now_ts = datetime.now().timestamp()
+        l1_entry = _DASHBOARD_L1_CACHE.get(cache_key)
+        if l1_entry and (now_ts - l1_entry[0] < DASHBOARD_L1_TTL):
+            latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
+            print(f"[Dashboard Summary] [L1 MEMORY HIT] Served in {latency_ms}ms for user {user_id}")
+            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+            return l1_entry[1]
+
+        # 3. Tier 1 Cache: Per-User Full Dashboard Cache Hit (< 15ms)
         cached_dashboard = get_cache(cache_key)
         if cached_dashboard:
+            _DASHBOARD_L1_CACHE[cache_key] = (now_ts, cached_dashboard)
             latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
             print(f"[Dashboard Summary] [CACHE HIT] Served in {latency_ms}ms for user {user_id}")
             response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
             return cached_dashboard
 
-        print(f"[Dashboard Summary] [CACHE MISS] Executing concurrent fetch for user {user_id}...")
-        start_fetch_time = datetime.now()
+        # 4. Singleflight Request Deduplication (Coalescing concurrent calls for the same user)
+        is_initiator = False
+        async with _IN_FLIGHT_LOCK:
+            if user_id in _IN_FLIGHT_DASHBOARDS:
+                in_flight_future = _IN_FLIGHT_DASHBOARDS[user_id]
+            else:
+                loop = asyncio.get_running_loop()
+                in_flight_future = loop.create_future()
+                _IN_FLIGHT_DASHBOARDS[user_id] = in_flight_future
+                is_initiator = True
 
-        # 3. Tier 2 Cache: Check Company Static Metadata for Feature Gating
-        company_cache_key = f"company_static:{x_company_id}"
-        company_static_data = get_cache(company_cache_key)
+        if not is_initiator:
+            print(f"[Dashboard Summary] [SINGLEFLIGHT ATTACH] Awaiting in-flight execution for user {user_id}...")
+            result = await in_flight_future
+            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+            return result
 
-        tasks_query_needed = True
-        if company_static_data and company_static_data.get("company"):
-            tasks_query_needed = has_tasks_addon(
-                company_static_data["company"].get("subscription_addons")
+        # 5. Fetch Execution (Unified Single RPC + Precomputed Rank)
+        try:
+            print(f"[Dashboard Summary] [CACHE MISS] Executing single unified fetch for user {user_id}...")
+            start_fetch_time = datetime.now()
+
+            # Rank is read from precomputed Redis (<2ms)
+            rank_task = asyncio.create_task(get_user_rank(user_id, x_company_id, requesting_user_id=user_id))
+
+            # Unified Single RPC call to Supabase
+            rpc_res = await asyncio.to_thread(
+                lambda: service_supabase.rpc(
+                    "get_employee_dashboard_summary",
+                    {"p_user_id": user_id, "p_company_id": x_company_id},
+                ).execute()
             )
+            data = rpc_res.data if isinstance(rpc_res.data, dict) else {}
 
-        async def _safe_get_user_rank():
+            company_data = data.get("company") or {}
+            total_users = data.get("total_users") or 0
+            learning_style = data.get("learning_style")
+            plans = data.get("learning_plans") or []
+            modules = data.get("training_modules") or []
+            progress = data.get("module_progress") or []
+            employee_assessments = data.get("employee_assessments") or []
+            task_submissions = data.get("task_submissions") or []
+            all_processed_modules = data.get("processed_modules") or []
+            assessment_details = data.get("assessments") or []
+            rpc_assigned_tasks = data.get("assigned_tasks") or []
+
+            # Feature Gating & Normalization
+            tasks_enabled = has_tasks_addon(company_data.get("subscription_addons"))
+            if tasks_enabled:
+                assigned_tasks = rpc_assigned_tasks
+                # If RPC didn't populate assigned tasks, fallback gracefully
+                if not assigned_tasks:
+                    try:
+                        assigned_tasks = await get_tasks_for_user(user_id, x_company_id, requesting_user_id=user_id)
+                    except Exception as e:
+                        print(f"[Dashboard Summary] [WARN] get_tasks_for_user fallback: {e}")
+                        assigned_tasks = []
+            else:
+                assigned_tasks = []
+
+            # Await fast rank result
             try:
-                return await get_user_rank(user_id, x_company_id, requesting_user_id=user_id)
+                rank_res = await rank_task
             except Exception as e:
                 print(f"[Dashboard Summary] [WARN] get_user_rank failed gracefully: {e}")
-                return None
+                rank_res = None
+            user_rank_data = format_user_rank(rank_res)
 
-        async def _safe_get_tasks():
-            if not tasks_query_needed:
-                return []
-            try:
-                return await get_tasks_for_user(user_id, x_company_id, requesting_user_id=user_id)
-            except Exception as e:
-                print(f"[Dashboard Summary] [WARN] get_tasks_for_user failed gracefully: {e}")
-                return []
+            # In-Memory Transformations
+            embed_processed_module_ids(plans, all_processed_modules, modules)
+            assessment_evidence, baseline_evidence = build_assessment_evidence(
+                employee_assessments, assessment_details, all_processed_modules
+            )
 
-        async def _fetch_dashboard_data():
-            """
-            Executes Split-RPC pattern:
-            1. If company static data is in Redis, only fetches user dynamic data (<50ms).
-            2. If missing, fetches user dynamic data and company static data in parallel.
-            3. Gracefully falls back to get_employee_dashboard_summary if split RPCs are not yet deployed.
-            """
-            need_company_static = not (company_static_data and company_static_data.get("company"))
-            try:
-                if need_company_static:
-                    user_res, comp_res = await asyncio.gather(
-                        asyncio.to_thread(
-                            lambda: service_supabase.rpc(
-                                "get_user_dashboard_dynamic_data",
-                                {"p_user_id": user_id, "p_company_id": x_company_id},
-                            ).execute()
-                        ),
-                        asyncio.to_thread(
-                            lambda: service_supabase.rpc(
-                                "get_company_static_dashboard_data",
-                                {"p_company_id": x_company_id},
-                            ).execute()
-                        ),
-                    )
-                    u_data = user_res.data if isinstance(user_res.data, dict) else {}
-                    c_data = comp_res.data if isinstance(comp_res.data, dict) else {}
-                    return u_data, c_data
-                else:
-                    user_res = await asyncio.to_thread(
-                        lambda: service_supabase.rpc(
-                            "get_user_dashboard_dynamic_data",
-                            {"p_user_id": user_id, "p_company_id": x_company_id},
-                        ).execute()
-                    )
-                    u_data = user_res.data if isinstance(user_res.data, dict) else {}
-                    return u_data, company_static_data
-            except Exception as exc:
-                print(f"[Dashboard Summary] [SPLIT-RPC NOTICE] Falling back to get_employee_dashboard_summary: {exc}")
-                mono_res = await asyncio.to_thread(
-                    lambda: service_supabase.rpc(
-                        "get_employee_dashboard_summary",
-                        {"p_user_id": user_id, "p_company_id": x_company_id},
-                    ).execute()
-                )
-                m_data = mono_res.data if isinstance(mono_res.data, dict) else {}
-                return m_data, m_data
-
-        # 4. Batch Execution: Supabase DB + Leaderboard Rank + Assigned Tasks in Parallel
-        (user_data, comp_data), rank_res, tasks_res = await asyncio.gather(
-            _fetch_dashboard_data(),
-            _safe_get_user_rank(),
-            _safe_get_tasks(),
-        )
-
-        # 5. Populate Company Static Cache if it was missing
-        if not company_static_data and comp_data:
-            company_static_data = {
-                "company": comp_data.get("company"),
-                "total_users": comp_data.get("total_users"),
-                "training_modules": comp_data.get("training_modules"),
-                "processed_modules": comp_data.get("processed_modules"),
-                "assessments": comp_data.get("assessments"),
+            # Construct Response Payload
+            response_payload = {
+                "plans": plans,
+                "modules": modules,
+                "progress": progress,
+                "company": company_data,
+                "total_users": total_users,
+                "learning_style": learning_style,
+                "user_rank": user_rank_data,
+                "assessment_evidence_by_module_id": assessment_evidence,
+                "baseline_evidence_by_module_id": baseline_evidence,
+                "task_submissions": task_submissions,
+                "processed_modules": all_processed_modules,
+                "assigned_tasks": assigned_tasks,
+                "tasks_enabled": tasks_enabled,
             }
-            set_cache(company_cache_key, company_static_data, ttl=COMPANY_STATIC_TTL)
 
-        company_data = (company_static_data or {}).get("company") or comp_data.get("company") or user_data.get("company") or {}
-        total_users = (company_static_data or {}).get("total_users") or comp_data.get("total_users") or user_data.get("total_users") or 0
-        learning_style = user_data.get("learning_style")
-        plans = user_data.get("learning_plans") or []
-        modules = (company_static_data or {}).get("training_modules") or comp_data.get("training_modules") or user_data.get("training_modules") or []
-        progress = user_data.get("module_progress") or []
-        employee_assessments = user_data.get("employee_assessments") or []
-        task_submissions = user_data.get("task_submissions") or []
-        all_processed_modules = (company_static_data or {}).get("processed_modules") or comp_data.get("processed_modules") or user_data.get("processed_modules") or []
-        assessment_details = (company_static_data or {}).get("assessments") or comp_data.get("assessments") or user_data.get("assessments") or []
+            elapsed_ms = round((datetime.now() - start_fetch_time).total_seconds() * 1000, 2)
+            print(f"[Dashboard Summary] [OK] Single unified fetch completed in {elapsed_ms}ms for user {user_id}")
 
-        # 6. Feature Gating & Normalization
-        tasks_enabled = has_tasks_addon(company_data.get("subscription_addons"))
-        assigned_tasks = tasks_res if tasks_enabled else []
-        user_rank_data = format_user_rank(rank_res)
+            # Cache in Redis and L1 Memory
+            set_cache(cache_key, response_payload, ttl=DASHBOARD_CACHE_TTL)
+            _DASHBOARD_L1_CACHE[cache_key] = (datetime.now().timestamp(), response_payload)
 
-        # 7. In-Memory Transformations
-        embed_processed_module_ids(plans, all_processed_modules, modules)
-        assessment_evidence, baseline_evidence = build_assessment_evidence(
-            employee_assessments, assessment_details, all_processed_modules
-        )
+            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+            etag_val = f'"{hashlib.md5(json.dumps(response_payload, default=str).encode()).hexdigest()}"'
+            response.headers["ETag"] = etag_val
 
-        # 8. Construct Response Payload
-        response_payload = {
-            "plans": plans,
-            "modules": modules,
-            "progress": progress,
-            "company": company_data,
-            "total_users": total_users,
-            "learning_style": learning_style,
-            "user_rank": user_rank_data,
-            "assessment_evidence_by_module_id": assessment_evidence,
-            "baseline_evidence_by_module_id": baseline_evidence,
-            "task_submissions": task_submissions,
-            "processed_modules": all_processed_modules,
-            "assigned_tasks": assigned_tasks,
-            "tasks_enabled": tasks_enabled,
-        }
+            if not in_flight_future.done():
+                in_flight_future.set_result(response_payload)
 
-        elapsed_ms = round((datetime.now() - start_fetch_time).total_seconds() * 1000, 2)
-        print(f"[Dashboard Summary] [OK] Completed in {elapsed_ms}ms for user {user_id}")
+            return response_payload
 
-        # 9. Cache Result & Set HTTP Headers
-        set_cache(cache_key, response_payload, ttl=DASHBOARD_CACHE_TTL)
-        response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
-        etag_val = f'"{hashlib.md5(json.dumps(response_payload, default=str).encode()).hexdigest()}"'
-        response.headers["ETag"] = etag_val
-
-        return response_payload
+        except Exception as exc:
+            if not in_flight_future.done():
+                in_flight_future.set_exception(exc)
+            raise
+        finally:
+            async with _IN_FLIGHT_LOCK:
+                _IN_FLIGHT_DASHBOARDS.pop(user_id, None)
 
     except HTTPException:
         raise

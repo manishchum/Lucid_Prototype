@@ -250,6 +250,30 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    async def _periodic_leaderboard_refresher():
+        # Initial sleep before first run to allow full application boot
+        await asyncio.sleep(10)
+        while True:
+            try:
+                from utils.db.leaderboard_db import refresh_company_leaderboards
+                print("[Leaderboard Cron] Running scheduled 5-minute leaderboard precomputation...")
+                res = await refresh_company_leaderboards()
+                print(f"[Leaderboard Cron] Completed: {res}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[Leaderboard Cron] Error in periodic refresher: {e}")
+            await asyncio.sleep(300)
+
+    asyncio.create_task(_periodic_leaderboard_refresher())
+
+@app.post("/api/cron/refresh_leaderboards", tags=["cron"])
+async def trigger_refresh_leaderboards():
+    """Trigger manual or Cloud Scheduler refresh of precomputed company leaderboards into Redis."""
+    from utils.db.leaderboard_db import refresh_company_leaderboards
+    res = await refresh_company_leaderboards()
+    return res
+
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     from fastapi import Response
