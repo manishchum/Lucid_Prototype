@@ -10,6 +10,7 @@ import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shie
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, FEATURES } from "@/contexts/tenant-context";
 import CompanySelector from "@/components/company-selector";
+import NotificationInbox from "@/components/NotificationInbox";
 
 interface EmployeeNavigationProps {
   showBack?: boolean;
@@ -212,9 +213,12 @@ const EmployeeNavigation = ({
             )}
             {!isCollapsed && <span className="text-[21px] font-bold text-[#1E293B] tracking-tight truncate">{companyDisplayName}</span>}
           </div>
-          <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden lg:block text-slate-400 hover:text-slate-600 transition-colors">
-            {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
+          <div className="flex items-center gap-2">
+            {!isCollapsed && <NotificationInbox />}
+            <button onClick={() => setIsCollapsed(!isCollapsed)} className="hidden lg:block text-slate-400 hover:text-slate-600 transition-colors">
+              {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </button>
+          </div>
         </div>
 
         {/* Profile */}
@@ -238,6 +242,11 @@ const EmployeeNavigation = ({
         )}
 
         <nav className="flex-1 px-3 min-h-0 overflow-y-auto overflow-x-visible space-y-1 custom-scrollbar pt-2">
+          {isCollapsed && (
+            <div className="flex items-center justify-center py-2 mb-1">
+              <NotificationInbox />
+            </div>
+          )}
           {/* Home */}
           <div className="relative group">
             <button
