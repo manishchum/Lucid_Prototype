@@ -4,7 +4,7 @@ import os
 import logging
 import re
 
-# Build version: 2026.09.27-docker-01
+# Build version: 2026.09.27-cloudbuild-02
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 

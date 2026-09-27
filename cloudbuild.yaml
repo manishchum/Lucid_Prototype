@@ -1,0 +1,38 @@
+﻿steps:
+  # 1. Build the container image using Dockerfile
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+      - '-t'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:latest'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+
+  # 2. Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+
+  # 3. Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'lucid-prototype-staging'
+      - '--image'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+      - '--region'
+      - 'asia-south2'
+      - '--platform'
+      - 'managed'
+
+images:
+  - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
