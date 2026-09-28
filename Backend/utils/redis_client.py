@@ -80,6 +80,11 @@ def invalidate_dashboard_cache(user_id: str):
         redis_client.delete(f"dashboard_summary:{user_id}")
         delete_cache_pattern(f"user_rank:*{user_id}*")
         delete_cache_pattern(f"user_tasks:*{user_id}*")
+        try:
+            from routes.employee_dashboard import invalidate_dashboard_l1_cache
+            invalidate_dashboard_l1_cache(user_id)
+        except Exception:
+            pass
     except Exception as e:
         print(f"[Redis] Failed to invalidate dashboard caches for {user_id}: {e}")
 

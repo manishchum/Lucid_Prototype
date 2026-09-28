@@ -32,6 +32,16 @@ _IN_FLIGHT_LOCK = asyncio.Lock()
 # Helper Functions: Business Logic & Data Transformation
 # ==============================================================================
 
+def invalidate_dashboard_l1_cache(user_id: Optional[str]) -> None:
+    """
+    Safely invalidates the thread-safe L1 in-memory dashboard cache for a user.
+    """
+    if not user_id:
+        return
+    cache_key = f"dashboard_summary:{user_id}"
+    _DASHBOARD_L1_CACHE.pop(cache_key, None)
+
+
 def has_tasks_addon(addons: Any) -> bool:
     """
     Safely checks if tasks/task management addon is enabled for a company.
@@ -74,7 +84,8 @@ def embed_processed_module_ids(
 ) -> None:
     """
     Pre-resolves and embeds processed_module_ids directly into learning plan objects
-    in-memory. Eliminates per-plan mobile client network requests.
+    in-memory. Preserves existing assigned processed_module_ids from learning_plan
+    if present, while cleanly resolving missing module IDs.
     """
     company_module_ids = {
         str(m.get("module_id"))
@@ -85,11 +96,24 @@ def embed_processed_module_ids(
     # Group processed modules by original_module_id
     pm_by_original: Dict[str, List[Dict[str, Any]]] = {}
     for pm in all_processed_modules:
+        if not isinstance(pm, dict):
+            continue
         orig_id = str(pm.get("original_module_id") or "")
         if orig_id and (not company_module_ids or orig_id in company_module_ids):
             pm_by_original.setdefault(orig_id, []).append(pm)
 
     for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+
+        # If learning_plan already has populated processed_module_ids assigned to user, preserve them
+        existing_assigned_ids = plan.get("processed_module_ids")
+        if isinstance(existing_assigned_ids, list) and len(existing_assigned_ids) > 0:
+            clean_existing = [str(pid) for pid in existing_assigned_ids if pid]
+            if clean_existing:
+                plan["processed_module_ids"] = clean_existing
+                continue
+
         orig_id = str(plan.get("module_id") or "")
         matching_pms = pm_by_original.get(orig_id, [])
         matching_pms.sort(key=lambda x: x.get("order") or x.get("order_index") or 0)
