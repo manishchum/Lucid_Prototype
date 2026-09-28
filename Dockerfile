@@ -20,6 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Pre-install CPU-only PyTorch to prevent 3.5GB CUDA GPU download
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
 # Install python dependencies first for efficient docker layer caching
 COPY Backend/requirements.txt /app/Backend/requirements.txt
 RUN pip install --no-cache-dir -r /app/Backend/requirements.txt
