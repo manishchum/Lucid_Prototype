@@ -504,6 +504,26 @@ Review the questions you missed and study the related concepts to improve your u
     #         print("📚 Error updating module completion:", moduleError)
     #         # Don't fail the assessment if module update fails
 
+    # Update module progress directly in DB (no external HTTP round-trip)
+    target_pm_id = body.get("processed_module_id") or assessment.get("processed_module_id")
+    if target_pm_id:
+        try:
+            from utils.db.module_progress_db import create_or_update_progress
+            await create_or_update_progress(
+                user_id,
+                {
+                    "user_id": user_id,
+                    "processed_module_id": target_pm_id,
+                    "quiz_score": score,
+                    "max_score": maxScore,
+                    "quiz_feedback": aiFeedback,
+                    "completed_at": __import__("datetime").datetime.utcnow().isoformat(),
+                }
+            )
+            print(f"✅ Module progress updated directly for user={user_id}, processed_module_id={target_pm_id}")
+        except Exception as moduleError:
+            print("📚 Error updating module completion:", moduleError)
+
     delete_cache_pattern(f"dashboard_summary:{user_id}*")
     delete_cache_pattern(f"module_progress:{user_id}*")
     delete_cache_pattern(f"user_module_progress:{user_id}*")
