@@ -249,6 +249,7 @@ async def get_dashboard_summary(
     user_id: str,
     response: Response,
     x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+    cache_control: Optional[str] = Header(None, alias="Cache-Control"),
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id),
 ):
@@ -258,6 +259,7 @@ async def get_dashboard_summary(
     with multi-tier caching (Redis + HTTP ETag) and concurrent batch fetching.
     """
     t_entry = datetime.now()
+    bypass_cache = bool(cache_control and "no-cache" in cache_control.lower())
     try:
         service_supabase = get_service_supabase_client()
 
@@ -276,21 +278,24 @@ async def get_dashboard_summary(
         # 2. Tier 0 Cache: In-Process L1 Memory Cache (< 1ms)
         cache_key = f"dashboard_summary:{user_id}"
         now_ts = datetime.now().timestamp()
-        l1_entry = _DASHBOARD_L1_CACHE.get(cache_key)
-        if l1_entry and (now_ts - l1_entry[0] < DASHBOARD_L1_TTL):
-            latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
-            print(f"[Dashboard Summary] [L1 MEMORY HIT] Served in {latency_ms}ms for user {user_id}")
-            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
-            return l1_entry[1]
+        if not bypass_cache:
+            l1_entry = _DASHBOARD_L1_CACHE.get(cache_key)
+            if l1_entry and (now_ts - l1_entry[0] < DASHBOARD_L1_TTL):
+                latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
+                print(f"[Dashboard Summary] [L1 MEMORY HIT] Served in {latency_ms}ms for user {user_id}")
+                response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+                return l1_entry[1]
 
-        # 3. Tier 1 Cache: Per-User Full Dashboard Cache Hit (< 15ms)
-        cached_dashboard = get_cache(cache_key)
-        if cached_dashboard:
-            _DASHBOARD_L1_CACHE[cache_key] = (now_ts, cached_dashboard)
-            latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
-            print(f"[Dashboard Summary] [CACHE HIT] Served in {latency_ms}ms for user {user_id}")
-            response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
-            return cached_dashboard
+            # 3. Tier 1 Cache: Per-User Full Dashboard Cache Hit (< 15ms)
+            cached_dashboard = get_cache(cache_key)
+            if cached_dashboard:
+                _DASHBOARD_L1_CACHE[cache_key] = (now_ts, cached_dashboard)
+                latency_ms = round((datetime.now() - t_entry).total_seconds() * 1000, 2)
+                print(f"[Dashboard Summary] [CACHE HIT] Served in {latency_ms}ms for user {user_id}")
+                response.headers["Cache-Control"] = "private, no-cache, stale-while-revalidate=300"
+                return cached_dashboard
+        else:
+            print(f"[Dashboard Summary] [CACHE BYPASS] no-cache requested for user {user_id}")
 
         # 4. Singleflight Request Deduplication (Coalescing concurrent calls for the same user)
         is_initiator = False

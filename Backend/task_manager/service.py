@@ -1062,6 +1062,14 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
                     title=payload.title,
                 )
             )
+            # Invalidate dashboard summary cache for every assigned user immediately
+            for uid in assigned_uids:
+                try:
+                    delete_cache_pattern(f"dashboard_summary:{uid}*")
+                    from routes.employee_dashboard import invalidate_dashboard_l1_cache
+                    invalidate_dashboard_l1_cache(str(uid))
+                except Exception:
+                    pass
     except Exception as notif_err:
         print(f"[task-manager] Warning: Task assignment notification dispatch failed: {notif_err}")
 
