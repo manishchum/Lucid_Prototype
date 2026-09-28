@@ -413,6 +413,7 @@ async def update_company_route(
     
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
+    redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
     delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None
@@ -436,6 +437,7 @@ async def delete_company_route(
     """
     result = await delete_company(user_id, company_id)
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on delete
+    redis_client.delete(f"company_addons:{company_id}")
     # Unwrap service layer response
     deleted = result.get("data") or None
     
