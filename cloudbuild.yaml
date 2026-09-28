@@ -1,8 +1,18 @@
 ﻿steps:
-  # 1. Build the container image using Dockerfile
+  # 0. Pull the previous latest image to use as Docker build cache
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker pull asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:latest || exit 0
+
+  # 1. Build the container image using --cache-from
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--cache-from'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:latest'
       - '-t'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
       - '-t'
@@ -11,11 +21,16 @@
       - 'Dockerfile'
       - '.'
 
-  # 2. Push image to Artifact Registry
+  # 2. Push images to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
       - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:latest'
 
   # 3. Deploy container image to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -33,6 +48,7 @@
 
 images:
   - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:$COMMIT_SHA'
+  - 'asia-south2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/lucid_prototype:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY

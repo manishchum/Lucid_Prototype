@@ -524,9 +524,8 @@ Review the questions you missed and study the related concepts to improve your u
         except Exception as moduleError:
             print("📚 Error updating module completion:", moduleError)
 
-    delete_cache_pattern(f"dashboard_summary:{user_id}*")
-    delete_cache_pattern(f"module_progress:{user_id}*")
-    delete_cache_pattern(f"user_module_progress:{user_id}*")
+    from utils.redis_client import invalidate_user_caches
+    invalidate_user_caches(user_id)
     # Return the complete result
     return JSONResponse(content={
         "success": True,
