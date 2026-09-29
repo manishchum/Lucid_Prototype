@@ -752,21 +752,19 @@ const toggleCorrectAnswer = (
       <div className="flex-1 bg-white rounded-[8px] border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden">
         
         {/* Banner with color matching photo */}
-        <div className="bg-gradient-to-r from-[#2F63FF] via-indigo-600 to-purple-600 px-6 py-5 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] px-6 py-4 text-white flex items-center justify-between">
           <div>
-            <h2 className="font-display font-medium text-lg tracking-tight flex items-center space-x-2 shadow-sm">
+            <h2 className="font-display font-semibold text-[16px] tracking-wide flex items-center space-x-2">
               <span>Task Flow Configuration Console</span>
             </h2>
           </div>
-          {/* <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center space-x-1.5 backdrop-blur-md">
-          </div> */}
         </div>
 
         {/* Main Content Area with Vertical Sidebar */}
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           
           {/* Vertical Navigation Stepper */}
-          <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[#F1F5F9] bg-[#FAFBFD] p-6 flex flex-col shrink-0 overflow-y-auto">
+          <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[#F1F5F9] bg-white p-6 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex flex-col space-y-6 relative">
               {stepsList.map((step, index) => {
                 const isActive = activeStep === step.id;
@@ -795,32 +793,28 @@ const toggleCorrectAnswer = (
                       }}
                       className="flex items-start space-x-4 text-left focus:outline-none cursor-pointer w-full relative z-10"
                     >
-                      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-display text-xs font-semibold border transition-all duration-300 shadow-sm ${
+                      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-display text-[13px] font-bold transition-all duration-300 ${
                         isActive 
-                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-transparent shadow-sm ring-4 ring-indigo-50/50 scale-110'
+                          ? 'bg-[#4F46E5] text-white shadow-md'
                           : isPast 
-                            ? 'bg-[#E1F9F0] text-[#10B981] border-[#10B981]'
-                            : 'bg-white text-[#64748B] border-[#E2E8F0] group-hover:border-blue-300'
+                            ? 'bg-[#E1F9F0] text-[#10B981]'
+                            : 'bg-white text-[#94A3B8] border border-[#E2E8F0]'
                       }`}>
-                        {isPast ? <Check size={14} className="stroke-[3]" /> : index + 1}
+                        {isPast ? <Check size={14} strokeWidth={3} /> : index + 1}
                       </div>
                       <div className="pt-1.5 pb-2">
-                        <p className={`text-sm font-semibold leading-none transition-colors ${
-                          isActive ? 'text-[#2F63FF]' : 'text-[#334155]'
+                        <p className={`text-[14px] font-bold leading-none transition-colors ${
+                          isActive ? 'text-[#4F46E5]' : 'text-[#475569]'
                         }`}>
                           {step.label}
                         </p>
-                        <span className="text-[11px] text-gray-500 block mt-1 font-sans pr-2">
+                        <span className="text-[12px] text-[#64748B] block mt-1.5 font-sans pr-2">
                           {step.desc}
                         </span>
                       </div>
                     </button>
                     {index < stepsList.length - 1 && (
-                      <div className="absolute top-8 left-4 w-[2px] h-[calc(100%+8px)] bg-[#E2E8F0] -z-10 ml-[-1px]">
-                        <div className={`w-full bg-[#2563eb] transition-all duration-300 ${
-                          isPast ? 'h-full' : 'h-0'
-                        }`} />
-                      </div>
+                      <div className="absolute top-8 left-4 w-[1px] h-[calc(100%+8px)] bg-[#F1F5F9] -z-10" />
                     )}
                   </div>
                 );
@@ -842,32 +836,29 @@ const toggleCorrectAnswer = (
               
               {/* STEP 1: LEVEL and MODE */}
               {activeStep === 'level' && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <div>
-                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1 font-display">Sprint Association</h3>
-                    <p className="text-xs text-gray-500 font-sans">Choose if this task should be associated with specific sprint cycles for tracking and reporting.</p>
+                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1.5 font-display">Sprint Association</h3>
+                    <p className="text-[13px] text-gray-500 font-sans">Choose if this task should be associated with specific sprint cycles for tracking and reporting.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
                     <button
                       type="button"
                       onClick={() => setAssociateWithSprint(true)}
-                      className={`p-5 rounded-[8px] text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${
+                      className={`p-5 rounded-[12px] text-left border cursor-pointer transition-all duration-200 flex items-start space-x-4 ${
                         associateWithSprint
-                          ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
-                          : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
+                          ? 'border-[#6366F1] bg-indigo-50/30 shadow-[0_2px_10px_rgba(99,102,241,0.08)]'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                       }`}
                     >
-                      <div className={`p-3 rounded-[8px] transition-all duration-300 ${associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
-                        <Layers size={20} />
+                      <div className={`p-3 rounded-xl transition-all duration-200 ${associateWithSprint ? 'bg-[#4F46E5] text-white shadow-sm' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
+                        <Layers size={22} strokeWidth={1.5} />
                       </div>
-                      <div className="flex-1 relative z-10 pt-0.5">
-                        <span className={`text-[13px] font-bold font-sans block transition-colors duration-300 ${associateWithSprint ? 'text-indigo-900' : 'text-gray-700'}`}>Yes, associate with Sprints</span>
-                        <p className="text-[11px] text-gray-500 mt-1.5 font-sans leading-relaxed">Link this task flow to one or more active training sprint cycles.</p>
+                      <div className="flex-1 pt-0.5">
+                        <span className={`text-[14px] font-bold font-sans block ${associateWithSprint ? 'text-[#3730A3]' : 'text-[#334155]'}`}>Yes, associate with Sprints</span>
+                        <p className="text-[12px] text-gray-500 mt-1 font-sans leading-relaxed">Link this task flow to one or more active training sprint cycles.</p>
                       </div>
-                      {associateWithSprint && (
-                        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-400 opacity-[0.15] rounded-full blur-2xl"></div>
-                      )}
                     </button>
  
                     <button
@@ -876,29 +867,26 @@ const toggleCorrectAnswer = (
                         setAssociateWithSprint(false);
                         setSelectedSprintIds([]);
                       }}
-                      className={`p-5 rounded-[8px] text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${
+                      className={`p-5 rounded-[12px] text-left border cursor-pointer transition-all duration-200 flex items-start space-x-4 ${
                         !associateWithSprint
-                          ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
-                          : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
+                          ? 'border-[#6366F1] bg-indigo-50/30 shadow-[0_2px_10px_rgba(99,102,241,0.08)]'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                       }`}
                     >
-                      <div className={`p-3 rounded-[8px] transition-all duration-300 ${!associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
-                        <Users size={20} />
+                      <div className={`p-3 rounded-xl transition-all duration-200 ${!associateWithSprint ? 'bg-[#4F46E5] text-white shadow-sm' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
+                        <Users size={22} strokeWidth={1.5} />
                       </div>
-                      <div className="flex-1 relative z-10 pt-0.5">
-                        <span className={`text-[13px] font-bold font-sans block transition-colors duration-300 ${!associateWithSprint ? 'text-indigo-900' : 'text-gray-700'}`}>No sprint association</span>
-                        <p className="text-[11px] text-gray-500 mt-1.5 font-sans leading-relaxed">Create a general task flow independent of specific sprint schedules.</p>
+                      <div className="flex-1 pt-0.5">
+                        <span className={`text-[14px] font-bold font-sans block ${!associateWithSprint ? 'text-[#3730A3]' : 'text-[#334155]'}`}>No sprint association</span>
+                        <p className="text-[12px] text-gray-500 mt-1 font-sans leading-relaxed">Create a general task flow independent of specific sprint schedules.</p>
                       </div>
-                      {!associateWithSprint && (
-                        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-400 opacity-[0.15] rounded-full blur-2xl"></div>
-                      )}
                     </button>
                   </div>
 
                   {associateWithSprint && (
-                    <div className="space-y-3 pt-2">
-                      <label className="text-xs font-bold text-[#334155] block">Select Sprints to Link (Multi-Select)</label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-[8px] bg-slate-50/20">
+                    <div className="space-y-4 pt-2">
+                      <label className="text-[13px] font-bold text-[#1E293B] block">Select Sprints to Link (Multi-Select)</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {sprints.map((sprint) => {
                           const isSelected = selectedSprintIds.includes(sprint.id) || selectedSprintIds.includes(sprint.title);
                           return (
@@ -906,27 +894,25 @@ const toggleCorrectAnswer = (
                               type="button"
                               key={sprint.id}
                               onClick={() => toggleSelection(sprint.id, selectedSprintIds, setSelectedSprintIds)}
-                              className={`p-4 rounded-[8px] border text-left cursor-pointer transition-all flex items-center justify-between bg-white ${
+                              className={`p-4 rounded-[10px] border text-left cursor-pointer transition-all flex items-center justify-between bg-white shadow-sm ${
                                 isSelected
-                                  ? 'border-[#2F63FF] bg-[#2563eb]/5 shadow-sm shadow-indigo-50/50'
-                                  : 'border-[#E2E8F0] hover:bg-slate-50'
+                                  ? 'border-[#CBD5E1]'
+                                  : 'border-[#E2E8F0] hover:border-[#CBD5E1]'
                               }`}
                             >
-                              <div className="flex items-center space-x-3">
-                                <div className={`w-8 h-8 rounded-[8px] flex items-center justify-center ${
-                                  isSelected ? 'bg-[#2563eb] text-white' : 'bg-gray-100 text-[#475569]'
-                                }`}>
-                                  <Layers3 size={15} />
+                              <div className="flex items-center space-x-4">
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#F1F5F9] text-[#64748B]">
+                                  <Layers3 size={18} strokeWidth={1.5} />
                                 </div>
                                 <div>
-                                  <p className="text-xs font-semibold text-[#0F172A]">{sprint.title}</p>
-                                  <span className="text-[10px] font-mono text-gray-500">{sprint.code} • {sprint.status}</span>
+                                  <p className="text-[13px] font-bold text-[#1E293B]">{sprint.title}</p>
+                                  <span className="text-[11px] font-mono text-[#64748B] mt-0.5 block tracking-wide uppercase">{sprint.code} • {sprint.status}</span>
                                 </div>
                               </div>
-                              <div className={`w-5 h-5 rounded-md border flex items-center justify-center ${
-                                isSelected ? 'bg-[#2563eb] border-[#2F63FF] text-white' : 'border-gray-300'
+                              <div className={`w-5 h-5 rounded-[6px] border flex items-center justify-center transition-colors ${
+                                isSelected ? 'border-[#3730A3] bg-[#3730A3] text-white' : 'border-[#CBD5E1] bg-white'
                               }`}>
-                                {isSelected && <Check size={12} className="stroke-[3]" />}
+                                {isSelected && <Check size={14} strokeWidth={3} />}
                               </div>
                             </button>
                           );
@@ -935,13 +921,13 @@ const toggleCorrectAnswer = (
                     </div>
                   )}
 
-                  <div className="border-t border-[#F1F5F9] pt-5">
-                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1 font-display">Work Module Structure</h3>
-                    <p className="text-xs text-gray-500 font-sans mb-4">Determine if you would like to deploy a single primary action or a bundle containing multiple custom checklist actions.</p>
+                  <div className="pt-6">
+                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1.5 font-display">Work Module Structure</h3>
+                    <p className="text-[13px] text-gray-500 font-sans mb-5">Determine if you would like to deploy a single primary action or a bundle containing multiple custom checklist actions.</p>
 
-                    <div className="relative flex p-1 bg-gray-100/80 backdrop-blur-md rounded-[8px] self-start max-w-[420px] border border-gray-200/50 shadow-inner overflow-hidden">
+                    <div className="relative flex p-1.5 bg-[#F1F5F9] rounded-xl self-start max-w-[480px] border border-[#E2E8F0]">
                       <div 
-                        className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-[8px] shadow-sm transition-transform duration-300 ease-out border border-gray-200/60"
+                        className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white rounded-[8px] shadow-sm transition-transform duration-300 ease-out border border-[#E2E8F0]"
                         style={{ transform: taskMode === 'multiple' ? 'translateX(100%)' : 'translateX(0)' }}
                       ></div>
                       
@@ -952,26 +938,26 @@ const toggleCorrectAnswer = (
                             setTasks([tasks[0]]);
                           }
                         }}
-                        className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-[8px] transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
+                        className={`relative z-10 flex-1 py-2.5 px-3 text-[13px] font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                           taskMode === 'single'
-                            ? 'text-indigo-700'
+                            ? 'text-[#3730A3]'
                             : 'text-[#64748B] hover:text-[#0F172A]'
                         }`}
                       >
-                        <FileCheck size={16} />
+                        <FileCheck size={16} strokeWidth={2} />
                         <span>Single Task Module</span>
                       </button>
                       <button
                         onClick={() => {
                           setTaskMode('multiple');
                         }}
-                        className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-[8px] transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
+                        className={`relative z-10 flex-1 py-2.5 px-3 text-[13px] font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                           taskMode === 'multiple'
-                            ? 'text-indigo-700'
+                            ? 'text-[#3730A3]'
                             : 'text-[#64748B] hover:text-[#0F172A]'
                         }`}
                       >
-                        <Settings size={16} />
+                        <Settings size={16} strokeWidth={2} />
                         <span>Multi-Task Bundle</span>
                       </button>
                     </div>
@@ -1635,12 +1621,6 @@ className="border rounded-[8px] text-xs p-2"
                             value={dueDate}
                             onChange={(e) => setDueDate(e.target.value)}
                             className="flex-1 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-[8px] py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
-                          />
-                          <input
-                            type="time"
-                            value={dueTime}
-                            onChange={(e) => setDueTime(e.target.value)}
-                            className="w-32 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-[8px] py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
                           />
                         </div>
 

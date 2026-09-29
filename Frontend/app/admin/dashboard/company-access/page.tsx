@@ -171,13 +171,13 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     category: "core",
     parentId: "task_management",
   },
-  // {
-  //   id: "task_management_video",
-  //   label: "Video",
-  //   description: "Video submission format",
-  //   category: "core",
-  //   parentId: "task_management",
-  // },
+  {
+    id: "task_management_video",
+    label: "Video",
+    description: "Video submission format",
+    category: "core",
+    parentId: "task_management",
+  },
   {
     id: "baseline_assessment",
     label: "Baseline Assessment",
@@ -236,7 +236,7 @@ const TASK_MANAGEMENT_CHILDREN: AddonKey[] = [
   "task_management_image",
   "task_management_evaluation",
   "task_management_audio",
-  // "task_management_video",
+  "task_management_video",
 ]
 
 function normalizeAddonKey(value: string): AddonKey | null {
@@ -249,13 +249,13 @@ function normalizeAddons(values?: string[] | string | null): AddonKey[] {
     ? values
     : typeof values === "string"
       ? (() => {
-          try {
-            const parsed = JSON.parse(values)
-            return Array.isArray(parsed) ? parsed : String(values).split(",")
-          } catch {
-            return String(values).split(",")
-          }
-        })()
+        try {
+          const parsed = JSON.parse(values)
+          return Array.isArray(parsed) ? parsed : String(values).split(",")
+        } catch {
+          return String(values).split(",")
+        }
+      })()
       : []
 
   return Array.from(
@@ -273,13 +273,13 @@ function extractLanguageCodes(values?: string[] | string | null): string[] {
     ? values
     : typeof values === "string"
       ? (() => {
-          try {
-            const parsed = JSON.parse(values)
-            return Array.isArray(parsed) ? parsed : String(values).split(",")
-          } catch {
-            return String(values).split(",")
-          }
-        })()
+        try {
+          const parsed = JSON.parse(values)
+          return Array.isArray(parsed) ? parsed : String(values).split(",")
+        } catch {
+          return String(values).split(",")
+        }
+      })()
       : []
 
   const validLangCodes = new Set(ALL_LANGUAGES.map((l) => l.code))
@@ -306,7 +306,7 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   // Default Lucid Studio and Textual to enabled on the company access page
   effectiveAddons.add("lucid_studio")
   effectiveAddons.add("lucid_studio_textual")
-  
+
   if (effectiveAddons.has("task_management")) {
     effectiveAddons.add("task_management_textual")
   }
@@ -458,7 +458,7 @@ export default function CompanyAccessPage() {
         if (TASK_MANAGEMENT_CHILDREN.includes(addon)) {
           next.add("task_management")
         }
-        
+
         // Auto-enable textual variants if parent is toggled on
         if (addon === "chat_in_studio") {
           next.add("chat_in_studio_textual")
@@ -532,16 +532,16 @@ export default function CompanyAccessPage() {
         const allItems = Array.isArray(updatedCompany.subscription_addons) ? updatedCompany.subscription_addons : []
         const normalizedAddons = normalizeAddons(allItems)
         const savedLangs = extractLanguageCodes(allItems)
-        
+
         setCompanies((current) =>
           current.map((company) =>
             company.company_id === updatedCompany.company_id
               ? {
-                  ...company,
-                  ...updatedCompany,
-                  subscription_addons: normalizeAddons(allItems), // normalized addons only for logic
-                  enabled_languages: savedLangs, // preserve languages separately
-                }
+                ...company,
+                ...updatedCompany,
+                subscription_addons: normalizeAddons(allItems), // normalized addons only for logic
+                enabled_languages: savedLangs, // preserve languages separately
+              }
               : company
           )
         )
@@ -670,8 +670,8 @@ export default function CompanyAccessPage() {
             </CardHeader>
 
             <CardContent className="flex-1 overflow-hidden p-0">
-              
-               <div className="h-full overflow-y-auto px-6 pb-6">
+
+              <div className="h-full overflow-y-auto px-6 pb-6">
                 {filteredCompanies.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
                     No companies match your search.
@@ -690,11 +690,10 @@ export default function CompanyAccessPage() {
                             setActiveCompanyId(company.company_id)
                             setSelectedCompanyId(company.company_id)
                           }}
-                          className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${
-                            selected
+                          className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${selected
                               ? "border-slate-950 bg-slate-950 text-white shadow-lg"
                               : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -721,7 +720,7 @@ export default function CompanyAccessPage() {
                 )}
               </div>
             </CardContent>
-          </Card>            
+          </Card>
 
           <Card className="border-slate-200 shadow-lg h-full overflow-hidden">
             <CardHeader className="space-y-3">
@@ -764,9 +763,8 @@ export default function CompanyAccessPage() {
                     return (
                       <div
                         key={feature.id}
-                        className={`rounded-3xl border p-5 transition-all ${
-                          checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
-                        } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
+                        className={`rounded-3xl border p-5 transition-all ${checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
+                          } ${isLucidChild ? "ml-8 md:ml-0" : ""}`}
                       >
                         <div className="flex items-center justify-between gap-4">
                           <div>
@@ -775,9 +773,8 @@ export default function CompanyAccessPage() {
                               <p className="font-semibold">{feature.label}</p>
                               <Badge
                                 variant="outline"
-                                className={`ml-1 border-transparent text-[10px] uppercase tracking-wide ${
-                                  checked ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-500"
-                                }`}
+                                className={`ml-1 border-transparent text-[10px] uppercase tracking-wide ${checked ? "bg-white/10 text-slate-200" : "bg-slate-100 text-slate-500"
+                                  }`}
                               >
                                 {feature.category}
                               </Badge>
@@ -799,18 +796,18 @@ export default function CompanyAccessPage() {
                         {isLucidChild && !parentEnabled && (
                           <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
                         )}
-                        
+
                         {/* Inline sub-toggles for Chat in Studio */}
                         {feature.id === "chat_in_studio" && checked && (
                           <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-2">
                             {FEATURE_DEFINITIONS.filter(f => f.parentId === "chat_in_studio").map(childFeature => {
                               const childChecked = draftAddons.includes(childFeature.id)
                               const isChildMandatory = childFeature.id === "chat_in_studio_textual"
-                              
+
                               return (
                                 <label key={childFeature.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${childChecked ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"} ${isChildMandatory ? "opacity-70 cursor-not-allowed" : ""}`}>
-                                  <input 
-                                    type="checkbox" 
+                                  <input
+                                    type="checkbox"
                                     className="sr-only"
                                     checked={childChecked}
                                     onChange={(e) => {
@@ -826,18 +823,18 @@ export default function CompanyAccessPage() {
                             })}
                           </div>
                         )}
-                        
+
                         {/* Inline sub-toggles for Task Management */}
                         {feature.id === "task_management" && checked && (
                           <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap gap-2">
                             {FEATURE_DEFINITIONS.filter(f => f.parentId === "task_management").map(childFeature => {
                               const childChecked = draftAddons.includes(childFeature.id)
                               const isChildMandatory = childFeature.id === "task_management_textual"
-                              
+
                               return (
                                 <label key={childFeature.id} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${childChecked ? "bg-slate-900 border-slate-900 text-white" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"} ${isChildMandatory ? "opacity-70 cursor-not-allowed" : ""}`}>
-                                  <input 
-                                    type="checkbox" 
+                                  <input
+                                    type="checkbox"
                                     className="sr-only"
                                     checked={childChecked}
                                     onChange={(e) => {

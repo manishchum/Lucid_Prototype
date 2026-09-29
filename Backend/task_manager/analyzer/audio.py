@@ -80,7 +80,7 @@ def analyze_audio_features(audio_path: str) -> dict[str, Any]:
             "energy": 0,
             "silence_ratio": 0,
             "pause_count": 0,
-            "pace_score": 0,
+            "pace_score": 50,
             "error": f"audio feature dependencies unavailable: {exc}",
         }
 
@@ -94,7 +94,7 @@ def analyze_audio_features(audio_path: str) -> dict[str, Any]:
                 "energy": 0,
                 "silence_ratio": 1,
                 "pause_count": 0,
-                "pace_score": 0,
+                "pace_score": 50,
             }
 
         rms = librosa.feature.rms(y=y)[0]
@@ -137,7 +137,7 @@ def analyze_audio_features(audio_path: str) -> dict[str, Any]:
             "energy": 0,
             "silence_ratio": 0,
             "pause_count": 0,
-            "pace_score": 0,
+            "pace_score": 50,
             "error": str(exc),
         }
 
@@ -169,6 +169,17 @@ def analyze_audio_with_gemini(
             "weaknesses": ["Gemini API key is not configured."],
             "feedback": "Audio was submitted, but AI audio analysis is not configured.",
             "improvement_suggestions": [],
+        }
+
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        print("[Audio Analyzer] GEMINI_API_KEY not configured")
+        return {
+            "score": 50,
+            "passed": False,
+            "feedback": "Task compliance evaluation unavailable.",
+            "criteria": []
         }
 
     client = genai.Client(api_key=api_key)
@@ -329,8 +340,115 @@ def transcribe_audio_whisper(audio_path: str) -> str:
     except Exception as e:
         print("[Audio Analyzer] Whisper transcription failed:", e)
         return ""
+def evaluate_audio_task_compliance(
+    transcript: str,
+    task_title: str,
+    task_description: str,
+    analyzing_parameters: str | None = None,
+    expected_answer: str | None = None
+) -> dict:
+    """
+    Uses Gemini to evaluate whether the transcript satisfies
+    the actual task requirements.
+    """
 
-def analyze_audio(audio_path: str, task_title: str, task_description: str, expected_answer: str | None) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        return {
+            "score": 50,
+            "passed": False,
+            "feedback": "Task compliance could not be evaluated.",
+            "criteria": []
+        }
+        
+    client = genai.Client(api_key=api_key)
+
+    prompt = f"""
+You are an enterprise task-verification AI.
+
+Evaluate the employee's audio transcript against the task requirements.
+
+TASK TITLE:
+{task_title}
+
+TASK DESCRIPTION:
+{task_description}
+
+ANALYZING PARAMETERS:
+{analyzing_parameters or "No additional parameters provided."}
+
+EXPECTED ANSWER:
+{expected_answer or "No expected answer provided."}
+
+EMPLOYEE TRANSCRIPT:
+{transcript}
+
+Evaluate whether the employee actually completed the requested task.
+
+Important:
+- Evaluate the CONTENT of the transcript against the task.
+- Do not penalize the employee merely because the response contains additional information.
+- Check each explicit requirement separately.
+- If a requirement is clearly satisfied, mark it satisfied.
+- If a requirement is missing, mark it missing.
+- Do not invent information that is not present in the transcript.
+
+Return STRICT JSON ONLY:
+
+{{
+    "score": 0,
+    "passed": true,
+    "criteria": [
+        {{
+            "requirement": "requirement description",
+            "satisfied": true,
+            "evidence": "short evidence from transcript"
+        }}
+    ],
+    "feedback": "short explanation"
+}}
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Part(text=prompt)
+            ],
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=0)
+            ),
+        )
+
+        result_text = getattr(response, "text", None) or ""
+
+        try:
+            return json.loads(result_text)
+        except Exception:
+            start = result_text.find("{")
+            end = result_text.rfind("}")
+
+            if start != -1 and end != -1:
+                return json.loads(result_text[start:end + 1])
+
+    except Exception as e:
+        print("[Audio Analyzer] Task compliance evaluation failed:", e)
+
+    return {
+        "score": 50,
+        "passed": False,
+        "feedback": "Task compliance evaluation unavailable.",
+        "criteria": []
+    }
+
+def analyze_audio(
+    audio_path: str,
+    task_title: str,
+    task_description: str,
+    expected_answer: str | None,
+    analyzing_parameters: str | None = None
+):
     """
     Silent audio submission analyzer.
     """
@@ -401,6 +519,31 @@ def analyze_audio(audio_path: str, task_title: str, task_description: str, expec
             relevance_score = 50
             sim = 0.5
             
+        # 5. Task compliance using Gemini
+    task_compliance = evaluate_audio_task_compliance(
+        transcript=transcript,
+        task_title=task_title,
+        task_description=task_description,
+        analyzing_parameters=analyzing_parameters,
+        expected_answer=expected_answer
+    )
+
+    criteria = task_compliance.get("criteria", [])
+
+    if criteria:
+        satisfied_count = sum(
+            1
+            for criterion in criteria
+            if criterion.get("satisfied") is True
+        )
+
+        task_compliance_score = int(
+            (satisfied_count / len(criteria)) * 100
+        )
+    else:
+        task_compliance_score = int(
+            max(0, min(100, task_compliance.get("score", 50)))
+        )
     # Calculate clarity, fluency, confidence
     # Clarity score from Wav2Vec2 or fallback to silence ratio
     raw_clarity = speech_result.get("clarity_score", 0)
@@ -421,8 +564,26 @@ def analyze_audio(audio_path: str, task_title: str, task_description: str, expec
         confidence = int(fluency * 0.6 + relevance_score * 0.4)
 
     # Overall score synthesis
-    score = int(0.25 * clarity + 0.25 * fluency + 0.25 * confidence + 0.25 * relevance_score)
-    score = max(0, min(100, score))
+    score = int(
+    0.20 * clarity
+    + 0.15 * fluency
+    + 0.15 * confidence
+    + 0.15 * relevance_score
+    + 0.35 * task_compliance_score
+)
+    print("\n========== AUDIO ANALYZER DEBUG ==========")
+
+    print("Clarity:", clarity)
+    print("Fluency:", fluency)
+    print("Confidence:", confidence)
+    print("Relevance:", relevance_score)
+    print("Task compliance:", task_compliance_score)
+    print("Task compliance details:", task_compliance)
+    print("BGE similarity:", locals().get("sim"))
+    print("Final score:", score)
+    print("Analyzing parameters:", analyzing_parameters)
+    print("Expected answer:", expected_answer)
+    print("==========================================\n")
 
     # Evaluate issues and recommendations
     issues = []

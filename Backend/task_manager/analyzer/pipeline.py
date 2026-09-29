@@ -335,8 +335,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             print("TASK DESCRIPTION:", task.get("description", ""))
 
             result = analyze_image(
-            image_path=input_data,
-            instruction=task.get("description", "")
+                image_path=input_data,
+                instruction=task.get("description", ""),
+                analyzing_parameters=task.get("analyzing_parameters")
             )
 
             print("\n========== RAW IMAGE ANALYZER OUTPUT ==========")
@@ -425,7 +426,8 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 audio_path=input_data,
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
-                expected_answer=task.get("expected_answer")
+                expected_answer=task.get("expected_answer"),
+                analyzing_parameters=task.get("analyzing_parameters")
             )
             transcript = result.get("metrics", {}).get("transcript", "")
             extracted_content["transcript"] = transcript

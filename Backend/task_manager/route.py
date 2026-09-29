@@ -84,6 +84,7 @@ class SubmissionCreate(BaseModel):
         "text",
         "image",
         "audio",
+        "video",
         "multiple_choice"
     ]
 
@@ -522,7 +523,7 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
 
     try:
         submission_query = (
-            db.table("task_submissions")
+            db.table("task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, ai_analysis, status, submitted_at")
             .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
@@ -1197,6 +1198,11 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                 f.write(image_bytes)
             input_data = local_path
             stored_image_url = _store_image_media(payload, company_id, submission_id)
+            if not stored_image_url:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Image could not be uploaded. Please try again."
+                )
         except Exception as e:
             print("[task-manager] image extraction/storage failed:", e)
             
@@ -1210,6 +1216,11 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                 f.write(audio_bytes)
             input_data = local_path
             stored_audio_url = _store_audio_media(payload, company_id, submission_id)
+            if not stored_audio_url:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Audio could not be uploaded. Please try again."
+                )
         except Exception as e:
             print("[task-manager] audio extraction/storage failed:", e)
 
@@ -1223,6 +1234,11 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
                 f.write(video_bytes)
             input_data = local_path
             stored_video_url = _store_video_media(payload, company_id, submission_id)
+            if not stored_video_url:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Video could not be uploaded. Please try again."
+                )
         except Exception as e:
             print("[task-manager] video extraction/storage failed:", e)
 

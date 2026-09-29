@@ -886,7 +886,11 @@ def _get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def analyze_image(image_path: str, instruction: str) -> dict:
+def analyze_image(
+    image_path: str,
+    instruction: str,
+    analyzing_parameters: str | None = None
+) -> dict:
     """
     Full image analysis pipeline using photo_analysis services.
 
@@ -899,6 +903,7 @@ def analyze_image(image_path: str, instruction: str) -> dict:
       6. Build compact evidence context (text only)
       7. Send evidence to Gemini → get pass/fail/score/feedback
       8. Apply scoring verification rules as final authority
+
 
     Only a small text summary (~200-500 tokens) goes to Gemini.
     No image bytes are sent.
@@ -965,7 +970,7 @@ def analyze_image(image_path: str, instruction: str) -> dict:
     # ──────────────────────────────────────────────
     gemini_context = {
         "task": instruction,
-
+        "analyzing_parameters": analyzing_parameters or "",
         "objects": list(set([
             obj["label"]
             for obj in object_evidence.get("objects", [])
@@ -990,6 +995,12 @@ You are an enterprise task verification AI.
 
 Analyze whether the uploaded task proof satisfies the task.
 
+Task:
+{instruction}
+
+Analyzing Parameters:
+{analyzing_parameters or "No specific analyzing parameters provided."}
+
 Evidence summary:
 {json.dumps(gemini_context)}
 
@@ -1000,13 +1011,19 @@ Rules:
 - Use pose/activity when relevant
 - Missing required objects should reduce score
 - Reject fake or unrelated submissions
+- You have access to the actual uploaded image. Inspect it directly.
+- Follow the Analyzing Parameters when evaluating the submission.
+- If the task requires a visual classification, make that classification from the image itself.
+- Do not assume a task is satisfied merely because the CLIP score is high.
+- If the image does not contain enough visual evidence to evaluate the criteria, mark the submission for review.
 
 Return STRICT JSON ONLY:
 
 {{
  "passed": true/false,
  "score": 0-100,
- "feedback": "short explanation"
+ "feedback": "short explanation",
+ "classification": "if applicable, otherwise null"
 }}
 """
 
@@ -1019,15 +1036,22 @@ Return STRICT JSON ONLY:
     if client:
         try:
             start_time = time.time()
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    types.Part(text=instruction_text)
-                ],
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=0)
-                ),
-            )
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[
+                        types.Part(text=instruction_text),
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type="image/jpeg"
+        ),
+    ],
+    config=types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(thinking_budget=0)
+    ),
+)
             end_time = time.time()
 
             usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
