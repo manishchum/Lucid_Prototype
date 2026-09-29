@@ -14,7 +14,7 @@ import traceback
 
 router = APIRouter(prefix="/api/employee", tags=["employee-dashboard"])
 
-from task_manager.service import get_tasks_for_user
+from task_manager.route import get_tasks_for_user
 
 @router.get("/dashboard_summary/{user_id}")
 async def get_dashboard_summary(
