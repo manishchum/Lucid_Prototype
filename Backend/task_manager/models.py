@@ -81,7 +81,9 @@ class SubmissionCreate(BaseModel):
         "text",
         "image",
         "audio",
+        "video",
         "multiple_choice"
+
     ]
 
     # submission data

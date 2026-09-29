@@ -577,223 +577,191 @@ async def generate_report(
                 "employee": name,
                 "subtask": r.get("subtask_title"),
                 "status": r.get("status"),
-                "task_insights": task_insights,
-                "quality_analysis": quality_analysis
+                "score": normalized_score,
+                "task_insights": task_insights or {},
+                "quality_analysis": quality_analysis or {},
+                "strengths": analysis.get("strengths") or [],
+                "weaknesses": analysis.get("weaknesses") or [],
+                "detected_issues": analysis.get("detected_issues") or [],
+                "improvement_points": analysis.get("improvement_points") or [],
+                "metrics": analysis.get("metrics") or {}
             })
 
+
+        employee_count = len(submissions_summary)
+        
+        # Phase 1 & 2: Adaptive Report Modes
+        if employee_count <= 10:
+            report_mode = "small"
+            detailed_profile_limit = employee_count
+            mode_instructions = """
+REPORT MODE: SMALL TEAM (1-10 employees)
+- Include individual analysis for all employees requiring attention.
+- Keep each individual analysis concise.
+- Target Length: 3-5 pages.
+"""
+        elif employee_count <= 50:
+            report_mode = "medium"
+            detailed_profile_limit = min(10, employee_count)
+            mode_instructions = f"""
+REPORT MODE: MEDIUM TEAM (11-50 employees)
+- Focus on team-level patterns.
+- Include only the most important employees requiring attention (Maximum {detailed_profile_limit} employee profiles).
+- Do not create a detailed profile for every employee.
+- Target Length: 6-8 pages.
+"""
+        else:
+            report_mode = "large"
+            detailed_profile_limit = 15
+            mode_instructions = f"""
+REPORT MODE: LARGE TEAM (51+ employees)
+- Generate a management-level executive report.
+- Focus heavily on overall team performance, score distribution, and top team strengths/patterns.
+- Show only the top 5 employees requiring attention.
+- Show only the top 5 high performers.
+- DO NOT generate individual development profiles for every employee (Maximum {detailed_profile_limit} detailed profiles total).
+- Prioritize trends and management actions over individual descriptions.
+- Target Length: 8-12 pages.
+"""
+
+        submissions_json = json.dumps(submissions_summary, indent=2)
+
         gemini_prompt = f"""
-You are an Enterprise Performance Reporting Assistant.
+GOAL:
+Generate a highly concise, executive-style employee performance report. The report must be evidence-based, specific, scalable, and easy to read.
 
-Your job is NOT to write an AI report.
+CRITICAL FORMATTING RULES:
+1. DO NOT output Markdown syntax anywhere (except simple tables if needed).
+2. Never use #, ##, ###, **, *, backticks.
+3. Start all section titles with a number (e.g., "1. EXECUTIVE SUMMARY"). This is REQUIRED for parsing.
+4. Do not use Markdown bullet characters like '*' or '-'. Use plain text formatting.
+5. Use only plain text headings and simple numbered lists where required.
+6. Keep all content concise and professional.
+7. Do not explain the same issue multiple times across different sections.
+8. Do not repeat employee actions as recommendations.
+9. Every recommendation must be based on actual evaluation data.
 
-Your job is to create a management dashboard that helps a manager understand the team's performance within 2 minutes.
+{mode_instructions.strip()}
 
-The report should answer only these questions:
+DATA INTERPRETATION RULES:
+Use the provided fields as evidence. Use this hierarchy for analysis:
+1. detected_issues
+2. weaknesses
+3. improvement_points
+4. missing_information
+5. challenges
+6. actions_taken
+7. strengths
+8. measurable_outcomes
 
-1. Who is performing well?
-2. Who needs coaching?
-3. Which tasks are causing the most problems?
-4. What actions should the manager take?
+IMPORTANT RECOMMENDATION LOGIC:
+Before creating a recommendation, follow this sequence:
+1. Identify what the employee is already doing (check actions_taken and strengths).
+2. Identify their demonstrated strengths.
+3. Identify the remaining gap.
+4. Recommend only the next logical improvement.
+Never recommend an action that the employee is already taking.
+Recommendations must be Specific, Actionable, Evidence-based, Short, Relevant, and Non-repetitive.
 
-If any section does not help answer one of these questions, DO NOT include it.
+TEAM PATTERN DETECTION:
+A team pattern should require the same or similar issue to appear across multiple employees.
+For each pattern, identify: Pattern, Number affected, Business impact, Recommended management action.
+For isolated problems, recommend targeted individual coaching.
 
-==========================================================
-GENERAL RULES
-==========================================================
+REPORT STRUCTURE:
+(Ensure every section title is numbered, e.g., "1. EXECUTIVE SUMMARY", "2. TEAM PERFORMANCE OVERVIEW")
 
-• Think like an Operations Manager, not an AI model.
-• Think like Excel, not ChatGPT.
-• Keep the report extremely easy to scan.
-• Prefer tables over paragraphs.
-• One row = one business record.
-• Never repeat the same information.
-• Every section should provide NEW information.
-• Avoid long explanations.
-• Maximum comment length: one sentence.
-• No HTML.
-• No CSS.
-• No Markdown code blocks.
-• No decorative formatting.
-• No AI terminology.
-• Tables MUST be formatted as proper markdown tables with a separator line (e.g. |---|---|). Do not skip the separator line.
+1. EXECUTIVE SUMMARY
+Maximum 5-7 concise insights. Include:
+- Total employees analyzed
+- Overall performance pattern
+- Top strengths across the group
+- Top recurring development gaps
+- Key management takeaway
 
-Never use words such as
+2. TEAM PERFORMANCE OVERVIEW
+Keep this section concise. Include:
+- Average or general performance pattern
+- Score distribution
+- High performer count
+- Employees requiring attention count
+- Top 3 recurring strengths
+- Top 3 recurring gaps
 
-- Semantic Similarity
-- CLIP
-- OCR
-- YOLO
-- Gemini
-- Confidence
-- Object Detection
-- Verification Criteria
+3. EMPLOYEE PERFORMANCE SUMMARY (LEADERBOARD)
+Create a concise leaderboard formatted as a markdown table using `|`.
+Example format:
+| Rank | Employee | Score | Performance Level | Primary Gap |
+| --- | --- | --- | --- | --- |
+| 1 | Jane Doe | 95 | Excellent | None |
 
-Instead use simple business language.
+4. EMPLOYEES REQUIRING ATTENTION
+Only include employees who genuinely require intervention.
+For each employee, format as:
+Employee: [Name]
+Score: [Score]
+Primary Gap: [Brief description]
+Recommended Next Step: [Max 2 sentences]
 
-Examples
+5. TEAM ACTION PLAN
+Identify only the most important recurring organizational patterns (Maximum 5-7 actions).
+Format each as:
+Priority: [Name]
+Evidence: [Short]
+Employees Affected: [Count]
+Management Action: [Short action]
+Expected Impact: [Short impact]
 
-"The uploaded image does not match the assigned task."
+6. INDIVIDUAL DEVELOPMENT PROFILES
+Only create this section for employees requiring significant development. Maximum profiles: {detailed_profile_limit}.
+Format each as:
+EMPLOYEE: [Name]
+Current Strengths: [Max 2 concise bullets]
+Actions Already Taken: [Max 2 concise bullets]
+Remaining Development Gaps: [Max 2 concise bullets]
+Next-Level Recommendation: [Max 2 concise actions]
+Expected Impact: [Max 1 concise statement]
 
-"The required item is not visible."
+7. HIGH PERFORMERS
+Highlight strongest demonstrated capability and potential next-level development opportunity. Maximum 2 sentences per high performer.
 
-"The submission is incomplete."
+DEDUPLICATION RULE:
+Each section must provide new value. Do not repeat the same insight across sections.
 
-"The uploaded image is unclear."
+OUTPUT ONLY THE REPORT CONTENT. DO NOT include explanations.
 
-==========================================================
-REPORT STRUCTURE
-==========================================================
+====================================================
+REPORT DATA
+====================================================
 
-SECTION 1
-EXECUTIVE SUMMARY
-
-Display only a KPI table.
-
-| Metric | Value |
-|--------|-------|
-| Total Employees | ... |
-| Total Tasks | ... |
-| Total Submissions | ... |
-| Completed | ... |
-| Passed | ... |
-| Needs Review | ... |
-| Average Score | ... |
-| Best Performer | ... |
-| Lowest Performer | ... |
-
-Maximum one sentence summarizing the team's overall performance.
-
-----------------------------------------------------------
-
-SECTION 2
-EMPLOYEES REQUIRING ATTENTION
-
-This should be the MOST IMPORTANT section.
-
-Show ONLY employees needing manager action.
-
-| Employee | Score | Tasks Needing Review | Main Issue | Recommended Action |
-|----------|-------|----------------------|------------|--------------------|
-| ...      | ...   | ...                  | ...        | ...                |
-
-----------------------------------------------------------
-
-SECTION 3
-TASK PERFORMANCE
-
-One row per subtask.
-
-| Subtask | Avg Score | Pass Rate | Employees Reviewed | Main Issue |
-|---------|-----------|-----------|--------------------|------------|
-| ...     | ...       | ...       | ...                | ...        |
-
-Sort from lowest score to highest.
-
-Manager should immediately know which task requires improvement.
-
-----------------------------------------------------------
-
-SECTION 4
-EMPLOYEE LEADERBOARD
-
-One row per employee.
-
-| Rank | Employee | Avg Score | Passed | Review | Status |
-|------|----------|-----------|--------|--------|--------|
-| ...  | ...      | ...       | ...    | ...    | ...    |
-
-Status examples: Excellent, Good, Satisfactory, Needs Coaching
-Sort by score descending.
-
-----------------------------------------------------------
-
-SECTION 5
-ACTION ITEMS
-
-Generate only actionable items.
-
-| Priority | Action | Owner |
-|----------|--------|-------|
-| ...      | ...    | ...   |
-
-----------------------------------------------------------
-
-SECTION 6
-OPTIONAL DETAILS
-
-Generate this section ONLY for employees who require coaching.
-
-For each employee generate ONE table.
-
-Employee Name
-
-| Subtask | Score | Issue | Recommendation |
-|---------|-------|-------|----------------|
-| ...     | ...   | ...   | ...            |
-
-Maximum one sentence in Issue.
-Maximum one sentence in Recommendation.
-
-DO NOT explain the AI analysis.
-DO NOT explain technical metrics.
-DO NOT write paragraphs.
-DO NOT include employees who passed all tasks.
-
-==========================================================
-WHAT NOT TO DO
-==========================================================
-
-Do NOT generate
-
-Long reports
-Essays
-Repeated summaries
-Repeated recommendations
-Paragraphs for every employee
-Paragraphs for every submission
-Technical explanations
-AI explanations
-Storytelling
-
-==========================================================
-SCALABILITY
-==========================================================
-
-The report must remain readable if
-
-5 employees
-50 employees
-500 employees
-5000 employees
-
-If there are many employees
-
-Summarize first.
-
-Only expand details for employees requiring manager intervention.
-
-==========================================================
-FINAL GOAL
-==========================================================
-
-The manager should be able to answer these questions within 2 minutes:
-
-• Who needs coaching?
-• Which task is failing?
-• Who are the top performers?
-• What actions should I take today?
-
-If the report does not help answer these questions quickly, simplify it further.
-
-The report should feel like an enterprise MIS dashboard or executive review sheet rather than an AI-generated report.
-
-Here is the data you must analyze:
-Task Name: {task_title}
+Task Title: {task_title}
 Task Description: {task_description}
 
-Submissions Data JSON (contains employees, their subtasks, status, scores, and analysis):
-{json.dumps(submissions_summary, indent=2)}
+Employee Submission Data:
+{submissions_json}
 """
+
+        # PHASE 10 — REPORT QUALITY DATA DEBUG
+        print("\n========== REPORT QUALITY DATA DEBUG ==========")
+        print(f"REPORT MODE: {report_mode.upper()}")
+        print(f"EMPLOYEE COUNT: {employee_count}")
+        print(f"DETAILED PROFILE LIMIT: {detailed_profile_limit}")
+        print(f"EMPLOYEES SELECTED FOR DETAILED ANALYSIS: Dynamic (up to {detailed_profile_limit})")
+        
+        # Log brief info for up to 10 employees
+        for sub_log in submissions_summary[:10]:
+            print(f"\nEmployee: {sub_log.get('employee')}")
+            print(f"Score: {sub_log.get('score')}")
+            print(f"Strengths: {len(sub_log.get('strengths') or [])}")
+            print(f"Actions Taken: {len(sub_log.get('task_insights', {}).get('actions_taken') or [])}")
+            print(f"Weaknesses: {len(sub_log.get('weaknesses') or [])}")
+            print(f"Detected Issues: {len(sub_log.get('detected_issues') or [])}")
+            print(f"Improvement Points: {len(sub_log.get('improvement_points') or [])}")
+            print(f"Missing Information: {len(sub_log.get('task_insights', {}).get('missing_information') or [])}")
+        
+        if employee_count > 10:
+            print(f"\n... and {employee_count - 10} more employees omitted from debug log ...")
+        print("===============================================\n")
 
         try:
             # Query Gemini Flash to synthesize the report

@@ -50,25 +50,31 @@ export interface CreateTaskPayload {
   bundle_tasks?: any[];
 }
 
+export type SubmissionType =
+  | "text"
+  | "image"
+  | "audio"
+  | "video"
+  | "multiple_choice";
+
+export interface TaskAnswer {
+  question_id: string;
+  selected_options: string[];
+}
+
 export interface SubmitTaskPayload {
   task_id: string;
   child_task_id?: string;
   user_id: string;
   assignment_id: string;
-  submission_type: string;
+  submission_type: SubmissionType;
+
   text_response?: string;
   image_url?: string;
   audio_url?: string;
   video_url?: string;
-  answers?: { question_id: string; selected_option: string }[];
-  score?: number;
-  max_score?: number;
-  ai_validation_pass?: boolean;
-  ai_validation_verdict?: string;
-  ai_validation_reason?: string;
-  ai_validation_suggestion?: string;
-  ai_validation_confidence?: "high" | "medium" | "low";
-  ai_status?: string;
+
+  answers?: TaskAnswer[];
 }
 
 const buildHeaders = (options?: { userId?: string; companyId?: string }): HeadersInit => {
@@ -192,10 +198,6 @@ export async function submitTaskResponse(
   payload: SubmitTaskPayload,
   params?: { userId?: string; companyId?: string }
 ): Promise<any> {
-  const submissionType = (payload.submission_type || "").toLowerCase();
-  if (submissionType === "text" || submissionType === "multiple_choice") {
-    return submitTask(payload, params);
-  }
   return submitTask(payload, params);
 }
 
@@ -335,12 +337,7 @@ export async function submitTextAnalysis(
     task_id: string;
     submission_type: "text" | "multiple_choice";
     text_response?: string;
-    answers?: {
-      question_id: string;
-      question: string;
-      selected_option: string;
-      correct_answer: string;
-    }[];
+    answers?: TaskAnswer[];
   },
   params?: { userId?: string; companyId?: string }
 ): Promise<any> {
@@ -349,9 +346,16 @@ export async function submitTextAnalysis(
     headers: buildHeaders(params),
     body: JSON.stringify(payload),
   });
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(formatApiError(err, `Failed to submit text analysis: ${res.statusText}`));
+    throw new Error(
+      formatApiError(
+        err,
+        `Failed to submit text analysis: ${res.statusText}`
+      )
+    );
   }
+
   return res.json();
 }

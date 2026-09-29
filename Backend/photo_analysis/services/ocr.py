@@ -1,3 +1,4 @@
+"""
 import traceback
 from typing import Any, Dict, List
 import os
@@ -24,7 +25,7 @@ except Exception:
 
 
 def _apply_preprocessing(img):
-    """Apply grayscale, CLAHE, denoise, and sharpening to a cv2 image."""
+    '''Apply grayscale, CLAHE, denoise, and sharpening to a cv2 image.'''
     # Convert to grayscale
     if len(img.shape) == 3:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -60,7 +61,7 @@ def _apply_preprocessing(img):
 
 
 def preprocess_image(image_path: str) -> List[str]:
-    """Create multiple preprocessed image variants and return their paths.
+    '''Create multiple preprocessed image variants and return their paths.
 
     Variants:
       - original
@@ -70,7 +71,7 @@ def preprocess_image(image_path: str) -> List[str]:
 
     Each variant is processed with grayscale, CLAHE, denoise, sharpen and saved
     to a temporary file. Returns list of file paths.
-    """
+    '''
     processed_paths: List[str] = []
 
     if cv2 is None:
@@ -137,7 +138,7 @@ def preprocess_image(image_path: str) -> List[str]:
 
 
 def clean_ocr_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Clean OCR results by removing garbage and applying fuzzy corrections.
+    '''Clean OCR results by removing garbage and applying fuzzy corrections.
 
     Steps:
     - remove specific symbols
@@ -145,7 +146,7 @@ def clean_ocr_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     - drop short detections (<3 chars)
     - drop detections with low alphabet ratio (<0.6)
     - apply fuzzy correction from a small known-phrases dictionary
-    """
+    '''
     cleaned: List[Dict[str, Any]] = []
 
     # Common correction mapping
@@ -204,11 +205,11 @@ def clean_ocr_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def extract_text(image_path: str) -> Dict[str, Any]:
-    """Extract text from image using EasyOCR with preprocessing.
+    '''Extract text from image using EasyOCR with preprocessing.
 
     Runs OCR on multiple preprocessed variants and selects the candidate with
     the highest average confidence. Filters out short/low-confidence results.
-    """
+    '''
     # If easyocr missing, keep API stable
     if easyocr is None:
         return {"detected_text": [], "error": "OCR unavailable"}
@@ -284,3 +285,5 @@ def extract_text(image_path: str) -> Dict[str, Any]:
             pass
         return {"detected_text": [], "error": "OCR unavailable"}
 
+
+"""
