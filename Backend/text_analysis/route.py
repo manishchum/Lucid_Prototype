@@ -11,7 +11,7 @@ from google.genai import types
 
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
-from task_manager import service
+from task_manager import route as service
 
 router = APIRouter()
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 
-from task_manager.service import get_tasks_for_user
+from task_manager.route import get_tasks_for_user
 from utils.auth import RequestAuth, get_effective_company_id, get_request_auth_required
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.leaderboard_db import get_user_rank
