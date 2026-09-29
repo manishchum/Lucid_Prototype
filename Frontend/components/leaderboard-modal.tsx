@@ -213,11 +213,10 @@ export function LeaderboardModal({
                   {leaderboard.map((entry) => (
                     <div
                       key={entry.user_id}
-                      className={`flex items-center gap-3 p-3 rounded-[8px] transition-colors ${
-                        entry.user_id === employee?.user_id
+                      className={`flex items-center gap-3 p-3 rounded-[8px] transition-colors ${entry.user_id === employee?.user_id
                           ? "bg-[#eff4ff] border border-blue-200"
                           : "bg-slate-50 hover:bg-slate-100"
-                      }`}
+                        }`}
                     >
                       {/* Rank and medal */}
                       <div className="flex items-center justify-center w-8">

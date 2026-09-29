@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
+from utils.redis_client import invalidate_dashboard_cache
 
 from utils.db.employee_assessment_db import (
     get_employee_assessment_by_id,
@@ -183,6 +184,10 @@ async def create_assessment(
     """
     assessment_data = request.dict()
     result = await create_employee_assessment(auth_ctx.user_id, assessment_data)
+    
+    target_user = request.user_id or auth_ctx.user_id
+    if target_user:
+        invalidate_dashboard_cache(target_user)
     
     # Unwrap service layer response
     assessment = result.get("data") or None

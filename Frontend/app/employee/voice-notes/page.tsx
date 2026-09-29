@@ -600,9 +600,9 @@ export default function VoiceNotesPage() {
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                 <button
                   className={`px-3 py-1 rounded-md ${activeTab === 'notes' ? 'bg-blue-600 text-white' : 'bg-transparent text-slate-700'}`}
                   onClick={() => setActiveTab('notes')}
@@ -735,7 +735,7 @@ export default function VoiceNotesPage() {
                 ) : (
                   reports.map((report) => (
                     <div key={report.report_id} className="rounded-3xl border border-slate-200 p-4 shadow-sm mb-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                           <div className="text-sm text-slate-500">{report.report_date}</div>
                           <h4 className="font-semibold text-slate-900">{report.report_title}</h4>
@@ -752,12 +752,12 @@ export default function VoiceNotesPage() {
             ) : (
               // Manager tab
               <div className="space-y-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
                   <div className="flex items-center space-x-3">
                     <h2 className="text-lg font-semibold text-slate-900">Team Insights & Reports</h2>
                     {loadingTeamReports && <span className="text-sm text-black-600 animate-pulse font-medium">Loading...</span>}
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-3 sm:space-x-2">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -883,7 +883,7 @@ export default function VoiceNotesPage() {
                     <h3 className="text-sm font-semibold text-slate-900 mb-3">Team Member Reports</h3>
                     {teamReports.map((report, idx) => (
                       <div key={idx} className="rounded-3xl border border-slate-200 p-4 shadow-sm mb-3">
-                        <div className="flex items-start justify-between">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                           <div>
                             <div className="text-xs text-slate-500 uppercase">{report.report_date}</div>
                             <h4 className="font-semibold text-slate-900">{report.report_title || "Team Report"}</h4>

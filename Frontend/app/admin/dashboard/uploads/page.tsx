@@ -1189,7 +1189,11 @@ const fetchAssignmentCount = async (moduleId: string) => {
                   <div className="w-full h-full">
                     <iframe
                       key={`${previewUrl}-${zoom}`}
-                      src={`${previewUrl}#toolbar=0&navpanes=0&zoom=${Math.round(zoom * 100)}`}
+                      src={
+                        previewUrl.toLowerCase().match(/\.(doc|docx|xls|xlsx|ppt|pptx)($|\?)/) 
+                          ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewUrl)}`
+                          : `${previewUrl}#toolbar=0&navpanes=0&zoom=${Math.round(zoom * 100)}`
+                      }
                       className="w-full h-[75vh] rounded-lg border border-gray-100"
                     />
                   </div>
@@ -1216,7 +1220,7 @@ const fetchAssignmentCount = async (moduleId: string) => {
             ) : (
               <div className="text-center text-gray-400 py-12">
                 <FileText className="w-16 h-16 mx-auto mb-4 opacity-30"/>
-                <p className="font-medium text-gray-500">PDF Preview Placeholder</p>
+                <p className="font-medium text-gray-500">Document Preview Placeholder</p>
                 <p className="text-sm text-gray-400 mt-1">Combined document for RAG processing</p>
               </div>
             )}

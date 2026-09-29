@@ -631,8 +631,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
 
         {currentScreen === 'scenarioSelection' && (
           <div>
-            <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-4">
-              <h2 className="text-3xl font-bold text-gray-800 mb-2">
+            <div className="bg-white rounded-xl shadow-sm p-6 sm:p-8 border border-slate-200 mb-4">
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
                 Choose Your <span className="text-purple-600">Role-Play</span> Scenario
               </h2>
               <p className="text-slate-600">

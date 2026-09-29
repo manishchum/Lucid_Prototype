@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from typing import List, Optional
 import re
 import uuid
-from utils.supabase_client import supabase_admin
+from utils.supabase_client import supabase, get_supabase_admin
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.redis_client import get_cache, set_cache, delete_cache_pattern
 
@@ -38,7 +38,7 @@ async def get_categories(
 
     try:
         result = (
-            supabase_admin
+            supabase
             .table("content_categories")
             .select("id,company_id,name,created_at,updated_at")
             .eq("company_id", effective_company_id)
@@ -67,7 +67,7 @@ async def get_content_items(
         return cached
 
     try:
-        query = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("company_id", effective_company_id)
+        query = supabase.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("company_id", effective_company_id)
         if category_id:
             query = query.eq("category_id", category_id)
             
@@ -92,47 +92,46 @@ async def upload_content(
     Upload a file to the content library bucket and save the record in DB.
     """
     try:
-        # Validate category belongs to company
-        cat_result = supabase_admin.table("content_categories").select("id").eq("id", category_id).eq("company_id", effective_company_id).execute()
+        # Validate category belongs to company (using RLS context-aware supabase proxy)
+        cat_result = supabase.table("content_categories").select("id").eq("id", category_id).eq("company_id", effective_company_id).execute()
         if not cat_result.data:
             raise HTTPException(status_code=400, detail="Invalid category ID")
 
         # Read file bytes
         file_bytes = await file.read()
         
-        # Unique file path to avoid collisions
+        # Unique file path to avoid collisions ({effective_company_id}/uploads/...)
         file_name = getattr(file, "filename", None) or "upload"
         file_name_clean = _safe_storage_file_name(file_name)
-        storage_path = f"raw_content/{effective_company_id}/{uuid.uuid4()}_{file_name_clean}"
+        storage_path = f"{effective_company_id}/uploads/{uuid.uuid4()}_{file_name_clean}"
         
-        # Upload to Supabase Storage Bucket
+        # Upload to Supabase Storage Bucket using service client to avoid Storage API 403
+        admin_storage = get_supabase_admin().storage
         bucket_name = "content library"
         content_type = getattr(file, "content_type", None) or "application/octet-stream"
         
-        upload_res = supabase_admin.storage.from_(bucket_name).upload(
+        upload_res = admin_storage.from_(bucket_name).upload(
             path=storage_path,
             file=file_bytes,
             file_options={"content-type": content_type}
         )
         
         # Get public URL
-        url_res = supabase_admin.storage.from_(bucket_name).get_public_url(storage_path)
-        public_url = url_res
+        public_url = admin_storage.from_(bucket_name).get_public_url(storage_path)
 
-        # Get the auth.users id from token claims (usually 'sub' or 'uid')
-        auth_user_id = None
+        # Resolve user ID for attribution
+        auth_user_id = auth_ctx.user_id
         if auth_ctx.claims:
             claim_id = auth_ctx.claims.get("sub") or auth_ctx.claims.get("uid")
             if claim_id:
-                # Check if it's a valid UUID (Supabase Auth). If it's a Firebase UID, leave as None.
                 try:
                     uuid.UUID(str(claim_id))
                     auth_user_id = claim_id
                 except ValueError:
                     pass
         
-        # Save to database
-        db_insert = supabase_admin.table("content_library_items").insert({
+        # Save to database using context-aware supabase proxy (RLS enforced)
+        db_insert = supabase.table("content_library_items").insert({
             "category_id": category_id,
             "company_id": effective_company_id,
             "title": title,
@@ -149,6 +148,8 @@ async def upload_content(
         delete_cache_pattern(f"content_library:{effective_company_id}:*")
         return {"success": True, "data": db_insert.data[0]}
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -165,29 +166,29 @@ async def delete_content(
     Delete a content item and its file from storage.
     """
     try:
-        # Get the item
-        item_res = supabase_admin.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
+        # Get the item (using RLS context-aware supabase proxy)
+        item_res = supabase.table("content_library_items").select("id,title,description,category_id,file_url,file_type,file_size,uploaded_by,created_at,updated_at").eq("id", item_id).eq("company_id", effective_company_id).execute()
         if not item_res.data:
             raise HTTPException(status_code=404, detail="Content item not found")
         
         item = item_res.data[0]
         
         # Delete from DB
-        supabase_admin.table("content_library_items").delete().eq("id", item_id).execute()
+        supabase.table("content_library_items").delete().eq("id", item_id).execute()
         
-        # Optionally, delete from storage if we can parse the path
-        # Assuming file_url looks like: https://<project>.supabase.co/storage/v1/object/public/content library/company_id/uuid_filename.ext
-        # But URLs encode spaces as %20. So check both string formats just in case.
+        # Delete from storage using admin client
+        import urllib.parse
+        admin_storage = get_supabase_admin().storage
         bucket_name = "content library"
-        if f"/public/{bucket_name}/" in item["file_url"]:
-            path = item["file_url"].split(f"/public/{bucket_name}/")[-1]
-            supabase_admin.storage.from_(bucket_name).remove([path])
-        elif f"/public/content%20library/" in item["file_url"]:
-            path = item["file_url"].split(f"/public/content%20library/")[-1]
-            supabase_admin.storage.from_(bucket_name).remove([path])
+        unquoted_url = urllib.parse.unquote(item["file_url"])
+        if f"/public/{bucket_name}/" in unquoted_url:
+            path = unquoted_url.split(f"/public/{bucket_name}/")[-1]
+            admin_storage.from_(bucket_name).remove([path])
             
         delete_cache_pattern(f"content_library:{effective_company_id}:*")
         return {"success": True, "message": "Content deleted successfully"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -550,8 +550,8 @@ const CreateRoleplayComponent = () => {
               <span className="font-medium">Back to Role Play</span>
             </button>
             
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-              <div className="flex items-center justify-between">
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 border border-slate-200">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0">
                 <div className="flex items-center gap-3">
                   <div className="text-4xl">✨</div>
                   <div>
@@ -563,7 +563,7 @@ const CreateRoleplayComponent = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                   {hasSavedDraft && !isEditMode && (
                     <>
                       <Button 
@@ -628,10 +628,10 @@ const CreateRoleplayComponent = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-12 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             {/* Sidebar Navigation */}
-            <div className="col-span-3">
-              <Card className="p-6 sticky top-6">
+            <div className="col-span-1 md:col-span-3">
+              <Card className="p-4 sm:p-6 md:sticky md:top-6">
                 <nav className="space-y-2">
                   {tabs.map((tab, index) => (
                     <button
@@ -654,8 +654,8 @@ const CreateRoleplayComponent = () => {
             </div>
 
             {/* Main Content */}
-            <div className="col-span-9">
-              <Card className="p-8">
+            <div className="col-span-1 md:col-span-9">
+              <Card className="p-4 sm:p-8">
                 {/* Learner Brief Tab */}
                 {activeTab === 'learner-brief' && (
                   <div className="space-y-6">
@@ -1049,8 +1049,15 @@ In this exercise, you will interact with a virtual character to practice and imp
                     <div className="space-y-4">
                       {(Array.isArray(formData.evaluationParameters) ? formData.evaluationParameters : []).map((param, index) => (
                         <Card key={index} className="p-4 bg-slate-50">
-                          <div className="flex items-start gap-4">
-                            <div className="flex-1 space-y-3">
+                          <div className="flex flex-col sm:flex-row items-start gap-4 relative">
+                            <button
+                              onClick={() => removeEvaluationParameter(index)}
+                              className="absolute top-0 right-0 sm:relative sm:top-auto sm:right-auto sm:order-last text-red-600 hover:text-red-700 p-2"
+                              title="Remove parameter"
+                            >
+                              ✕
+                            </button>
+                            <div className="flex-1 w-full space-y-3 pr-8 sm:pr-0">
                               <input
                                 type="text"
                                 value={param.name}
@@ -1066,7 +1073,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                               />
                             </div>
-                            <div className="w-32">
+                            <div className="w-full sm:w-32">
                               <label className="block text-xs font-medium text-slate-600 mb-1">Weight (%)</label>
                               <input
                                 type="number"
@@ -1077,13 +1084,6 @@ In this exercise, you will interact with a virtual character to practice and imp
                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                               />
                             </div>
-                            <button
-                              onClick={() => removeEvaluationParameter(index)}
-                              className="text-red-600 hover:text-red-700 p-2"
-                              title="Remove parameter"
-                            >
-                              ✕
-                            </button>
                           </div>
                         </Card>
                       ))}
@@ -1135,7 +1135,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                       <label className="block text-sm font-medium text-slate-700 mb-2">
                         Quick Presets
                       </label>
-                      <div className="grid grid-cols-5 gap-2 mb-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-4">
                         {cutoffScorePresets.map((preset) => (
                           <button
                             key={preset.value}

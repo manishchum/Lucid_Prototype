@@ -58,14 +58,14 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
         {/* Main Card */}
         <Card className="bg-white shadow-xl rounded-2xl overflow-hidden">
           {/* Header Section */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-8">
-            <h1 className="text-3xl font-bold mb-2">Start Your Roleplay Session</h1>
+          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 sm:p-8">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Start Your Roleplay Session</h1>
           </div>
 
-          <div className="p-8">
+          <div className="p-4 sm:p-8">
             {/* Scenario Overview */}
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 mb-8 border border-blue-200">
-              <h2 className="text-xl font-bold text-slate-900 mb-2">{scenario.title}</h2>
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 sm:p-6 mb-8 border border-blue-200">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-2">{scenario.title}</h2>
               <p className="text-slate-600 mb-4">{scenario.description}</p>
               
               {/* Role Information - Hidden */}
@@ -107,7 +107,7 @@ export default function RoleplayConfigPage({ scenario, onStart, onBack }: Rolepl
                   <User className="w-5 h-5 text-blue-600" />
                   AI Voice
                 </label>
-                <div className="grid grid-cols-2 gap-3 mb-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
                   <button
                     onClick={() => setConfig({ ...config, voiceGender: 'female' })}
                     className={`p-4 rounded-lg border-2 transition-all ${
@@ -163,7 +163,7 @@ In this exercise, you will interact with a virtual character to practice and imp
             </div>
 
             {/* Action Buttons */}
-            <div className="flex gap-4 mb-4">
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <Button
                 onClick={onBack}
                 variant="outline"
@@ -191,7 +191,7 @@ In this exercise, you will interact with a virtual character to practice and imp
                 }}
                 variant="outline"
                 size="lg"
-                className="px-8"
+                className="w-full sm:w-auto px-8"
               >
                 Save Draft
               </Button>

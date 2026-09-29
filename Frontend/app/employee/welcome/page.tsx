@@ -1153,16 +1153,14 @@ export default function EmployeeWelcome() {
             </div> */}
 
             <div className="flex items-end gap-3">
-
-
-              <Button
+              {/* <Button
                 onClick={() => router.push("/employee/voice-notes")}
                 className="h-10 w-10 shrink-0 rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center justify-center"
                 title="Open Voice Agent"
                 size="icon"
               >
                 <Mic className="h-5 w-5" />
-              </Button>
+              </Button> */}
 
               <Button
                 onClick={() => setShowLeaderboard(true)}
@@ -1176,211 +1174,211 @@ export default function EmployeeWelcome() {
             </div>
           </div>
 
-          <div className="grid gap-2 md:gap-4">
-            {/* Progress Nudge Card */}
-            {nudgeMessage && (
-              <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
-                <CardContent className="p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div className="flex items-start gap-4 flex-1 min-w-0">
-                      <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#eff4ff] rounded-[8px] flex items-center justify-center shrink-0">
-                        {progressPercentage === 100 ? (
-                          <Trophy className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
-                        ) : (
-                          <Zap className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-base sm:text-lg font-bold text-[#0f172a]">
-                          Your Progress
-                        </h3>
-                        <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm">
-                          {nudgeMessage}
-                        </p>
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          <Badge
-                            variant="secondary"
-                            className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
-                          >
-                            {companyStats.completedEmployees} COMPLETED
-                            {/* {companyStats.completedEmployees} COMPLETED */}
-                          </Badge>
-                        </div>
-                      </div>
+        <div className="grid gap-2 md:gap-4">
+          {/* Progress Nudge Card */}
+          {nudgeMessage && (
+            <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 sm:w-14 sm:h-14 bg-[#eff4ff] rounded-[8px] flex items-center justify-center shrink-0">
+                      {progressPercentage === 100 ? (
+                        <Trophy className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
+                      ) : (
+                        <Zap className="text-[#2563eb] w-5 h-5 sm:w-6 sm:h-6" />
+                      )}
                     </div>
-                    <div className="flex flex-col items-center justify-center self-center sm:self-auto">
-                      <div
-                        className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center bg-white border-4 ${progressPercentage >= 100
-                          ? "border-green-100"
-                          : "border-[#eff4ff]"
-                          }`}
-                      >
-                        <span
-                          className={`text-lg sm:text-2xl font-black ${progressPercentage >= 100
-                            ? "text-green-600"
-                            : "text-[#2563eb]"
-                            }`}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base sm:text-lg font-bold text-[#0f172a]">
+                        Your Progress
+                      </h3>
+                      <p className="text-slate-500 mt-1 font-medium leading-relaxed text-xs sm:text-sm">
+                        {nudgeMessage}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        <Badge
+                          variant="secondary"
+                          className="bg-slate-100 text-slate-600 border-none font-bold text-[10px] sm:text-xs"
                         >
-                          {progressPercentage.toFixed(1)}%
-                          {/* {progressPercentage.toFixed(1)}% */}
-                        </span>
-                      </div>
-                      <div className="mt-2 text-[10px] sm:text-xs font-bold uppercase tracking-[0.05em] text-slate-400 text-center">
-                        {companyStats.completedEmployees} of {assignedModules.length}
-                        {/* {companyStats.completedEmployees} of {assignedModules.length} */}
+                          {companyStats.completedEmployees} COMPLETED
+                          {/* {companyStats.completedEmployees} COMPLETED */}
+                        </Badge>
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Learning Style Card */}
-            {companyLearningStyleEnabled && (
-              <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-visible">
-                <CardContent className="p-4 sm:p-6">
-                  {learningStyle ? (
-                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#2563eb] text-white flex items-center justify-center text-xl sm:text-2xl font-bold shadow-xl shadow-blue-100 shrink-0">
-                        {learningStyle}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm sm:text-base font-extrabold text-[#0f172a]">
-                          Your Learning Style
-                        </h4>
-                        <div className="mt-2 text-xs sm:text-sm text-slate-500">
-                          <LearningStyleBlurb styleCode={learningStyle} />
-                        </div>
-                        <Button
-                          variant="link"
-                          className="text-[#2563eb] font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
-                          onClick={() => router.push("/employee/score-history")}
-                        >
-                          Get full report <ArrowRight size={14} className="ml-1" />
-                        </Button>
-                      </div>
+                  <div className="flex flex-col items-center justify-center self-center sm:self-auto">
+                    <div
+                      className={`relative w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center bg-white border-4 ${progressPercentage >= 100
+                        ? "border-green-100"
+                        : "border-[#eff4ff]"
+                        }`}
+                    >
+                      <span
+                        className={`text-lg sm:text-2xl font-black ${progressPercentage >= 100
+                          ? "text-green-600"
+                          : "text-[#2563eb]"
+                          }`}
+                      >
+                        {progressPercentage.toFixed(1)}%
+                        {/* {progressPercentage.toFixed(1)}% */}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
-                      <div className="w-full sm:max-w-md text-center sm:text-left">
-                        <h4 className="text-base md:text-lg font-bold text-[#0f172a] mb-1">
-                          Discover Your Learning Style
-                        </h4>
-                        <p className="text-xs md:text-sm text-slate-500 font-medium">
-                          Take our 5-minute survey to unlock your personalized path.
-                        </p>
-                      </div>
-                      <div className="relative mt-2 sm:mt-0">
-                        <div className="hidden sm:block absolute -top-20 sm:-top-24 right-0 z-10 w-64 sm:w-72 animate-bounce">
-                          <div className="bg-[#2563eb] text-white rounded-[8px] px-4 sm:px-5 py-2 sm:py-3 shadow-xl text-xs sm:text-sm">
-                            <p className="font-bold text-xs sm:text-sm">
-                              Step 1: Start Here!
-                            </p>
-                            <p className="text-blue-100 text-[10px] sm:text-xs">
-                              Complete survey to unlock modules.
-                            </p>
-                            <div className="absolute right-8 -bottom-2 w-4 h-4 bg-[#2563eb] rotate-45"></div>
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() =>
-                            router.push("/employee/learning-style")
-                          }
-                          className="bg-slate-900 hover:bg-black text-white px-6 sm:px-8 py-2 sm:py-3 rounded-[8px] font-bold h-10 sm:h-11 text-xs sm:text-sm"
-                        >
-                          Take Survey
-                        </Button>
-                      </div>
+                    <div className="mt-2 text-[10px] sm:text-xs font-bold uppercase tracking-[0.05em] text-slate-400 text-center">
+                      {companyStats.completedEmployees} of {assignedModules.length}
+                      {/* {companyStats.completedEmployees} of {assignedModules.length} */}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Learning Style Card */}
+          {companyLearningStyleEnabled && (
+            <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-visible">
+              <CardContent className="p-4 sm:p-6">
+                {learningStyle ? (
+                  <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#2563eb] text-white flex items-center justify-center text-xl sm:text-2xl font-bold shadow-xl shadow-blue-100 shrink-0">
+                      {learningStyle}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm sm:text-base font-extrabold text-[#0f172a]">
+                        Your Learning Style
+                      </h4>
+                      <div className="mt-2 text-xs sm:text-sm text-slate-500">
+                        <LearningStyleBlurb styleCode={learningStyle} />
+                      </div>
+                      <Button
+                        variant="link"
+                        className="text-[#2563eb] font-bold p-0 h-auto mt-3 text-xs sm:text-sm"
+                        onClick={() => router.push("/employee/score-history")}
+                      >
+                        Get full report <ArrowRight size={14} className="ml-1" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4">
+                    <div className="w-full sm:max-w-md text-center sm:text-left">
+                      <h4 className="text-base md:text-lg font-bold text-[#0f172a] mb-1">
+                        Discover Your Learning Style
+                      </h4>
+                      <p className="text-xs md:text-sm text-slate-500 font-medium">
+                        Take our 5-minute survey to unlock your personalized path.
+                      </p>
+                    </div>
+                    <div className="relative mt-2 sm:mt-0">
+                      <div className="hidden sm:block absolute -top-20 sm:-top-24 right-0 z-10 w-64 sm:w-72 animate-bounce">
+                        <div className="bg-[#2563eb] text-white rounded-[8px] px-4 sm:px-5 py-2 sm:py-3 shadow-xl text-xs sm:text-sm">
+                          <p className="font-bold text-xs sm:text-sm">
+                            Step 1: Start Here!
+                          </p>
+                          <p className="text-blue-100 text-[10px] sm:text-xs">
+                            Complete survey to unlock modules.
+                          </p>
+                          <div className="absolute right-8 -bottom-2 w-4 h-4 bg-[#2563eb] rotate-45"></div>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() =>
+                          router.push("/employee/learning-style")
+                        }
+                        className="bg-slate-900 hover:bg-black text-white px-6 sm:px-8 py-2 sm:py-3 rounded-[8px] font-bold h-10 sm:h-11 text-xs sm:text-sm"
+                      >
+                        Take Survey
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
 
-            {/* Assigned Modules */}
-            <div className="flex flex-wrap items-center gap-2 mb-0">
+          {/* Assigned Modules */}
+          <div className="flex flex-wrap items-center gap-2 mb-0">
+            <button
+              onClick={() => setActiveHomeTab("sprints")}
+              className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "sprints"
+                ? "bg-[#eff4ff] text-[#2563eb] border-[#2563eb]"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+            >
+              Sprints
+              <span
+                className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "sprints"
+                  ? "bg-[#2563eb] text-white"
+                  : "bg-slate-100 text-slate-700"
+                  }`}
+              >
+                {assignedModules.length}
+              </span>
+            </button>
+
+            {/* Assigned Tasks - Only visible for Tier 3 */}
+            <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
               <button
-                onClick={() => setActiveHomeTab("sprints")}
-                className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "sprints"
+                onClick={() => setActiveHomeTab("tasks")}
+                className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "tasks"
                   ? "bg-[#eff4ff] text-[#2563eb] border-[#2563eb]"
                   : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                   }`}
               >
-                Sprints
+                Tasks
                 <span
-                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "sprints"
+                  className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "tasks"
                     ? "bg-[#2563eb] text-white"
                     : "bg-slate-100 text-slate-700"
                     }`}
                 >
-                  {assignedModules.length}
+                  {tasks.length}
                 </span>
               </button>
+            </FeatureGate>
+          </div>
 
-              {/* Assigned Tasks - Only visible for Tier 3 */}
-              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
-                <button
-                  onClick={() => setActiveHomeTab("tasks")}
-                  className={`px-3 sm:px-4 py-2 rounded-[8px] text-xs sm:text-sm font-bold border transition-colors ${activeHomeTab === "tasks"
-                    ? "bg-[#eff4ff] text-[#2563eb] border-[#2563eb]"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                    }`}
-                >
-                  Tasks
-                  <span
-                    className={`ml-2 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-bold ${activeHomeTab === "tasks"
-                      ? "bg-[#2563eb] text-white"
-                      : "bg-slate-100 text-slate-700"
-                      }`}
-                  >
-                    {tasks.length}
-                  </span>
-                </button>
-              </FeatureGate>
-            </div>
+          {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
+            <AssignedSprintsSection
+              assignedModules={assignedModules}
+              moduleProgress={moduleProgress}
+              plans={plans}
+              userId={employee?.user_id || ""}
+              companyId={effectiveCompanyId}
+              isLocked={companyLearningStyleEnabled && !learningStyle}
+              onGenerateCertificate={handleGenerateCertificate}
+            />
+          ) : (
+            <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
+              <div className="space-y-8">
+                {tasksLoading ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
+                  </Card>
+                ) : tasksError ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
+                  </Card>
+                ) : assignedTaskItems.length === 0 ? (
+                  <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+                    <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
+                  </Card>
+                ) : (
+                  <TaskDashboard
+                    assignedTasks={assignedTaskItems}
+                    onStartCreateTask={() => { }}
+                    userRole="employee"
+                    onSubmitTaskResponse={handleTaskSubmitResponse}
+                    onTaskSubmitted={handleTaskSubmitted}
+                  />
+                )}
 
-            {activeHomeTab === "sprints" || !hasTaskManagementAccess ? (
-              <AssignedSprintsSection
-                assignedModules={assignedModules}
-                moduleProgress={moduleProgress}
-                plans={plans}
-                userId={employee?.user_id || ""}
-                companyId={effectiveCompanyId}
-                isLocked={companyLearningStyleEnabled && !learningStyle}
-                onGenerateCertificate={handleGenerateCertificate}
-              />
-            ) : (
-              <FeatureGate feature={FEATURES.TASK_MANAGEMENT}>
-                <div className="space-y-8">
-                  {tasksLoading ? (
-                    <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-slate-500">Loading tasks...</CardContent>
-                    </Card>
-                  ) : tasksError ? (
-                    <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-red-600 font-medium">{tasksError}</CardContent>
-                    </Card>
-                  ) : assignedTaskItems.length === 0 ? (
-                    <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
-                      <CardContent className="p-6 text-sm text-slate-500">No tasks assigned</CardContent>
-                    </Card>
-                  ) : (
-                    <TaskDashboard
-                      assignedTasks={assignedTaskItems}
-                      onStartCreateTask={() => { }}
-                      userRole="employee"
-                      onSubmitTaskResponse={handleTaskSubmitResponse}
-                      onTaskSubmitted={handleTaskSubmitted}
-                    />
-                  )}
+              </div>
+            </FeatureGate>
+          )}
 
-                </div>
-              </FeatureGate>
-            )}
-
-            {/* Progress History */}
-            {/* <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
+          {/* Progress History */}
+          {/* <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
                <CardHeader className="px-8 py-6">
                  <CardTitle className="text-lg font-bold text-[#0f172a]">Recent Activity</CardTitle>
                </CardHeader>
@@ -1407,93 +1405,93 @@ export default function EmployeeWelcome() {
                  </div>
                </CardContent>
              </Card> */}
-          </div>
         </div>
+    </div>
       </main >
 
-      {/* Certificate Modal */}
-      {
-        selectedCertificateSprint && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-[8px] bg-white shadow-2xl">
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-4">
-                <div>
-                  <h3 className="text-lg sm:text-xl font-bold text-[#0f172a]">
-                    Sprint Certificate
-                  </h3>
-                  <p className="text-xs sm:text-sm text-slate-500 font-medium">
-                    Preview and download your certificate
-                  </p>
-                </div>
-
-                <button
-                  onClick={closeCertificateModal}
-                  className="rounded-[8px] p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-                  aria-label="Close certificate modal"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-6">
-                <CertificateTemplate
-                  ref={certificateRef}
-                  recipientName={employee?.name || employee?.email || "Learner"}
-                  sprintName={selectedCertificateSprint.title}
-                  completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
-                />
-
-                <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setLinkedinExpanded((prev) => !prev)}
-                    className="rounded-[8px]"
-                  >
-                    <Linkedin className="w-4 h-4 mr-2" />
-                    Share on LinkedIn
-                  </Button>
-
-                  <Button
-                    onClick={downloadCertificatePdf}
-                    disabled={isExportingCertificate}
-                    className="rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    {isExportingCertificate ? "Generating..." : "Download PDF"}
-                  </Button>
-                </div>
-
-                {linkedinExpanded && (
-                  <div className="border border-slate-200 rounded-[8px] p-4 bg-slate-50">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      LinkedIn Profile URL
-                    </label>
-                    <input
-                      type="url"
-                      value={linkedinProfileUrl}
-                      onChange={(e) => setLinkedinProfileUrl(e.target.value)}
-                      placeholder="https://www.linkedin.com/in/your-profile"
-                      className="w-full rounded-[8px] border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {linkedinError && (
-                      <p className="mt-2 text-sm text-red-600 font-medium">{linkedinError}</p>
-                    )}
-
-                    <div className="mt-3 flex justify-end">
-                      <Button
-                        onClick={shareOnLinkedIn}
-                        className="rounded-[8px] bg-slate-900 hover:bg-black text-white"
-                      >
-                        Post to LinkedIn
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+    {/* Certificate Modal */ }
+  {
+    selectedCertificateSprint && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-[8px] bg-white shadow-2xl">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-4">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-[#0f172a]">
+                Sprint Certificate
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 font-medium">
+                Preview and download your certificate
+              </p>
             </div>
+
+            <button
+              onClick={closeCertificateModal}
+              className="rounded-[8px] p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+              aria-label="Close certificate modal"
+            >
+              <X size={20} />
+            </button>
           </div>
-        )
-      }
+
+          <div className="p-4 sm:p-6 space-y-6">
+            <CertificateTemplate
+              ref={certificateRef}
+              recipientName={employee?.name || employee?.email || "Learner"}
+              sprintName={selectedCertificateSprint.title}
+              completionDate={formatCertificateDate(selectedCertificateSprint.completedDate)}
+            />
+
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setLinkedinExpanded((prev) => !prev)}
+                className="rounded-[8px]"
+              >
+                <Linkedin className="w-4 h-4 mr-2" />
+                Share on LinkedIn
+              </Button>
+
+              <Button
+                onClick={downloadCertificatePdf}
+                disabled={isExportingCertificate}
+                className="rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                {isExportingCertificate ? "Generating..." : "Download PDF"}
+              </Button>
+            </div>
+
+            {linkedinExpanded && (
+              <div className="border border-slate-200 rounded-[8px] p-4 bg-slate-50">
+                <label className="block text-sm font-bold text-slate-700 mb-2">
+                  LinkedIn Profile URL
+                </label>
+                <input
+                  type="url"
+                  value={linkedinProfileUrl}
+                  onChange={(e) => setLinkedinProfileUrl(e.target.value)}
+                  placeholder="https://www.linkedin.com/in/your-profile"
+                  className="w-full rounded-[8px] border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {linkedinError && (
+                  <p className="mt-2 text-sm text-red-600 font-medium">{linkedinError}</p>
+                )}
+
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    onClick={shareOnLinkedIn}
+                    className="rounded-[8px] bg-slate-900 hover:bg-black text-white"
+                  >
+                    Post to LinkedIn
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
     </div >
   );
 }

@@ -1479,6 +1479,7 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
   const [manualEmails, setManualEmails] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [preview, setPreview] = useState<string[][]>([]);
   // const [departments, setDepartments] = useState<Department[]>([]);
   // const [roles, setRoles] = useState<Role[]>([]);
@@ -1637,6 +1638,59 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
     }
   };
 
+  const handleDownloadTemplate = async () => {
+    try {
+      const xlsx = await import("xlsx");
+      
+      // Create headers for the upload template
+      const headers = [
+        "Email", "Name", "Function", "Sub Function", "Position", "Phone Number"
+      ];
+      
+      // Create valid functions dictionary sheet
+      const validFunctionsData = [["Function", "Sub Function"]];
+      functions?.forEach((f: any) => {
+        f.sub_functions?.forEach((sf: any) => {
+          validFunctionsData.push([f.function_name, sf.sub_function_name]);
+        });
+      });
+      const validFunctionsSheet = xlsx.utils.aoa_to_sheet(validFunctionsData);
+      validFunctionsSheet["!cols"] = [{ wch: 30 }, { wch: 30 }];
+      
+      const sampleFunction = validFunctionsData.length > 1 ? validFunctionsData[1][0] : "Operations";
+      const sampleSubFunction = validFunctionsData.length > 1 ? validFunctionsData[1][1] : "Customer Support";
+
+      const sampleRow = [
+        "john.doe@example.com", "John Doe", 
+        sampleFunction, sampleSubFunction, 
+        "Specialist", "1234567890"
+      ];
+      const templateSheet = xlsx.utils.aoa_to_sheet([headers, sampleRow]);
+      
+      // Set column widths for better visibility
+      templateSheet["!cols"] = [
+        { wch: 30 }, { wch: 25 }, { wch: 25 }, { wch: 25 }, 
+        { wch: 20 }, { wch: 15 }
+      ];
+      
+      // Add a note to the template sheet
+      xlsx.utils.sheet_add_aoa(templateSheet, [
+        [],
+        ["NOTE: Please ensure the 'Function' and 'Sub Function' columns EXACTLY match the spelling in the 'Valid Functions' tab."]
+      ], { origin: -1 });
+      
+      // Create workbook and add both sheets
+      const wb = xlsx.utils.book_new();
+      xlsx.utils.book_append_sheet(wb, templateSheet, "Upload Template");
+      xlsx.utils.book_append_sheet(wb, validFunctionsSheet, "Valid Functions");
+      
+      // Generate and trigger download
+      xlsx.writeFile(wb, "Bulk_Employee_Upload_Template.xlsx");
+    } catch (err) {
+      onError('Failed to generate template');
+    }
+  };
+
   const handleFileUpload = async () => {
     if (!file || !companyId) return;
 
@@ -1723,100 +1777,98 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
       const functionsMap = new Map();
       functionsData?.forEach((f: any) => {
         f.sub_functions?.forEach((sf: any) => {
-          functionsMap.set(`${f.function_name.toLowerCase()}-${sf.sub_function_name.toLowerCase()}`, sf.sub_function_id);
+          functionsMap.set(`${f.function_name.toLowerCase()}-${sf.sub_function_name.toLowerCase()}`, {
+            function_id: f.function_id,
+            sub_function_id: sf.sub_function_id
+          });
         });
       });
       
       const companiesMap = new Map(companiesData?.map((c: any) => [c.name.toLowerCase(), c.company_id]) || []);
       let temp = false;
-      // for (const row of dataRows) {
-      //   // Expected format from old admin: company_user_id, email, name, company_name, department, sub_department, employment_status, roles, position, phone
-      //   if (row.length < 3 || !row[1]) continue; // Need at least company_user_id, email, name
-      //   const [, email, name, companyName, department, subDepartment, employmentStatus, roles, position, phone] = row.map(cell => cell || '');
+      
+      setUploadProgress({ current: 0, total: dataRows.length });
+      
+      for (const row of dataRows) {
+        setUploadProgress(prev => ({ ...prev, current: prev.current + 1 }));
+        // Expected format: Email, Name, Department, Sub Department, Position, Phone Number
+        if (row.length < 2 || !row[0]) continue; // Need at least Email and Name
+        const [email, name, department, subDepartment, position, phone] = row.map(cell => cell ? String(cell).trim() : '');
         
-      //   try {
-      //     // Validate required fields
-      //     if (!name || !email) {
-      //       // console.log(name)
-      //       // console.log(email)
-      //       results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
-      //       continue;
-      //     }
+        console.log(`[Bulk Upload] Processing row for: ${email}`);
+        
+        try {
+          // Validate required fields
+          if (!name || !email) {
+            console.log(`[Bulk Upload] Skipped row: Name and email are required`);
+            results.errors.push(`Row ${dataRows.indexOf(row) + 1}: Name and email are required`);
+            continue;
+          }
 
-      //     // Email validation
-      //     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      //     if (!emailRegex.test(email)) {
-      //       // console.log("Error because of the email")
-      //       results.errors.push(`${email}: Invalid email format`);
-      //       continue;
-      //     }
+          // Email validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            console.log(`[Bulk Upload] Skipped ${email}: Invalid email format`);
+            results.errors.push(`${email}: Invalid email format`);
+            continue;
+          }
 
-      //     // Check if email already exists (but not for current user)
-      //     const emailExists = await checkEmailExists(email);
-      //     if (emailExists) {
-      //       results.errors.push('An employee with this email already exists');
-      //     }
-
-      //     // Find department ID
-      //     let departmentId = null;
-      //     if (department && subDepartment) {
-      //       const deptKey = `${department.toLowerCase()}-${subDepartment.toLowerCase()}`;
-      //       departmentId = departmentsMap.get(deptKey) || null;
+          // Find function and sub-function IDs (mapped from functions/subfunctions)
+          let functionId = null;
+          let subFunctionId = null;
+          if (department && subDepartment) {
+            const deptKey = `${department.toLowerCase()}-${subDepartment.toLowerCase()}`;
+            const mappedIds = functionsMap.get(deptKey);
             
-      //       if (!departmentId) {
-      //         // console.log("Error because of the department ID is missing")
-      //         results.errors.push(`${email}: Department "${department}" - "${subDepartment}" not found`);
-      //         continue;
-      //       }
-      //     }
-
-      //     // Find company ID
-      //     let userCompanyId: any = companyId; // Default to admin's company
-      //     if (companyName) {
-      //       const foundCompanyId = companiesMap.get(companyName.toLowerCase());
-      //       if (foundCompanyId) {
-      //         userCompanyId = foundCompanyId;
-      //       }
-      //     }
-
-      //     // Create user via API
-      //     try {
-      //       const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
-      //         method: 'POST',
-      //         headers: {
-      //           'Content-Type': 'application/json',
-      //           'X-User-ID': adminId
-      //         },
-      //         body: JSON.stringify({
-      //           name: name,
-      //           email: email.toLowerCase(),
-      //           company_id: userCompanyId,
-      //           department_id: departmentId,
-      //           position: position || null,
-      //           phone: phone ? String(phone) : null,
-      //           hire_date: new Date().toISOString().split('T')[0]
-      //         })
-      //       });
-
-      //       if (!createRes.ok) {
-      //         const errorData = await createRes.json();
-      //         results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
-      //         continue;
-      //       }
-
-      //       const { user: userData } = await createRes.json();
+            if (!mappedIds) {
+              results.errors.push(`${email}: Function "${department}" - SubFunction "${subDepartment}" not found`);
+              continue;
+            }
             
-            
-      //       // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
+            functionId = mappedIds.function_id;
+            subFunctionId = mappedIds.sub_function_id;
+          }
 
-      //       results.added++;
-      //     } catch (createError: any) {
-      //       results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
-      //     }
-      //   } catch (e){
-      //     console.warn(e);
-      //   }
-      // }
+          // Create user via API
+          try {
+            const createRes = await fetchWithAuth(`${API_URL}/api/users/`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-User-ID': adminId
+              },
+              body: JSON.stringify({
+                name: name,
+                email: email.toLowerCase(),
+                company_id: companyId, // Always use the current user's company id
+                function_id: functionId,
+                sub_function_id: subFunctionId,
+                position: position || null,
+                phone: phone ? String(phone) : null,
+                hire_date: new Date().toISOString().split('T')[0]
+              })
+            });
+
+            if (!createRes.ok) {
+              const errorData = await createRes.json().catch(() => ({}));
+              console.error(`[Bulk Upload Error] Failed to create user ${email}:`, errorData.detail || errorData.error || 'Unknown error');
+              results.errors.push(`${email}: ${errorData.detail || errorData.error || 'Failed to create user'}`);
+              continue;
+            }
+            
+            // Learning-style records are initialized via backend routes to avoid browser-side RLS failures.
+
+            console.log(`[Bulk Upload] Successfully created user: ${email}`);
+            results.added++;
+          } catch (createError: any) {
+            console.error(`[Bulk Upload Exception] Error creating ${email}:`, createError);
+            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
+          }
+        } catch (e){
+          console.warn(`[Bulk Upload Warning] Unhandled exception on row:`, e);
+        }
+      }
+
 
       if (results.errors.length > 0) {
         onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.slice(0, 5).join('; ')}${results.errors.length > 5 ? ` and ${results.errors.length - 5} more...` : ''}`);
@@ -1899,15 +1951,8 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
       ) : (
         <div className="space-y-3">
           <div className="mt-4 sm:mt-0">
-            <Button asChild variant="outline" size="sm">
-              <a
-                href="https://fmkikkebrxyzjsffqgex.supabase.co/storage/v1/object/public/KPIs/Sample_Emplyee_No_KPI%20(1).xlsx"
-                download
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Download Sample File
-              </a>
+            <Button variant="outline" size="sm" onClick={handleDownloadTemplate}>
+              Download Sample File
             </Button>
           </div>
           <div>
@@ -1924,22 +1969,29 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
           </div>
           
           {preview.length > 0 && (
-            <div>
-              <div className="font-semibold mb-1 text-sm">Preview (first 10 rows):</div>
-              <div className="border rounded max-h-40 overflow-auto">
-                <table className="text-xs w-full">
+            <div className="mt-4">
+              <div className="font-semibold mb-2 text-sm">Preview (first 10 rows):</div>
+              <div className="border rounded max-h-60 overflow-auto">
+                <table className="text-xs w-full text-left">
+                  <thead className="bg-gray-100 sticky top-0">
+                    <tr>
+                      <th className="border px-2 py-1 font-semibold">Email</th>
+                      <th className="border px-2 py-1 font-semibold">Name</th>
+                      <th className="border px-2 py-1 font-semibold">Function</th>
+                      <th className="border px-2 py-1 font-semibold">Sub Function</th>
+                      <th className="border px-2 py-1 font-semibold">Position</th>
+                      <th className="border px-2 py-1 font-semibold">Phone</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {preview.map((row, i) => (
-                      <tr key={i} className={i === 0 ? "bg-gray-50" : ""}>
+                      <tr key={i} className="hover:bg-gray-50">
                         <td className="border px-2 py-1">{row[0] || '-'}</td>
                         <td className="border px-2 py-1">{row[1] || '-'}</td>
                         <td className="border px-2 py-1">{row[2] || '-'}</td>
                         <td className="border px-2 py-1">{row[3] || '-'}</td>
                         <td className="border px-2 py-1">{row[4] || '-'}</td>
                         <td className="border px-2 py-1">{row[5] || '-'}</td>
-                        <td className="border px-2 py-1">{row[6] || '-'}</td>
-                        <td className="border px-2 py-1">{row[7] || '-'}</td>
-                        <td className="border px-2 py-1">{row[8] || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1948,9 +2000,19 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             </div>
           )}
           
-          <Button onClick={handleFileUpload} disabled={!file || uploading}>
-            {uploading ? 'Uploading...' : 'Upload Employees'}
-          </Button>
+          <div className="pt-4">
+            <Button onClick={handleFileUpload} disabled={!file || uploading} className="w-full bg-blue-600 hover:bg-blue-700 text-white relative overflow-hidden">
+              {uploading && uploadProgress.total > 0 && (
+                <div 
+                  className="absolute left-0 top-0 bottom-0 bg-blue-800 transition-all duration-200" 
+                  style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }} 
+                />
+              )}
+              <span className="relative z-10">
+                {uploading ? (uploadProgress.total > 0 ? `Uploading ${uploadProgress.current} of ${uploadProgress.total}...` : 'Uploading...') : 'Confirm & Upload Employees'}
+              </span>
+            </Button>
+          </div>
         </div>
       )}
 

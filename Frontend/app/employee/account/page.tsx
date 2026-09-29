@@ -119,15 +119,16 @@ export default function AccountPage() {
     try {
       const updRes = await fetchWithAuth(`${API_URL}/api/users/${encodeURIComponent(employee.user_id)}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json",
+        headers: {
+          "Content-Type": "application/json",
           // "X-User-ID": employee.user_id,
-         },
-         body: JSON.stringify({
+        },
+        body: JSON.stringify({
           name: formData.name,
-         }),
+        }),
       });
       if (!updRes.ok) {
-        const err = await updRes.text().catch(() => ({detail: updRes.text().catch(()=> "")}));
+        const err = await updRes.text().catch(() => ({ detail: updRes.text().catch(() => "") }));
         console.error("Update failed:", updRes.status, err);
         alert("Failed to save changes. Please try again.");
       } else {
@@ -140,7 +141,7 @@ export default function AccountPage() {
         });
         setEditing(false);
         alert("Changes saved successfully!");
-      }     
+      }
     } catch (error) {
       console.error("Update error:", error);
       alert("Failed to save changes. Please try again.");
@@ -391,7 +392,7 @@ export default function AccountPage() {
                     Change Password
                   </Button>
                 </div>
-                
+
                 <div className="p-4 bg-yellow-50 rounded-lg">
                   <h3 className="font-medium text-yellow-800">Need Help?</h3>
                   <p className="text-sm text-yellow-700 mt-1">
@@ -403,114 +404,114 @@ export default function AccountPage() {
           </Card>
         </div>
 
-      {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Lock className="w-5 h-5" />
-                Change Password
-              </h2>
-              <button onClick={closePasswordModal} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <Lock className="w-5 h-5" />
+                  Change Password
+                </h2>
+                <button onClick={closePasswordModal} className="text-gray-400 hover:text-gray-600 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            <div className="px-6 py-6">
-              {passwordStep === "current" && (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">Enter your current password to continue.</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="current-password">Current Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="current-password"
-                        type={showCurrentPassword ? "text" : "password"}
-                        value={currentPassword}
-                        onChange={(e) => { setCurrentPassword(e.target.value); setPasswordError(""); }}
-                        placeholder="Enter current password"
-                        onKeyDown={(e) => e.key === "Enter" && handleValidateCurrentPassword()}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+              <div className="px-6 py-6">
+                {passwordStep === "current" && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600">Enter your current password to continue.</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="current-password">Current Password</Label>
+                      <div className="relative">
+                        <Input
+                          id="current-password"
+                          type={showCurrentPassword ? "text" : "password"}
+                          value={currentPassword}
+                          onChange={(e) => { setCurrentPassword(e.target.value); setPasswordError(""); }}
+                          placeholder="Enter current password"
+                          onKeyDown={(e) => e.key === "Enter" && handleValidateCurrentPassword()}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
+                    {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+                    <Button onClick={handleValidateCurrentPassword} disabled={passwordLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap">
+                      {passwordLoading ? "Verifying..." : "Continue"}
+                    </Button>
                   </div>
-                  {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
-                  <Button onClick={handleValidateCurrentPassword} disabled={passwordLoading} className="w-full">
-                    {passwordLoading ? "Verifying..." : "Continue"}
-                  </Button>
-                </div>
-              )}
+                )}
 
-              {passwordStep === "new" && (
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">Enter your new password.</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-password">New Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="new-password"
-                        type={showNewPassword ? "text" : "password"}
-                        value={newPassword}
-                        onChange={(e) => { setNewPassword(e.target.value); setPasswordError(""); }}
-                        placeholder="Enter new password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                {passwordStep === "new" && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600">Enter your new password.</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-password">New Password</Label>
+                      <div className="relative">
+                        <Input
+                          id="new-password"
+                          type={showNewPassword ? "text" : "password"}
+                          value={newPassword}
+                          onChange={(e) => { setNewPassword(e.target.value); setPasswordError(""); }}
+                          placeholder="Enter new password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowNewPassword(!showNewPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm-password">Confirm New Password</Label>
-                    <div className="relative">
-                      <Input
-                        id="confirm-password"
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(""); }}
-                        placeholder="Re-enter new password"
-                        onKeyDown={(e) => e.key === "Enter" && handleChangePassword()}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm New Password</Label>
+                      <div className="relative">
+                        <Input
+                          id="confirm-password"
+                          type={showConfirmPassword ? "text" : "password"}
+                          value={confirmPassword}
+                          onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(""); }}
+                          placeholder="Re-enter new password"
+                          onKeyDown={(e) => e.key === "Enter" && handleChangePassword()}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
+                    {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+                    <Button onClick={handleChangePassword} disabled={passwordLoading} className="w-full bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap">
+                      {passwordLoading ? "Changing Password..." : "Change Password"}
+                    </Button>
                   </div>
-                  {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
-                  <Button onClick={handleChangePassword} disabled={passwordLoading} className="w-full">
-                    {passwordLoading ? "Changing Password..." : "Change Password"}
-                  </Button>
-                </div>
-              )}
+                )}
 
-              {passwordStep === "success" && (
-                <div className="text-center space-y-4 py-4">
-                  <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
-                  <h3 className="text-lg font-semibold text-gray-900">Password Changed!</h3>
-                  <p className="text-sm text-gray-600">Your password has been successfully updated.</p>
-                  <Button onClick={closePasswordModal} className="w-full">
-                    Done
-                  </Button>
-                </div>
-              )}
+                {passwordStep === "success" && (
+                  <div className="text-center space-y-4 py-4">
+                    <CheckCircle className="w-16 h-16 text-green-500 mx-auto" />
+                    <h3 className="text-lg font-semibold text-gray-900">Password Changed!</h3>
+                    <p className="text-sm text-gray-600">Your password has been successfully updated.</p>
+                    <Button onClick={closePasswordModal} className="w-full">
+                      Done
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-        </div>
+        )}
       </div>
+    </div>
   );
 }

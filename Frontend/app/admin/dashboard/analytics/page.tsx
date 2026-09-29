@@ -1178,7 +1178,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5">
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sprint filter</p>
             <select
@@ -1229,8 +1229,8 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
           {activeTab === 'Overview' && (
             <div className="space-y-8">
               {/* Overall Statistics Cards */}
-              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
-                <div className="p-6 border-r border-gray-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 border border-gray-200 rounded-xl overflow-hidden bg-white mb-8">
+                <div className="p-6 border-b sm:border-b-0 sm:border-r border-gray-200">
                   <p className="text-sm text-gray-500">Total learners</p>
                   <p className="text-4xl font-bold text-gray-900 mt-1">{overallStats?.totalEmployees ?? 0}</p>
                 </div>
@@ -1245,7 +1245,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
               </div>
 
               {/* Detailed Analytics Graphs */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Module Completion Chart */}
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-4">Sprint Completion Status</h3>
@@ -1548,7 +1548,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                     <p className="text-xs mt-2">moduleStats count: {moduleStats.length}</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {moduleStats.map((sprint: any, i: number) => {
                     const barColors = ['#6366F1','#22C55E','#F59E0B','#EF4444','#A855F7','#3B82F6'];
                     const color = barColors[i % barColors.length];
@@ -1617,7 +1617,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
 
           {activeTab === 'Detailed Analytics' && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Overall Completion Status Doughnut Chart */}
                 <Card>
                   <CardHeader>
@@ -1759,7 +1759,7 @@ function ProgressAnalytics({ companyId, adminUserId }: { companyId: string, admi
                 </Card>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Assessment Performance Bar Chart */}
                 {/* <Card>
                   <CardHeader>

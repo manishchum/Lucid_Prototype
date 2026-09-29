@@ -10,10 +10,10 @@ from utils.auth_bridge import get_service_supabase_client
 router = APIRouter()
 
 
-async def _verify_current_password_with_firebase(email: str, current_password: str) -> bool:
-    api_key = os.getenv("FIREBASE_WEB_API_KEY") or os.getenv("NEXT_PUBLIC_FIREBASE_API_KEY")
+async def _verify_current_password_with_firebase(email: str, current_password: str, referer: str = None) -> bool:
+    api_key = os.getenv("NEXT_PUBLIC_FIREBASE_API_KEY") or os.getenv("FIREBASE_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing FIREBASE_WEB_API_KEY or NEXT_PUBLIC_FIREBASE_API_KEY")
+        raise RuntimeError("Missing NEXT_PUBLIC_FIREBASE_API_KEY")
 
     endpoint = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}"
     payload = {
@@ -22,8 +22,15 @@ async def _verify_current_password_with_firebase(email: str, current_password: s
         "returnSecureToken": True,
     }
 
+    headers = {}
+    referer_val = referer or os.getenv("INTERNAL_API_BASE_URL")
+    if referer_val:
+        if not referer_val.endswith("/"):
+            referer_val += "/"
+        headers["Referer"] = referer_val
+
     async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(endpoint, json=payload)
+        response = await client.post(endpoint, json=payload, headers=headers)
 
     if response.status_code == 200:
         return True
@@ -37,6 +44,7 @@ async def _verify_current_password_with_firebase(email: str, current_password: s
     if firebase_message in {"INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD", "EMAIL_NOT_FOUND", "USER_DISABLED"}:
         return False
 
+    print(f"[Firebase Auth Error] status={response.status_code}, response={response.text}")
     raise RuntimeError(f"Firebase credential verification failed: status={response.status_code}")
 
 
@@ -99,7 +107,8 @@ async def POST(
         # Validate current password only for password-based sign-ins.
         if is_password_provider:
             try:
-                is_valid = await _verify_current_password_with_firebase(email, current_password)
+                req_referer = req.headers.get("referer") or req.headers.get("origin")
+                is_valid = await _verify_current_password_with_firebase(email, current_password, referer=req_referer)
                 if not is_valid:
                     return JSONResponse(
                         {"error": "Current password is incorrect"},

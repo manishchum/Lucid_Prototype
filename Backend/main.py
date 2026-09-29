@@ -1,14 +1,16 @@
 import asyncio
 import sys
 import os
+import logging
+import re
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-
 # Import FastAPI and middleware Routes
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import HTTPException
 from config import FRONTEND_URL
@@ -33,6 +35,7 @@ from gpt_video_generation.route import router as gpt_video_generation_router
 from generate_infographic.route import router as generate_infographic_router
 from flashcard_generation.route import router as flashcard_generation_router
 from generate_mindmap.route import router as generate_mindmap_router
+from gamification.route import router as gamification_router
 from module_chat.route import router as module_chat
 # from assistant.route import router as assistant_router
 # from assistant.chat.route import router as assistant_chat_router
@@ -60,8 +63,32 @@ from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_r
 # from roleplay.page.route import router as roleplay_page_router
 # from roleplay.sessions.route import router as roleplay_sessions_router
 from ingestion.embedder import router as embed_router
+from routes.ingest_processed_module import router as ingest_processed_module_router
 from routes import functions
 from config import IS_PRODUCTION
+
+class SensitiveTokenMaskingFilter(logging.Filter):
+    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args:
+            new_args = []
+            for arg in record.args:
+                if isinstance(arg, str):
+                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
+                new_args.append(arg)
+            record.args = tuple(new_args)
+
+        if isinstance(record.msg, str):
+            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
+
+        return True
+
+
+_token_mask_filter = SensitiveTokenMaskingFilter()
+for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -135,6 +162,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Enable GZip response compression for payloads >= 1KB
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.middleware("http")
@@ -279,6 +309,7 @@ app.include_router(gpt_video_generation_router, prefix="/api", tags=["gpt-video-
 app.include_router(generate_infographic_router, prefix="/api", tags=["generate-infographic"])
 app.include_router(flashcard_generation_router, prefix="/api", tags=["flashcard-generation"])
 app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindmap"])
+app.include_router(gamification_router)
 # app.include_router(roleplay_assessment_router, prefix="/api", tags=["roleplay-assessment"])
 # # app.include_router(roleplay_conversation_router, prefix="/api", tags=["roleplay-conversation"])
 # app.include_router(roleplay_scenario_router, prefix="/api", tags=["roleplay-scenarios"])
@@ -288,6 +319,7 @@ app.include_router(generate_mindmap_router, prefix="/api", tags=["generate-mindm
 app.include_router(roleplay_router, prefix="/api", tags=["roleplay"])
 app.include_router(roleplay_ws_router, prefix="/api", tags=["roleplay"])
 app.include_router(embed_router, prefix="/api", tags=["embeddings"])
+app.include_router(ingest_processed_module_router, tags=["processed-module-rag"])
 app.include_router(module_chat, prefix="/api", tags=["module-chat"])
 # app.include_router(assistant_router, prefix="/api", tags=["assistant"])
 # app.include_router(assistant_chat_router, prefix="/api", tags=["assistant-chat"])

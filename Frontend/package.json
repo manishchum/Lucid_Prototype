@@ -17,7 +17,9 @@
     "worker:mindmap": "node worker/mindmapJobWorker.js",
     "worker:mindmap:poll": "node worker/api/generate-module-mindmap.js --poll",
     "worker:infographic": "node worker/infographicJobWorker.js",
-    "worker:infographic:poll": "node worker/api/generate-module-infographic.js --poll"
+    "worker:infographic:poll": "node worker/api/generate-module-infographic.js --poll",
+    "worker:chat": "node worker/chatJobWorker.js",
+    "worker:chat:poll": "node worker/api/generate-module-chat.js --poll"
   },
   "dependencies": {
     "@firebase/auth": "^1.11.0",
@@ -67,6 +69,8 @@
     "dotenv": "^17.2.2",
     "embla-carousel-react": "8.5.1",
     "eslint": "^10.1.0",
+    "exceljs": "^4.4.0",
+    "file-saver": "^2.0.5",
     "firebase": "^12.0.0",
     "framer-motion": "^12.43.0",
     "geist": "^1.3.1",

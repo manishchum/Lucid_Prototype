@@ -23,13 +23,15 @@ except Exception as e:
 def get_cache(key: str):
     try:
         data = redis_client.get(key)
-    except Exception:
+    except Exception as e:
+        print(f"[Redis] get_cache error for {key}: {e}")
         return None
 
     if data:
         try:
             return json.loads(data)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"[Redis] JSON decode error for {key}: {e}")
             return None
 
     return None
@@ -38,7 +40,9 @@ def get_cache(key: str):
 def set_cache(key: str, value, ttl: int = 300) -> None:
     try:
         redis_client.setex(key, ttl, json.dumps(value))
-    except Exception:
+        print(f"[Redis] Successfully set cache for {key} (TTL: {ttl})")
+    except Exception as e:
+        print(f"[Redis] set_cache error for {key}: {e}")
         return None
     
 def delete_cache_pattern(pattern: str):
@@ -66,3 +70,25 @@ def delete_cache_pattern(pattern: str):
 
     except Exception:
         return None
+
+
+def invalidate_dashboard_cache(user_id: str):
+    """Invalidates employee dashboard cache instantly upon write mutation (< 1s freshness)."""
+    if not user_id:
+        return
+    try:
+        redis_client.delete(f"dashboard_summary:{user_id}")
+    except Exception as e:
+        print(f"[Redis] Failed to invalidate dashboard_summary:{user_id}: {e}")
+
+
+def invalidate_company_dashboard_cache(company_id: str):
+    """Invalidates company-wide static dashboard data cache when modules/company are updated."""
+    if not company_id:
+        return
+    try:
+        redis_client.delete(f"company_static:{company_id}")
+        delete_cache_pattern(f"dashboard_summary:*")
+    except Exception as e:
+        print(f"[Redis] Failed to invalidate company_static:{company_id}: {e}")
+
