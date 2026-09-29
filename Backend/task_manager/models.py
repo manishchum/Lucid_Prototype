@@ -21,8 +21,9 @@ class ChildTask(BaseModel):
     child_task_id: Optional[str] = None
     title: str
     description: Optional[str] = None
-    submission_format: str
+    submission_format: Union[str, List[str]]
     expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
     questions: Optional[List[QuizQuestion]] = []
 
 
@@ -30,6 +31,7 @@ class TaskCreate(BaseModel):
     title: str = Field(..., min_length=5)
     description: Optional[str] = None
     expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
     submission_format: Union[str, List[str]]
     questions: Optional[List[QuizQuestion]] = []
     bundle_tasks: Optional[List[ChildTask]] = []
@@ -50,6 +52,7 @@ class TaskResponse(BaseModel):
     title: str
     description: Optional[str]
     expected_answer: Optional[str] = None
+    analyzing_parameters: Optional[str] = None
     submission_format: List[str]
     questions: List[dict]
     bundle_tasks: Optional[List[dict]] = []

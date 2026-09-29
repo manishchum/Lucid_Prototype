@@ -242,7 +242,7 @@ async def startup_event():
     def _background_loader():
         try:
             print("[Startup] Starting AI models download/load in the background...")
-            from analysis.models import load_all_models
+            from task_manager.analyzer.models import load_all_models
             load_all_models()
         except Exception as e:
             print(f"[Startup] Background AI models load error (non-fatal): {e}")

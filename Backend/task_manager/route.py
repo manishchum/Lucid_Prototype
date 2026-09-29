@@ -21,7 +21,7 @@ class ChildTask(BaseModel):
     child_task_id: Optional[str] = None
     title: str
     description: Optional[str] = None
-    submission_format: str
+    submission_format: Union[str, List[str]]
     expected_answer: Optional[str] = None
     analyzing_parameters: Optional[str] = None
     questions: Optional[List[QuizQuestion]] = []
@@ -161,6 +161,7 @@ from fastapi import HTTPException
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
+from utils.redis_client import get_cache, set_cache, delete_cache_pattern, redis_client, invalidate_dashboard_cache
 # from audio_analysis.scoring import generate_audio_score
 # from audio_analysis.services.acoustic_analysis import analyze_audio_features
 # from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
@@ -562,8 +563,8 @@ async def get_active_tasks(company_id: str, user_id: str | None = None) -> list:
         )
 
         submission_query = (
-            db.table("task_submissions").select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, ai_analysis, status, submitted_at")
-            .select("submission_id, assignment_id, company_id, user_id, task_id, submission_type, text_response, image_url, audio_url, video_url, answers, score, max_score, ai_validation_pass, ai_validation_verdict, ai_validation_reason, ai_validation_suggestion, ai_validation_confidence, ai_status, analysis_status, status, submitted_at")
+            db.table("task_submissions")
+            .select(active_sub_cols)
             .in_("assignment_id", assignment_ids)
             .eq("company_id", company_id)
         )
@@ -891,14 +892,14 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
 
     # 2. Fetch tasks corresponding to assigned_ids directly from tasks table
     task_cols = (
-        "task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer"
+        "task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer, analyzing_parameters"
         if caller_is_admin else
         "task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks"
     )
     try:
         tasks_res = (
             db.table("tasks")
-            .select("task_id, assignment_id, company_id, title, description, submission_format, questions, status, bundle_tasks, expected_answer, analyzing_parameters")
+            .select(task_cols)
             .in_("assignment_id", list(assigned_ids))
             .eq("company_id", company_id)
             .execute()
@@ -1007,14 +1008,9 @@ async def _fetch_tasks_for_user_uncached(user_id: str, company_id: str, requesti
             "target_function_id": assignment.get("target_function_id"),
             "target_sub_function_id": assignment.get("target_sub_function_id"),
             "target_module_id": assignment.get("target_module_id"),
-            "expected_answer": task.get("expected_answer"),
-            "analyzing_parameters": task.get("analyzing_parameters"),
+            "expected_answer": task.get("expected_answer") if caller_is_admin else None,
+            "analyzing_parameters": task.get("analyzing_parameters") if caller_is_admin else None,
         }
-        
-        if caller_is_admin and "expected_answer" in task:
-            row["expected_answer"] = task["expected_answer"]
-        if caller_is_admin and "analyzing_parameters" in task:
-            row["analyzing_parameters"] = task["analyzing_parameters"]
             
         filtered.append(row)
 
@@ -1180,12 +1176,18 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
     if is_bundle and db_bundle_tasks:
         child_inserts = []
         for idx, ct in enumerate(db_bundle_tasks):
+            ct_sub_format = ct.get("submission_format", "text")
+            if isinstance(ct_sub_format, list):
+                if len(ct_sub_format) == 1:
+                    ct_sub_format = ct_sub_format[0]
+                else:
+                    ct_sub_format = json.dumps(ct_sub_format)
             child_inserts.append({
                 "parent_task_id": task_id,
                 "company_id": company_id,
                 "title": ct.get("title", ""),
                 "description": ct.get("description", ""),
-                "submission_format": ct.get("submission_format", "text"),
+                "submission_format": ct_sub_format,
                 "expected_answer": ct.get("expected_answer", ""),
                 "analyzing_parameters": ct.get("analyzing_parameters", ""),
                 "questions": ct.get("questions") or [],
@@ -1216,10 +1218,11 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
                     title=payload.title,
                 )
             )
-            # Invalidate dashboard summary cache for every assigned user immediately
+            # Invalidate dashboard summary and task caches for every assigned user immediately
             for uid in assigned_uids:
                 try:
                     delete_cache_pattern(f"dashboard_summary:{uid}*")
+                    delete_cache_pattern(f"user_tasks:*{uid}*")
                     from routes.employee_dashboard import invalidate_dashboard_l1_cache
                     invalidate_dashboard_l1_cache(str(uid))
                 except Exception:
@@ -1523,6 +1526,12 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         ).start()
 
     invalidate_user_tasks_cache(payload.user_id, company_id=company_id, background_tasks=background_tasks)
+    try:
+        delete_cache_pattern(f"dashboard_summary:{payload.user_id}*")
+        from routes.employee_dashboard import invalidate_dashboard_l1_cache
+        invalidate_dashboard_l1_cache(str(payload.user_id))
+    except Exception:
+        pass
     return {
         "status": "success",
         "message": "Task submitted successfully",
@@ -2200,6 +2209,13 @@ async def submit_task(
             background_tasks,
             auth_ctx.user_id
         )
+        if auth_ctx.user_id:
+            background_tasks.add_task(invalidate_dashboard_cache, auth_ctx.user_id)
+            try:
+                from routes.employee_dashboard import invalidate_dashboard_l1_cache
+                invalidate_dashboard_l1_cache(str(auth_ctx.user_id))
+            except Exception:
+                pass
         return result
     except (ApiException, HTTPException):
         raise
