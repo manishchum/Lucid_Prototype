@@ -494,7 +494,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           data: assessment,
           error,
       } = await finishRoleplaySession(
-          sessionId!
+          sessionId!,
+          messages
       );
 
       if (error) {

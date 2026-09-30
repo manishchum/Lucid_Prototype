@@ -50,6 +50,7 @@ export interface AssessmentReport {
 export interface Message {
   text: string;
   sender: 'user' | 'avatar';
+  role?: 'user' | 'avatar';
   timestamp: string;
 }
 
@@ -625,7 +626,8 @@ export async function fetchRoleplayBootstrap() {
 }
 
 export async function finishRoleplaySession(
-    sessionId: string
+    sessionId: string,
+    messages?: any[]
 ) {
 
     const response = await fetchWithAuth(
@@ -637,6 +639,7 @@ export async function finishRoleplaySession(
             },
             body: JSON.stringify({
                 session_id: sessionId,
+                messages: messages && messages.length > 0 ? messages : undefined,
             }),
         }
     );

@@ -537,14 +537,21 @@ export default function RolePlayConversation({
     // });
 
     const messages: Message[] = transcript
-      .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
-      .map((item, idx) => ({
-        text: item.text,
-        sender: item.role === "user" ? "user" : "avatar",
-        timestamp: new Date(
-          Date.now() - (transcript.length - idx) * 1000
-        ).toISOString(),
-      }));
+      .filter(item => {
+        const r = ((item as any).role || (item as any).sender || "").toLowerCase();
+        return r === "user" || r === "bot" || r === "bot_chunk" || r === "avatar";
+      })
+      .map((item, idx) => {
+        const isUser = ((item as any).role || (item as any).sender || "").toLowerCase() === "user";
+        return {
+          text: item.text,
+          sender: isUser ? "user" : "avatar",
+          role: isUser ? "user" : "avatar",
+          timestamp: (item as any).timestamp || new Date(
+            Date.now() - (transcript.length - idx) * 1000
+          ).toISOString(),
+        };
+      });
 
     // console.log("[handleEndSession] ✅ Final transcript:", {
     //   sessionEndedReceived: sessionEndedRef.current,

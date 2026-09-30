@@ -28,6 +28,7 @@ from utils.auth import (
 
 from utils.db import roleplay_db
 from utils.db.permissions import check_user_permission
+from utils.supabase_client import supabase_admin
 from ai.model_manager import ModelManager
 from ai.ai_gateway import AI
 from ai.cost_calculator import CostCalculator
@@ -130,6 +131,7 @@ class UpdateSessionRequest(BaseModel):
 
 class FinishSessionRequest(BaseModel):
     session_id: str
+    messages: Optional[List[Dict[str, Any]]] = None
     
 class AssessmentParameter(BaseModel):
     name: str
@@ -930,7 +932,11 @@ async def get_employee_roleplay_reports(
 # ============================================================
 
 @router.post("/sessions/{session_id}/assessment")
-async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(get_roleplay_context)):
+async def generate_assessment(
+    session_id: str,
+    ctx: RoleplayContext = Depends(get_roleplay_context),
+    client_messages: Optional[List[Dict[str, Any]]] = None,
+):
     try:
         logging.info("Assessment request for session_id=%s user_id=%s", session_id, ctx.user_id)
 
@@ -957,14 +963,19 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
 
         scenario = scenario_result.data
 
-        # if not GEMINI_API_KEY:
-        #     return JSONResponse(
-        #         content={"error": "Gemini API key not configured"},
-        #         status_code=500
-        #     )
+        # If session transcript in DB is empty or shorter, backfill with client_messages
+        messages = session.get("conversation_transcript", [])
+        if client_messages and (not messages or len(messages) < len(client_messages)):
+            messages = client_messages
+            try:
+                supabase_admin.table("roleplay_sessions").update({
+                    "conversation_transcript": messages,
+                    "message_count": len(messages)
+                }).eq("id", session_id).execute()
+                logging.info("Backfilled %d transcript messages to DB via supabase_admin", len(messages))
+            except Exception as ex:
+                logging.warning("Failed to backfill session transcript: %s", ex)
 
-        # print(session)
-        messages = session.get("conversation_transcript",[])
         scenario_title = scenario["title"]
         scenario_role = scenario["role"]
         user_role = scenario["userRole"]
@@ -975,17 +986,25 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
 
         logging.info("Assessment request received with %d messages", len(messages))
         
-        # Filter messages
-        user_messages = [m for m in messages if m.get("role") == "user"]
-        ai_messages = [m for m in messages if m.get("role") == "avatar"]
+        # Helper to detect user vs AI message whether key is 'role' or 'sender'
+        def is_user_msg(m: dict) -> bool:
+            r = str(m.get("role") or m.get("sender") or "").strip().lower()
+            return r in ("user", "learner", "human")
+
+        def is_ai_msg(m: dict) -> bool:
+            r = str(m.get("role") or m.get("sender") or "").strip().lower()
+            return r in ("avatar", "bot", "assistant", "ai", "model")
+
+        user_messages = [m for m in messages if is_user_msg(m)]
+        ai_messages = [m for m in messages if is_ai_msg(m)]
         
         logging.info("Filtered messages - users: %d, ai: %d, total: %d", len(user_messages), len(ai_messages), len(messages))
 
-        min_exchanges = 3
-        min_user_messages = 2
+        min_user_messages = 1
+        min_total_messages = 2
 
-        # Short / incomplete conversation → zero score
-        if len(user_messages) < min_user_messages or len(messages) < min_exchanges * 2:
+        # Short / incomplete conversation → zero score only if user never spoke or dialogue had less than 2 total messages
+        if len(user_messages) < min_user_messages or len(messages) < min_total_messages:
             logging.warning(
                 "⚠️ Conversation too short - returning zero score",
                 extra={
@@ -1003,7 +1022,7 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
                         "summary": (
                             "The conversation was ended abruptly or was too short to provide "
                             "a meaningful assessment. Please complete a full roleplay session "
-                            "with at least 3-4 exchanges to receive proper feedback."
+                            "with at least 1-2 dialogue exchanges to receive proper feedback."
                         ),
                         "parameters": [
                             {"name": "Communication Clarity", "score": 0,
@@ -1019,7 +1038,7 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
                         ],
                         "recommendations": [
                             "Complete a full roleplay session without ending it prematurely.",
-                            "Engage in at least 4-5 exchanges with the LT to demonstrate your skills.",
+                            "Engage in dialogues with the avatar to demonstrate your skills.",
                             "Practice maintaining the conversation until a natural conclusion is reached.",
                             "Use the session duration effectively to showcase your abilities.",
                         ],
@@ -1032,7 +1051,7 @@ async def generate_assessment(session_id: str, ctx: RoleplayContext = Depends(ge
         ai_role = scenario_role or "AI Coach"
 
         transcript = "\n\n".join(
-            f"{learner_role if m.get('role') == 'user' else ai_role}: {m.get('text')}"
+            f"{learner_role if is_user_msg(m) else ai_role}: {m.get('text')}"
             for m in messages
         )
 
@@ -1270,7 +1289,8 @@ async def finish_roleplay(
 
     assessment_response = await generate_assessment(
         payload.session_id,
-        ctx
+        ctx,
+        client_messages=payload.messages
     )
 
     if isinstance(assessment_response, JSONResponse):
@@ -1447,18 +1467,26 @@ async def websocket_realtime_roleplay(websocket: WebSocket):
                 await websocket.close(code=1008)
                 return
             
+        # FORCED FOR DEMO ON THIS BRANCH: Unconditionally route to Gemini Live
+        logger.info("[Realtime] 🚀 Routing to Gemini Live pipeline (roleplay_realtime_gemini)")
+        realtime_model_config = ModelManager.get("roleplay_realtime_gemini")
+        from roleplay.gemini_live_pipeline import run_gemini_live_loop
+        return await run_gemini_live_loop(
+            websocket=websocket,
+            scenario_context=scenario_context,
+            auth_context=auth_context,
+            realtime_model_config=realtime_model_config,
+            build_system_prompt_fn=build_system_prompt,
+        )
+
+        if provider != "openai":
+            raise ValueError(
+                f"Unsupported realtime provider: {realtime_model_config.provider}. "
+                f"Configured feature: {requested_feature}"
+            )
+
         if not OPENAI_API_KEY:
             raise ValueError("OPENAI_API_KEY not set")
-
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is empty after stripping")
-
-        realtime_model_config = ModelManager.get("roleplay_realtime")
-        if realtime_model_config.provider.lower() != "openai":
-            raise ValueError(
-                f"Roleplay realtime currently requires an OpenAI-compatible realtime provider. "
-                f"Configured provider: {realtime_model_config.provider}"
-            )
 
         realtime_model = realtime_model_config.model
 
