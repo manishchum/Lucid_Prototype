@@ -20,6 +20,7 @@ export interface TaskDraft {
   id: string;
   title: string;
   description: string;
+  analyzingParameters?: string;
   // Allow admin to pick one or many submission formats when creating a task
   submissionFormat: SubmissionFormat | SubmissionFormat[];
   questions: QuizQuestion[];
@@ -55,6 +56,7 @@ export interface AssignedTask {
     id: string;
     title: string;
     description: string;
+    analyzingParameters?: string;
     submissionFormat: SubmissionFormat;
     questions: QuizQuestion[];
   }[];

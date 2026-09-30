@@ -103,6 +103,7 @@ export default function TaskCreatorWizard({
         title: t.title,
         description: t.description || '',
         expectedAnswer: t.expectedAnswer || '',
+        analyzingParameters: t.analyzingParameters || '',
         submissionFormat: t.submissionFormat,
         questions: t.questions || []
       }));
@@ -113,6 +114,7 @@ export default function TaskCreatorWizard({
         title: '',
         description: '',
         expectedAnswer: '',
+        analyzingParameters: '',
         submissionFormat: 'text',
         questions: []
       }
@@ -173,6 +175,7 @@ export default function TaskCreatorWizard({
             title: bt.title || '',
             description: bt.description || '',
             expectedAnswer: bt.expected_answer || bt.expectedAnswer || (initialTask.tasks?.[idx]?.expectedAnswer) || (initialTask as any).expected_answer || '',
+            analyzingParameters: bt.analyzing_parameters || bt.analyzingParameters || (initialTask.tasks?.[idx]?.analyzingParameters) || (initialTask as any).analyzing_parameters || '',
             submissionFormat: bt.submission_format || 'text',
             questions: bt.questions || [],
           }))
@@ -184,6 +187,7 @@ export default function TaskCreatorWizard({
             title: t.title || initialTask.title || '',
             description: t.description || initialTask.description || '',
             expectedAnswer: t.expectedAnswer || (t as any).expected_answer || (initialTask as any).expected_answer || '',
+            analyzingParameters: t.analyzingParameters || (t as any).analyzing_parameters || (initialTask as any).analyzing_parameters || '',
             submissionFormat: t.submissionFormat || 'text',
             questions: t.questions || [],
           }))
@@ -215,6 +219,7 @@ export default function TaskCreatorWizard({
         title: '',
         description: '',
         expectedAnswer: '',
+        analyzingParameters: '',
         submissionFormat: 'text',
         questions: []
       }
@@ -547,7 +552,7 @@ const toggleCorrectAnswer = (
         if (!bundleDescription.trim()) errors.push("Task Description is required.");
         tasks.forEach((t, i) => {
           if (t.title.trim().length < 5) errors.push(`Task Block #${i + 1}: Sub Task Name must be at least 5 characters.`);
-          if (!t.expectedAnswer?.trim()) errors.push(`Task Block #${i + 1}: AI Analyzing Parameters are required.`);
+          if (!t.analyzingParameters?.trim()) errors.push(`Task Block #${i + 1}: AI Analyzing Parameters are required.`);
           
           const hasQuiz = Array.isArray(t.submissionFormat) ? t.submissionFormat.includes('multiple_choice') : t.submissionFormat === 'multiple_choice';
           if (hasQuiz) {
@@ -568,7 +573,7 @@ const toggleCorrectAnswer = (
         const t = tasks[0];
         if (t.title.trim().length < 5) errors.push("Task Name must be at least 5 characters.");
         if (!t.description.trim()) errors.push("Task Description is required.");
-        if (!t.expectedAnswer?.trim()) errors.push("AI Analyzing Parameters are required.");
+        if (!t.analyzingParameters?.trim()) errors.push("AI Analyzing Parameters are required.");
 
         const hasQuiz = Array.isArray(t.submissionFormat) ? t.submissionFormat.includes('multiple_choice') : t.submissionFormat === 'multiple_choice';
         if (hasQuiz) {
@@ -665,6 +670,7 @@ const toggleCorrectAnswer = (
               title: t.title.trim(),
               description: t.description.trim(),
               expected_answer: t.expectedAnswer?.trim() || null,
+              analyzing_parameters: t.analyzingParameters?.trim() || null,
               submission_format: normalizeFormat(t.submissionFormat),
               questions: (t.submissionFormat === 'multiple_choice' || (Array.isArray(t.submissionFormat) && t.submissionFormat.includes('multiple_choice')))
                 ? t.questions.map(q => ({
@@ -697,6 +703,7 @@ const toggleCorrectAnswer = (
             title: primaryTask.title.trim(),
             description: primaryTask.description.trim(),
             expected_answer: primaryTask.expectedAnswer?.trim() || null,
+            analyzing_parameters: primaryTask.analyzingParameters?.trim() || null,
             submission_format: normalizeFormat(primaryTask.submissionFormat),
             questions: (primaryTask.submissionFormat === 'multiple_choice' || (Array.isArray(primaryTask.submissionFormat) && primaryTask.submissionFormat.includes('multiple_choice')))
               ? primaryTask.questions.map(q => ({
@@ -742,24 +749,22 @@ const toggleCorrectAnswer = (
     <div className="flex flex-col xl:flex-row gap-6 w-full max-w-7xl mx-auto min-h-[580px]">
       
       {/* LEFT PORTION: The horizontal form container */}
-      <div className="flex-1 bg-white rounded-2xl border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden">
+      <div className="flex-1 bg-white rounded-[8px] border border-[#E2E8F0] shadow-sm flex flex-col overflow-hidden">
         
         {/* Banner with color matching photo */}
-        <div className="bg-gradient-to-r from-[#2F63FF] via-indigo-600 to-purple-600 px-6 py-5 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] px-6 py-4 text-white flex items-center justify-between">
           <div>
-            <h2 className="font-display font-medium text-lg tracking-tight flex items-center space-x-2 shadow-sm">
+            <h2 className="font-display font-semibold text-[16px] tracking-wide flex items-center space-x-2">
               <span>Task Flow Configuration Console</span>
             </h2>
           </div>
-          {/* <div className="bg-white/10 px-3 py-1 rounded-full text-xs font-mono font-medium flex items-center space-x-1.5 backdrop-blur-md">
-          </div> */}
         </div>
 
         {/* Main Content Area with Vertical Sidebar */}
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           
           {/* Vertical Navigation Stepper */}
-          <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[#F1F5F9] bg-[#FAFBFD] p-6 flex flex-col shrink-0 overflow-y-auto">
+          <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-[#F1F5F9] bg-white p-6 flex flex-col shrink-0 overflow-y-auto">
             <div className="flex flex-col space-y-6 relative">
               {stepsList.map((step, index) => {
                 const isActive = activeStep === step.id;
@@ -788,32 +793,28 @@ const toggleCorrectAnswer = (
                       }}
                       className="flex items-start space-x-4 text-left focus:outline-none cursor-pointer w-full relative z-10"
                     >
-                      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-display text-xs font-semibold border transition-all duration-300 shadow-sm ${
+                      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-display text-[13px] font-bold transition-all duration-300 ${
                         isActive 
-                          ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-transparent shadow-[0_0_15px_rgba(47,99,255,0.4)] ring-4 ring-indigo-50/50 scale-110'
+                          ? 'bg-[#4F46E5] text-white shadow-md'
                           : isPast 
-                            ? 'bg-[#E1F9F0] text-[#10B981] border-[#10B981]'
-                            : 'bg-white text-[#64748B] border-[#E2E8F0] group-hover:border-blue-300'
+                            ? 'bg-[#E1F9F0] text-[#10B981]'
+                            : 'bg-white text-[#94A3B8] border border-[#E2E8F0]'
                       }`}>
-                        {isPast ? <Check size={14} className="stroke-[3]" /> : index + 1}
+                        {isPast ? <Check size={14} strokeWidth={3} /> : index + 1}
                       </div>
                       <div className="pt-1.5 pb-2">
-                        <p className={`text-sm font-semibold leading-none transition-colors ${
-                          isActive ? 'text-[#2F63FF]' : 'text-[#334155]'
+                        <p className={`text-[14px] font-bold leading-none transition-colors ${
+                          isActive ? 'text-[#4F46E5]' : 'text-[#475569]'
                         }`}>
                           {step.label}
                         </p>
-                        <span className="text-[11px] text-gray-500 block mt-1 font-sans pr-2">
+                        <span className="text-[12px] text-[#64748B] block mt-1.5 font-sans pr-2">
                           {step.desc}
                         </span>
                       </div>
                     </button>
                     {index < stepsList.length - 1 && (
-                      <div className="absolute top-8 left-4 w-[2px] h-[calc(100%+8px)] bg-[#E2E8F0] -z-10 ml-[-1px]">
-                        <div className={`w-full bg-[#2F63FF] transition-all duration-300 ${
-                          isPast ? 'h-full' : 'h-0'
-                        }`} />
-                      </div>
+                      <div className="absolute top-8 left-4 w-[1px] h-[calc(100%+8px)] bg-[#F1F5F9] -z-10" />
                     )}
                   </div>
                 );
@@ -835,32 +836,29 @@ const toggleCorrectAnswer = (
               
               {/* STEP 1: LEVEL and MODE */}
               {activeStep === 'level' && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <div>
-                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1 font-display">Sprint Association</h3>
-                    <p className="text-xs text-gray-500 font-sans">Choose if this task should be associated with specific sprint cycles for tracking and reporting.</p>
+                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1.5 font-display">Sprint Association</h3>
+                    <p className="text-[13px] text-gray-500 font-sans">Choose if this task should be associated with specific sprint cycles for tracking and reporting.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-xl">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
                     <button
                       type="button"
                       onClick={() => setAssociateWithSprint(true)}
-                      className={`p-5 rounded-2xl text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${
+                      className={`p-5 rounded-[12px] text-left border cursor-pointer transition-all duration-200 flex items-start space-x-4 ${
                         associateWithSprint
-                          ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
-                          : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
+                          ? 'border-[#6366F1] bg-indigo-50/30 shadow-[0_2px_10px_rgba(99,102,241,0.08)]'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                       }`}
                     >
-                      <div className={`p-3 rounded-xl transition-all duration-300 ${associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
-                        <Layers size={20} />
+                      <div className={`p-3 rounded-xl transition-all duration-200 ${associateWithSprint ? 'bg-[#4F46E5] text-white shadow-sm' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
+                        <Layers size={22} strokeWidth={1.5} />
                       </div>
-                      <div className="flex-1 relative z-10 pt-0.5">
-                        <span className={`text-[13px] font-bold font-sans block transition-colors duration-300 ${associateWithSprint ? 'text-indigo-900' : 'text-gray-700'}`}>Yes, associate with Sprints</span>
-                        <p className="text-[11px] text-gray-500 mt-1.5 font-sans leading-relaxed">Link this task flow to one or more active training sprint cycles.</p>
+                      <div className="flex-1 pt-0.5">
+                        <span className={`text-[14px] font-bold font-sans block ${associateWithSprint ? 'text-[#3730A3]' : 'text-[#334155]'}`}>Yes, associate with Sprints</span>
+                        <p className="text-[12px] text-gray-500 mt-1 font-sans leading-relaxed">Link this task flow to one or more active training sprint cycles.</p>
                       </div>
-                      {associateWithSprint && (
-                        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-400 opacity-[0.15] rounded-full blur-2xl"></div>
-                      )}
                     </button>
  
                     <button
@@ -869,29 +867,26 @@ const toggleCorrectAnswer = (
                         setAssociateWithSprint(false);
                         setSelectedSprintIds([]);
                       }}
-                      className={`p-5 rounded-2xl text-left border cursor-pointer transition-all duration-300 flex items-start space-x-4 relative overflow-hidden group hover:-translate-y-1 ${
+                      className={`p-5 rounded-[12px] text-left border cursor-pointer transition-all duration-200 flex items-start space-x-4 ${
                         !associateWithSprint
-                          ? 'border-indigo-400 shadow-lg shadow-indigo-500/15 bg-gradient-to-br from-indigo-50/80 to-blue-50/40'
-                          : 'border-gray-200 hover:border-indigo-300 hover:shadow-md hover:bg-slate-50'
+                          ? 'border-[#6366F1] bg-indigo-50/30 shadow-[0_2px_10px_rgba(99,102,241,0.08)]'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'
                       }`}
                     >
-                      <div className={`p-3 rounded-xl transition-all duration-300 ${!associateWithSprint ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 group-hover:text-indigo-500 group-hover:bg-indigo-50 group-hover:scale-105'}`}>
-                        <Users size={20} />
+                      <div className={`p-3 rounded-xl transition-all duration-200 ${!associateWithSprint ? 'bg-[#4F46E5] text-white shadow-sm' : 'bg-[#F1F5F9] text-[#64748B]'}`}>
+                        <Users size={22} strokeWidth={1.5} />
                       </div>
-                      <div className="flex-1 relative z-10 pt-0.5">
-                        <span className={`text-[13px] font-bold font-sans block transition-colors duration-300 ${!associateWithSprint ? 'text-indigo-900' : 'text-gray-700'}`}>No sprint association</span>
-                        <p className="text-[11px] text-gray-500 mt-1.5 font-sans leading-relaxed">Create a general task flow independent of specific sprint schedules.</p>
+                      <div className="flex-1 pt-0.5">
+                        <span className={`text-[14px] font-bold font-sans block ${!associateWithSprint ? 'text-[#3730A3]' : 'text-[#334155]'}`}>No sprint association</span>
+                        <p className="text-[12px] text-gray-500 mt-1 font-sans leading-relaxed">Create a general task flow independent of specific sprint schedules.</p>
                       </div>
-                      {!associateWithSprint && (
-                        <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-blue-400 opacity-[0.15] rounded-full blur-2xl"></div>
-                      )}
                     </button>
                   </div>
 
                   {associateWithSprint && (
-                    <div className="space-y-3 pt-2">
-                      <label className="text-xs font-bold text-[#334155] block">Select Sprints to Link (Multi-Select)</label>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto p-1 border border-gray-100 rounded-xl bg-slate-50/20">
+                    <div className="space-y-4 pt-2">
+                      <label className="text-[13px] font-bold text-[#1E293B] block">Select Sprints to Link (Multi-Select)</label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {sprints.map((sprint) => {
                           const isSelected = selectedSprintIds.includes(sprint.id) || selectedSprintIds.includes(sprint.title);
                           return (
@@ -899,27 +894,25 @@ const toggleCorrectAnswer = (
                               type="button"
                               key={sprint.id}
                               onClick={() => toggleSelection(sprint.id, selectedSprintIds, setSelectedSprintIds)}
-                              className={`p-4 rounded-xl border text-left cursor-pointer transition-all flex items-center justify-between bg-white ${
+                              className={`p-4 rounded-[10px] border text-left cursor-pointer transition-all flex items-center justify-between bg-white shadow-sm ${
                                 isSelected
-                                  ? 'border-[#2F63FF] bg-[#2F63FF]/5 shadow-sm shadow-indigo-50/50'
-                                  : 'border-[#E2E8F0] hover:bg-slate-50'
+                                  ? 'border-[#CBD5E1]'
+                                  : 'border-[#E2E8F0] hover:border-[#CBD5E1]'
                               }`}
                             >
-                              <div className="flex items-center space-x-3">
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                                  isSelected ? 'bg-[#2F63FF] text-white' : 'bg-gray-100 text-[#475569]'
-                                }`}>
-                                  <Layers3 size={15} />
+                              <div className="flex items-center space-x-4">
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#F1F5F9] text-[#64748B]">
+                                  <Layers3 size={18} strokeWidth={1.5} />
                                 </div>
                                 <div>
-                                  <p className="text-xs font-semibold text-[#0F172A]">{sprint.title}</p>
-                                  <span className="text-[10px] font-mono text-gray-500">{sprint.code} • {sprint.status}</span>
+                                  <p className="text-[13px] font-bold text-[#1E293B]">{sprint.title}</p>
+                                  <span className="text-[11px] font-mono text-[#64748B] mt-0.5 block tracking-wide uppercase">{sprint.code} • {sprint.status}</span>
                                 </div>
                               </div>
-                              <div className={`w-5 h-5 rounded-md border flex items-center justify-center ${
-                                isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300'
+                              <div className={`w-5 h-5 rounded-[6px] border flex items-center justify-center transition-colors ${
+                                isSelected ? 'border-[#3730A3] bg-[#3730A3] text-white' : 'border-[#CBD5E1] bg-white'
                               }`}>
-                                {isSelected && <Check size={12} className="stroke-[3]" />}
+                                {isSelected && <Check size={14} strokeWidth={3} />}
                               </div>
                             </button>
                           );
@@ -928,13 +921,13 @@ const toggleCorrectAnswer = (
                     </div>
                   )}
 
-                  <div className="border-t border-[#F1F5F9] pt-5">
-                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1 font-display">Work Module Structure</h3>
-                    <p className="text-xs text-gray-500 font-sans mb-4">Determine if you would like to deploy a single primary action or a bundle containing multiple custom checklist actions.</p>
+                  <div className="pt-6">
+                    <h3 className="text-sm font-semibold text-[#0F172A] mb-1.5 font-display">Work Module Structure</h3>
+                    <p className="text-[13px] text-gray-500 font-sans mb-5">Determine if you would like to deploy a single primary action or a bundle containing multiple custom checklist actions.</p>
 
-                    <div className="relative flex p-1 bg-gray-100/80 backdrop-blur-md rounded-xl self-start max-w-[420px] border border-gray-200/50 shadow-inner overflow-hidden">
+                    <div className="relative flex p-1.5 bg-[#F1F5F9] rounded-xl self-start max-w-[480px] border border-[#E2E8F0]">
                       <div 
-                        className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-white rounded-lg shadow-[0_1px_4px_rgba(0,0,0,0.08)] transition-transform duration-300 ease-out border border-gray-200/60"
+                        className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-white rounded-[8px] shadow-sm transition-transform duration-300 ease-out border border-[#E2E8F0]"
                         style={{ transform: taskMode === 'multiple' ? 'translateX(100%)' : 'translateX(0)' }}
                       ></div>
                       
@@ -945,26 +938,26 @@ const toggleCorrectAnswer = (
                             setTasks([tasks[0]]);
                           }
                         }}
-                        className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
+                        className={`relative z-10 flex-1 py-2.5 px-3 text-[13px] font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                           taskMode === 'single'
-                            ? 'text-indigo-700'
+                            ? 'text-[#3730A3]'
                             : 'text-[#64748B] hover:text-[#0F172A]'
                         }`}
                       >
-                        <FileCheck size={16} />
+                        <FileCheck size={16} strokeWidth={2} />
                         <span>Single Task Module</span>
                       </button>
                       <button
                         onClick={() => {
                           setTaskMode('multiple');
                         }}
-                        className={`relative z-10 flex-1 py-3 px-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
+                        className={`relative z-10 flex-1 py-2.5 px-3 text-[13px] font-semibold rounded-lg transition-colors cursor-pointer flex items-center justify-center space-x-2 ${
                           taskMode === 'multiple'
-                            ? 'text-indigo-700'
+                            ? 'text-[#3730A3]'
                             : 'text-[#64748B] hover:text-[#0F172A]'
                         }`}
                       >
-                        <Settings size={16} />
+                        <Settings size={16} strokeWidth={2} />
                         <span>Multi-Task Bundle</span>
                       </button>
                     </div>
@@ -984,7 +977,7 @@ const toggleCorrectAnswer = (
                       <button
                         type="button"
                         onClick={addNewTaskDraft}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 h-8 bg-[#EEF2FF] text-[#2F63FF] hover:bg-[#E0E7FF] transition-all text-xs font-semibold rounded-lg cursor-pointer"
+                        className="inline-flex items-center space-x-1 px-3 py-1.5 h-8 bg-[#EEF2FF] text-[#2F63FF] hover:bg-[#E0E7FF] transition-all text-xs font-semibold rounded-[8px] cursor-pointer"
                       >
                         <Plus size={14} />
                         <span>Add Checklist Item</span>
@@ -994,7 +987,7 @@ const toggleCorrectAnswer = (
 
                   <div className="space-y-6">
                     {taskMode === 'multiple' && (
-                      <div className="p-5 border border-[#E2E8F0] rounded-2xl bg-[#F8FAFC] space-y-4">
+                      <div className="p-5 border border-[#E2E8F0] rounded-[8px] bg-[#F8FAFC] space-y-4">
                         <div className="space-y-1">
                           <label className="text-xs font-bold text-[#334155] block">
                             Task Name <span className="text-red-500">*</span>
@@ -1004,7 +997,7 @@ const toggleCorrectAnswer = (
                             value={bundleTitle}
                             onChange={(e) => setBundleTitle(e.target.value)}
                             placeholder="e.g., Weekly Onboarding Checks"
-                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
+                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
                           />
                         </div>
                         <div className="space-y-1">
@@ -1016,7 +1009,7 @@ const toggleCorrectAnswer = (
                             value={bundleDescription}
                             onChange={(e) => setBundleDescription(e.target.value)}
                             placeholder="Describe the overall instructions for this task."
-                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                            className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
                           />
                         </div>
                       </div>
@@ -1025,7 +1018,7 @@ const toggleCorrectAnswer = (
                     {tasks.map((taskItem, idx) => (
                       <div 
                         key={taskItem.id} 
-                        className="p-5 border border-[#E2E8F0] rounded-2xl bg-[#FBFDFE] relative focus-within:ring-2 focus-within:ring-[#2F63FF]/20 focus-within:border-[#2F63FF] transition-all"
+                        className="p-5 border border-[#E2E8F0] rounded-[8px] bg-[#FBFDFE] relative focus-within:ring-2 focus-within:ring-[#2F63FF]/20 focus-within:border-[#2F63FF] transition-all"
                       >
                         {taskMode === 'multiple' && (
                           <div className="absolute top-4 right-4 flex items-center space-x-2">
@@ -1056,7 +1049,7 @@ const toggleCorrectAnswer = (
                               value={taskItem.title}
                               onChange={(e) => updateTaskField(taskItem.id, 'title', e.target.value)}
                               placeholder="e.g., Standard Operating Procedures Review / Code Quality Assurance Audit"
-                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
+                              className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400"
                               id={`title-${taskItem.id}`}
                             />
                           </div>
@@ -1072,13 +1065,13 @@ const toggleCorrectAnswer = (
                                 value={taskItem.description}
                                 onChange={(e) => updateTaskField(taskItem.id, 'description', e.target.value)}
                                 placeholder="Describe the instructions for this task."
-                                className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-xl py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
+                                className="w-full text-xs text-[#0F172A] border border-[#E2E8F0] bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:bg-white placeholder-gray-400 font-sans"
                               />
                             </div>
                           )}
 
                           {/* AI Evaluation Parameters */}
-                          <div className="space-y-1 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                          <div className="space-y-1 bg-indigo-50/50 p-3 rounded-[8px] border border-indigo-100">
                             <label className="text-[11px] font-bold text-indigo-900 block flex items-center justify-between">
                               <span>Analyzing Parameters <span className="text-red-500">*</span></span>
                               
@@ -1086,10 +1079,10 @@ const toggleCorrectAnswer = (
                             
                             <textarea
                               rows={2}
-                              value={taskItem.expectedAnswer || ''}
-                              onChange={(e) => updateTaskField(taskItem.id, 'expectedAnswer', e.target.value)}
+                              value={taskItem.analyzingParameters || ''}
+                              onChange={(e) => updateTaskField(taskItem.id, 'analyzingParameters', e.target.value)}
                               placeholder="e.g., The photo must clearly show the equipment serial number and no blurry edges."
-                              className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
+                              className="w-full text-xs text-[#0F172A] border border-indigo-200 bg-white rounded-[8px] py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:bg-white placeholder-gray-400 font-sans"
                             />
                           </div>
 
@@ -1106,9 +1099,9 @@ const toggleCorrectAnswer = (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'image')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
                                   (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
                               >
@@ -1122,9 +1115,9 @@ const toggleCorrectAnswer = (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'text')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
                                   (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
                               >
@@ -1138,9 +1131,9 @@ const toggleCorrectAnswer = (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'multiple_choice')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
                                   (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
                               >
@@ -1154,9 +1147,9 @@ const toggleCorrectAnswer = (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'audio')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
                                   (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
                               >
@@ -1170,9 +1163,9 @@ const toggleCorrectAnswer = (
                               <button
                                 type="button"
                                 onClick={() => toggleSubmissionFormat(taskItem.id, 'video')}
-                                className={`p-3 rounded-xl border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
+                                className={`p-3 rounded-[8px] border text-left flex flex-col sm:flex-row items-center justify-center sm:justify-start space-y-1 sm:space-y-0 sm:space-x-1 cursor-pointer transition-colors ${
                                   (Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('video') : taskItem.submissionFormat === 'video')
-                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF]'
+                                    ? 'border-[#2F63FF] bg-[#2563eb]/5 text-[#2F63FF]'
                                     : 'border-[#E2E8F0] hover:bg-slate-50 text-gray-600'
                                 }`}
                               >
@@ -1185,7 +1178,7 @@ const toggleCorrectAnswer = (
 
                           {/* MULTIPLE CHOICE FORM BUILDER */}
                           {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
-                            <div className="bg-slate-50 rounded-xl p-4 border border-[#E2E8F0] space-y-4">
+                            <div className="bg-slate-50 rounded-[8px] p-4 border border-[#E2E8F0] space-y-4">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-[#0F172A] flex items-center space-x-2">
                                   <QuizIcon size={14} className="text-[#2F63FF]" />
@@ -1202,7 +1195,7 @@ const toggleCorrectAnswer = (
                               </div>
 
                               {taskItem.questions.length === 0 ? (
-                                <div className="text-center py-6 border border-dashed border-[#CBD5E1] rounded-lg bg-white">
+                                <div className="text-center py-6 border border-dashed border-[#CBD5E1] rounded-[8px] bg-white">
                                   <QuizIcon className="mx-auto text-gray-300 mb-2" size={24} />
                                   <p className="text-xs text-gray-500">Configure multi-choice questions for verification</p>
                                   <button
@@ -1221,7 +1214,7 @@ const toggleCorrectAnswer = (
                               ) : (
                                 <div className="space-y-4">
                                   {taskItem.questions.map((quizQ, qIdx) => (
-                                    <div key={quizQ.id} className="p-3 bg-white border border-[#E2E8F0] rounded-lg space-y-3 relative">
+                                    <div key={quizQ.id} className="p-3 bg-white border border-[#E2E8F0] rounded-[8px] space-y-3 relative">
                                       <button
                                         type="button"
                                         onClick={() => deleteQuizQuestion(taskItem.id, quizQ.id)}
@@ -1255,7 +1248,7 @@ onChange={(e)=>
   e.target.value as any
  )
 }
-className="border rounded-lg text-xs p-2"
+className="border rounded-[8px] text-xs p-2"
 >
 <option value="single">
  Single Answer
@@ -1431,7 +1424,7 @@ className="border rounded-lg text-xs p-2"
                           <button
                             type="button"
                             onClick={() => setAudienceDropdownOpen(prev => prev === 'dept' ? null : 'dept')}
-                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-white hover:bg-slate-50 transition-colors"
+                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-[8px] bg-white hover:bg-slate-50 transition-colors"
                           >
                             <div className="flex flex-col text-left">
                               <span className="text-xs font-bold text-[#334155]">Function</span>
@@ -1443,7 +1436,7 @@ className="border rounded-lg text-xs p-2"
                           </button>
                           
                           {audienceDropdownOpen === 'dept' && (
-                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-xl p-2 max-h-60 overflow-y-auto">
+                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-[8px] p-2 max-h-60 overflow-y-auto">
                               <div className="space-y-1">
                                 {Array.from(new Set(corporateLevels.functions)).sort((a, b) => a.localeCompare(b)).map((func) => {
                                   const selected = selectedFunctions.includes(func);
@@ -1451,7 +1444,7 @@ className="border rounded-lg text-xs p-2"
                                     <button
                                       key={func}
                                       onClick={() => toggleSelection(func, selectedFunctions, setSelectedFunctions)}
-                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs leading-none cursor-pointer transition-colors ${
+                                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-xs leading-none cursor-pointer transition-colors ${
                                         selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
                                       }`}
                                     >
@@ -1470,7 +1463,7 @@ className="border rounded-lg text-xs p-2"
                           <button
                             type="button"
                             onClick={() => setAudienceDropdownOpen(prev => prev === 'unit' ? null : 'unit')}
-                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-xl bg-white hover:bg-slate-50 transition-colors"
+                            className="w-full flex items-center justify-between p-3 border border-gray-200 rounded-[8px] bg-white hover:bg-slate-50 transition-colors"
                           >
                             <div className="flex flex-col text-left">
                               <span className="text-xs font-bold text-[#334155]">Sub Function</span>
@@ -1482,9 +1475,9 @@ className="border rounded-lg text-xs p-2"
                           </button>
                           
                           {audienceDropdownOpen === 'unit' && (
-                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-xl p-2 max-h-60 overflow-y-auto">
+                            <div className="absolute z-20 top-full left-0 mt-2 w-full bg-white border border-gray-200 shadow-xl rounded-[8px] p-2 max-h-60 overflow-y-auto">
                               {selectedFunctions.length === 0 ? (
-                                <div className="p-4 text-center border border-dashed border-gray-100 rounded-lg">
+                                <div className="p-4 text-center border border-dashed border-gray-100 rounded-[8px]">
                                   <p className="text-[10px] text-gray-400">Pick a Function first to see focus teams!</p>
                                 </div>
                               ) : (
@@ -1495,7 +1488,7 @@ className="border rounded-lg text-xs p-2"
                                       <button
                                         key={subF}
                                         onClick={() => toggleSelection(subF, selectedSubFunctions, setSelectedSubFunctions)}
-                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs leading-none cursor-pointer transition-colors ${
+                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-[8px] text-xs leading-none cursor-pointer transition-colors ${
                                           selected ? 'bg-[#EEF2FF] text-[#2F63FF] font-medium' : 'hover:bg-slate-50 text-gray-600'
                                         }`}
                                       >
@@ -1512,7 +1505,7 @@ className="border rounded-lg text-xs p-2"
                       </div>
 
                       {/* 4. Filtered Individuals Selection */}
-                      <div className="border border-gray-200 rounded-xl p-4 bg-slate-50/50 space-y-3 mt-4">
+                      <div className="border border-gray-200 rounded-[8px] p-4 bg-slate-50/50 space-y-3 mt-4">
                         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-3 lg:space-y-0 gap-4">
                           <div className="flex-1 min-w-0">
                             <span className="text-xs font-bold text-[#334155] block truncate">Select Targeted Personnel ({selectedIndividualIds.length} Selected)</span>
@@ -1528,21 +1521,21 @@ className="border rounded-lg text-xs p-2"
                                 value={individualSearchQuery}
                                 onChange={(e) => setIndividualSearchQuery(e.target.value)}
                                 placeholder="Search personnel..."
-                                className="bg-white border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] w-40 sm:w-48"
+                                className="bg-white border border-gray-200 rounded-[8px] pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[#2F63FF] w-40 sm:w-48"
                               />
                             </div>
                             
                             <button
                               type="button"
                               onClick={handleSelectAllTeam}
-                              className="text-xs font-semibold text-[#2F63FF] border border-gray-200 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap shadow-sm"
+                              className="text-xs font-semibold text-[#2F63FF] border border-gray-200 hover:bg-slate-50 bg-white px-3 py-1.5 rounded-[8px] cursor-pointer whitespace-nowrap shadow-sm"
                             >
                               Select All ({filteredTeamMembers.length})
                             </button>
                             <button
                               type="button"
                               onClick={() => handleSelectPresets('clear')}
-                              className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer whitespace-nowrap shadow-sm"
+                              className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-semibold px-3 py-1.5 rounded-[8px] transition-colors cursor-pointer whitespace-nowrap shadow-sm"
                             >
                               Reset
                             </button>
@@ -1550,7 +1543,7 @@ className="border rounded-lg text-xs p-2"
                         </div>
 
                         {filteredTeamMembers.length === 0 ? (
-                          <div className="p-8 text-center bg-white border border-dashed border-gray-200 rounded-lg">
+                          <div className="p-8 text-center bg-white border border-dashed border-gray-200 rounded-[8px]">
                             <p className="text-xs text-gray-400">No personnel match the current criteria.</p>
                           </div>
                         ) : (
@@ -1561,7 +1554,7 @@ className="border rounded-lg text-xs p-2"
                                 <button
                                   key={member.id}
                                   onClick={() => toggleSelection(member.id, selectedIndividualIds, setSelectedIndividualIds)}
-                                  className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex items-center justify-between ${
+                                  className={`p-2.5 rounded-[8px] border text-left cursor-pointer transition-all flex items-center justify-between ${
                                     isChecked
                                       ? 'border-[#2F63FF] bg-white shadow-sm ring-2 ring-indigo-50/50'
                                       : 'border-gray-200 hover:border-gray-300 bg-white'
@@ -1586,7 +1579,7 @@ className="border rounded-lg text-xs p-2"
                                     </div>
                                   </div>
                                   <div className={`w-4.5 h-4.5 rounded-full border flex items-center justify-center ${
-                                    isChecked ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300'
+                                    isChecked ? 'bg-[#2563eb] border-[#2F63FF] text-white' : 'border-gray-300'
                                   }`}>
                                     {isChecked && <Check size={10} className="stroke-[3]" />}
                                   </div>
@@ -1611,7 +1604,7 @@ className="border rounded-lg text-xs p-2"
                     <p className="text-xs text-gray-500 mt-0.5 font-sans">Establish target completion deadlines and verify configurations on the pipeline summary panel.</p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-6 relative p-6 md:p-8 border border-indigo-100 rounded-3xl bg-gradient-to-br from-white via-indigo-50/40 to-blue-50/40 shadow-xl shadow-indigo-900/5 overflow-hidden">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-0 md:gap-6 relative p-6 md:p-8 border border-indigo-100 rounded-[8px] bg-gradient-to-br from-white via-indigo-50/40 to-blue-50/40 shadow-xl shadow-indigo-900/5 overflow-hidden">
                     {/* Decorative Glowing Orbs */}
                     <div className="absolute top-0 right-0 -mt-12 -mr-12 w-48 h-48 bg-blue-400/20 rounded-full blur-3xl pointer-events-none"></div>
                     <div className="absolute bottom-0 left-0 -mb-12 -ml-12 w-48 h-48 bg-purple-400/15 rounded-full blur-3xl pointer-events-none"></div>
@@ -1627,18 +1620,12 @@ className="border rounded-lg text-xs p-2"
                             type="date"
                             value={dueDate}
                             onChange={(e) => setDueDate(e.target.value)}
-                            className="flex-1 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-xl py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
-                          />
-                          <input
-                            type="time"
-                            value={dueTime}
-                            onChange={(e) => setDueTime(e.target.value)}
-                            className="w-32 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-xl py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
+                            className="flex-1 text-sm font-medium text-[#0F172A] border border-indigo-200/60 rounded-[8px] py-3 px-4 bg-white/80 backdrop-blur-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#2F63FF] focus:border-transparent transition-all"
                           />
                         </div>
 
                         {/* Strict Deadline Toggle */}
-                        <label className="flex items-start space-x-3 p-3 bg-white/60 border border-indigo-100/60 rounded-xl cursor-pointer hover:bg-white transition-all shadow-sm">
+                        <label className="flex items-start space-x-3 p-3 bg-white/60 border border-indigo-100/60 rounded-[8px] cursor-pointer hover:bg-white transition-all shadow-sm">
                           <div className="relative flex items-center mt-0.5">
                             <input 
                               type="checkbox" 
@@ -1646,7 +1633,7 @@ className="border rounded-lg text-xs p-2"
                               onChange={(e) => setStrictDeadline(e.target.checked)}
                               className="sr-only peer" 
                             />
-                            <div className="w-8 h-4.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-[#2F63FF]"></div>
+                            <div className="w-8 h-4.5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-[#2563eb]"></div>
                           </div>
                           <div>
                             <span className="text-xs font-bold text-indigo-900 block">Strict Deadline Enforcement</span>
@@ -1663,7 +1650,7 @@ className="border rounded-lg text-xs p-2"
                               d.setDate(d.getDate() + 1);
                               setDueDate(d.toISOString().split('T')[0]);
                             }}
-                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                           >
                             Due Tomorrow
                           </button>
@@ -1674,7 +1661,7 @@ className="border rounded-lg text-xs p-2"
                               d.setDate(d.getDate() + 7);
                               setDueDate(d.toISOString().split('T')[0]);
                             }}
-                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                           >
                             7-Day Deadline
                           </button>
@@ -1685,7 +1672,7 @@ className="border rounded-lg text-xs p-2"
                               d.setDate(d.getDate() + 14);
                               setDueDate(d.toISOString().split('T')[0]);
                             }}
-                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                           >
                             14-Day Deadline
                           </button>
@@ -1695,7 +1682,7 @@ className="border rounded-lg text-xs p-2"
                               // End of Sprint Mock
                               setDueDate('2026-06-30');
                             }}
-                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-xl transition-all cursor-pointer hover:-translate-y-0.5"
+                            className="bg-white/60 hover:bg-white text-indigo-700 border border-indigo-100/60 shadow-sm hover:shadow p-3 text-center text-xs font-bold rounded-[8px] transition-all cursor-pointer hover:-translate-y-0.5"
                           >
                             End of Month
                           </button>
@@ -1727,7 +1714,7 @@ className="border rounded-lg text-xs p-2"
                               key={item.id}
                               type="button"
                               onClick={() => setRecurrence(item.id as any)}
-                              className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all duration-300 flex flex-col justify-between ${
+                              className={`p-3.5 rounded-[8px] border text-left cursor-pointer transition-all duration-300 flex flex-col justify-between ${
                                 isSelectedRec
                                   ? 'border-transparent bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 scale-[1.02]'
                                   : 'border-indigo-100/60 bg-white/60 hover:bg-white shadow-sm hover:shadow text-gray-700 hover:-translate-y-0.5'
@@ -1746,7 +1733,7 @@ className="border rounded-lg text-xs p-2"
 
                   {/* Submission validation state message */}
                   {!isStepValid('details') && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl font-medium">
+                    <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-[8px] font-medium">
                       ⚠️ Note: Some tasks in Step 2 are incomplete! Please go back and write titles + instructions before sending.
                     </div>
                   )}
@@ -1755,7 +1742,7 @@ className="border rounded-lg text-xs p-2"
                     <button
                       type="button"
                       onClick={onCancel}
-                      className="px-5 py-2.5 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-xl text-gray-700 cursor-pointer"
+                      className="px-5 py-2.5 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-[8px] text-gray-700 cursor-pointer"
                     >
                       Save Draft
                     </button>
@@ -1763,9 +1750,9 @@ className="border rounded-lg text-xs p-2"
                       type="button"
                       onClick={handleLaunchFlow}
                       disabled={!isStepValid('details') || !isStepValid('audience')}
-                      className={`px-6 py-2.5 text-xs text-white font-semibold rounded-xl cursor-pointer transition-all flex items-center space-x-2 ${
+                      className={`px-6 py-2.5 text-xs text-white font-semibold rounded-[8px] cursor-pointer transition-all flex items-center space-x-2 ${
                         isStepValid('details') || isStepValid('audience') // Fallback to keep playground playful and accessible
-                          ? 'bg-[#2F63FF] hover:bg-blue-700 shadow-md shadow-blue-200'
+                          ? 'bg-[#2563eb] hover:bg-[#1d4ed8] shadow-md shadow-blue-200'
                           : 'bg-gray-300 pointer-events-none opacity-60'
                       }`}
                     >
@@ -1799,7 +1786,7 @@ className="border rounded-lg text-xs p-2"
                   const idx = stepsList.findIndex(s => s.id === activeStep);
                   if (idx > 0) setActiveStep(stepsList[idx - 1].id);
                 }}
-                className="px-4 py-2 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-xl text-gray-700 cursor-pointer flex items-center space-x-1"
+                className="px-4 py-2 border border-[#E2E8F0] hover:bg-slate-50 transition-colors text-xs font-semibold rounded-[8px] text-gray-700 cursor-pointer flex items-center space-x-1"
               >
                 <ChevronLeft size={14} />
                 <span>Previous Step</span>
@@ -1819,7 +1806,7 @@ className="border rounded-lg text-xs p-2"
                   const idx = stepsList.findIndex(s => s.id === activeStep);
                   if (idx < stepsList.length - 1) setActiveStep(stepsList[idx + 1].id);
                 }}
-                className="px-5 py-2 text-xs font-semibold rounded-xl transition-all flex items-center space-x-1 cursor-pointer bg-[#2F63FF] text-white hover:bg-blue-700 shadow-sm"
+                className="px-5 py-2 text-xs font-semibold rounded-[8px] transition-all flex items-center space-x-1 cursor-pointer bg-[#2563eb] text-white hover:bg-[#1d4ed8] shadow-sm"
               >
                 <span>Next Step</span>
                 <ChevronRight size={14} />
@@ -1831,7 +1818,7 @@ className="border rounded-lg text-xs p-2"
       </div>
 
       {/* RIGHT PORTION: Dynamic visual tablet preview device */}
-      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-2xl border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
+      {/* <div className="w-full xl:w-80 bg-slate-50 rounded-[8px] border border-[#E2E8F0] p-4 flex flex-col justify-between max-h-[700px] shadow-inner font-sans">
         <div>
           <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider font-mono">📱 MOBILE PREVIEW</span>
@@ -1850,10 +1837,10 @@ className="border rounded-lg text-xs p-2"
             {tasks.map((taskItem, tIdx) => (
               <div 
                 key={taskItem.id} 
-                className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm relative overflow-hidden"
+                className="bg-white rounded-[8px] p-4 border border-gray-200 shadow-sm relative overflow-hidden"
               > */}
                 {/* Decorative status accent */}
-                {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2F63FF]"></div>
+                {/* <div className="absolute top-0 left-0 w-1 h-full bg-[#2563eb]"></div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1876,7 +1863,7 @@ className="border rounded-lg text-xs p-2"
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest block mb-2">Required Validation Action:</span>
                     
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('image') : taskItem.submissionFormat === 'image') && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
+                      <div className="border border-dashed border-gray-200 rounded-[8px] p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <ImageIcon size={12} />
                         </span>
@@ -1886,7 +1873,7 @@ className="border rounded-lg text-xs p-2"
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('text') : taskItem.submissionFormat === 'text') && (
-                      <div className="border border-gray-200 rounded-lg p-2.5 bg-slate-50 relative cursor-not-allowed mb-2">
+                      <div className="border border-gray-200 rounded-[8px] p-2.5 bg-slate-50 relative cursor-not-allowed mb-2">
                         <div className="space-y-1">
                           <div className="h-1 bg-gray-200 rounded w-full"></div>
                           <div className="h-1 bg-gray-200 rounded w-5/6"></div>
@@ -1896,7 +1883,7 @@ className="border rounded-lg text-xs p-2"
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('multiple_choice') : taskItem.submissionFormat === 'multiple_choice') && (
-                      <div className="bg-slate-50 rounded-lg p-2.5 border border-gray-100 space-y-2 mb-2">
+                      <div className="bg-slate-50 rounded-[8px] p-2.5 border border-gray-100 space-y-2 mb-2">
                         {taskItem.questions.length === 0 ? (
                           <div className="text-center py-2 text-[10px] text-gray-400 font-sans">
                             Configure evaluation items in step 2.
@@ -1931,7 +1918,7 @@ className="border rounded-lg text-xs p-2"
                     )}
 
                     {(Array.isArray(taskItem.submissionFormat) ? taskItem.submissionFormat.includes('audio') : taskItem.submissionFormat === 'audio') && (
-                      <div className="border border-dashed border-gray-200 rounded-lg p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
+                      <div className="border border-dashed border-gray-200 rounded-[8px] p-3 text-center bg-slate-50 cursor-not-allowed mb-2">
                         <span className="w-6 h-6 rounded-full bg-white border border-gray-100 flex items-center justify-center mx-auto mb-1.5 shadow-sm text-gray-400">
                           <MicIcon size={12} />
                         </span>

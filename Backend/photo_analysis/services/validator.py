@@ -1,3 +1,4 @@
+"""
 def validate_objects_with_task(instruction: str, object_evidence: dict):
 
     instruction = instruction.lower()
@@ -61,3 +62,4 @@ def validate_objects_with_task(instruction: str, object_evidence: dict):
         "missing_objects": missing,
         "object_check_passed": len(missing) == 0
     }
+"""

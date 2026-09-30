@@ -10,17 +10,17 @@ import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { useToast } from "@/hooks/use-toast";
 import { CustomPagination } from '@/components/ui/custom-pagination';
-import { 
-  Plus, 
-  Search, 
-  Layers, 
-  User, 
-  Calendar, 
-  CheckCircle, 
-  Clock, 
-  ExternalLink, 
-  FileText, 
-  ImageIcon, 
+import {
+  Plus,
+  Search,
+  Layers,
+  User,
+  Calendar,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+  FileText,
+  ImageIcon,
   ListTodo as QuizIcon,
   Play,
   Pause,
@@ -83,14 +83,14 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   const [sortBy, setSortBy] = useState('title');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  
+
   // Interactive submission tracking for employees
   const [activeSubmittingTaskId, setActiveSubmittingTaskId] = useState<string | null>(null);
   const [submittedTaskIds, setSubmittedTaskIds] = useState<Record<string, boolean>>({});
   const [submittingTaskIds, setSubmittingTaskIds] = useState<Record<string, boolean>>({});
   const [submitError, setSubmitError] = useState<Record<string, string>>({});
   const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState<string | null>(null);
-  
+
   // Form responses
   const [textResponses, setTextResponses] = useState<Record<string, string>>({});
   const [imageFiles, setImageFiles] = useState<Record<string, string>>({});
@@ -146,7 +146,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       link.click();
       link.parentNode?.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
-      
+
       toast({
         description: "Report generated successfully",
       });
@@ -208,9 +208,9 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   // Filter tasks based on Search bar and Select controls
   const filteredTasks = (assignedTasks || []).filter(task => {
     // Check if search match in title, description, or target audience
-    const matchesSearch = searchQuery.trim() === '' || 
-      task.tasks.some(sub => 
-        sub.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = searchQuery.trim() === '' ||
+      task.tasks.some(sub =>
+        sub.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         sub.description.toLowerCase().includes(searchQuery.toLowerCase())
       ) ||
       (task.targetSprints || []).some(s => String(s).toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -389,21 +389,21 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       audioChunksRef.current = [];
       const userStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = userStream;
-      
+
       let recorder: MediaRecorder;
       try {
         recorder = new MediaRecorder(userStream);
       } catch (e) {
         recorder = new MediaRecorder(userStream, { mimeType: 'audio/webm' });
       }
-      
+
       audioRecorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-      
+
       recorder.onstop = async () => {
         const mimeType = recorder.mimeType || 'audio/webm';
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -466,25 +466,38 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
       videoChunksRef.current = [];
       const userStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       videoStreamRef.current = userStream;
-      
+
       let recorder: MediaRecorder;
       try {
         recorder = new MediaRecorder(userStream, { mimeType: 'video/webm;codecs=vp8,opus' });
       } catch (e) {
         recorder = new MediaRecorder(userStream);
       }
-      
+
       videoRecorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           videoChunksRef.current.push(event.data);
         }
       };
-      
+
       recorder.onstop = () => {
-        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
-        const videoUrl = URL.createObjectURL(videoBlob);
-        setVideoFiles(prev => ({ ...prev, [taskId]: videoUrl }));
+        const videoBlob = new Blob(videoChunksRef.current, {
+          type: "video/webm",
+        });
+
+        const reader = new FileReader();
+
+        reader.onloadend = () => {
+          const videoDataUrl = reader.result as string;
+
+          setVideoFiles(prev => ({
+            ...prev,
+            [taskId]: videoDataUrl,
+          }));
+        };
+
+        reader.readAsDataURL(videoBlob);
       };
 
       recorder.start();
@@ -568,7 +581,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         setSubmitError(prev => ({ ...prev, [taskId]: `Oops! Please provide a photo verification for: ${sub.title}` }));
         return;
       }
-      	  if (sub.submissionFormat === 'image' && imageAnalysis[sub.id]?.passed === false) {
+      if (sub.submissionFormat === 'image' && imageAnalysis[sub.id]?.passed === false) {
         setSubmitError(prev => ({ ...prev, [taskId]: `AI verification failed. Please upload correct image.` }));
         return;
       }
@@ -606,13 +619,13 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         sub.questions.forEach(q => {
           totalQuestionsCount += 1;
           const chosen = quizAnswers[taskId]?.[q.id];
-          
+
           let isCorrectAnswer = false;
           let correctAnsStr = 'A';
           if (q.type === 'multiple' && q.correctAnswers) {
             const chosenArr = Array.isArray(chosen) ? chosen : [chosen].filter(Boolean);
-            isCorrectAnswer = chosenArr.length === q.correctAnswers.length && 
-                              chosenArr.every((ans) => q.correctAnswers?.includes(ans as string));
+            isCorrectAnswer = chosenArr.length === q.correctAnswers.length &&
+              chosenArr.every((ans) => q.correctAnswers?.includes(ans as string));
             correctAnsStr = q.correctAnswers.join(', ');
           } else {
             const correctAns = q.correctAnswer || q.options[0] || 'A';
@@ -634,7 +647,7 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         earnedScore += 1; // standard text/image uploads get full points upon submission
         let submittedText = 'None';
         let expectedText = 'Standard Response Delivered';
-        
+
         if (sub.submissionFormat === 'image') {
           submittedText = imageFiles[sub.id] ? 'Verified Image Uploaded' : 'None';
           expectedText = 'Verified Image Uploaded';
@@ -776,11 +789,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
 
-     
+
       <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm mb-4 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-[#0F172A] font-bold text-xl">Assigned Tasks</h2>
-          
+
           <div className="flex gap-2 items-center">
             {userRole === 'admin' && (
               <button
@@ -796,17 +809,15 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
               <>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                    viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
-                  }`}
+                  className={`p-2 rounded-lg transition-colors cursor-pointer ${viewMode === 'grid' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                    }`}
                 >
                   <LayoutGrid size={18} />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                    viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
-                  }`}
+                  className={`p-2 rounded-lg transition-colors cursor-pointer ${viewMode === 'list' ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-50 text-gray-400 border border-gray-100 hover:bg-gray-100'
+                    }`}
                 >
                   <List size={18} />
                 </button>
@@ -818,25 +829,22 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
         <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={() => { setStatusFilter('active'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-              statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
-            }`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'active' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
           >
             Active
           </button>
           <button
             onClick={() => { setStatusFilter('completed'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-              statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
-            }`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'completed' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
           >
             Completed
           </button>
           <button
             onClick={() => { setStatusFilter('all'); setCurrentPage(1); }}
-            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-              statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
-            }`}
+            className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${statusFilter === 'all' ? 'bg-purple-50 text-purple-700' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+              }`}
           >
             All
           </button>
@@ -927,10 +935,9 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                               <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wide">Users Completed</span>
                             </div>
                           ) : (
-                            <span className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
-                              isCompletedByMe ? 'bg-green-100 text-green-600' :
-                              task.id === activeSubmittingTaskId ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-100 text-[#64748B]'
-                            }`}>
+                            <span className={`inline-flex px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${isCompletedByMe ? 'bg-green-100 text-green-600' :
+                                task.id === activeSubmittingTaskId ? 'bg-[#EEF2FF] text-[#2F63FF]' : 'bg-gray-100 text-[#64748B]'
+                              }`}>
                               {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
                             </span>
                           )}
@@ -1030,333 +1037,329 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                       </div>
                     )}
 
-                {viewMode === 'grid' && userRole === 'admin' && (
-                  <div 
-                    className={`bg-white rounded-2xl border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${
-                      isCompletedByMe 
-                        ? 'border-emerald-300 ring-2 ring-emerald-50/50' 
-                        : isSubmittingActive
-                          ? 'border-[#2F63FF] ring-4 ring-indigo-50'
-                          : 'border-[#E2E8F0]'
-                    }`}
-                  >
-                {/* 1. Card Top Accent Color bar */}
-                <div className={`h-1.5 w-full ${isCompletedByMe ? 'bg-[#10B981]' : 'bg-[#2F63FF]'}`} />
+                    {viewMode === 'grid' && userRole === 'admin' && (
+                      <div
+                        className={`bg-white rounded-2xl border transition-all flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${isCompletedByMe
+                            ? 'border-emerald-300 ring-2 ring-emerald-50/50'
+                            : isSubmittingActive
+                              ? 'border-[#2F63FF] ring-4 ring-indigo-50'
+                              : 'border-[#E2E8F0]'
+                          }`}
+                      >
+                        {/* 1. Card Top Accent Color bar */}
+                        <div className={`h-1.5 w-full ${isCompletedByMe ? 'bg-[#10B981]' : 'bg-[#2F63FF]'}`} />
 
-                <div className="p-5 flex-1 flex flex-col justify-between">
-                  <div>
-                    {/* Header meta */}
-                    <div className="flex items-center justify-between mb-3.5">
-                      <div className="flex flex-wrap gap-1.5 items-center">
-                        <span className={`text-[10px] font-sans font-bold tracking-wide uppercase px-2.5 py-0.5 rounded-full ${
-                          task.level === 'sprint'
-                            ? 'bg-[#EEF2FF] text-[#2F63FF]'
-                            : 'bg-amber-50 text-amber-600'
-                        }`}>
-                          {task.level === 'sprint' ? '🚀 Sprint Level' : '👥 User Group'}
-                        </span>
-                        {task.recurrence && task.recurrence !== 'none' && (
-                          <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full font-sans">
-                            <span>🔁</span>
-                            <span className="capitalize">{task.recurrence.replace(/_/g, ' ')}</span>
-                          </span>
-                        )}
-                      </div>
-                      
-                      <span className={`text-[10px] font-medium flex items-center space-x-1 ${
-                        isCompletedByMe ? 'text-[#10B981]' : 'text-gray-500 font-sans'
-                      }`}>
-                        {isCompletedByMe ? (
-                          <>
-                            <CheckCircle size={12} />
-                            <span>Completed & Verified</span>
-                          </>
-                        ) : (
-                          <>
-                            <Clock size={12} />
-                            <span>Due Date: {task.dueDate}</span>
-                          </>
-                        )}
-                      </span>
-                    </div>
-
-                    {/* Task Title Payload info */}
-                    <div className="space-y-1">
-                      
-                      <h3 className="font-display font-medium text-[#0F172A] leading-snug text-sm tracking-tight text-[#0F172A] font-bold">
-                        {task.title || task.tasks.map(t => t.title).join(' • ')}
-                      </h3>
-                    </div>
-
-
-                  </div>
-
-                  {/* Task sub-items information displaying list of child tasks */}
-                  <div className="my-4 bg-slate-50 rounded-xl p-3 border border-[#F1F5F9]">
-                    <div className="space-y-2">
-                      {task.tasks.map((sub, sIdx) => {
-                        return (
-                           <div key={sub.id} className="flex items-start space-x-2">
-                            <span className="text-[9px] bg-white border font-sans font-bold w-4.5 h-4.5 rounded-md flex items-center justify-center text-[#2F63FF]">
-                              {sIdx + 1}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-semibold text-[#0F172A] truncate">{sub.title}</p>
-                              <div className="flex items-center space-x-1 text-[9px] text-[#64748B] mt-0.5">
-                                {sub.submissionFormat === 'image' && <ImageIcon size={9} className="text-[#2F63FF]" />}
-                                {sub.submissionFormat === 'text' && <FileText size={9} className="text-[#2F63FF]" />}
-                                {sub.submissionFormat === 'multiple_choice' && <QuizIcon size={9} className="text-[#2F63FF]" />}
-                                {sub.submissionFormat === 'audio' && <Mic size={9} className="text-[#2F63FF]" />}
-                                {sub.submissionFormat === 'video' && <VideoIcon size={9} className="text-[#2F63FF]" />}
-                                <span className="capitalize">
-                                  {sub.submissionFormat === 'multiple_choice' 
-                                    ? 'Quiz form' 
-                                    : `${sub.submissionFormat} submission`}
+                        <div className="p-5 flex-1 flex flex-col justify-between">
+                          <div>
+                            {/* Header meta */}
+                            <div className="flex items-center justify-between mb-3.5">
+                              <div className="flex flex-wrap gap-1.5 items-center">
+                                <span className={`text-[10px] font-sans font-bold tracking-wide uppercase px-2.5 py-0.5 rounded-full ${task.level === 'sprint'
+                                    ? 'bg-[#EEF2FF] text-[#2F63FF]'
+                                    : 'bg-amber-50 text-amber-600'
+                                  }`}>
+                                  {task.level === 'sprint' ? '🚀 Sprint Level' : '👥 User Group'}
                                 </span>
+                                {task.recurrence && task.recurrence !== 'none' && (
+                                  <span className="inline-flex items-center space-x-1 text-[9px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full font-sans">
+                                    <span>🔁</span>
+                                    <span className="capitalize">{task.recurrence.replace(/_/g, ' ')}</span>
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
 
-                  {/* Interactive area - based on role */}
-                  <div className="mt-4 pt-4 border-t border-[#F1F5F9]">
-                    {userRole === 'admin' ? (
-                      /* Admin details view */
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div className="text-left">
-                            <span className="text-[8px] font-sans text-gray-400 block uppercase">COMPLETION LOGS</span>
-                            <span className="text-xs font-bold text-[#2F63FF] font-sans">
-                              {task.completionCount} / {task.totalTargetUsersCount} users completed
-                            </span>
-                          </div>
-                          
-                          {confirmDeleteTaskId === task.id ? (
-                            <div className="flex items-center space-x-2 animate-fade-in">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onTaskDeleted) {
-                                    onTaskDeleted(task.id);
-                                  }
-                                  setConfirmDeleteTaskId(null);
-                                }}
-                                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
-                              >
-                                Confirm Delete
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteTaskId(null)}
-                                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedReportTask(task);
-                                  setSelectedSubtaskId(task.tasks[0]?.id || '');
-                                  setReportFeedback('');
-                                  setReportDuration('30_days');
-                                  setReportEmail('');
-                                }}
-                                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
-                              >
-                                <span>Report</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onEditTaskRequest) {
-                                    onEditTaskRequest(task);
-                                  }
-                                }}
-                                className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
-                              >
-                                <span>Reassign</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteTaskId(task.id)}
-                                className="text-xs font-semibold p-1.5 rounded-lg border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
-                                title="Delete Task"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-
-                      </div>
-                    ) : (
-                      /* Employee Submission Interactive View */
-                      <div className="space-y-4">
-                        {isCompletedByMe ? (
-                          <div className="space-y-3">
-                            {userRole === 'employee' ? (
-                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                                <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
-                                  <CheckCircle size={16} />
-                                  <span>Completed</span>
-                                </div>
-                                <p className="text-xs text-emerald-600 mt-1">Task submitted successfully</p>
-                              </div>
-                            ) : (
-                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
-                                <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
-                                  <CheckCircle size={16} />
-                                  <span>Verified & Complete</span>
-                                </div>
-                                
-                                {!isWelcomePage && (
+                              <span className={`text-[10px] font-medium flex items-center space-x-1 ${isCompletedByMe ? 'text-[#10B981]' : 'text-gray-500 font-sans'
+                                }`}>
+                                {isCompletedByMe ? (
                                   <>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                                      <div className="rounded-lg bg-white border border-emerald-100 p-3">
-                                        <div className="text-[10px] uppercase text-gray-400 font-bold">AI Score</div>
-                                        <div className="mt-1 font-semibold text-gray-900">
-                                          {latestSubmission?.score ?? latestSubmission?.ai_validation?.scores?.overall ?? 'N/A'} / 100
-                                        </div>
-                                      </div>
-                                      <div className="rounded-lg bg-white border border-emerald-100 p-3">
-                                        <div className="text-[10px] uppercase text-gray-400 font-bold">Completed</div>
-                                        <div className="mt-1 font-semibold text-gray-900">
-                                          {latestSubmission?.submitted_at ? new Date(latestSubmission.submitted_at).toLocaleDateString() : 'Already submitted'}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    {latestSubmission?.ai_validation ? (
-                                      <div className="grid grid-cols-1 gap-2 text-xs">
-                                        <div className="rounded-lg bg-white border border-emerald-100 p-3">
-                                          <div className="text-[10px] uppercase text-gray-400 font-bold">AI Remark</div>
-                                          <div className="mt-1 text-gray-700">
-                                            {latestSubmission.ai_validation.reason || latestSubmission.ai_validation.feedback || 'Good work'}
-                                          </div>
-                                        </div>
-                                        {task.tasks[0]?.submissionFormat === 'audio' && latestSubmission.ai_validation.scores ? (
-                                          <div className="rounded-lg bg-white border border-emerald-100 p-3">
-                                            <div className="text-[10px] uppercase text-gray-400 font-bold">Audio Scores</div>
-                                            <div className="mt-1 grid grid-cols-2 gap-1 text-gray-700">
-                                              <span>Clarity: {latestSubmission.ai_validation.scores.clarity ?? 'N/A'}</span>
-                                              <span>Confidence: {latestSubmission.ai_validation.scores.confidence ?? 'N/A'}</span>
-                                              <span>Fluency: {latestSubmission.ai_validation.scores.fluency ?? 'N/A'}</span>
-                                              <span>Pronunciation: {latestSubmission.ai_validation.scores.pronunciation ?? 'N/A'}</span>
-                                            </div>
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
+                                    <CheckCircle size={12} />
+                                    <span>Completed & Verified</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock size={12} />
+                                    <span>Due Date: {task.dueDate}</span>
                                   </>
                                 )}
+                              </span>
+                            </div>
 
-                                {/* View AI Feedback Button */}
-                                {latestSubmission && (
+                            {/* Task Title Payload info */}
+                            <div className="space-y-1">
+
+                              <h3 className="font-display font-medium text-[#0F172A] leading-snug text-sm tracking-tight text-[#0F172A] font-bold">
+                                {task.title || task.tasks.map(t => t.title).join(' • ')}
+                              </h3>
+                            </div>
+
+
+                          </div>
+
+                          {/* Task sub-items information displaying list of child tasks */}
+                          <div className="my-4 bg-slate-50 rounded-xl p-3 border border-[#F1F5F9]">
+                            <div className="space-y-2">
+                              {task.tasks.map((sub, sIdx) => {
+                                return (
+                                  <div key={sub.id} className="flex items-start space-x-2">
+                                    <span className="text-[9px] bg-white border font-sans font-bold w-4.5 h-4.5 rounded-md flex items-center justify-center text-[#2F63FF]">
+                                      {sIdx + 1}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-[11px] font-semibold text-[#0F172A] truncate">{sub.title}</p>
+                                      <div className="flex items-center space-x-1 text-[9px] text-[#64748B] mt-0.5">
+                                        {sub.submissionFormat === 'image' && <ImageIcon size={9} className="text-[#2F63FF]" />}
+                                        {sub.submissionFormat === 'text' && <FileText size={9} className="text-[#2F63FF]" />}
+                                        {sub.submissionFormat === 'multiple_choice' && <QuizIcon size={9} className="text-[#2F63FF]" />}
+                                        {sub.submissionFormat === 'audio' && <Mic size={9} className="text-[#2F63FF]" />}
+                                        {sub.submissionFormat === 'video' && <VideoIcon size={9} className="text-[#2F63FF]" />}
+                                        <span className="capitalize">
+                                          {sub.submissionFormat === 'multiple_choice'
+                                            ? 'Quiz form'
+                                            : `${sub.submissionFormat} submission`}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Interactive area - based on role */}
+                          <div className="mt-4 pt-4 border-t border-[#F1F5F9]">
+                            {userRole === 'admin' ? (
+                              /* Admin details view */
+                              <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-left">
+                                    <span className="text-[8px] font-sans text-gray-400 block uppercase">COMPLETION LOGS</span>
+                                    <span className="text-xs font-bold text-[#2F63FF] font-sans">
+                                      {task.completionCount} / {task.totalTargetUsersCount} users completed
+                                    </span>
+                                  </div>
+
+                                  {confirmDeleteTaskId === task.id ? (
+                                    <div className="flex items-center space-x-2 animate-fade-in">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (onTaskDeleted) {
+                                            onTaskDeleted(task.id);
+                                          }
+                                          setConfirmDeleteTaskId(null);
+                                        }}
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-650 hover:bg-red-100 hover:border-red-300 transition-all cursor-pointer"
+                                      >
+                                        Confirm Delete
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteTaskId(null)}
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 transition-all cursor-pointer"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center space-x-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedReportTask(task);
+                                          setSelectedSubtaskId(task.tasks[0]?.id || '');
+                                          setReportFeedback('');
+                                          setReportDuration('30_days');
+                                          setReportEmail('');
+                                        }}
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[#2F63FF]/20 bg-[#EEF2FF]/40 text-[#2F63FF] hover:bg-[#EEF2FF] hover:border-[#2F63FF]/30 transition-all flex items-center space-x-1 cursor-pointer"
+                                      >
+                                        <span>Report</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (onEditTaskRequest) {
+                                            onEditTaskRequest(task);
+                                          }
+                                        }}
+                                        className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:text-[#2F63FF] hover:border-[#2F63FF]/30 hover:bg-[#EEF2FF]/40 transition-all flex items-center space-x-1 cursor-pointer"
+                                      >
+                                        <span>Reassign</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteTaskId(task.id)}
+                                        className="text-xs font-semibold p-1.5 rounded-lg border border-red-100 bg-white text-red-500 hover:text-white hover:bg-red-500 hover:border-red-500 transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                                        title="Delete Task"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+
+                              </div>
+                            ) : (
+                              /* Employee Submission Interactive View */
+                              <div className="space-y-4">
+                                {isCompletedByMe ? (
+                                  <div className="space-y-3">
+                                    {userRole === 'employee' ? (
+                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                                        <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
+                                          <CheckCircle size={16} />
+                                          <span>Completed</span>
+                                        </div>
+                                        <p className="text-xs text-emerald-600 mt-1">Task submitted successfully</p>
+                                      </div>
+                                    ) : (
+                                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                                        <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm">
+                                          <CheckCircle size={16} />
+                                          <span>Verified & Complete</span>
+                                        </div>
+
+                                        {!isWelcomePage && (
+                                          <>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                              <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                <div className="text-[10px] uppercase text-gray-400 font-bold">AI Score</div>
+                                                <div className="mt-1 font-semibold text-gray-900">
+                                                  {latestSubmission?.score ?? latestSubmission?.ai_validation?.scores?.overall ?? 'N/A'} / 100
+                                                </div>
+                                              </div>
+                                              <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                <div className="text-[10px] uppercase text-gray-400 font-bold">Completed</div>
+                                                <div className="mt-1 font-semibold text-gray-900">
+                                                  {latestSubmission?.submitted_at ? new Date(latestSubmission.submitted_at).toLocaleDateString() : 'Already submitted'}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            {latestSubmission?.ai_validation ? (
+                                              <div className="grid grid-cols-1 gap-2 text-xs">
+                                                <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                  <div className="text-[10px] uppercase text-gray-400 font-bold">AI Remark</div>
+                                                  <div className="mt-1 text-gray-700">
+                                                    {latestSubmission.ai_validation.reason || latestSubmission.ai_validation.feedback || 'Good work'}
+                                                  </div>
+                                                </div>
+                                                {task.tasks[0]?.submissionFormat === 'audio' && latestSubmission.ai_validation.scores ? (
+                                                  <div className="rounded-lg bg-white border border-emerald-100 p-3">
+                                                    <div className="text-[10px] uppercase text-gray-400 font-bold">Audio Scores</div>
+                                                    <div className="mt-1 grid grid-cols-2 gap-1 text-gray-700">
+                                                      <span>Clarity: {latestSubmission.ai_validation.scores.clarity ?? 'N/A'}</span>
+                                                      <span>Confidence: {latestSubmission.ai_validation.scores.confidence ?? 'N/A'}</span>
+                                                      <span>Fluency: {latestSubmission.ai_validation.scores.fluency ?? 'N/A'}</span>
+                                                      <span>Pronunciation: {latestSubmission.ai_validation.scores.pronunciation ?? 'N/A'}</span>
+                                                    </div>
+                                                  </div>
+                                                ) : null}
+                                              </div>
+                                            ) : null}
+                                          </>
+                                        )}
+
+                                        {/* View AI Feedback Button */}
+                                        {latestSubmission && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setSelectedFeedbackSubmission({
+                                              ...latestSubmission,
+                                              ...(latestSubmission.ai_validation || {})
+                                            })}
+                                            className="w-full text-center py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md mt-2 flex items-center justify-center space-x-1"
+                                          >
+                                            <span>{isWelcomePage ? 'View Feedback' : 'View AI Feedback ✨'}</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  /* Initial Start CTA */
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedFeedbackSubmission({
-                                      ...latestSubmission,
-                                      ...(latestSubmission.ai_validation || {})
-                                    })}
-                                    className="w-full text-center py-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all cursor-pointer shadow-md mt-2 flex items-center justify-center space-x-1"
+                                    onClick={() => setActiveSubmittingTaskId(task.id)}
+                                    className="w-full flex items-center justify-center space-x-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition-all cursor-pointer shadow-sm mt-4"
                                   >
-                                    <span>{isWelcomePage ? 'View Feedback' : 'View AI Feedback ✨'}</span>
+                                    <Play size={12} fill="currentColor" />
+                                    <span>Begin Verification</span>
                                   </button>
                                 )}
                               </div>
                             )}
                           </div>
-                        ) : (
-                          /* Initial Start CTA */
-                          <button
-                            type="button"
-                            onClick={() => setActiveSubmittingTaskId(task.id)}
-                            className="w-full flex items-center justify-center space-x-2 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition-all cursor-pointer shadow-sm mt-4"
-                          >
-                            <Play size={12} fill="currentColor" />
-                            <span>Begin Verification</span>
-                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {viewMode === 'grid' && userRole !== 'admin' && (
+                      <div className="bg-white rounded-xl border border-gray-100 p-5 flex flex-col justify-between shadow-[0_2px_8px_rgb(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgb(0,0,0,0.06)] transition-all space-y-6">
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-start gap-4">
+                            <h3 className="font-bold text-gray-900 text-[15px] leading-snug">
+                              {task.title || task.tasks.map(t => t.title).join(' • ')}
+                            </h3>
+                            <span className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${isCompletedByMe ? 'bg-green-100 text-green-600' :
+                                task.id === activeSubmittingTaskId ? 'bg-blue-100 text-[#2F63FF]' : 'bg-gray-100 text-gray-500'
+                              }`}>
+                              {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-medium">
+                            Due: {task.dueDate || 'N/A'}
+                          </div>
+
+                          <div className="space-y-1.5 pt-2">
+                            <div className="flex justify-between text-xs font-bold">
+                              <span className="text-gray-500">Completion</span>
+                              <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
+                            </div>
+                            <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
+                            </div>
+                            <div className="text-xs text-gray-400 font-medium mt-1">
+                              {isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length} modules
+                            </div>
+                          </div>
+                        </div>
+                        {!isCompletedByMe && (
+                          <div className="flex items-center justify-between gap-3 pt-2">
+                            <div className="flex -space-x-1.5">
+                              {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
+                              {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
+                              {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
+                              {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
+                              {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveSubmittingTaskId(task.id)}
+                              className="flex-1 py-2.5 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
+                            >
+                              Start
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
-                  </div>
-                </div>
-              </div>
-              )}
-              {viewMode === 'grid' && userRole !== 'admin' && (
-                <div className="bg-white rounded-xl border border-gray-100 p-5 flex flex-col justify-between shadow-[0_2px_8px_rgb(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgb(0,0,0,0.06)] transition-all space-y-6">
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-start gap-4">
-                      <h3 className="font-bold text-gray-900 text-[15px] leading-snug">
-                        {task.title || task.tasks.map(t => t.title).join(' • ')}
-                      </h3>
-                      <span className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide ${
-                        isCompletedByMe ? 'bg-green-100 text-green-600' : 
-                        task.id === activeSubmittingTaskId ? 'bg-blue-100 text-[#2F63FF]' : 'bg-gray-100 text-gray-500'
-                      }`}>
-                        {isCompletedByMe ? 'Completed' : task.id === activeSubmittingTaskId ? 'In Progress' : 'Not Started'}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-400 font-medium">
-                      Due: {task.dueDate || 'N/A'}
-                    </div>
-                    
-                    <div className="space-y-1.5 pt-2">
-                      <div className="flex justify-between text-xs font-bold">
-                        <span className="text-gray-500">Completion</span>
-                        <span className="text-[#2F63FF]">{isCompletedByMe ? '100%' : '0%'}</span>
-                      </div>
-                      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${isCompletedByMe ? 'bg-[#2F63FF] w-full' : 'bg-[#2F63FF] w-0'}`} />
-                      </div>
-                      <div className="text-xs text-gray-400 font-medium mt-1">
-                        {isCompletedByMe ? task.tasks.length : 0} / {task.tasks.length} modules
-                      </div>
-                    </div>
-                  </div>
-                  {!isCompletedByMe && (
-                    <div className="flex items-center justify-between gap-3 pt-2">
-                      <div className="flex -space-x-1.5">
-                        {task.tasks.map(t => t.submissionFormat).includes('audio') && <div className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center border-2 border-white shadow-sm z-10" title="Audio"><Mic size={12} /></div>}
-                        {task.tasks.map(t => t.submissionFormat).includes('video') && <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center border-2 border-white shadow-sm z-20" title="Video"><VideoIcon size={12} /></div>}
-                        {task.tasks.map(t => t.submissionFormat).includes('image') && <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center border-2 border-white shadow-sm z-30" title="Image"><Camera size={12} /></div>}
-                        {task.tasks.map(t => t.submissionFormat).includes('text') && <div className="w-7 h-7 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center border-2 border-white shadow-sm z-40" title="Text"><Type size={12} /></div>}
-                        {task.tasks.map(t => t.submissionFormat).includes('multiple_choice') && <div className="w-7 h-7 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center border-2 border-white shadow-sm z-50" title="Quiz"><ListChecks size={12} /></div>}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveSubmittingTaskId(task.id)}
-                        className="flex-1 py-2.5 bg-[#2F63FF] hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-sm"
-                      >
-                        Start
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* MODAL */}
-              {isSubmittingActive && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in font-sans" onClick={() => setActiveSubmittingTaskId(null)}>
-                  <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-between items-start pb-4 border-b border-gray-100">
-                      <div className="space-y-1">
-                        <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.title || task.tasks[0]?.title}</h3>
-                        {task.description && <p className="text-sm text-gray-500 leading-normal">{task.description}</p>}
-                      </div>
-                      <button onClick={() => setActiveSubmittingTaskId(null)} className="text-gray-400 hover:text-gray-600 font-bold text-2xl cursor-pointer leading-none ml-4 mt-1">
-                        &times;
-                      </button>
-                    </div>
-                    <div className="space-y-4 pt-1">
-                                {task.tasks.map((subTask, index) => (
+
+                    {/* MODAL */}
+                    {isSubmittingActive && (
+                      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in font-sans" onClick={() => setActiveSubmittingTaskId(null)}>
+                        <div className="bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6 shadow-2xl space-y-6 relative" onClick={e => e.stopPropagation()}>
+                          <div className="flex justify-between items-start pb-4 border-b border-gray-100">
+                            <div className="space-y-1">
+                              <h3 className="font-bold text-lg text-slate-800">Complete Task: {task.title || task.tasks[0]?.title}</h3>
+                              {task.description && <p className="text-sm text-gray-500 leading-normal">{task.description}</p>}
+                            </div>
+                            <button onClick={() => setActiveSubmittingTaskId(null)} className="text-gray-400 hover:text-gray-600 font-bold text-2xl cursor-pointer leading-none ml-4 mt-1">
+                              &times;
+                            </button>
+                          </div>
+                          <div className="space-y-4 pt-1">
+                            {task.tasks.map((subTask, index) => (
                               <div key={subTask.id} className="p-3.5 bg-slate-50 border border-gray-100 rounded-xl space-y-3">
                                 <div className="flex justify-between items-start">
                                   <div className="flex space-x-2">
@@ -1415,11 +1418,11 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                     {imageFiles[subTask.id] ? (
                                       <>
                                         <div className="p-1 border border-[#E2E8F0] bg-white rounded-xl relative overflow-hidden animate-fade-in">
-                                          <img 
-                                            src={imageFiles[subTask.id]} 
-                                            alt="Captured/Simulated Content" 
+                                          <img
+                                            src={imageFiles[subTask.id]}
+                                            alt="Captured/Simulated Content"
                                             referrerPolicy="no-referrer"
-                                            className="w-full h-40 object-cover rounded-lg" 
+                                            className="w-full h-40 object-cover rounded-lg"
                                           />
                                           <button
                                             type="button"
@@ -1436,144 +1439,143 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         )}
 
                                         {imageAnalysis[subTask.id] && (userRole as string) === 'admin' && (
-  <div className="mt-3 p-3 border rounded-xl bg-white space-y-3">
+                                          <div className="mt-3 p-3 border rounded-xl bg-white space-y-3">
 
-    {/* HEADER */}
-    <div className="flex items-center justify-between">
-      <h4 className="text-sm font-bold">
-        🤖 AI Verification
-      </h4>
+                                            {/* HEADER */}
+                                            <div className="flex items-center justify-between">
+                                              <h4 className="text-sm font-bold">
+                                                🤖 AI Verification
+                                              </h4>
 
-      <span
-        className={`text-[11px] px-2 py-1 rounded-full font-bold ${
-          imageAnalysis[subTask.id].passed
-            ? "bg-green-100 text-green-700"
-            : "bg-red-100 text-red-700"
-        }`}
-      >
-        {imageAnalysis[subTask.id].passed ? "PASSED" : "FAILED"}
-      </span>
-    </div>
-
-
-    {/* SCORE */}
-    <div>
-      <p className="text-xs font-semibold">
-        Confidence Score
-      </p>
-
-      <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
-        <div
-          className="bg-[#2F63FF] h-2 rounded-full"
-          style={{
-            width: `${imageAnalysis[subTask.id].score}%`
-          }}
-        />
-      </div>
-
-      <p className="text-[11px] mt-1">
-        {imageAnalysis[subTask.id].score}/100
-      </p>
-    </div>
+                                              <span
+                                                className={`text-[11px] px-2 py-1 rounded-full font-bold ${imageAnalysis[subTask.id].passed
+                                                    ? "bg-green-100 text-green-700"
+                                                    : "bg-red-100 text-red-700"
+                                                  }`}
+                                              >
+                                                {imageAnalysis[subTask.id].passed ? "PASSED" : "FAILED"}
+                                              </span>
+                                            </div>
 
 
-    {/* FEEDBACK */}
-    <div className="bg-slate-50 p-2 rounded-lg">
-      <p className="text-[12px]">
-        {imageAnalysis[subTask.id].feedback}
-      </p>
-    </div>
+                                            {/* SCORE */}
+                                            <div>
+                                              <p className="text-xs font-semibold">
+                                                Confidence Score
+                                              </p>
+
+                                              <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                                <div
+                                                  className="bg-[#2F63FF] h-2 rounded-full"
+                                                  style={{
+                                                    width: `${imageAnalysis[subTask.id].score}%`
+                                                  }}
+                                                />
+                                              </div>
+
+                                              <p className="text-[11px] mt-1">
+                                                {imageAnalysis[subTask.id].score}/100
+                                              </p>
+                                            </div>
 
 
-
-    {/* OBJECT DETECTION */}
-    {imageAnalysis[subTask.id]?.evidence?.objects?.objects?.length > 0 && (
-      <div>
-        <p className="text-[11px] font-bold mb-1">
-          🔍 Objects detected
-        </p>
-
-        <div className="flex flex-wrap gap-1">
-          {imageAnalysis[subTask.id]
-            .evidence.objects.objects.map(
-            (obj:any,index:number)=>(
-              <span
-                key={index}
-                className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded-full"
-              >
-                {obj.label}
-                {" "}
-                {Math.round(obj.confidence*100)}%
-              </span>
-          ))}
-        </div>
-      </div>
-    )}
+                                            {/* FEEDBACK */}
+                                            <div className="bg-slate-50 p-2 rounded-lg">
+                                              <p className="text-[12px]">
+                                                {imageAnalysis[subTask.id].feedback}
+                                              </p>
+                                            </div>
 
 
 
-    {/* OCR */}
-    {imageAnalysis[subTask.id]
-      ?.evidence
-      ?.ocr
-      ?.detected_text
-      ?.length > 0 && (
+                                            {/* OBJECT DETECTION */}
+                                            {imageAnalysis[subTask.id]?.evidence?.objects?.objects?.length > 0 && (
+                                              <div>
+                                                <p className="text-[11px] font-bold mb-1">
+                                                  🔍 Objects detected
+                                                </p>
 
-      <div>
-        <p className="text-[11px] font-bold mb-1">
-          📝 Text Found
-        </p>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {imageAnalysis[subTask.id]
+                                                    .evidence.objects.objects.map(
+                                                      (obj: any, index: number) => (
+                                                        <span
+                                                          key={index}
+                                                          className="text-[10px] bg-blue-50 text-blue-700 px-2 py-1 rounded-full"
+                                                        >
+                                                          {obj.label}
+                                                          {" "}
+                                                          {Math.round(obj.confidence * 100)}%
+                                                        </span>
+                                                      ))}
+                                                </div>
+                                              </div>
+                                            )}
 
-        {imageAnalysis[subTask.id]
-          .evidence
-          .ocr
-          .detected_text
-          .map(
-          (txt:any,index:number)=>(
-            <p
-              key={index}
-              className="text-[10px] text-gray-600"
-            >
-              "{txt.text}"
-              {" "}
-              ({Math.round(txt.confidence*100)}%)
-            </p>
-        ))}
 
-      </div>
-    )}
 
-  </div>
-)}
+                                            {/* OCR */}
+                                            {imageAnalysis[subTask.id]
+                                              ?.evidence
+                                              ?.ocr
+                                              ?.detected_text
+                                              ?.length > 0 && (
+
+                                                <div>
+                                                  <p className="text-[11px] font-bold mb-1">
+                                                    📝 Text Found
+                                                  </p>
+
+                                                  {imageAnalysis[subTask.id]
+                                                    .evidence
+                                                    .ocr
+                                                    .detected_text
+                                                    .map(
+                                                      (txt: any, index: number) => (
+                                                        <p
+                                                          key={index}
+                                                          className="text-[10px] text-gray-600"
+                                                        >
+                                                          "{txt.text}"
+                                                          {" "}
+                                                          ({Math.round(txt.confidence * 100)}%)
+                                                        </p>
+                                                      ))}
+
+                                                </div>
+                                              )}
+
+                                          </div>
+                                        )}
                                       </>
                                     ) : activeCameraTaskId === subTask.id ? (
-                                        <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in mt-3">
-                                          <video
-                                            ref={videoRef}
-                                            autoPlay
-                                            playsInline
-                                            className="w-full h-full object-cover transform scale-x-[-1]"
-                                          />
-                                          <div className="absolute bottom-3 left-0 right-0 flex justify-center space-x-3 px-3">
-                                            <button
-                                              type="button"
-                                              onClick={() => captureLivePicture(subTask.id)}
-                                              className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 shadow-md font-sans"
-                                            >
-                                              <Camera size={13} />
-                                              <span>Capture Picture</span>
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => stopCamera()}
-                                              className="bg-black/60 hover:bg-black/80 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 font-sans"
-                                            >
-                                              <CameraOff size={13} />
-                                              <span>Cancel</span>
-                                            </button>
-                                          </div>
+                                      <div className="relative bg-black rounded-xl overflow-hidden shadow-inner aspect-video animate-fade-in mt-3">
+                                        <video
+                                          ref={videoRef}
+                                          autoPlay
+                                          playsInline
+                                          className="w-full h-full object-cover transform scale-x-[-1]"
+                                        />
+                                        <div className="absolute bottom-3 left-0 right-0 flex justify-center space-x-3 px-3">
+                                          <button
+                                            type="button"
+                                            onClick={() => captureLivePicture(subTask.id)}
+                                            className="bg-red-500 hover:bg-red-600 active:scale-95 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 shadow-md font-sans"
+                                          >
+                                            <Camera size={13} />
+                                            <span>Capture Picture</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => stopCamera()}
+                                            className="bg-black/60 hover:bg-black/80 text-white font-semibold text-[10px] uppercase tracking-wider px-3.5 py-2 rounded-full cursor-pointer transition-all flex items-center space-x-1.5 font-sans"
+                                          >
+                                            <CameraOff size={13} />
+                                            <span>Cancel</span>
+                                          </button>
                                         </div>
-                                      ) : null}
+                                      </div>
+                                    ) : null}
                                   </div>
                                 )}
 
@@ -1595,10 +1597,10 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                             <Mic size={12} />
                                           </button>
                                         </div>
-                                        <audio 
-                                          src={audioFiles[subTask.id]} 
-                                          controls 
-                                          className="w-full h-11" 
+                                        <audio
+                                          src={audioFiles[subTask.id]}
+                                          controls
+                                          className="w-full h-11"
                                         />
                                       </div>
                                     ) : null}
@@ -1622,10 +1624,10 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                             × Re-record
                                           </button>
                                         </div>
-                                        <video 
-                                          src={videoFiles[subTask.id]} 
-                                          controls 
-                                          className="w-full h-40 object-cover rounded-lg" 
+                                        <video
+                                          src={videoFiles[subTask.id]}
+                                          controls
+                                          className="w-full h-40 object-cover rounded-lg"
                                         />
                                       </div>
                                     ) : activeRecordingVideoTaskId === subTask.id ? (
@@ -1675,27 +1677,25 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                                         <div className="space-y-2">
                                           {q.options.map((optionText, oIndex) => {
                                             const currentAns = quizAnswers[task.id]?.[q.id];
-                                            const isSelected = Array.isArray(currentAns) 
-                                                ? currentAns.includes(optionText) 
-                                                : currentAns === optionText;
+                                            const isSelected = Array.isArray(currentAns)
+                                              ? currentAns.includes(optionText)
+                                              : currentAns === optionText;
                                             return (
-                                                <button
-                                                  key={oIndex}
-                                                  type="button"
-                                                  onClick={() => handleAnswerQuiz(task.id, q.id, optionText, q.type)}
-                                                  className={`w-full text-left p-2 rounded-lg text-sm transition-all flex items-center space-x-2 border-2 cursor-pointer shadow-sm active:scale-[0.99] ${
-                                                    isSelected
-                                                      ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF] font-bold'
-                                                      : 'border-gray-200 bg-white text-gray-700 hover:bg-slate-50 hover:border-gray-300 font-semibold'
+                                              <button
+                                                key={oIndex}
+                                                type="button"
+                                                onClick={() => handleAnswerQuiz(task.id, q.id, optionText, q.type)}
+                                                className={`w-full text-left p-2 rounded-lg text-sm transition-all flex items-center space-x-2 border-2 cursor-pointer shadow-sm active:scale-[0.99] ${isSelected
+                                                    ? 'border-[#2F63FF] bg-[#2F63FF]/5 text-[#2F63FF] font-bold'
+                                                    : 'border-gray-200 bg-white text-gray-700 hover:bg-slate-50 hover:border-gray-300 font-semibold'
                                                   }`}
-                                                >
-                                                  <span className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-black font-sans transition-colors ${
-                                                    isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400 bg-gray-50'
+                                              >
+                                                <span className={`w-4 h-4 flex-shrink-0 rounded-full border-2 flex items-center justify-center text-[10px] font-black font-sans transition-colors ${isSelected ? 'bg-[#2F63FF] border-[#2F63FF] text-white' : 'border-gray-300 text-gray-400 bg-gray-50'
                                                   }`}>
-                                                    {String.fromCharCode(65 + oIndex)}
-                                                  </span>
-                                                  <span className="truncate">{optionText || `Option Choice Statement ${oIndex + 1}`}</span>
-                                                </button>
+                                                  {String.fromCharCode(65 + oIndex)}
+                                                </span>
+                                                <span className="truncate">{optionText || `Option Choice Statement ${oIndex + 1}`}</span>
+                                              </button>
                                             );
                                           })}
                                         </div>
@@ -1728,21 +1728,21 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
                         </div>
                       </div>
                     )}
-              </React.Fragment>
-            );
-          })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <CustomPagination
+              className={viewMode === 'list' ? "border-t border-gray-100 bg-white" : "mt-4"}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              itemsPerPage={itemsPerPage}
+              setItemsPerPage={setItemsPerPage}
+              setCurrentPage={setCurrentPage}
+            />
+          </div>
         </div>
-        <CustomPagination
-          className={viewMode === 'list' ? "border-t border-gray-100 bg-white" : "mt-4"}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          itemsPerPage={itemsPerPage}
-          setItemsPerPage={setItemsPerPage}
-          setCurrentPage={setCurrentPage}
-        />
-      </div>
-    </div>
-  )}
+      )}
 
       {selectedFeedbackSubmission && (
         <AIFeedbackModal
@@ -1801,11 +1801,10 @@ export default function TaskDashboard({ assignedTasks, onStartCreateTask, userRo
             </div>
 
             {reportFeedback && (
-              <div className={`p-2.5 border rounded-xl text-[11px] font-semibold text-center ${
-                reportFeedback.includes('failed') || reportFeedback.includes('No submissions')
+              <div className={`p-2.5 border rounded-xl text-[11px] font-semibold text-center ${reportFeedback.includes('failed') || reportFeedback.includes('No submissions')
                   ? 'border-red-200 bg-red-50 text-red-650'
                   : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              }`}>
+                }`}>
                 {reportFeedback}
               </div>
             )}
