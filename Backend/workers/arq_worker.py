@@ -120,9 +120,9 @@ async def process_single_job(db, job: Dict[str, Any]) -> bool:
         send_in_app = False
         send_push = False
         
-        if template["channel"] in ["ALL", "IN_APP"] and prefs.get("in_app_enabled", True):
+        if template["channel"] in ["ALL", "IN_APP"] and (prefs.get("in_app_enabled") is not False):
             send_in_app = True
-        if template["channel"] in ["ALL", "PUSH"] and prefs.get("push_enabled", True):
+        if template["channel"] in ["ALL", "PUSH"] and (prefs.get("push_enabled") is not False):
             send_push = True
             
         success = True
