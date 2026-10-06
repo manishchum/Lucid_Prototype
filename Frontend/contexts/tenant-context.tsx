@@ -39,6 +39,8 @@ export type Addon =
   | 'baseline_assessment'
   | 'kpi'
   | 'role_play'
+  | 'role_play_openai'
+  | 'role_play_gemini'
   | 'sprintverse'
   | 'reports'
   | 'gamification'

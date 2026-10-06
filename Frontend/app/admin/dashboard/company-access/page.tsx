@@ -41,6 +41,8 @@ type AddonKey =
   | "baseline_assessment"
   | "kpi"
   | "role_play"
+  | "role_play_openai"
+  | "role_play_gemini"
   | "reports"
   | "sprintverse"
   | "gamification"
@@ -191,6 +193,20 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     category: "addon",
   },
   {
+    id: "role_play_openai",
+    label: "OpenAI Realtime",
+    description: "Use OpenAI Realtime engine for role-play sessions.",
+    category: "addon",
+    parentId: "role_play",
+  },
+  {
+    id: "role_play_gemini",
+    label: "Gemini Live",
+    description: "Use Gemini Live engine for role-play sessions.",
+    category: "addon",
+    parentId: "role_play",
+  },
+  {
     id: "reports",
     label: "Reports",
     description: "Enable report generation and analytics.",
@@ -237,6 +253,11 @@ const TASK_MANAGEMENT_CHILDREN: AddonKey[] = [
   "task_management_evaluation",
   "task_management_audio",
   "task_management_video",
+]
+
+const ROLE_PLAY_CHILDREN: AddonKey[] = [
+  "role_play_openai",
+  "role_play_gemini",
 ]
 
 function normalizeAddonKey(value: string): AddonKey | null {
@@ -334,6 +355,7 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   ].some((child) => effectiveAddons.has(child as AddonKey))
 
   const hasTaskChild = TASK_MANAGEMENT_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
+  const hasRolePlayChild = ROLE_PLAY_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
 
   if (hasLucidChild) {
     effectiveAddons.add("lucid_studio")
@@ -345,6 +367,14 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
 
   if (hasTaskChild) {
     effectiveAddons.add("task_management")
+  }
+
+  if (hasRolePlayChild) {
+    effectiveAddons.add("role_play")
+  }
+
+  if (effectiveAddons.has("role_play") && !effectiveAddons.has("role_play_openai") && !effectiveAddons.has("role_play_gemini")) {
+    effectiveAddons.add("role_play_openai")
   }
 
   return Array.from(effectiveAddons)
@@ -458,6 +488,24 @@ export default function CompanyAccessPage() {
         if (TASK_MANAGEMENT_CHILDREN.includes(addon)) {
           next.add("task_management")
         }
+        if (ROLE_PLAY_CHILDREN.includes(addon)) {
+          next.add("role_play")
+        }
+
+        // Mutually exclusive: role_play_openai vs role_play_gemini
+        if (addon === "role_play_openai") {
+          next.delete("role_play_gemini")
+        }
+        if (addon === "role_play_gemini") {
+          next.delete("role_play_openai")
+        }
+
+        // Auto-enable default engine variant if parent role_play is toggled on
+        if (addon === "role_play") {
+          if (!next.has("role_play_openai") && !next.has("role_play_gemini")) {
+            next.add("role_play_openai")
+          }
+        }
 
         // Auto-enable textual variants if parent is toggled on
         if (addon === "chat_in_studio") {
@@ -477,6 +525,9 @@ export default function CompanyAccessPage() {
         // Check task management
         if (addon === "task_management") {
           TASK_MANAGEMENT_CHILDREN.forEach((child) => next.delete(child))
+        }
+        if (addon === "role_play") {
+          ROLE_PLAY_CHILDREN.forEach((child) => next.delete(child))
         }
       }
 
@@ -758,7 +809,7 @@ export default function CompanyAccessPage() {
                       feature.id === "lucid_studio" ||
                       feature.id === "lucid_studio_textual";
 
-                    if (feature.parentId === "task_management" || feature.parentId === "chat_in_studio") return null
+                    if (feature.parentId === "task_management" || feature.parentId === "chat_in_studio" || feature.parentId === "role_play") return null
 
                     return (
                       <div
@@ -845,6 +896,37 @@ export default function CompanyAccessPage() {
                                       }
                                     }}
                                     disabled={isChildMandatory}
+                                  />
+                                  <span>{childFeature.label}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Inline sub-toggles for Role Play */}
+                        {feature.id === "role_play" && checked && (
+                          <div className="mt-4 pt-4 border-t border-slate-800/80 flex flex-wrap gap-2">
+                            {FEATURE_DEFINITIONS.filter(f => f.parentId === "role_play").map(childFeature => {
+                              const childChecked = draftAddons.includes(childFeature.id)
+
+                              return (
+                                <label
+                                  key={childFeature.id}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${
+                                    childChecked
+                                      ? "bg-cyan-500/20 border-cyan-400/50 text-cyan-200"
+                                      : "bg-white/10 border-white/20 text-slate-300 hover:bg-white/20"
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name="role_play_engine_toggle"
+                                    className="sr-only"
+                                    checked={childChecked}
+                                    onChange={() => {
+                                      handleToggleAddon(childFeature.id, true)
+                                    }}
                                   />
                                   <span>{childFeature.label}</span>
                                 </label>

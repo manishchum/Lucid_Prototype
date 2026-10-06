@@ -326,6 +326,8 @@ async def update_company_route(
         "baseline_assessment",
         "kpi",
         "role_play",
+        "role_play_openai",
+        "role_play_gemini",
         "reports",
         "sprintverse",
         "gamification",
@@ -398,6 +400,20 @@ async def update_company_route(
             "task_management_video",
         )) and "task_management" not in normalized_addons:
             normalized_addons.insert(0, "task_management")
+
+        # Ensure the parent role_play addon is present when role_play_openai or role_play_gemini is enabled.
+        if any(child in normalized_addons for child in (
+            "role_play_openai",
+            "role_play_gemini",
+        )) and "role_play" not in normalized_addons:
+            normalized_addons.insert(0, "role_play")
+
+        # Ensure mutually exclusive selection between role_play_openai and role_play_gemini.
+        if "role_play_openai" in normalized_addons and "role_play_gemini" in normalized_addons:
+            raise HTTPException(
+                status_code=400,
+                detail="Only one of 'role_play_openai' or 'role_play_gemini' can be enabled at a time."
+            )
 
         update_data["subscription_addons"] = normalized_addons
 
