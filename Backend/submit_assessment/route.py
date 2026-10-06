@@ -509,7 +509,7 @@ Review the questions you missed and study the related concepts to improve your u
     if target_pm_id:
         try:
             from utils.db.module_progress_db import create_or_update_progress
-            prog_res = await create_or_update_progress(
+            await create_or_update_progress(
                 user_id,
                 {
                     "user_id": user_id,
@@ -521,26 +521,6 @@ Review the questions you missed and study the related concepts to improve your u
                 }
             )
             print(f"✅ Module progress updated directly for user={user_id}, processed_module_id={target_pm_id}")
-
-            # Trigger quiz completion notifications
-            try:
-                from routes.module_progress import _trigger_quiz_completion_notifications
-                import asyncio
-                is_passed = (
-                    (prog_res.get("data") and prog_res["data"].get("pass_status") is True)
-                    or scorePercentage >= 70
-                )
-                asyncio.create_task(_trigger_quiz_completion_notifications(
-                    user_id=user_id,
-                    module_id=body.get("module_id") or assessment.get("original_module_id"),
-                    processed_module_id=target_pm_id,
-                    quiz_score=score,
-                    max_score=maxScore,
-                    pass_status=is_passed,
-                    company_id=assessment.get("company_id")
-                ))
-            except Exception as notifError:
-                print("❌ Error triggering quiz completion notifications:", notifError)
         except Exception as moduleError:
             print("📚 Error updating module completion:", moduleError)
 

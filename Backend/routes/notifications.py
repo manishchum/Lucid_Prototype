@@ -58,9 +58,6 @@ class ModuleFeedbackRequest(BaseModel):
     rating: Optional[int] = None
     thumbs_up: Optional[bool] = None
     comments: Optional[str] = None
-    comment: Optional[str] = None
-    feedback_tags: Optional[List[str]] = None
-    completion_event_id: Optional[str] = None
 
 @router.post("/feedback")
 async def submit_module_feedback(
@@ -70,49 +67,16 @@ async def submit_module_feedback(
     user_id = auth_ctx.user_id
     try:
         service_client = get_service_supabase_client()
-        from datetime import datetime, timezone
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        # Derive company_id
-        company_id = auth_ctx.claims.get("company_id") if auth_ctx.claims else None
-        if not company_id:
-            u_res = service_client.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
-            company_id = (getattr(u_res, "data", None) or {}).get("company_id")
-
-        # Compile feedback tags
-        tags = list(request.feedback_tags or [])
-        if request.thumbs_up is True and "thumbs_up" not in tags:
-            tags.append("thumbs_up")
-        elif request.thumbs_up is False and "thumbs_down" not in tags:
-            tags.append("thumbs_down")
-        if request.module_type and f"type:{request.module_type}" not in tags:
-            tags.append(f"type:{request.module_type}")
-
-        # Normalize rating (1 to 5)
-        rating_val = request.rating
-        if rating_val is None:
-            if request.thumbs_up is True:
-                rating_val = 5
-            elif request.thumbs_up is False:
-                rating_val = 1
-
-        completion_event_id = request.completion_event_id or f"{user_id}:{request.module_id}:{now_iso}"
-        comment_text = request.comment or request.comments or None
-
         resp = service_client.table("module_feedback").insert({
             "user_id": user_id,
-            "company_id": company_id,
             "module_id": request.module_id,
-            "completion_event_id": completion_event_id,
-            "rating": rating_val,
-            "feedback_tags": tags,
-            "comment": comment_text,
-            "status": "SUBMITTED",
-            "submitted_at": now_iso,
+            "module_type": request.module_type,
+            "rating": request.rating,
+            "thumbs_up": request.thumbs_up,
+            "comments": request.comments,
         }).execute()
         return {"success": True, "message": "Feedback submitted successfully", "data": resp.data}
     except Exception as e:
-        logger.error(f"[Feedback] Failed to record module feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/unread-count")

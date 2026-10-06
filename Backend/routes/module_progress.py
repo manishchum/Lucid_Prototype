@@ -3,7 +3,6 @@ from pydantic import BaseModel
 from typing import Optional
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.redis_client import redis_client, set_cache, get_cache, invalidate_dashboard_cache
-from utils.notification_dispatcher import schedule_notification_job
 
 from utils.db.module_progress_db import (
     get_progress_by_id,
@@ -214,81 +213,6 @@ async def get_company_completion_stats(
     return {"stats": result["data"]}
 
 
-async def _trigger_quiz_completion_notifications(
-    user_id: str,
-    module_id: Optional[str],
-    processed_module_id: Optional[str],
-    quiz_score: Optional[int],
-    max_score: Optional[int],
-    pass_status: Optional[bool],
-    company_id: Optional[str]
-):
-    try:
-        from utils.auth_bridge import get_service_supabase_client
-        _db = get_service_supabase_client()
-
-        # 1. Fetch user first name
-        first_name = "there"
-        try:
-            u_res = _db.table("users").select("name").eq("user_id", user_id).maybe_single().execute()
-            full_name = (getattr(u_res, "data", None) or {}).get("name")
-            if full_name:
-                first_name = full_name.strip().split()[0]
-        except Exception:
-            pass
-
-        # 2. Fetch module title
-        module_title = "Module"
-        target_mod_id = processed_module_id or module_id
-        if processed_module_id:
-            try:
-                m_res = _db.table("processed_modules").select("title").eq("processed_module_id", processed_module_id).maybe_single().execute()
-                t = (getattr(m_res, "data", None) or {}).get("title")
-                if t:
-                    module_title = t
-            except Exception:
-                pass
-        if module_title == "Module" and module_id:
-            try:
-                m_res = _db.table("training_modules").select("title").eq("module_id", module_id).maybe_single().execute()
-                t = (getattr(m_res, "data", None) or {}).get("title")
-                if t:
-                    module_title = t
-            except Exception:
-                pass
-
-        score_pct = round((quiz_score / (max_score or 10)) * 100) if quiz_score is not None else 100
-
-        meta = {
-            "module_id": target_mod_id,
-            "module_name": module_title,
-            "first_name": first_name,
-            "score": str(score_pct),
-            "assessment_name": module_title,
-            "result_message": "Outstanding work!" if pass_status else "Keep practicing!",
-        }
-
-        # Module completed notification
-        await schedule_notification_job(
-            user_id=user_id,
-            company_id=company_id,
-            notification_type="MODULE_COMPLETED",
-            metadata=meta
-        )
-
-        # Quiz passed notification (if passed)
-        if pass_status is True:
-            await schedule_notification_job(
-                user_id=user_id,
-                company_id=company_id,
-                notification_type="QUIZ_PASSED",
-                metadata=meta
-            )
-    except Exception as e:
-        import logging
-        logging.getLogger("lucid.module_progress").error(f"Failed to trigger quiz completion notifications: {e}")
-
-
 @router.post("")
 async def create_or_update_progress_record(
     request: CreateOrUpdateProgressRequest,
@@ -316,23 +240,6 @@ async def create_or_update_progress_record(
     
     target_user_id = request.user_id
     invalidate_dashboard_cache(target_user_id)
-
-    # Trigger Notifications if Quiz was just submitted
-    if request.quiz_score is not None:
-        is_passed = (
-            request.pass_status is True
-            or (result.get("data") and result["data"].get("pass_status") is True)
-        )
-        import asyncio
-        asyncio.create_task(_trigger_quiz_completion_notifications(
-            user_id=target_user_id,
-            module_id=request.module_id,
-            processed_module_id=request.processed_module_id,
-            quiz_score=request.quiz_score,
-            max_score=request.max_score,
-            pass_status=is_passed,
-            company_id=auth_ctx.claims.get("company_id") if auth_ctx.claims else None
-        ))
 
     action = result.get("action", "updated")
     message_map = {
@@ -378,23 +285,6 @@ async def update_progress_record(
 
     if target_user_id:
         invalidate_dashboard_cache(target_user_id)
-        
-        # Trigger Notifications if Quiz was just submitted
-        if request.quiz_score is not None:
-            is_passed = (
-                request.pass_status is True
-                or (progress and progress.get("pass_status") is True)
-            )
-            import asyncio
-            asyncio.create_task(_trigger_quiz_completion_notifications(
-                user_id=target_user_id,
-                module_id=progress.get("module_id"),
-                processed_module_id=processed_module_id,
-                quiz_score=request.quiz_score,
-                max_score=request.max_score if hasattr(request, "max_score") else None,
-                pass_status=is_passed,
-                company_id=auth_ctx.claims.get("company_id") if auth_ctx.claims else None
-            ))
     
     return {
         "message": "Module progress updated successfully",

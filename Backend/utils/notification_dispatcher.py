@@ -194,57 +194,26 @@ async def dispatch_hybrid_notification(
 
 async def schedule_notification_job(
     user_id: str,
-    notification_type: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    company_id: Optional[str] = None,  # Left for backward compatibility, but ignored by RPC if we want
+    notification_type: str,
+    metadata: Dict[str, Any],
+    company_id: Optional[str] = None, # Left for backward compatibility, but ignored by RPC if we want
     assignment_id: Optional[str] = None,
     scheduled_at: Optional[Any] = None,
-    notif_type: Optional[str] = None,
-    **kwargs: Any,
 ) -> bool:
     """
     Schedules a notification by calling the schedule_notification_job_rpc.
     The ARQ worker will process it at the scheduled_at time.
-    Supports both `notification_type` and `notif_type` parameter names.
-    Evicts stale finished jobs with the same idempotency key so user retries trigger notifications.
     """
-    actual_type = notification_type or notif_type
-    if not actual_type:
-        logger.error(f"[Dispatcher] Missing notification type for user {user_id}")
-        return False
-
-    metadata = metadata or {}
     try:
         _db = get_service_supabase_client()
+        # Convert scheduled_at to string if it's a datetime
         import datetime
         if isinstance(scheduled_at, datetime.datetime):
             scheduled_at = scheduled_at.isoformat()
-        elif scheduled_at is None:
-            scheduled_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-        entity_id = (
-            metadata.get("task_id")
-            or metadata.get("sprint_id")
-            or metadata.get("scenario_id")
-            or metadata.get("module_id")
-            or str(int(datetime.datetime.now().timestamp()))
-        )
-        idempotency_key = f"{user_id}:{actual_type}:{entity_id}"
-
-        # Check if an existing job with this key already finished (e.g. earlier quiz completion attempt)
-        existing = _db.table("notification_jobs").select("id,status").eq("idempotency_key", idempotency_key).maybe_single().execute()
-        existing_data = getattr(existing, "data", None)
-        if existing_data:
-            if existing_data.get("status") in ["SENT", "FAILED", "CANCELLED"]:
-                # Evict stale finished job so the new completion attempt creates a fresh job
-                _db.table("notification_jobs").delete().eq("id", existing_data["id"]).execute()
-            else:
-                # Still pending or processing, do not create duplicate
-                return True
-
+            
         res = _db.rpc("schedule_notification_job_rpc", {
             "p_user_id": user_id,
-            "p_notification_type": actual_type,
+            "p_notification_type": notification_type,
             "p_metadata": metadata,
             "p_assignment_id": assignment_id,
             "p_scheduled_at": scheduled_at
