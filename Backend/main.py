@@ -4,6 +4,7 @@ import os
 import logging
 import re
 
+# Build version: 2026.09.27-cloudbuild-02
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
@@ -236,8 +237,26 @@ async def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    from task_manager.analyzer.models import load_all_models
-    load_all_models()
+    import threading
+
+    def _background_loader():
+        try:
+            print("[Startup] Starting AI models download/load in the background...")
+            from task_manager.analyzer.models import load_all_models
+            load_all_models()
+        except Exception as e:
+            print(f"[Startup] Background AI models load error (non-fatal): {e}")
+
+    threading.Thread(target=_background_loader, daemon=True).start()
+
+    # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+@app.post("/api/cron/refresh_leaderboards", tags=["cron"])
+async def trigger_refresh_leaderboards():
+    """Trigger manual or Cloud Scheduler refresh of precomputed company leaderboards into Redis."""
+    from utils.db.leaderboard_db import refresh_company_leaderboards
+    res = await refresh_company_leaderboards()
+    return res
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():

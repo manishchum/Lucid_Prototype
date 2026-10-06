@@ -239,21 +239,6 @@ async def create_or_update_progress_record(
         raise HTTPException(status_code=400, detail=result["error"])
     
     target_user_id = request.user_id
-
-    redis_client.delete(
-        f"module_progress:{target_user_id}:False"
-    )
-
-    redis_client.delete(
-        f"module_progress:{target_user_id}:True"
-    )
-
-    redis_client.delete(
-        f"user_module_progress:"
-        f"{target_user_id}:"
-        f"{request.processed_module_id}"
-    )
-
     invalidate_dashboard_cache(target_user_id)
 
     action = result.get("action", "updated")
@@ -299,24 +284,7 @@ async def update_progress_record(
     processed_module_id = progress.get("processed_module_id")
 
     if target_user_id:
-
-        redis_client.delete(
-            f"module_progress:{target_user_id}:False"
-        )
-
-        redis_client.delete(
-            f"module_progress:{target_user_id}:True"
-        )
-
         invalidate_dashboard_cache(target_user_id)
-
-    if target_user_id and processed_module_id:
-
-        redis_client.delete(
-            f"user_module_progress:"
-            f"{target_user_id}:"
-            f"{processed_module_id}"
-        )
     
     return {
         "message": "Module progress updated successfully",
@@ -358,22 +326,7 @@ async def delete_progress_record(
         raise HTTPException(status_code=status_code, detail=result["error"])
     
     if target_user_id:
-
-        redis_client.delete(
-            f"module_progress:{target_user_id}:False"
-        )
-
-        redis_client.delete(
-            f"module_progress:{target_user_id}:True"
-        )
-
-    if target_user_id and processed_module_id:
-
-        redis_client.delete(
-            f"user_module_progress:"
-            f"{target_user_id}:"
-            f"{processed_module_id}"
-        )
+        invalidate_dashboard_cache(target_user_id)
     
     return {
         "message": "Module progress deleted successfully",

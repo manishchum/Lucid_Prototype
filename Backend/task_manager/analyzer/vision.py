@@ -1,21 +1,40 @@
 from PIL import Image
 import torch
-from transformers import CLIPProcessor, CLIPModel
+
+_clip_model = None
+_clip_processor = None
 
 
-# load once
-model = CLIPModel.from_pretrained(
-    "openai/clip-vit-base-patch32"
-)
-
-processor = CLIPProcessor.from_pretrained(
-    "openai/clip-vit-base-patch32"
-)
+def get_clip_model_and_processor():
+    """Lazily load and return CLIP model and processor."""
+    global _clip_model, _clip_processor
+    if _clip_model is None or _clip_processor is None:
+        try:
+            print("[Vision] Lazy loading CLIP model and processor...")
+            from transformers import CLIPProcessor, CLIPModel
+            _clip_model = CLIPModel.from_pretrained(
+                "openai/clip-vit-base-patch32"
+            )
+            _clip_processor = CLIPProcessor.from_pretrained(
+                "openai/clip-vit-base-patch32"
+            )
+            print("[Vision] CLIP loaded successfully.")
+        except Exception as e:
+            print("[Vision] ERROR loading CLIP:", e)
+    return _clip_model, _clip_processor
 
 
 def validate_image_with_task(image_path: str, task: str):
 
     try:
+        clip_model, clip_processor = get_clip_model_and_processor()
+        if not clip_model or not clip_processor:
+            return {
+                "clip_score": 0,
+                "matched": False,
+                "error": "CLIP model unavailable"
+            }
+
         image = Image.open(image_path)
 
         labels = [
@@ -25,7 +44,7 @@ def validate_image_with_task(image_path: str, task: str):
             "wrong object"
         ]
 
-        inputs = processor(
+        inputs = clip_processor(
             text=labels,
             images=image,
             return_tensors="pt",
@@ -33,7 +52,7 @@ def validate_image_with_task(image_path: str, task: str):
         )
 
         with torch.no_grad():
-            outputs = model(**inputs)
+            outputs = clip_model(**inputs)
 
         scores = outputs.logits_per_image.softmax(dim=1)
 
@@ -68,6 +87,18 @@ try:
     import easyocr
 except Exception:
     easyocr = None
+
+_easyocr_reader = None
+
+def _get_easyocr_reader():
+    global _easyocr_reader
+    if _easyocr_reader is None and easyocr is not None:
+        try:
+            print("[OCR] Initializing cached EasyOCR Reader...")
+            _easyocr_reader = easyocr.Reader(["en"], gpu=False)
+        except Exception as e:
+            print("[OCR] Error initializing EasyOCR Reader:", e)
+    return _easyocr_reader
 
 try:
     import cv2
@@ -173,6 +204,14 @@ def preprocess_image(image_path: str) -> List[str]:
                         proc = proc.astype('uint8')
                 except Exception:
                     pass
+                # EasyOCR's internals expect a 3-channel (H,W,3) image.
+                # If proc is grayscale (H,W), convert to BGR to avoid
+                # `ValueError: too many values to unpack` in get_image_list.
+                try:
+                    if len(proc.shape) == 2:
+                        proc = cv2.cvtColor(proc, cv2.COLOR_GRAY2BGR)
+                except Exception:
+                    pass
                 cv2.imwrite(fpath, proc)
                 processed_paths.append(fpath)
             except Exception:
@@ -269,13 +308,11 @@ def extract_text(image_path: str) -> Dict[str, Any]:
     Runs OCR on multiple preprocessed variants and selects the candidate with
     the highest average confidence. Filters out short/low-confidence results.
     """
-    # If easyocr missing, keep API stable
-    if easyocr is None:
+    reader = _get_easyocr_reader()
+    if reader is None:
         return {"detected_text": [], "error": "OCR unavailable"}
 
     try:
-        reader = easyocr.Reader(["en"], gpu=False)
-
         candidates = preprocess_image(image_path)
 
         best_candidate: List[Dict[str, Any]] = []
@@ -283,14 +320,24 @@ def extract_text(image_path: str) -> Dict[str, Any]:
 
         for cand_path in candidates:
             try:
-                results = reader.readtext(cand_path)
+                # CRITICAL: Pass numpy array directly — bypasses EasyOCR's
+                # buggy reformat_input() file-path loading which in this
+                # version produces a 3-channel array that crashes get_image_list:
+                #   ValueError: too many values to unpack (expected 2)
+                # at `maximum_y, maximum_x = img.shape`
+                img_np = cv2.imread(cand_path) if cv2 is not None else None
+                if img_np is None:
+                    continue
+                results = reader.readtext(img_np)
             except Exception:
-                # If OCR fails for this variant, skip
+                continue
+            finally:
+                # Clean up temp preprocessed file
                 try:
-                    traceback.print_exc()
+                    if cand_path != image_path and os.path.exists(cand_path):
+                        os.unlink(cand_path)
                 except Exception:
                     pass
-                continue
 
             detected = []
             confidences = []
@@ -511,15 +558,23 @@ def validate_objects_with_task(instruction: str, object_evidence: dict):
         "missing_objects": missing,
         "object_check_passed": len(missing) == 0
     }
-from .models import yolo_model, whisper_pipeline, bge_model
+
+
 def detect_objects(image_path: str):
     """
     Detect objects from image using YOLO.
     Always return safe JSON.
     """
-
     try:
-        results = model(image_path)
+        from .models import get_yolo_model
+        yolo = get_yolo_model()
+        if not yolo:
+            return {
+                "objects": [],
+                "error": "YOLO unavailable"
+            }
+
+        results = yolo(image_path)
 
         objects = []
 
@@ -554,12 +609,11 @@ def detect_objects(image_path: str):
 import subprocess
 import uuid
 import os
+import tempfile
 
 
 def extract_audio(video_path):
-
-    output_path = f"/tmp/{uuid.uuid4()}.wav"
-
+    output_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
 
     command = [
         "ffmpeg",
@@ -576,19 +630,18 @@ def extract_audio(video_path):
         output_path
     ]
 
-
-    subprocess.run(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
+    try:
+        subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"ffmpeg audio extraction failed: {e.stderr.decode(errors='replace').strip()[-500:]}")
 
     if not os.path.exists(output_path):
-        raise Exception(
-            "Audio extraction failed"
-        )
-
+        raise Exception("Audio extraction failed: output file not created")
 
     return output_path
 import cv2
@@ -1177,7 +1230,7 @@ import os
 import cv2
 # import tempfile
 # import numpy as np
-from .models import yolo_model, whisper_pipeline, bge_model
+from .models import get_yolo_model, get_whisper_pipeline, get_bge_model
 from .text import cosine_similarity, extract_keywords
 
 from .audio import transcribe_audio_whisper, analyze_audio
@@ -1186,6 +1239,9 @@ def analyze_video(video_path: str, task_title: str, task_description: str, expec
     """
     Silent video submission analyzer using OpenCV, YOLO, Whisper, and BGE.
     """
+    yolo_model = get_yolo_model()
+    whisper_pipeline = get_whisper_pipeline()
+    bge_model = get_bge_model()
     if not os.path.exists(video_path):
         return {
             "overall_score": 0,
@@ -1295,13 +1351,17 @@ def analyze_video(video_path: str, task_title: str, task_description: str, expec
     sim = 0.0
     if transcript:
         comparison_text = expected_answer.strip() if (expected_answer and expected_answer.strip()) else f"{task_title}\n{task_description}".strip()
-        try:
-            emb_comp = bge_model.encode(comparison_text)
-            emb_trans = bge_model.encode(transcript)
-            sim = cosine_similarity(emb_comp, emb_trans)
-            communication_score = int(max(0, min(100, (sim - 0.4) / 0.6 * 100)))
-        except Exception as e:
-            print("[Video Analyzer] BGE embedding failed:", e)
+        if bge_model:
+            try:
+                emb_comp = bge_model.encode(comparison_text)
+                emb_trans = bge_model.encode(transcript)
+                sim = cosine_similarity(emb_comp, emb_trans)
+                communication_score = int(max(0, min(100, (sim - 0.4) / 0.6 * 100)))
+            except Exception as e:
+                print("[Video Analyzer] BGE embedding failed:", e)
+                communication_score = 50
+                sim = 0.5
+        else:
             communication_score = 50
             sim = 0.5
     else:

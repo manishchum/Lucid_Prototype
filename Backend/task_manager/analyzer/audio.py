@@ -310,7 +310,7 @@ def analyze_speech_quality(audio_path: str) -> dict[str, Any]:
 import os
 from google import genai
 from google.genai import types
-from .models import whisper_pipeline, bge_model
+from .models import get_whisper_pipeline, get_bge_model
 from .text import cosine_similarity, extract_keywords
 
 
@@ -319,6 +319,7 @@ def transcribe_audio_whisper(audio_path: str) -> str:
     """
     Transcribe audio file using cached Whisper pipeline.
     """
+    whisper_pipeline = get_whisper_pipeline()
     if not whisper_pipeline:
         print("[Audio Analyzer] Whisper pipeline not initialized")
         return ""
@@ -509,13 +510,18 @@ def analyze_audio(
     relevance_score = 0
     if transcript:
         comparison_text = expected_answer.strip() if (expected_answer and expected_answer.strip()) else f"{task_title}\n{task_description}".strip()
-        try:
-            emb_comp = bge_model.encode(comparison_text)
-            emb_trans = bge_model.encode(transcript)
-            sim = cosine_similarity(emb_comp, emb_trans)
-            relevance_score = int(max(0, min(100, (sim - 0.4) / 0.6 * 100)))
-        except Exception as e:
-            print("[Audio Analyzer] BGE embedding failed:", e)
+        bge_model = get_bge_model()
+        if bge_model:
+            try:
+                emb_comp = bge_model.encode(comparison_text)
+                emb_trans = bge_model.encode(transcript)
+                sim = cosine_similarity(emb_comp, emb_trans)
+                relevance_score = int(max(0, min(100, (sim - 0.4) / 0.6 * 100)))
+            except Exception as e:
+                print("[Audio Analyzer] BGE embedding failed:", e)
+                relevance_score = 50
+                sim = 0.5
+        else:
             relevance_score = 50
             sim = 0.5
             

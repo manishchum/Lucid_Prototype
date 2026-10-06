@@ -1,16 +1,13 @@
 import os
 import json
 import re
+import time
+import tempfile
+import httpx
 from google import genai
 from google.genai import types
-from utils.supabase_client import supabase
-from .text import analyze_text, analyze_mcq
-from .vision import analyze_image
-from .audio import analyze_audio
-from .vision import analyze_video
-import time
-from .gemini_usage import extract_gemini_usage
-
+from task_manager.analyzer.gemini_usage import extract_gemini_usage
+from utils.auth_bridge import get_service_supabase_client
 from enum import Enum
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
@@ -256,6 +253,79 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
             "extraction_confidence": "low"
         }
 
+def _ensure_local_media_file(input_path_or_url: str, submission_id: str, default_ext: str = "") -> tuple:
+    """
+    If input_path_or_url is an HTTP/HTTPS URL, download it to a local temp file.
+    Returns (local_path: str, is_temp: bool).
+    If already a local path, returns (input_path_or_url, False).
+    """
+    if not input_path_or_url:
+        return input_path_or_url, False
+    if not (input_path_or_url.startswith("http://") or input_path_or_url.startswith("https://")):
+        return input_path_or_url, False
+
+    media_dir = os.path.join(tempfile.gettempdir(), "lucid_eval_media")
+    os.makedirs(media_dir, exist_ok=True)
+
+    # Guess extension from URL or use default
+    url_path = input_path_or_url.split("?")[0]
+    _, url_ext = os.path.splitext(url_path)
+    ext = url_ext if url_ext else default_ext
+    local_path = os.path.join(media_dir, f"{submission_id}{ext}")
+
+    try:
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            response = client.get(input_path_or_url)
+            response.raise_for_status()
+            with open(local_path, "wb") as f:
+                f.write(response.content)
+        print(f"[pipeline] Downloaded remote media to: {local_path}")
+        return local_path, True
+    except Exception as e:
+        print(f"[pipeline] Failed to download remote media {input_path_or_url}: {e}")
+        return input_path_or_url, False
+
+
+def _convert_to_wav(audio_path: str, submission_id: str) -> tuple:
+    """
+    Convert any audio file to 16kHz mono WAV using ffmpeg (via static_ffmpeg).
+    Whisper's soundfile backend only reads PCM-based formats (WAV/FLAC).
+    Returns (wav_path: str, is_temp: bool).
+    If ffmpeg is unavailable or conversion fails, returns (audio_path, False).
+    """
+    _, ext = os.path.splitext(audio_path)
+    if ext.lower() in (".wav",):
+        # Already WAV — no conversion needed
+        return audio_path, False
+
+    wav_dir = os.path.join(tempfile.gettempdir(), "lucid_eval_media")
+    os.makedirs(wav_dir, exist_ok=True)
+    wav_path = os.path.join(wav_dir, f"{submission_id}_converted.wav")
+
+    try:
+        import subprocess
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", audio_path,
+                "-ar", "16000", "-ac", "1",
+                "-acodec", "pcm_s16le",
+                wav_path
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+        if result.returncode == 0 and os.path.exists(wav_path):
+            print(f"[pipeline] Converted audio to WAV: {wav_path}")
+            return wav_path, True
+        else:
+            err = result.stderr.decode(errors="replace").strip()[-300:]
+            print(f"[pipeline] ffmpeg audio conversion failed (rc={result.returncode}): {err}")
+            return audio_path, False
+    except Exception as e:
+        print(f"[pipeline] Audio conversion to WAV failed: {e}")
+        return audio_path, False
+
 # @celery_app.task(name="analysis.background.run_ai_pipeline_bg")
 def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submission_type: str, input_data: str | list, is_bundle_submission: bool = False):
     """
@@ -271,10 +341,11 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
     print("================================\n")
     
     table_name = "child_task_submissions" if is_bundle_submission else "task_submissions"
+    db = get_service_supabase_client()
 
     # 1. Update analysis_status to 'processing'
     try:
-        supabase.table(table_name).update({"analysis_status": "processing"}).eq("submission_id", submission_id).execute()
+        db.table(table_name).update({"analysis_status": "processing"}).eq("submission_id", submission_id).execute()
     except Exception as e:
         print(f"[AI Background] Error updating status to processing for {submission_id}:", e)
 
@@ -300,6 +371,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
     try:
         stype = str(submission_type).lower()
         if stype == "text":
+            from task_manager.analyzer.text import analyze_text
             result = analyze_text(
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
@@ -315,6 +387,7 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             quality_analysis["speech_quality"] = result.get("model_output", {}).get("speech_quality")
 
         elif stype == "multiple_choice":
+            from task_manager.analyzer.text import analyze_mcq
             result = analyze_mcq(
                 questions=task.get("questions") or [],
                 answers=input_data  # list of answer items
@@ -328,17 +401,25 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             }
 
         elif stype == "image":
-    # input_data is saved image file path
+            # input_data is saved image file path or remote URL
+            local_image_path, is_temp_image = _ensure_local_media_file(input_data, submission_id, ".jpg")
 
             print("\n========== IMAGE PIPELINE START ==========")
-            print("IMAGE PATH:", input_data)
+            print("IMAGE PATH:", local_image_path)
             print("TASK DESCRIPTION:", task.get("description", ""))
 
+            from task_manager.analyzer.vision import analyze_image
             result = analyze_image(
-                image_path=input_data,
+                image_path=local_image_path,
                 instruction=task.get("description", ""),
                 analyzing_parameters=task.get("analyzing_parameters")
             )
+
+            if is_temp_image and os.path.exists(local_image_path):
+                try:
+                    os.unlink(local_image_path)
+                except Exception:
+                    pass
 
             print("\n========== RAW IMAGE ANALYZER OUTPUT ==========")
             print(json.dumps(result, indent=2, default=str))
@@ -421,14 +502,30 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             }
 
         elif stype == "audio":
-            # input_data is saved audio file path
+            # input_data is saved audio file path or remote URL
+            local_audio_path, is_temp_audio = _ensure_local_media_file(input_data, submission_id, ".webm")
+            # Convert to WAV — Whisper's soundfile backend can't read .m4a/.webm/.ogg
+            wav_audio_path, is_temp_wav = _convert_to_wav(local_audio_path, submission_id)
+            from task_manager.analyzer.audio import analyze_audio
             result = analyze_audio(
-                audio_path=input_data,
+                audio_path=wav_audio_path,
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
                 expected_answer=task.get("expected_answer"),
                 analyzing_parameters=task.get("analyzing_parameters")
             )
+
+            # Clean up temp files
+            if is_temp_wav and os.path.exists(wav_audio_path):
+                try:
+                    os.unlink(wav_audio_path)
+                except Exception:
+                    pass
+            if is_temp_audio and os.path.exists(local_audio_path):
+                try:
+                    os.unlink(local_audio_path)
+                except Exception:
+                    pass
             transcript = result.get("metrics", {}).get("transcript", "")
             extracted_content["transcript"] = transcript
             if transcript.strip():
@@ -448,13 +545,21 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             }
 
         elif stype == "video":
-            # input_data is saved video file path
+            # input_data is saved video file path or remote URL
+            local_video_path, is_temp_video = _ensure_local_media_file(input_data, submission_id, ".mp4")
+            from task_manager.analyzer.vision import analyze_video
             result = analyze_video(
-                video_path=input_data,
+                video_path=local_video_path,
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
                 expected_answer=task.get("expected_answer")
             )
+
+            if is_temp_video and os.path.exists(local_video_path):
+                try:
+                    os.unlink(local_video_path)
+                except Exception:
+                    pass
             transcript = result.get("metrics", {}).get("transcript", "")
             detected_objects = result.get("metrics", {}).get("detected_objects", [])
             visual_score = result.get("metrics", {}).get("visual_score", 0)
@@ -563,13 +668,26 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
         if stype in ("text", "multiple_choice"):
             update_data["audio_analysis"] = ai_analysis_restructured
 
-        supabase.table(table_name).update(update_data).eq("submission_id", submission_id).execute()
+        db.table(table_name).update(update_data).eq("submission_id", submission_id).execute()
         print(f"[AI Background] Evaluation completed successfully for submission_id: {submission_id}. Score: {overall_score}")
+
+        # Invalidate dashboard summary and task caches for the submitted user
+        try:
+            sub_res = db.table(table_name).select("user_id").eq("submission_id", submission_id).maybe_single().execute()
+            sub_user_id = sub_res.data.get("user_id") if sub_res and sub_res.data else None
+            if sub_user_id:
+                from utils.redis_client import delete_cache_pattern
+                delete_cache_pattern(f"dashboard_summary:{sub_user_id}*")
+                delete_cache_pattern(f"user_tasks:*{sub_user_id}*")
+                from routes.employee_dashboard import invalidate_dashboard_l1_cache
+                invalidate_dashboard_l1_cache(str(sub_user_id))
+        except Exception as cache_err:
+            print(f"[AI Background] Cache invalidation warning: {cache_err}")
         
     except Exception as exc:
         print(f"[AI Background] Critical error running pipeline for {submission_id}:", exc)
         try:
-            supabase.table(table_name).update({
+            db.table(table_name).update({
                 "analysis_status": "failed",
                 "ai_status": "failed",
                 "ai_validation_reason": f"Evaluation failed: {str(exc)}"

@@ -52,6 +52,33 @@ async def register_token(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ModuleFeedbackRequest(BaseModel):
+    module_id: str
+    module_type: Optional[str] = None
+    rating: Optional[int] = None
+    thumbs_up: Optional[bool] = None
+    comments: Optional[str] = None
+
+@router.post("/feedback")
+async def submit_module_feedback(
+    request: ModuleFeedbackRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    try:
+        service_client = get_service_supabase_client()
+        resp = service_client.table("module_feedback").insert({
+            "user_id": user_id,
+            "module_id": request.module_id,
+            "module_type": request.module_type,
+            "rating": request.rating,
+            "thumbs_up": request.thumbs_up,
+            "comments": request.comments,
+        }).execute()
+        return {"success": True, "message": "Feedback submitted successfully", "data": resp.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/unread-count")
 async def get_unread_count(
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
@@ -303,39 +330,9 @@ async def send_assignment_notification(
                 email_recipients.append(user)
             if has_phone:
                 realtime_recipients.append(user)
-
-        # Batch prepare notification rows for mobile users
-        notifications_to_insert = []
-        for user in realtime_recipients:
-            title = "New Sprint Assigned" if request.assignment_type == "sprint" else "New Roleplay Coach Assigned"
-            msg_body = f"You have been assigned to sprint '{request.assignment_title}'." if request.assignment_type == "sprint" else f"You have been assigned to roleplay coach '{request.assignment_title}'."
-            
-            notifications_to_insert.append({
-                "user_id": user["user_id"],
-                "title": title,
-                "message": msg_body,
-                "type": f"{request.assignment_type}_assigned",
-                "metadata": {
-                    "assignment_title": request.assignment_title,
-                    "company_id": request.company_id
-                }
-            })
-
-        # Insert notifications into database
-        inserted_notifications = []
-        if notifications_to_insert:
-            insert_resp = supabase.table("notifications").insert(notifications_to_insert).execute()
-            inserted_notifications = insert_resp.data or []
-
-        notification_by_user = {n["user_id"]: n for n in inserted_notifications}
-
-        # Initialize firebase admin for push notifications
-        _ensure_firebase_admin_initialized()
-
+                
+        # Send emails synchronously
         sent_emails = 0
-        sent_realtime = 0
-
-        # Send emails
         if email_recipients:
             email_result = await send_bulk_assignment_notification_emails(
                 recipients=email_recipients,
@@ -347,45 +344,27 @@ async def send_assignment_notification(
             )
             sent_emails = email_result.get("sent_count", 0)
 
-        # Send WebSockets & FCM Push Notifications
-        fcm_failed_user_ids = []
-
-        for user in realtime_recipients:
-            user_id = user["user_id"]
-            notification = notification_by_user.get(user_id)
-            if not notification:
-                continue
-
-            # 1. Send WebSocket notification (live in-app)
-            ws_payload = {
-                "event": "new_notification",
-                "data": notification
+        # Send WebSockets & FCM Push Notifications via ARQ Worker Queue
+        from utils.notification_dispatcher import schedule_bulk_notification_jobs
+        
+        realtime_user_ids = [u["user_id"] for u in realtime_recipients]
+        fcm_failed_user_ids = [] # Deprecated field since it's async now
+        
+        if realtime_user_ids:
+            metadata = {
+                "assignment_title": request.assignment_title,
+                "module_name": request.assignment_title,
+                "module_type": request.assignment_type,
+                "company_id": request.company_id
             }
-            await manager.send_personal_message(user_id, ws_payload)
-
-            # 2. Send FCM Push notification (background/device)
-            fcm_token = user.get("fcm_token")
-            if fcm_token:
-                try:
-                    fcm_message = messaging.Message(
-                        notification=messaging.Notification(
-                            title=notification["title"],
-                            body=notification["message"],
-                        ),
-                        data={
-                            "id": str(notification["id"]),
-                            "type": str(notification["type"]),
-                            "assignment_title": str(request.assignment_title),
-                        },
-                        token=fcm_token,
-                    )
-                    messaging.send(fcm_message)
-                except Exception as fcm_err:
-                    # LOG-03: Record each failed FCM delivery for visibility
-                    print(f"[FCM] Push failed for user {user_id}: {fcm_err}")
-                    fcm_failed_user_ids.append(user_id)
-
-            sent_realtime += 1
+            
+            await schedule_bulk_notification_jobs(
+                user_ids=realtime_user_ids,
+                notification_type="MODULE_ASSIGNED",
+                metadata=metadata
+            )
+            
+            sent_realtime = len(realtime_user_ids)
 
         return {
             "success": True,

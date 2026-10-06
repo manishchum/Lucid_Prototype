@@ -19,7 +19,7 @@ from utils.db.companies_db import (
 )
 
 from utils.exceptions import NotFoundError, ValidationError, ConflictError
-from utils.redis_client import redis_client, set_cache, get_cache
+from utils.redis_client import redis_client, set_cache, get_cache, delete_cache_pattern
 from utils.db.permissions import check_user_permission
 from utils.auth import get_request_auth_required, get_request_auth_optional, RequestAuth
 
@@ -326,6 +326,8 @@ async def update_company_route(
         "baseline_assessment",
         "kpi",
         "role_play",
+        "role_play_openai",
+        "role_play_gemini",
         "reports",
         "sprintverse",
         "gamification",
@@ -399,6 +401,20 @@ async def update_company_route(
         )) and "task_management" not in normalized_addons:
             normalized_addons.insert(0, "task_management")
 
+        # Ensure the parent role_play addon is present when role_play_openai or role_play_gemini is enabled.
+        if any(child in normalized_addons for child in (
+            "role_play_openai",
+            "role_play_gemini",
+        )) and "role_play" not in normalized_addons:
+            normalized_addons.insert(0, "role_play")
+
+        # Ensure mutually exclusive selection between role_play_openai and role_play_gemini.
+        if "role_play_openai" in normalized_addons and "role_play_gemini" in normalized_addons:
+            raise HTTPException(
+                status_code=400,
+                detail="Only one of 'role_play_openai' or 'role_play_gemini' can be enabled at a time."
+            )
+
         update_data["subscription_addons"] = normalized_addons
 
     if "subscription_tier" in update_data or "subscription_addons" in update_data:
@@ -412,6 +428,9 @@ async def update_company_route(
     result = await update_company(user_id, company_id, update_data)
     
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
+    redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
+    redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
+    delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None
     
@@ -434,6 +453,7 @@ async def delete_company_route(
     """
     result = await delete_company(user_id, company_id)
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on delete
+    redis_client.delete(f"company_addons:{company_id}")
     # Unwrap service layer response
     deleted = result.get("data") or None
     

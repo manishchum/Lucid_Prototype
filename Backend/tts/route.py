@@ -456,15 +456,15 @@ def getGoogleTtsVoiceConfig(language: str, speaker: str) -> Dict[str, Any]:
 
     if normalized == "en":
         voice_config["name"] = (
-            "en-US-Standard-G"
+            "en-IN-Chirp3-HD-Erinome"
             if speaker in {"sarah", "pooja"}
-            else "en-US-Standard-J"
+            else "en-IN-Chirp3-HD-Enceladus"
         )
     elif normalized == "hinglish":
         voice_config["name"] = (
-            "hi-IN-Standard-E"
+            "hi-IN-Chirp3-HD-Aoede"
             if speaker == "pooja"
-            else "hi-IN-Standard-C"
+            else "hi-IN-Chirp3-HD-Enceladus"
         )
 
     return voice_config
@@ -795,13 +795,13 @@ async def synthesizeText(
         if gender == "male":
             voice = {
                 "languageCode": "hi-IN",
-                "name": "hi-IN-Standard-C",
+                "name": "hi-IN-Chirp3-HD-Enceladus",
                 "ssmlGender": "MALE"
             }
         else:
             voice = {
                 "languageCode": "hi-IN",
-                "name": "hi-IN-Standard-E",
+                "name": "hi-IN-Chirp3-HD-Aoede",
                 "ssmlGender": "FEMALE"
             }
 
@@ -1393,6 +1393,7 @@ async def GET(request: Request):
 
 
 @router.post("/tts")
+# @router.post("/tts/chat")
 async def POST(request: Request):
     try:
         body = await request.json()
