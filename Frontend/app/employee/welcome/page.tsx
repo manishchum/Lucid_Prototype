@@ -1153,14 +1153,16 @@ export default function EmployeeWelcome() {
             </div> */}
 
             <div className="flex items-end gap-3">
-              {/* <Button
-                onClick={() => router.push("/employee/voice-notes")}
-                className="h-10 w-10 shrink-0 rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center justify-center"
-                title="Open Voice Agent"
-                size="icon"
-              >
-                <Mic className="h-5 w-5" />
-              </Button> */}
+              {hasFeature(FEATURES.VOICE_AGENT) && (
+                <Button
+                  onClick={() => router.push("/employee/voice-notes")}
+                  className="h-10 w-10 shrink-0 rounded-[8px] bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center justify-center"
+                  title="Open Voice Agent"
+                  size="icon"
+                >
+                  <Mic className="h-5 w-5" />
+                </Button>
+              )}
 
               <Button
                 onClick={() => setShowLeaderboard(true)}
