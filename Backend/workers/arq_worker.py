@@ -10,6 +10,7 @@ from arq.connections import RedisSettings
 
 from utils.auth_bridge import get_service_supabase_client
 from utils.notification_dispatcher import dispatch_hybrid_notification
+from utils.notifications.template_engine import TemplateCompiler
 
 logger = logging.getLogger("lucid.arq_worker")
 
@@ -107,15 +108,47 @@ async def process_single_job(db, job: Dict[str, Any]) -> bool:
             
         template = random.choice(templates)
         
-        # 3. Format Strings
-        title_str = template.get("title_template") or ""
-        body_str = template.get("body_template") or ""
-        
-        for key, val in metadata.items():
-            placeholder = f"{{{{{key}}}}}"
-            title_str = title_str.replace(placeholder, str(val))
-            body_str = body_str.replace(placeholder, str(val))
-            
+        # 3. Enrich Recipient Profile & Render Templates via TemplateCompiler
+        user_res = db.table("users").select("name,email,first_name").eq("user_id", user_id).maybe_single().execute()
+        user_data = getattr(user_res, "data", None) or {}
+        full_name = user_data.get("name") or user_data.get("full_name") or ""
+        first_name = user_data.get("first_name") or (full_name.split()[0] if full_name else "")
+        email = user_data.get("email") or ""
+
+        context = {
+            "subscriber.first_name": first_name,
+            "subscriber.full_name": full_name,
+            "subscriber.email": email,
+            "first_name": first_name,
+            "full_name": full_name,
+            "email": email,
+            **metadata,
+        }
+
+        # Ensure deep linking navigation contract is present in metadata
+        if "target_screen" not in metadata:
+            if "SPRINT" in notif_type:
+                metadata["target_screen"] = "Sprint"
+            elif "TASK" in notif_type:
+                metadata["target_screen"] = "Home"
+                metadata["initial_tab"] = "tasks"
+            elif "ROLEPLAY" in notif_type:
+                metadata["target_screen"] = "Roleplay"
+            elif "REPORT" in notif_type or "QUIZ" in notif_type or "MODULE_COMPLETED" in notif_type:
+                metadata["target_screen"] = "Reports"
+            elif "FEEDBACK" in notif_type:
+                metadata["target_screen"] = "Feedback"
+
+        title_str, unresolved_title = TemplateCompiler.render(template.get("title_template"), context)
+        body_str, unresolved_body = TemplateCompiler.render(template.get("body_template"), context)
+
+        unresolved_required = list(set(unresolved_title + unresolved_body))
+        if unresolved_required:
+            logger.error(
+                f"[ARQ Worker] Job {job['id']} blocked by strict validation. Missing required variables: {', '.join(unresolved_required)}"
+            )
+            return False
+
         # 4. Dispatch Deliveries
         send_in_app = False
         send_push = False

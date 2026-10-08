@@ -145,39 +145,41 @@ async def dispatch_hybrid_notification(
                     "message": str(message),
                     "user_id": str(user_id),
                 }
-            for k, v in metadata.items():
-                if v is not None:
-                    fcm_data_payload[str(k)] = str(v)
+                for k, v in metadata.items():
+                    if v is not None:
+                        fcm_data_payload[str(k)] = str(v)
 
-            fcm_message = messaging.Message(
-                notification=messaging.Notification(
-                    title=title,
-                    body=message,
-                ),
-                data=fcm_data_payload,
-                android=messaging.AndroidConfig(
-                    priority="high",
-                    notification=messaging.AndroidNotification(
-                        channel_id=ANDROID_CHANNEL_ID,
-                        sound="default",
-                        priority="high",
-                        default_sound=True,
-                        default_vibrate_timings=True,
+                fcm_message = messaging.Message(
+                    notification=messaging.Notification(
+                        title=title,
+                        body=message,
                     ),
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
+                    data=fcm_data_payload,
+                    android=messaging.AndroidConfig(
+                        priority="high",
+                        notification=messaging.AndroidNotification(
+                            channel_id=ANDROID_CHANNEL_ID,
                             sound="default",
-                            badge=1,
+                            priority="high",
+                            default_sound=True,
+                            default_vibrate_timings=True,
+                        ),
+                    ),
+                    apns=messaging.APNSConfig(
+                        payload=messaging.APNSPayload(
+                            aps=messaging.Aps(
+                                sound="default",
+                                badge=1,
+                            )
                         )
-                    )
-                ),
-                token=fcm_token,
-            )
+                    ),
+                    token=fcm_token,
+                )
 
-            response = messaging.send(fcm_message)
-            logger.info(f"[Dispatcher] FCM system tray push sent to user {user_id}, msg_id={response}")
+                response = messaging.send(fcm_message)
+                logger.info(f"[Dispatcher] FCM system tray push sent to user {user_id}, msg_id={response}")
+            else:
+                logger.info(f"[Dispatcher] Skipping FCM push for user {user_id}: no registered device token")
         except Exception as e:
             err_msg = str(e)
             logger.warning(f"[Dispatcher] FCM push dispatch failed for user {user_id}: {err_msg}")
@@ -296,11 +298,14 @@ async def dispatch_task_assignment_notification(
         return 0
         
     metadata = {
-        "task_id": task_id,
-        "assignment_id": assignment_id,
+        "task_id": str(task_id),
+        "target_id": str(task_id),
+        "assignment_id": str(assignment_id),
+        "target_screen": "Home",
+        "initial_tab": "tasks",
+        "module_type": "task",
         "title": title,
-        "module_name": title,  # For template compat
-        "first_name": "Learner", # Placeholder, worker could fetch real name or template engine
+        "module_name": title,
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),
@@ -321,10 +326,12 @@ async def dispatch_sprint_assignment_notification(
         return 0
         
     metadata = {
-        "sprint_id": sprint_id,
+        "sprint_id": str(sprint_id),
+        "target_id": str(sprint_id),
+        "target_screen": "Sprint",
+        "module_type": "sprint",
         "title": title,
         "module_name": title,
-        "first_name": "Learner",
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),
@@ -345,10 +352,12 @@ async def dispatch_roleplay_assignment_notification(
         return 0
         
     metadata = {
-        "scenario_id": scenario_id,
+        "scenario_id": str(scenario_id),
+        "target_id": str(scenario_id),
+        "target_screen": "Roleplay",
+        "module_type": "roleplay",
         "title": title,
         "module_name": title,
-        "first_name": "Learner",
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),

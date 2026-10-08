@@ -261,6 +261,8 @@ async def _trigger_quiz_completion_notifications(
 
         meta = {
             "module_id": target_mod_id,
+            "target_id": target_mod_id,
+            "target_screen": "Reports",
             "module_name": module_title,
             "first_name": first_name,
             "score": str(score_pct),
@@ -283,6 +285,22 @@ async def _trigger_quiz_completion_notifications(
                 company_id=company_id,
                 notification_type="QUIZ_PASSED",
                 metadata=meta
+            )
+
+            # Post-completion CSAT feedback notification
+            feedback_meta = {
+                "module_id": target_mod_id,
+                "target_id": target_mod_id,
+                "target_screen": "Feedback",
+                "module_type": "quiz",
+                "module_name": module_title,
+                "first_name": first_name,
+            }
+            await schedule_notification_job(
+                user_id=user_id,
+                company_id=company_id,
+                notification_type="POST_COMPLETION_FEEDBACK",
+                metadata=feedback_meta
             )
     except Exception as e:
         import logging
