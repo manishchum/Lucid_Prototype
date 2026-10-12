@@ -16,7 +16,7 @@ from utils.db.users_db import (
     normalize_phone,
     record_login_in_db,
 )
-from utils.db.companies_db import get_company_by_id
+from utils.db.companies_db import get_company_by_id, resolve_company_platform_type
 
 from utils.db.roles_db import (
     assign_user_role,
@@ -95,7 +95,7 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
     return [created_user]
 
 
-async def _send_welcome_email(created_payload) -> None:
+async def _send_welcome_email(created_payload, custom_password: Optional[str] = None) -> None:
     try:
         created_user = _extract_created_user_row(created_payload)
         if not created_user:
@@ -107,16 +107,20 @@ async def _send_welcome_email(created_payload) -> None:
 
         company_id = created_user.get("company_id")
         company_name = "your organization"
+        platform_type = "web"
         if company_id:
             company_result = await get_company_by_id(None, company_id)
             company_data = company_result.get("data") or {}
             company_name = company_data.get("name") or company_name
+            platform_type = resolve_company_platform_type(company_data)
 
         send_result = await send_welcome_email(
             recipient_email=email,
             recipient_name=created_user.get("name") or "",
             company_name=company_name,
             phone=created_user.get("phone"),
+            platform_type=platform_type,
+            default_password=custom_password or DEFAULT_PASSWORD,
         )
         if not send_result.get("success"):
             print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")
@@ -280,7 +284,7 @@ async def create_user_endpoint(
     reactivated = result.get("reactivated", False)
     if not reactivated:
         try:
-            await _send_welcome_email(result.get("data"))
+            await _send_welcome_email(result.get("data"), request.password)
         except Exception as exc:
             print(f"[users create] Warning: Failed to send welcome email: {exc}")
     return {
@@ -471,3 +475,18 @@ async def record_user_login_route(
         "success": True,
         "data": result["data"]
     }
+
+
+@router.post("/{target_user_id}/resend-welcome-email")
+async def resend_welcome_email_endpoint(
+    target_user_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """Resend welcome email to a user based on their company platform setting."""
+    from utils.db.users_db import get_user_by_id
+    user_res = await get_user_by_id(auth_ctx.user_id, target_user_id)
+    user_data = user_res.get("data")
+    if not user_data:
+        raise HTTPException(status_code=404, detail="User not found")
+    await _send_welcome_email(user_data)
+    return {"success": True, "message": "Welcome email sent successfully"}

@@ -4,6 +4,31 @@ from ..supabase_client import supabase
 from .permissions import check_user_permission, check_company_access
 from ..supabase_client import supabase
 
+def resolve_company_platform_type(company_data: Optional[Dict[str, Any]]) -> str:
+    """
+    Resolves the company platform mode: 'web', 'mobile', or 'both'.
+    Checks direct column 'platform_type' first, then 'subscription_addons' flags,
+    defaulting to 'web'.
+    """
+    if not company_data or not isinstance(company_data, dict):
+        return "web"
+
+    pt = company_data.get("platform_type")
+    if pt and str(pt).strip().lower() in ("web", "mobile", "both"):
+        return str(pt).strip().lower()
+
+    addons = company_data.get("subscription_addons") or []
+    if isinstance(addons, list):
+        if "platform_both" in addons:
+            return "both"
+        if "platform_mobile" in addons:
+            return "mobile"
+        if "platform_web" in addons:
+            return "web"
+
+    return "web"
+
+
 # ==================== COMPANY OPERATIONS ====================
 
 async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) -> Dict[str, Any]:
@@ -26,6 +51,7 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
         )
         if not resp.data:
             return {"data": None, "error": "Company not found"}
+        resp.data["platform_type"] = resolve_company_platform_type(resp.data)
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -49,6 +75,8 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
             .maybe_single()
             .execute()
         )
+        if resp.data:
+            resp.data["platform_type"] = resolve_company_platform_type(resp.data)
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -74,6 +102,7 @@ async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) 
         )
         if not resp.data:
             return {"data": None, "error": "Company not found"}
+        resp.data["platform_type"] = resolve_company_platform_type(resp.data)
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -100,6 +129,9 @@ async def list_all_companies(requesting_user_id: str) -> Dict[str, Any]:
             .order('name')
             .execute()
         )
+        if resp.data and isinstance(resp.data, list):
+            for c in resp.data:
+                c["platform_type"] = resolve_company_platform_type(c)
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -126,12 +158,39 @@ async def create_company(requesting_user_id: Optional[str], company_data: Dict[s
 
     if not company_data.get('company_logo'):
         return {"data": None, "error": "Company logo is required"}
+
+    platform_type = company_data.get('platform_type')
+    if platform_type:
+        platform_type = str(platform_type).strip().lower()
+        if platform_type not in ("web", "mobile", "both"):
+            platform_type = "web"
+        addons = list(company_data.get('subscription_addons') or [])
+        platform_flag = f"platform_{platform_type}"
+        if platform_flag not in addons:
+            addons.append(platform_flag)
+        company_data['subscription_addons'] = addons
+        company_data['platform_type'] = platform_type
     
     try:
         resp = supabase.table('companies').insert(company_data).execute()
+        if resp.data and isinstance(resp.data, list):
+            for c in resp.data:
+                c["platform_type"] = resolve_company_platform_type(c)
         return {"data": resp.data, "error": None}
     except Exception as e:
         error_msg = str(e)
+        # Check if platform_type column is missing, retry without direct column
+        if 'platform_type' in company_data and ('42703' in error_msg or 'column companies.platform_type does not exist' in error_msg.lower()):
+            fallback_data = {k: v for k, v in company_data.items() if k != 'platform_type'}
+            try:
+                resp = supabase.table('companies').insert(fallback_data).execute()
+                if resp.data and isinstance(resp.data, list):
+                    for c in resp.data:
+                        c["platform_type"] = resolve_company_platform_type(c)
+                return {"data": resp.data, "error": None}
+            except Exception as e2:
+                error_msg = str(e2)
+
         # Check for unique constraint violation on domain
         if '23505' in error_msg or 'duplicate key' in error_msg.lower():
             return {"data": None, "error": "A company with this domain already exists"}
@@ -150,12 +209,39 @@ async def update_company(requesting_user_id: str, company_id: str, update_data: 
     
     if not has_access or not has_permission:
         return {"data": None, "error": "Permission denied: Admin access required for this company"}
+
+    requested_platform = update_data.get('platform_type')
+    if requested_platform:
+        requested_platform = str(requested_platform).strip().lower()
+        if requested_platform not in ("web", "mobile", "both"):
+            requested_platform = "web"
+        addons = list(update_data.get('subscription_addons') or [])
+        # Remove old platform flags
+        addons = [a for a in addons if a not in ("platform_web", "platform_mobile", "platform_both")]
+        addons.append(f"platform_{requested_platform}")
+        update_data['subscription_addons'] = addons
+        update_data['platform_type'] = requested_platform
     
     try:
         resp = supabase.table('companies').update(update_data).eq('company_id', company_id).execute()
+        if resp.data and isinstance(resp.data, list):
+            for c in resp.data:
+                c["platform_type"] = resolve_company_platform_type(c)
         return {"data": resp.data, "error": None}
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        error_msg = str(e)
+        # Check if platform_type column is missing, retry without direct column
+        if 'platform_type' in update_data and ('42703' in error_msg or 'column companies.platform_type does not exist' in error_msg.lower()):
+            fallback_data = {k: v for k, v in update_data.items() if k != 'platform_type'}
+            try:
+                resp = supabase.table('companies').update(fallback_data).eq('company_id', company_id).execute()
+                if resp.data and isinstance(resp.data, list):
+                    for c in resp.data:
+                        c["platform_type"] = resolve_company_platform_type(c)
+                return {"data": resp.data, "error": None}
+            except Exception as e2:
+                return {"data": None, "error": str(e2)}
+        return {"data": None, "error": error_msg}
 
 
 async def delete_company(requesting_user_id: str, company_id: str) -> Dict[str, Any]:
