@@ -31,6 +31,7 @@ class CreateCompanyRequest(BaseModel):
     domain: str
     company_logo: str
     learning_style: Optional[bool] = False
+    platform_type: Optional[str] = "web"
 
 
 class UpdateCompanyRequest(BaseModel):
@@ -40,6 +41,7 @@ class UpdateCompanyRequest(BaseModel):
     learning_style: Optional[bool] = None
     subscription_tier: Optional[str] = None
     subscription_addons: Optional[List[str]] = None
+    platform_type: Optional[str] = None
 
 
 class CustomFunctionEntry(BaseModel):
@@ -203,6 +205,7 @@ async def create_company_with_logo_route(
     domain: str = Form(...),
     logo: UploadFile = File(...),
     learning_style: bool = Form(False),
+    platform_type: str = Form("web"),
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -231,7 +234,8 @@ async def create_company_with_logo_route(
         "name": name,
         "domain": domain,
         "company_logo": public_url,
-        "learning_style": learning_style
+        "learning_style": learning_style,
+        "platform_type": platform_type,
     }
     
     result = await create_company(user_id, company_data)
@@ -329,6 +333,9 @@ async def update_company_route(
         "reports",
         "sprintverse",
         "gamification",
+        "platform_web",
+        "platform_mobile",
+        "platform_both",
     }
     allowed_language_codes = {
         "en",
@@ -352,6 +359,15 @@ async def update_company_route(
         "ur",
         "or",
     }
+
+    if "platform_type" in update_data:
+        normalized_platform = str(update_data["platform_type"]).strip().lower()
+        if normalized_platform not in ("web", "mobile", "both"):
+            raise HTTPException(
+                status_code=400,
+                detail="platform_type must be one of: web, mobile, both"
+            )
+        update_data["platform_type"] = normalized_platform
 
     if "subscription_tier" in update_data:
         normalized_tier = str(update_data["subscription_tier"]).strip().lower()
@@ -401,7 +417,7 @@ async def update_company_route(
 
         update_data["subscription_addons"] = normalized_addons
 
-    if "subscription_tier" in update_data or "subscription_addons" in update_data:
+    if "subscription_tier" in update_data or "subscription_addons" in update_data or "platform_type" in update_data:
         is_developer = await check_user_permission(user_id, "developer")
         if not is_developer:
             raise HTTPException(

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Building2, Check, ChevronRight, ShieldCheck, Sparkles, SlidersHorizontal, Wand2 } from "lucide-react"
+import { Building2, Check, ChevronRight, ShieldCheck, Sparkles, SlidersHorizontal, Wand2, Globe, Smartphone, Layers, Eye, Mail, ExternalLink } from "lucide-react"
 
 import { useAuth } from "@/contexts/auth-context"
 import { useTenant } from "@/contexts/tenant-context"
@@ -17,10 +17,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
+const WEB_PORTAL_URL = "https://lucid.workfloww.ai/"
+const PLAYSTORE_APP_URL = "https://play.google.com/store/apps/details?id=com.workfloww.lucidmobile&pcampaignid=web_share"
 
 type SubscriptionTier = "tier_1" | "tier_2" | "tier_3"
+type PlatformType = "web" | "mobile" | "both"
 type AddonKey =
   | "lucid_studio"
   | "lucid_studio_textual"
@@ -52,6 +62,8 @@ type CompanyRecord = {
   company_logo?: string
   subscription_tier?: SubscriptionTier | string | null
   subscription_addons?: string[] | null
+  platform_type?: PlatformType | string | null
+  enabled_languages?: string[]
 }
 
 type FeatureDefinition = {
@@ -350,6 +362,19 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
   return Array.from(effectiveAddons)
 }
 
+function extractPlatformType(company?: CompanyRecord | null): PlatformType {
+  if (!company) return "web"
+  const rawPt = String(company.platform_type || "").trim().toLowerCase()
+  if (rawPt === "web" || rawPt === "mobile" || rawPt === "both") {
+    return rawPt as PlatformType
+  }
+  const rawAddons = Array.isArray(company.subscription_addons) ? company.subscription_addons : []
+  if (rawAddons.includes("platform_mobile")) return "mobile"
+  if (rawAddons.includes("platform_both")) return "both"
+  if (rawAddons.includes("platform_web")) return "web"
+  return "web"
+}
+
 function deriveFrontendTier(addons: AddonKey[]): SubscriptionTier | null {
   const current = new Set(addons)
   if (current.has("task_management")) return "tier_3"
@@ -377,6 +402,9 @@ export default function CompanyAccessPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("")
   const [draftAddons, setDraftAddons] = useState<AddonKey[]>([])
   const [draftLanguages, setDraftLanguages] = useState<string[]>([])
+  const [draftPlatformType, setDraftPlatformType] = useState<PlatformType>("web")
+  const [previewModalOpen, setPreviewModalOpen] = useState(false)
+  const [previewModalPlatform, setPreviewModalPlatform] = useState<PlatformType>("web")
   const [saving, setSaving] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState("")
@@ -395,6 +423,7 @@ export default function CompanyAccessPage() {
         ...company,
         subscription_addons: normalizeAddons(rawAddons),
         enabled_languages: extractLanguageCodes(rawAddons),
+        platform_type: extractPlatformType(company),
       }
     }))
   }, [availableCompanies])
@@ -424,6 +453,7 @@ export default function CompanyAccessPage() {
     // Extract language codes directly from subscription_addons
     const langs = getDefaultLanguageCodes(selectedCompany.subscription_addons)
     setDraftLanguages(langs)
+    setDraftPlatformType(extractPlatformType(selectedCompany))
   }, [selectedCompany])
 
   const filteredCompanies = useMemo(() => {
@@ -499,6 +529,10 @@ export default function CompanyAccessPage() {
     setSuccess("")
 
     try {
+      const cleanAddons = draftAddons.filter(
+        (a) => a !== ("platform_web" as any) && a !== ("platform_mobile" as any) && a !== ("platform_both" as any)
+      )
+
       const res = await fetchWithAuth(`${API_BASE}/api/companies/${encodeURIComponent(selectedCompanyId)}`, {
         method: "PUT",
         headers: {
@@ -508,13 +542,15 @@ export default function CompanyAccessPage() {
         body: JSON.stringify({
           subscription_addons: Array.from(
             new Set([
-              ...draftAddons,
+              ...cleanAddons,
               "lucid_studio",
               "lucid_studio_textual",
               // append selected language codes so backend stores them in same column
               ...draftLanguages,
+              `platform_${draftPlatformType}`,
             ])
           ),
+          platform_type: draftPlatformType,
         }),
       })
 
@@ -530,7 +566,6 @@ export default function CompanyAccessPage() {
       if (updatedCompany?.company_id) {
         // Extract addons and languages separately from raw subscription_addons
         const allItems = Array.isArray(updatedCompany.subscription_addons) ? updatedCompany.subscription_addons : []
-        const normalizedAddons = normalizeAddons(allItems)
         const savedLangs = extractLanguageCodes(allItems)
 
         setCompanies((current) =>
@@ -541,11 +576,13 @@ export default function CompanyAccessPage() {
                 ...updatedCompany,
                 subscription_addons: normalizeAddons(allItems), // normalized addons only for logic
                 enabled_languages: savedLangs, // preserve languages separately
+                platform_type: draftPlatformType,
               }
               : company
           )
         )
         setDraftLanguages(savedLangs)
+        setDraftPlatformType(draftPlatformType)
       }
 
       setSuccess("Company access saved successfully.")
@@ -712,6 +749,9 @@ export default function CompanyAccessPage() {
                             <Badge variant={selected ? "secondary" : "outline"} className={selected ? "text-slate-900" : ""}>
                               {addons.length}/{FEATURE_DEFINITIONS.length} features
                             </Badge>
+                            <Badge variant="outline" className={`text-[10px] font-semibold ${selected ? "border-white/30 text-white bg-white/10" : "border-slate-200 text-slate-600"}`}>
+                              {extractPlatformType(company) === "web" ? "🌐 Web" : extractPlatformType(company) === "mobile" ? "📱 Mobile" : "🌐📱 Both"}
+                            </Badge>
                           </div>
                         </button>
                       )
@@ -742,6 +782,68 @@ export default function CompanyAccessPage() {
 
             <CardContent className="flex flex-1 flex-col overflow-hidden">
               <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden pr-1 scrollbar-thin scrollbar-thumb-slate-400/60 scrollbar-track-slate-100">
+                {/* Company Platform Mode Selector */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3 mb-2.5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Platform
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setPreviewModalPlatform(draftPlatformType)
+                        setPreviewModalOpen(true)
+                      }}
+                      className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2"
+                    >
+                      <Eye className="mr-1.5 h-3.5 w-3.5" />
+                      Preview Email
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDraftPlatformType("web")}
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
+                        draftPlatformType === "web"
+                          ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Web
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraftPlatformType("mobile")}
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
+                        draftPlatformType === "mobile"
+                          ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Mobile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDraftPlatformType("both")}
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
+                        draftPlatformType === "both"
+                          ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Both
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Features & Addons</h4>
+                  <p className="text-xs text-slate-500">Enable or disable specific features below</p>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   {FEATURE_DEFINITIONS.map((feature) => {
                     const checked = draftAddons.includes(feature.id)
@@ -951,6 +1053,7 @@ export default function CompanyAccessPage() {
                     if (!selectedCompany) return
                     setDraftAddons(getEffectiveAddons(selectedCompany))
                     setDraftLanguages(extractLanguageCodes(selectedCompany.subscription_addons))
+                    setDraftPlatformType(extractPlatformType(selectedCompany))
                   }}
                   disabled={!selectedCompany || saving}
                   className="shrink-0"
@@ -970,6 +1073,248 @@ export default function CompanyAccessPage() {
           </Card>
         </div>
       </div>
+
+      {/* Onboarding Email Preview Modal */}
+      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0 rounded-2xl border-slate-200">
+          <DialogHeader className="p-6 pb-2 border-b border-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-blue-600" />
+                  Onboarding Email Preview
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 mt-1">
+                  This is the exact email new users receive when onboarded to {selectedCompany?.name || "your organization"}.
+                </DialogDescription>
+              </div>
+            </div>
+
+            {/* Platform Preview Tabs */}
+            <div className="flex rounded-xl bg-slate-100 p-1 mt-3">
+              <button
+                type="button"
+                onClick={() => setPreviewModalPlatform("web")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  previewModalPlatform === "web"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Globe className="h-3.5 w-3.5 text-blue-600" />
+                <span>Web Based</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewModalPlatform("mobile")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  previewModalPlatform === "mobile"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Smartphone className="h-3.5 w-3.5 text-emerald-600" />
+                <span>Mobile Based</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewModalPlatform("both")}
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  previewModalPlatform === "both"
+                    ? "bg-white text-slate-950 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5 text-purple-600" />
+                <span>Both (Web & App)</span>
+              </button>
+            </div>
+          </DialogHeader>
+
+          {/* Email Canvas */}
+          <div className="p-6 bg-slate-100/70">
+            <div className="rounded-2xl bg-white shadow-xl overflow-hidden border border-slate-200/80 max-w-lg mx-auto">
+              {/* Email Envelope Metadata Header */}
+              <div className="bg-slate-50/90 border-b border-slate-200/60 px-5 py-3 text-xs space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-14 text-slate-400 font-semibold uppercase text-[10px]">From:</span>
+                  <span className="text-slate-700 font-mono text-[11px]">Lucid Platform &lt;notifications@workfloww.ai&gt;</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-14 text-slate-400 font-semibold uppercase text-[10px]">To:</span>
+                  <span className="text-slate-700 font-mono text-[11px]">monalika.goel@workfloww.ai</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-14 text-slate-400 font-semibold uppercase text-[10px]">Subject:</span>
+                  <span className="text-slate-900 font-semibold">Your account is ready - Welcome to the Lucid Platform</span>
+                </div>
+              </div>
+
+              {/* Header Gradient */}
+              <div className="bg-gradient-to-r from-[#0f766e] to-[#2563eb] text-white p-7">
+                <h2 className="text-2xl font-bold tracking-tight">Your account is ready</h2>
+                <p className="text-sm text-white/90 mt-1.5 font-normal">Welcome To The Lucid Platform.</p>
+              </div>
+
+              {/* Email Content Body */}
+              <div className="p-7 space-y-4 text-slate-800 text-[14px] leading-relaxed">
+                <p className="text-slate-900 font-medium">Hello Monalika,</p>
+                <p className="text-slate-600">
+                  Your account for <strong>{selectedCompany?.name || "Lucid"}</strong> has been created successfully.
+                  {previewModalPlatform === "both" && " You can access your account via our web portal or mobile application."}
+                </p>
+
+                {/* Web Format */}
+                {previewModalPlatform === "web" && (
+                  <>
+                    <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#0f766e] bg-[#f8fafc] p-5 my-4 space-y-2">
+                      <div className="font-bold text-slate-900 text-sm mb-3">Your login credentials</div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Platform:</span>
+                        <span>Lucid</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Web Portal:</span>
+                        <a href={WEB_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium underline">
+                          lucid.workfloww.ai
+                        </a>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Username:</span>
+                        <span className="text-blue-600 font-medium underline">monalika.goel@workfloww.ai</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Default Password:</span>
+                        <span className="font-mono font-bold text-slate-900">workfloww@2025</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-2 leading-normal">
+                        Please log in using the above credentials. We recommend changing your password after your first login to ensure the security of your account.
+                      </p>
+                    </div>
+
+                    <div className="pt-2">
+                      <p className="text-xs text-slate-600 mb-2 font-medium">Access your account here:</p>
+                      <a
+                        href={WEB_PORTAL_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block px-6 py-2.5 bg-[#0f766e] text-white font-bold rounded-full text-xs shadow-sm hover:opacity-95 cursor-pointer no-underline transition-opacity"
+                      >
+                        Go to Login
+                      </a>
+                    </div>
+                  </>
+                )}
+
+                {/* Mobile Format */}
+                {previewModalPlatform === "mobile" && (
+                  <>
+                    <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#0f766e] bg-[#f8fafc] p-5 my-4 space-y-2">
+                      <div className="font-bold text-slate-900 text-sm mb-3">Your login credentials</div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Platform:</span>
+                        <span>Lucid Mobile</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Username:</span>
+                        <span className="font-bold text-slate-900">+91 98765 43210</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-2 leading-normal">
+                        Please log in with OTP using your registered mobile number.
+                      </p>
+                    </div>
+
+                    <div className="pt-2">
+                      <p className="text-xs font-semibold text-slate-700 mb-2">Download Mobile App:</p>
+                      <a
+                        href={PLAYSTORE_APP_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block px-6 py-2.5 bg-[#0f766e] text-white font-bold rounded-full text-xs shadow-sm hover:opacity-95 cursor-pointer no-underline transition-opacity"
+                      >
+                        Get It On Google Play
+                      </a>
+                    </div>
+                  </>
+                )}
+
+                {/* Both Format */}
+                {previewModalPlatform === "both" && (
+                  <>
+                    {/* Web Box */}
+                    <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#0f766e] bg-[#f8fafc] p-5 my-3 space-y-2">
+                      <div className="font-bold text-slate-900 text-sm mb-3">Web Portal Credentials</div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Platform:</span>
+                        <span>Lucid Web</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Web Portal:</span>
+                        <a href={WEB_PORTAL_URL} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-medium underline">
+                          lucid.workfloww.ai
+                        </a>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Username:</span>
+                        <span className="text-blue-600 font-medium underline">monalika.goel@workfloww.ai</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Default Password:</span>
+                        <span className="font-mono font-bold text-slate-900">workfloww@2025</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-2 leading-normal">
+                        Please log in using the above credentials. We recommend changing your password after your first login.
+                      </p>
+                      <div className="pt-2">
+                        <a
+                          href={WEB_PORTAL_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block px-5 py-2 bg-[#0f766e] text-white font-bold rounded-full text-xs shadow-sm hover:opacity-95 cursor-pointer no-underline transition-opacity"
+                        >
+                          Go to Login
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Mobile Box */}
+                    <div className="rounded-xl border border-slate-200 border-l-4 border-l-[#2563eb] bg-[#f8fafc] p-5 my-3 space-y-2">
+                      <div className="font-bold text-slate-900 text-sm mb-3">Mobile App Access</div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Platform:</span>
+                        <span>Lucid Mobile</span>
+                      </div>
+                      <div className="text-xs text-slate-700 flex">
+                        <span className="font-semibold text-slate-900 w-32">Username:</span>
+                        <span className="font-bold text-slate-900">+91 98765 43210</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 pt-2 leading-normal">
+                        Please log in with OTP using your registered mobile number.
+                      </p>
+                      <div className="pt-2">
+                        <p className="text-xs font-semibold text-slate-700 mb-2">Download Mobile App:</p>
+                        <a
+                          href={PLAYSTORE_APP_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block px-5 py-2 bg-[#2563eb] text-white font-bold rounded-full text-xs shadow-sm hover:opacity-95 cursor-pointer no-underline transition-opacity"
+                        >
+                          Get It On Google Play
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-100 text-center text-xs text-slate-400">
+                This is an automated message from Lucid Platform.
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

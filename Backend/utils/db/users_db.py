@@ -7,7 +7,7 @@ from .permissions import check_user_permission, check_company_access
 import os
 
 # Default password for new users
-DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD") or "workfloww@2025"
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
@@ -340,14 +340,15 @@ async def create_user(
 
         # Hash password if not provided, if it's the plain default password, or if it's not already hashed
         password = user_data.get('password')
-        if not password or password == DEFAULT_PASSWORD:
+        default_pwd = DEFAULT_PASSWORD or "workfloww@2025"
+        if not password or password == default_pwd:
             # Use default password and hash it
             hashed_password = bcrypt.hashpw(
-                DEFAULT_PASSWORD.encode('utf-8'),
+                default_pwd.encode('utf-8'),
                 bcrypt.gensalt()
             ).decode('utf-8')
             user_data['password'] = hashed_password
-        elif not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
+        elif isinstance(password, str) and not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
             # If password doesn't look like a bcrypt hash, hash it
             hashed_password = bcrypt.hashpw(
                 password.encode('utf-8'),
@@ -435,14 +436,15 @@ async def create_user_signup(
 
         # Hash password if not provided, if it's the plain default password, or if it's not already hashed
         password = user_data.get('password')
-        if not password or password == DEFAULT_PASSWORD:
+        default_pwd = DEFAULT_PASSWORD or "workfloww@2025"
+        if not password or password == default_pwd:
             # Use default password and hash it
             hashed_password = bcrypt.hashpw(
-                DEFAULT_PASSWORD.encode('utf-8'),
+                default_pwd.encode('utf-8'),
                 bcrypt.gensalt()
             ).decode('utf-8')
             user_data['password'] = hashed_password
-        elif not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
+        elif isinstance(password, str) and not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
             # If password doesn't look like a bcrypt hash, hash it
             hashed_password = bcrypt.hashpw(
                 password.encode('utf-8'),
