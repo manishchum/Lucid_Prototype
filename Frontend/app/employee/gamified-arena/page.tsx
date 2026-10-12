@@ -24,7 +24,15 @@ import {
   ListOrdered,
   FileSearch,
   Clock,
-  Info
+  Info,
+  Play,
+  Gamepad2,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  RotateCcw,
+  Tag,
+  Award
 } from "lucide-react";
 
 import { fetchAssignedSprints, submitDrillProgress, fetchUserProfile, fetchActivityCalendar, Sprint, Drill, DrillProgressPayload } from "@/lib/api/gamification";
@@ -37,6 +45,37 @@ import FlowMasterSolver from "@/components/gamification/drills/FlowMasterSolver"
 import AuditSpotterSolver from "@/components/gamification/drills/AuditSpotterSolver";
 import SpeedRunSolver from "@/components/gamification/drills/SpeedRunSolver";
 import { GamificationLeaderboard, BadgesVault } from "@/components/gamification/Leaderboard";
+
+// ==========================================
+// SPRINT CARD GRADIENT THEMES
+// ==========================================
+const SPRINT_CARD_THEMES = [
+  {
+    gradient: "from-pink-500 via-rose-500 to-rose-600",
+    shadow: "shadow-rose-500/20",
+    badge: "AI Sprint"
+  },
+  {
+    gradient: "from-amber-400 via-orange-500 to-orange-600",
+    shadow: "shadow-orange-500/20",
+    badge: "Challenge"
+  },
+  {
+    gradient: "from-blue-500 via-indigo-500 to-indigo-600",
+    shadow: "shadow-indigo-500/20",
+    badge: "Quest"
+  },
+  {
+    gradient: "from-purple-500 via-violet-600 to-violet-700",
+    shadow: "shadow-purple-500/20",
+    badge: "Logic"
+  },
+  {
+    gradient: "from-emerald-400 via-teal-500 to-teal-600",
+    shadow: "shadow-teal-500/20",
+    badge: "Mastery"
+  }
+];
 
 // ==========================================
 // WEB AUDIO SOUND EFFECTS UTILITY
@@ -85,9 +124,11 @@ const getBadgeIcon = (iconName: string) => {
 };
 
 export default function EmployeeGamifiedArenaPage() {
-  const { hasFeature } = useTenant();
+  const { hasFeature, activeCompany } = useTenant();
   const { user, userId, employeeData } = useAuth();
   const router = useRouter();
+
+  const companyDisplayName = activeCompany?.name || (employeeData as any)?.company_name || "Company";
 
   useEffect(() => {
     // Commenting out feature flag check during development to prevent unwanted redirects
@@ -110,11 +151,14 @@ export default function EmployeeGamifiedArenaPage() {
   const [userXp, setUserXp] = useState<number>(0);
   const [streakDays, setStreakDays] = useState<number>(0);
   const [streakModalOpen, setStreakModalOpen] = useState<boolean>(false);
+  const [leaderboardModalOpen, setLeaderboardModalOpen] = useState<boolean>(false);
   const [activeDates, setActiveDates] = useState<string[]>([]);
   const [completedDrills, setCompletedDrills] = useState<Record<string, number>>({});
   const [unlockedBadges, setUnlockedBadges] = useState<any[]>([]);
   const [newBadgesAlert, setNewBadgesAlert] = useState<any[]>([]);
+  const [flippedSprintId, setFlippedSprintId] = useState<string | null>(null);
 
+  const carouselRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
 
   useEffect(() => {
@@ -253,14 +297,58 @@ export default function EmployeeGamifiedArenaPage() {
     if (!nextMuted) playSound("tap");
   };
 
+  const scrollCarousel = (direction: "left" | "right") => {
+    if (carouselRef.current) {
+      const scrollAmount = direction === "left" ? -320 : 320;
+      carouselRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
+  };
+
+  const handleGetStarted = () => {
+    playSound("tap");
+    if (!sprints || sprints.length === 0) return;
+
+    for (let idx = 0; idx < sprints.length; idx++) {
+      const sprint = sprints[idx];
+      let isLocked = sprint.is_locked;
+      if (idx > 0) {
+        const prevSprint = sprints[idx - 1];
+        const prevDrillIds = prevSprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+        const prevCompletedCount = prevDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+        isLocked = (prevDrillIds.length === 0 || prevCompletedCount < prevDrillIds.length);
+      } else {
+        isLocked = false;
+      }
+
+      if (isLocked) continue;
+
+      const sprintDrillIds = sprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+      const completedCount = sprintDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+
+      if (completedCount < sprintDrillIds.length) {
+        setActiveSprint(sprint);
+        setActiveDrillIndex(completedCount);
+        setActiveTab("drill");
+        setShowDrillInstructions(false);
+        return;
+      }
+    }
+
+    // Default fallback to first sprint drill 0 if all completed
+    setActiveSprint(sprints[0]);
+    setActiveDrillIndex(0);
+    setActiveTab("drill");
+    setShowDrillInstructions(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans selection:bg-indigo-500 selection:text-white pb-16">
       <div className="fixed inset-0 pointer-events-none bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(99,102,241,0.05),rgba(255,255,255,0))]" />
 
       <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
         {/* TOP COMPACT HEADER */}
-        <header className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-sm space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <header className="rounded-2xl bg-white border border-blue-200/60 px-6 py-4 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               {activeTab !== "sprints" && (
                 <button
@@ -268,7 +356,7 @@ export default function EmployeeGamifiedArenaPage() {
                     playSound("tap");
                     setActiveTab("sprints");
                   }}
-                  className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <ArrowLeft className="w-4 h-4 text-slate-600" />
                   <span className="leading-none">Study Mode</span>
@@ -276,20 +364,23 @@ export default function EmployeeGamifiedArenaPage() {
               )}
 
               <div>
-                <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight">
-                  Workfloww.ai Arena ⚡
+                <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <span>{companyDisplayName} Arena</span>
+                  <Zap className="w-4.5 h-4.5 text-amber-500 fill-amber-400 shrink-0 stroke-[2.5]" />
                 </h1>
               </div>
             </div>
 
             {/* TOP RIGHT ACTION BAR */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={toggleSound}
-                className={`p-2 rounded-2xl border transition-all cursor-pointer shadow-2xs flex items-center justify-center ${soundMuted
-                  ? "bg-slate-100 text-slate-400 border-slate-200"
-                  : "bg-indigo-50 text-indigo-600 border-indigo-200 hover:bg-indigo-100"
-                  }`}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
+                  soundMuted
+                    ? "bg-slate-100 text-slate-400 border-slate-200"
+                    : "bg-blue-50/50 text-blue-600 border-blue-200/80 hover:bg-blue-100/60"
+                }`}
+                title={soundMuted ? "Unmute Audio" : "Mute Audio"}
               >
                 {soundMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
@@ -297,9 +388,9 @@ export default function EmployeeGamifiedArenaPage() {
               <button
                 onClick={() => {
                   playSound("tap");
-                  setActiveTab("leaderboard");
+                  setLeaderboardModalOpen(true);
                 }}
-                className="px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all bg-amber-50 text-amber-900 border-amber-200/80 hover:bg-amber-100 cursor-pointer flex items-center gap-2"
+                className="px-4 py-2 rounded-xl border border-amber-200/90 bg-amber-50/50 hover:bg-amber-100/60 text-amber-900 font-semibold text-xs sm:text-sm transition-all cursor-pointer flex items-center gap-2"
               >
                 <Trophy className="w-4 h-4 text-amber-500" />
                 <span>Leaderboard</span>
@@ -310,32 +401,35 @@ export default function EmployeeGamifiedArenaPage() {
                   playSound("tap");
                   setActiveTab("vault");
                 }}
-                className="px-3.5 py-2 rounded-2xl border text-xs font-bold transition-all bg-blue-50 text-blue-900 border-blue-200/80 hover:bg-blue-100 cursor-pointer flex items-center gap-2 relative"
+                className="px-4 py-2 rounded-xl border border-blue-200/90 bg-blue-50/50 hover:bg-blue-100/60 text-blue-900 font-semibold text-xs sm:text-sm transition-all cursor-pointer flex items-center gap-2 relative"
               >
                 <Shield className="w-4 h-4 text-blue-500" />
-                <span>Badges <span className="ml-1 bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded-md text-[10px]">{unlockedBadges.length}</span></span>
+                <span>Badges</span>
+                <span className="ml-0.5 bg-blue-600 text-white text-[11px] font-bold w-5 h-5 rounded-full inline-flex items-center justify-center leading-none">
+                  {unlockedBadges.length}
+                </span>
                 {newBadgesAlert.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full animate-ping"></span>
-                )}
-                {newBadgesAlert.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white"></span>
+                  <>
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full animate-ping"></span>
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white"></span>
+                  </>
                 )}
               </button>
 
-              <div
+              <button
                 onClick={() => {
                   playSound("tap");
                   setStreakModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 text-rose-700 px-3.5 py-2 rounded-2xl text-xs font-extrabold cursor-pointer hover:bg-rose-100 transition-all"
+                className="px-4 py-2 rounded-xl border border-rose-200/90 bg-rose-50/50 hover:bg-rose-100/60 text-rose-600 font-semibold text-xs sm:text-sm transition-all cursor-pointer flex items-center gap-2"
               >
                 <Flame className="w-4 h-4 text-rose-500 fill-rose-500" />
-                <span>{streakDays} Day Streak 🔥</span>
-              </div>
+                <span>{streakDays} Day Streak</span>
+              </button>
 
-              <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 px-3.5 py-2 rounded-2xl text-xs font-black shadow-2xs">
-                <Sparkles className="w-4 h-4 fill-indigo-500 text-indigo-600" />
-                <span>+{userXp} XP</span>
+              <div className="px-4 py-2 rounded-xl border border-purple-200/90 bg-purple-50/60 text-purple-700 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-2xs">
+                <Sparkles className="w-4 h-4 text-purple-600 fill-purple-200" />
+                <span>+{userXp.toLocaleString()} XP</span>
               </div>
             </div>
           </div>
@@ -343,120 +437,398 @@ export default function EmployeeGamifiedArenaPage() {
 
         {activeTab === "sprints" && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
-                  STUDY MODE CURRICULUM
-                </span>
-                <h2 className="text-xl font-black text-slate-900 mt-2 flex items-center gap-2">
-                  <Swords className="w-5 h-5 text-indigo-600" /> Sprint Roadmap
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Master the AI-generated drills sequentially.
-                </p>
+            {/* HERO BANNER CARD */}
+            <div className="relative rounded-2xl bg-white border border-blue-200/60 p-6 sm:p-8 shadow-xs overflow-hidden bg-gradient-to-r from-blue-50/30 via-indigo-50/20 to-white">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                <div className="lg:col-span-7 space-y-4">
+                  <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                    Master Concepts, Play & Level Up!
+                  </h2>
+                  <p className="text-slate-600 text-sm sm:text-base leading-relaxed max-w-xl">
+                    Complete AI-generated sprint drills, earn XP, build your daily streak, and climb the arena leaderboard to demonstrate your skills.
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      onClick={handleGetStarted}
+                      className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-2.5 active:scale-[0.98]"
+                    >
+                      <Play className="w-4 h-4 fill-white text-white" />
+                      <span>Get Started</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-5 flex justify-center lg:justify-end">
+                  <div className="relative w-full max-w-[300px] aspect-[4/3] flex items-center justify-center">
+                    {/* SVG Gaming / Arena Setup Illustration */}
+                    <svg viewBox="0 0 320 220" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                      {/* Floating dots & stars background decor */}
+                      <circle cx="45" cy="40" r="4" fill="#F43F5E" />
+                      <circle cx="270" cy="50" r="3" fill="#A855F7" />
+                      <circle cx="35" cy="115" r="5" fill="#3B82F6" />
+                      <circle cx="295" cy="120" r="4" fill="#10B981" />
+                      <path d="M90 30L93 36L100 37L95 42L96 49L90 46L84 49L85 42L80 37L87 36L90 30Z" fill="#F59E0B" />
+                      <path d="M280 150L282 154L287 155L283 159L284 164L280 162L276 164L277 159L273 155L278 154L280 150Z" fill="#60A5FA" />
+                      
+                      {/* Floating Keyhole Card */}
+                      <g filter="drop-shadow(0px 4px 6px rgba(0,0,0,0.06))">
+                        <rect x="110" y="25" width="28" height="36" rx="6" fill="white" stroke="#E2E8F0" strokeWidth="2" />
+                        <path d="M124 38C126.209 38 128 36.2091 128 34C128 31.7909 126.209 30 124 30C121.791 30 120 31.7909 120 34C120 36.2091 121.791 38 124 38Z" fill="#1E293B" />
+                        <path d="M122.5 36H125.5L126.5 45H121.5L122.5 36Z" fill="#1E293B" />
+                      </g>
+
+                      {/* Floating Gold Hexagon Badge */}
+                      <g filter="drop-shadow(0px 4px 8px rgba(245,158,11,0.25))">
+                        <path d="M260 60L275 68.6603V86L260 94.6603L245 86V68.6603L260 60Z" fill="#F59E0B" />
+                        <path d="M260 65L270 70.7735V82.3205L260 88.094L250 82.3205V70.7735L260 65Z" fill="#FBBF24" />
+                        <circle cx="260" cy="76.5" r="4" fill="#FFF" />
+                      </g>
+
+                      {/* Gaming Desk Frame */}
+                      <rect x="30" y="150" width="260" height="8" rx="4" fill="#0F172A" />
+                      <rect x="55" y="158" width="10" height="42" fill="#0F172A" />
+                      <rect x="255" y="158" width="10" height="42" fill="#0F172A" />
+
+                      {/* Dual Gaming Monitors */}
+                      {/* Left Monitor */}
+                      <rect x="70" y="90" width="75" height="52" rx="5" fill="#1E293B" stroke="#0F172A" strokeWidth="3" />
+                      <rect x="74" y="94" width="67" height="44" rx="3" fill="#0284C7" />
+                      {/* Code lines on left monitor */}
+                      <line x1="80" y1="104" x2="110" y2="104" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+                      <line x1="80" y1="112" x2="125" y2="112" stroke="#38BDF8" strokeWidth="2.5" strokeLinecap="round" />
+                      <line x1="80" y1="120" x2="100" y2="120" stroke="#F43F5E" strokeWidth="2.5" strokeLinecap="round" />
+                      <line x1="80" y1="128" x2="118" y2="128" stroke="#10B981" strokeWidth="2.5" strokeLinecap="round" />
+
+                      {/* Right Monitor */}
+                      <rect x="155" y="90" width="75" height="52" rx="5" fill="#1E293B" stroke="#0F172A" strokeWidth="3" />
+                      <rect x="159" y="94" width="67" height="44" rx="3" fill="#0F172A" />
+                      <rect x="165" y="100" width="28" height="20" rx="2" fill="#F59E0B" />
+                      <rect x="198" y="100" width="22" height="20" rx="2" fill="#3B82F6" />
+
+                      {/* Monitor Stands */}
+                      <rect x="102" y="142" width="10" height="8" fill="#0F172A" />
+                      <rect x="188" y="142" width="10" height="8" fill="#0F172A" />
+
+                      {/* Left Gamer Avatar with Pink Headset */}
+                      <path d="M50 150C50 135 60 125 70 125C80 125 90 135 90 150H50Z" fill="#0F172A" />
+                      <circle cx="70" cy="118" r="12" fill="#FECDD3" />
+                      {/* Pink Headphones */}
+                      <path d="M56 118C56 110 62 104 70 104C78 104 84 110 84 118" stroke="#E11D48" strokeWidth="4" strokeLinecap="round" />
+                      <rect x="54" y="112" width="5" height="12" rx="2" fill="#E11D48" />
+                      <rect x="81" y="112" width="5" height="12" rx="2" fill="#E11D48" />
+
+                      {/* Right Gamer Avatar with Blue Headset */}
+                      <path d="M210 150C210 135 220 125 230 125C240 125 250 135 250 150H210Z" fill="#0F172A" />
+                      <circle cx="230" cy="118" r="12" fill="#BAE6FD" />
+                      {/* Blue Headphones */}
+                      <path d="M216 118C216 110 222 104 230 104C238 104 244 110 244 118" stroke="#0284C7" strokeWidth="4" strokeLinecap="round" />
+                      <rect x="214" y="112" width="5" height="12" rx="2" fill="#0284C7" />
+                      <rect x="241" y="112" width="5" height="12" rx="2" fill="#0284C7" />
+
+                      {/* Golden Trophy on Desk Right */}
+                      <g filter="drop-shadow(0px 3px 5px rgba(0,0,0,0.15))">
+                        <path d="M275 125H285V132C285 137 280 141 275 141V125Z" fill="#D97706" />
+                        <path d="M265 125H255V132C255 137 260 141 265 141V125Z" fill="#D97706" />
+                        <path d="M262 120H278V134C278 139 274 143 270 143C266 143 262 139 262 134V120Z" fill="#F59E0B" />
+                        <rect x="268" y="143" width="4" height="5" fill="#D97706" />
+                        <rect x="264" y="148" width="12" height="4" rx="1" fill="#92400E" />
+                      </g>
+                    </svg>
+                  </div>
+                </div>
               </div>
             </div>
-
-            {isLoading ? (
-              <div className="flex justify-center py-20 text-indigo-600 font-bold animate-pulse">Loading Sprints...</div>
-            ) : sprints.length === 0 ? (
-              <div className="flex justify-center py-20 text-slate-500 font-bold">No gamification sprints found for this module.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {sprints.map((sprint, idx) => {
-                  let isLocked = sprint.is_locked;
-                  if (idx > 0) {
-                     const prevSprint = sprints[idx - 1];
-                     const prevDrillIds = prevSprint.gamification_drills?.map((d: any) => d.drill_id) || [];
-                     const prevCompletedCount = prevDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
-                     isLocked = (prevDrillIds.length === 0 || prevCompletedCount < prevDrillIds.length);
-                  } else {
-                     isLocked = false;
-                  }
-
-                  return (
-                    <div
-                      key={sprint.sprint_id}
-                      className="p-6 rounded-3xl border flex flex-col justify-between transition-all relative overflow-hidden bg-white border-indigo-500 ring-2 ring-indigo-500/10 shadow-md"
-                    >
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full border ${isLocked ? "bg-slate-50 text-slate-500 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}>
-                            SPRINT {idx + 1}
-                          </span>
-                          {isLocked ? (
-                            <Lock className="w-5 h-5 text-slate-400" />
-                          ) : (
-                            <Sparkles className="w-5 h-5 text-indigo-600 animate-pulse" />
-                          )}
-                        </div>
-
-                        <div>
-                          <h3 className="text-base font-black text-slate-900">{sprint.title}</h3>
-                          <p className="text-xs text-slate-600 mt-1 leading-relaxed">{sprint.description}</p>
-                        </div>
-
-                      <div className="flex flex-wrap items-center gap-3 text-xs font-bold pt-2 border-t border-slate-100">
-                        <span className="text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
-                          {sprint.gamification_drills?.length || 0} Drills
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-6">
-                      {(() => {
-                        const sprintDrillIds = sprint.gamification_drills?.map((d: any) => d.drill_id) || [];
-                        const completedCount = sprintDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
-                        const totalDrills = sprintDrillIds.length;
-                        const isCompleted = totalDrills > 0 && completedCount === totalDrills;
-                        const isInProgress = completedCount > 0 && completedCount < totalDrills;
-
-                        let btnText = "Let's Cook 🚀"; // Start Sprint
-                        let btnStyle = "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20";
-                        let statusText = "0% Rizz";
-
-                        if (isLocked) {
-                          btnText = "Locked 🔒";
-                          btnStyle = "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed";
-                          statusText = "Complete Previous Sprint To Unlock";
-                        } else if (isCompleted) {
-                          btnText = "Flex Review 👀"; // Review
-                          btnStyle = "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20";
-                          statusText = "Completed / Big W 👑";
-                        } else if (isInProgress) {
-                          btnText = "Keep Grinding 💪"; // Resume
-                          btnStyle = "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20";
-                          statusText = `${Math.round((completedCount / totalDrills) * 100)}% Cooked`;
-                        }
-
-                        return (
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1">
-                              <span>Status:</span>
-                              <span className={isLocked ? "text-slate-400" : isCompleted ? "text-emerald-600" : isInProgress ? "text-amber-600" : "text-slate-400"}>{statusText}</span>
-                            </div>
-                            <button
-                              onClick={() => {
-                                if (isLocked) return;
-                                playSound("tap");
-                                setActiveSprint(sprint);
-                                setActiveDrillIndex(isCompleted ? 0 : completedCount);
-                                setActiveTab("drill");
-                                setShowDrillInstructions(false);
-                              }}
-                              disabled={isLocked}
-                              className={`w-full py-3 px-4 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 ${btnStyle} ${!isLocked ? "shadow-md cursor-pointer" : ""}`}
-                            >
-                              {btnText} {!isLocked && <ArrowRight className="w-4 h-4" />}
-                            </button>
-                          </div>
-                        );
-                      })()}
+            {/* MINI GAMES & AI SPRINTS CAROUSEL SECTION */}
+            <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                      Mini Games & AI Sprints
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-slate-400">
+                      {sprints.length} Live Sprints Active
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => scrollCarousel("left")}
+                        className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+                        title="Scroll Left"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => scrollCarousel("right")}
+                        className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+                        title="Scroll Right"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                )})}
+                </div>
+
+                {isLoading ? (
+                  <div className="flex justify-center py-20 text-indigo-600 font-bold animate-pulse">Loading Sprints...</div>
+                ) : sprints.length === 0 ? (
+                  <div className="flex justify-center py-20 text-slate-500 font-bold">No gamification sprints found for this module.</div>
+                ) : (
+                  <div
+                    ref={carouselRef}
+                    className="flex gap-5 overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scrollbar-none scroll-smooth"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                  >
+                    {sprints.map((sprint, idx) => {
+                      let isLocked = sprint.is_locked;
+                      if (idx > 0) {
+                        const prevSprint = sprints[idx - 1];
+                        const prevDrillIds = prevSprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+                        const prevCompletedCount = prevDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+                        isLocked = (prevDrillIds.length === 0 || prevCompletedCount < prevDrillIds.length);
+                      } else {
+                        isLocked = false;
+                      }
+
+                      const theme = SPRINT_CARD_THEMES[idx % SPRINT_CARD_THEMES.length];
+                      const sprintDrillIds = sprint.gamification_drills?.map((d: any) => d.drill_id) || [];
+                      const completedCount = sprintDrillIds.filter((id: string) => completedDrills[id] !== undefined).length;
+                      const totalDrills = sprintDrillIds.length;
+                      const isCompleted = totalDrills > 0 && completedCount === totalDrills;
+                      const isInProgress = completedCount > 0 && completedCount < totalDrills;
+
+                      let playBtnText = "Play Now";
+                      if (isLocked) {
+                        playBtnText = "Locked 🔒";
+                      } else if (isCompleted) {
+                        playBtnText = "Review";
+                      } else if (isInProgress) {
+                        playBtnText = "Continue";
+                      }
+
+                      const isFlipped = flippedSprintId === sprint.sprint_id;
+
+                      return (
+                        <div
+                          key={sprint.sprint_id}
+                          className="min-w-[270px] max-w-[290px] w-[280px] shrink-0 h-[310px] snap-start"
+                          style={{ perspective: "1000px" }}
+                        >
+                          <motion.div
+                            className="relative w-full h-full rounded-2xl"
+                            style={{ transformStyle: "preserve-3d" }}
+                            animate={{ rotateY: isFlipped ? 180 : 0 }}
+                            transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+                          >
+                            {/* FRONT SIDE OF CARD */}
+                            <div
+                              onClick={() => {
+                                playSound("tap");
+                                setFlippedSprintId(sprint.sprint_id);
+                              }}
+                              className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${theme.gradient} p-5 flex flex-col justify-between shadow-lg ${theme.shadow} overflow-hidden cursor-pointer ${
+                                isFlipped ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
+                              } transition-opacity duration-300`}
+                              style={{ backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden" }}
+                            >
+                              {/* Top Row: Title, Drills & Flip Indicator */}
+                              <div className="space-y-1.5 z-10">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h4 className="text-base font-extrabold text-white tracking-tight line-clamp-1 flex-1">
+                                    {sprint.title}
+                                  </h4>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {isLocked ? (
+                                      <Lock className="w-4 h-4 text-white/70" />
+                                    ) : (
+                                      <div className="p-1 rounded-lg bg-white/20 text-white/90 backdrop-blur-xs" title="Click card to flip details">
+                                        <RotateCcw className="w-3.5 h-3.5 opacity-90" />
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-xs text-white/80 font-medium">
+                                  <Users className="w-3.5 h-3.5 opacity-80" />
+                                  <span>{sprint.gamification_drills?.length || 0} Drills</span>
+                                  {isInProgress && (
+                                    <span className="ml-auto bg-white/20 backdrop-blur-xs px-2 py-0.5 rounded-full text-[10px] text-white font-bold">
+                                      {Math.round((completedCount / totalDrills) * 100)}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Center Illustration Graphic */}
+                              <div className="flex items-center justify-center my-auto z-10">
+                                {idx % 4 === 0 && (
+                                  <div className="w-24 h-24 relative flex items-center justify-center">
+                                    <div className="w-20 h-20 bg-white/15 backdrop-blur-xs rounded-3xl border border-white/20 flex items-center justify-center shadow-inner">
+                                      <Brain className="w-11 h-11 text-white drop-shadow-md" />
+                                    </div>
+                                    <span className="absolute top-1 right-2 w-3 h-3 bg-amber-400 rounded-full animate-ping" />
+                                  </div>
+                                )}
+
+                                {idx % 4 === 1 && (
+                                  <div className="w-24 h-24 relative flex items-center justify-center">
+                                    <div className="w-20 h-20 bg-white/15 backdrop-blur-xs rounded-3xl border border-white/20 flex items-center justify-center shadow-inner">
+                                      <Swords className="w-11 h-11 text-white drop-shadow-md" />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {idx % 4 === 2 && (
+                                  <div className="w-24 h-24 relative flex items-center justify-center">
+                                    <div className="w-20 h-20 bg-white/15 backdrop-blur-xs rounded-3xl border border-white/20 flex items-center justify-center shadow-inner">
+                                      <Trophy className="w-11 h-11 text-amber-200 fill-amber-300 drop-shadow-md" />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {idx % 4 === 3 && (
+                                  <div className="w-24 h-24 relative flex items-center justify-center">
+                                    <div className="w-20 h-20 bg-white/15 backdrop-blur-xs rounded-3xl border border-white/20 flex items-center justify-center shadow-inner">
+                                      <Zap className="w-11 h-11 text-yellow-300 fill-yellow-300 drop-shadow-md" />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Bottom Full-width White Button */}
+                              <div className="z-10">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isLocked) return;
+                                    playSound("tap");
+                                    setActiveSprint(sprint);
+                                    setActiveDrillIndex(isCompleted ? 0 : completedCount);
+                                    setActiveTab("drill");
+                                    setShowDrillInstructions(false);
+                                  }}
+                                  disabled={isLocked}
+                                  className={`w-full py-3 px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-md ${
+                                    isLocked
+                                      ? "bg-white/35 text-white/70 cursor-not-allowed border border-white/20"
+                                      : "bg-white hover:bg-slate-50 text-slate-900 cursor-pointer active:scale-[0.98]"
+                                  }`}
+                                >
+                                  {!isLocked && <Gamepad2 className="w-4 h-4 text-slate-800" />}
+                                  <span>{playBtnText}</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* BACK SIDE OF CARD (FLIPPED 3D Y-180deg) */}
+                            <div
+                              onClick={() => {
+                                playSound("tap");
+                                setFlippedSprintId(null);
+                              }}
+                              className={`absolute inset-0 rounded-2xl bg-slate-900 border border-slate-800 p-5 flex flex-col justify-between shadow-2xl text-white overflow-hidden cursor-pointer ${
+                                isFlipped ? "pointer-events-auto z-20 opacity-100" : "pointer-events-none opacity-0"
+                              } transition-opacity duration-300`}
+                              style={{
+                                backfaceVisibility: "hidden",
+                                WebkitBackfaceVisibility: "hidden",
+                                transform: "rotateY(180deg)"
+                              }}
+                            >
+                              {/* Header with Title & Flip Back Button */}
+                              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                                <div className="flex items-center gap-2 flex-1 min-w-0 pr-2">
+                                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                                  <h4 className="text-sm font-extrabold text-white tracking-tight line-clamp-1">
+                                    {sprint.title}
+                                  </h4>
+                                </div>
+                                <div className="p-1.5 rounded-lg bg-slate-800 text-slate-300 flex items-center gap-1 text-[11px] font-semibold shrink-0">
+                                  <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Flip</span>
+                                </div>
+                              </div>
+
+                              {/* Complete Description Content */}
+                              <div className="flex-1 overflow-y-auto my-2 pr-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-700">
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Overview</span>
+                                  <p className="text-xs text-slate-200 leading-relaxed font-normal mt-0.5">
+                                    {sprint.description || "Interactive AI sprint drill module designed to master core operational procedures."}
+                                  </p>
+                                </div>
+
+                                {/* XP Breakdown & Drills */}
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                  <div className="bg-slate-800/80 p-2 rounded-xl border border-slate-700/60">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase block">Total Drills</span>
+                                    <span className="text-xs font-black text-amber-400 flex items-center gap-1 mt-0.5">
+                                      <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+                                      {sprint.gamification_drills?.length || 0} Drills
+                                    </span>
+                                  </div>
+
+                                  <div className="bg-slate-800/80 p-2 rounded-xl border border-slate-700/60">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase block">XP Potential</span>
+                                    <span className="text-xs font-black text-emerald-400 flex items-center gap-1 mt-0.5">
+                                      <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                                      +{(sprint.gamification_drills?.reduce((acc: number, d: any) => acc + (d.base_xp || 200), 0) || 200).toLocaleString()} XP
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Topic Tags */}
+                                <div className="pt-1">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Topics</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 text-[10px] font-semibold flex items-center gap-1">
+                                      <Tag className="w-3 h-3" /> #{theme.badge}
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 text-[10px] font-semibold">
+                                      #Interactive
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold">
+                                      #Module-{sprint.sprint_number || idx + 1}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Action Button on Back (Reflects dynamic status) */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isLocked) return;
+                                  setFlippedSprintId(null);
+                                  playSound("tap");
+                                  setActiveSprint(sprint);
+                                  setActiveDrillIndex(isCompleted ? 0 : completedCount);
+                                  setActiveTab("drill");
+                                  setShowDrillInstructions(false);
+                                }}
+                                disabled={isLocked}
+                                className={`w-full py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-md ${
+                                  isLocked
+                                    ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                                    : isCompleted
+                                    ? "bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer active:scale-[0.98]"
+                                    : isInProgress
+                                    ? "bg-amber-600 hover:bg-amber-500 text-white cursor-pointer active:scale-[0.98]"
+                                    : "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer active:scale-[0.98]"
+                                }`}
+                              >
+                                <span>{playBtnText}</span>
+                                {!isLocked && <ArrowRight className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </motion.div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
           </div>
         )}
 
@@ -538,8 +910,14 @@ export default function EmployeeGamifiedArenaPage() {
           </div>
         )}
 
-        {activeTab === "leaderboard" && (
-          <GamificationLeaderboard />
+        {(leaderboardModalOpen || activeTab === "leaderboard") && (
+          <GamificationLeaderboard 
+            isOpen={leaderboardModalOpen || activeTab === "leaderboard"} 
+            onClose={() => {
+              setLeaderboardModalOpen(false);
+              if (activeTab === "leaderboard") setActiveTab("sprints");
+            }} 
+          />
         )}
 
         {activeTab === "vault" && (
@@ -555,7 +933,9 @@ export default function EmployeeGamifiedArenaPage() {
       {newBadgesAlert.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center space-y-6 shadow-2xl scale-in-center">
-            <div className="text-5xl mb-2">🎉</div>
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-amber-400 via-orange-500 to-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/25 border border-amber-300/40 mb-2">
+              <Award className="w-8 h-8 drop-shadow-sm" />
+            </div>
             <h2 className="text-2xl font-black text-slate-900">New Badges Unlocked!</h2>
             <div className="space-y-4 max-h-60 overflow-y-auto p-2">
               {newBadgesAlert.map((badge, idx) => (
