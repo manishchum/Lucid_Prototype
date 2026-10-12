@@ -145,39 +145,41 @@ async def dispatch_hybrid_notification(
                     "message": str(message),
                     "user_id": str(user_id),
                 }
-            for k, v in metadata.items():
-                if v is not None:
-                    fcm_data_payload[str(k)] = str(v)
+                for k, v in metadata.items():
+                    if v is not None:
+                        fcm_data_payload[str(k)] = str(v)
 
-            fcm_message = messaging.Message(
-                notification=messaging.Notification(
-                    title=title,
-                    body=message,
-                ),
-                data=fcm_data_payload,
-                android=messaging.AndroidConfig(
-                    priority="high",
-                    notification=messaging.AndroidNotification(
-                        channel_id=ANDROID_CHANNEL_ID,
-                        sound="default",
-                        priority="high",
-                        default_sound=True,
-                        default_vibrate_timings=True,
+                fcm_message = messaging.Message(
+                    notification=messaging.Notification(
+                        title=title,
+                        body=message,
                     ),
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
+                    data=fcm_data_payload,
+                    android=messaging.AndroidConfig(
+                        priority="high",
+                        notification=messaging.AndroidNotification(
+                            channel_id=ANDROID_CHANNEL_ID,
                             sound="default",
-                            badge=1,
+                            priority="high",
+                            default_sound=True,
+                            default_vibrate_timings=True,
+                        ),
+                    ),
+                    apns=messaging.APNSConfig(
+                        payload=messaging.APNSPayload(
+                            aps=messaging.Aps(
+                                sound="default",
+                                badge=1,
+                            )
                         )
-                    )
-                ),
-                token=fcm_token,
-            )
+                    ),
+                    token=fcm_token,
+                )
 
-            response = messaging.send(fcm_message)
-            logger.info(f"[Dispatcher] FCM system tray push sent to user {user_id}, msg_id={response}")
+                response = messaging.send(fcm_message)
+                logger.info(f"[Dispatcher] FCM system tray push sent to user {user_id}, msg_id={response}")
+            else:
+                logger.info(f"[Dispatcher] Skipping FCM push for user {user_id}: no registered device token")
         except Exception as e:
             err_msg = str(e)
             logger.warning(f"[Dispatcher] FCM push dispatch failed for user {user_id}: {err_msg}")
@@ -194,26 +196,57 @@ async def dispatch_hybrid_notification(
 
 async def schedule_notification_job(
     user_id: str,
-    notification_type: str,
-    metadata: Dict[str, Any],
-    company_id: Optional[str] = None, # Left for backward compatibility, but ignored by RPC if we want
+    notification_type: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    company_id: Optional[str] = None,  # Left for backward compatibility, but ignored by RPC if we want
     assignment_id: Optional[str] = None,
     scheduled_at: Optional[Any] = None,
+    notif_type: Optional[str] = None,
+    **kwargs: Any,
 ) -> bool:
     """
     Schedules a notification by calling the schedule_notification_job_rpc.
     The ARQ worker will process it at the scheduled_at time.
+    Supports both `notification_type` and `notif_type` parameter names.
+    Evicts stale finished jobs with the same idempotency key so user retries trigger notifications.
     """
+    actual_type = notification_type or notif_type
+    if not actual_type:
+        logger.error(f"[Dispatcher] Missing notification type for user {user_id}")
+        return False
+
+    metadata = metadata or {}
     try:
         _db = get_service_supabase_client()
-        # Convert scheduled_at to string if it's a datetime
         import datetime
         if isinstance(scheduled_at, datetime.datetime):
             scheduled_at = scheduled_at.isoformat()
-            
+        elif scheduled_at is None:
+            scheduled_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        entity_id = (
+            metadata.get("task_id")
+            or metadata.get("sprint_id")
+            or metadata.get("scenario_id")
+            or metadata.get("module_id")
+            or str(int(datetime.datetime.now().timestamp()))
+        )
+        idempotency_key = f"{user_id}:{actual_type}:{entity_id}"
+
+        # Check if an existing job with this key already finished (e.g. earlier quiz completion attempt)
+        existing = _db.table("notification_jobs").select("id,status").eq("idempotency_key", idempotency_key).maybe_single().execute()
+        existing_data = getattr(existing, "data", None)
+        if existing_data:
+            if existing_data.get("status") in ["SENT", "FAILED", "CANCELLED"]:
+                # Evict stale finished job so the new completion attempt creates a fresh job
+                _db.table("notification_jobs").delete().eq("id", existing_data["id"]).execute()
+            else:
+                # Still pending or processing, do not create duplicate
+                return True
+
         res = _db.rpc("schedule_notification_job_rpc", {
             "p_user_id": user_id,
-            "p_notification_type": notification_type,
+            "p_notification_type": actual_type,
             "p_metadata": metadata,
             "p_assignment_id": assignment_id,
             "p_scheduled_at": scheduled_at
@@ -265,11 +298,14 @@ async def dispatch_task_assignment_notification(
         return 0
         
     metadata = {
-        "task_id": task_id,
-        "assignment_id": assignment_id,
+        "task_id": str(task_id),
+        "target_id": str(task_id),
+        "assignment_id": str(assignment_id),
+        "target_screen": "Home",
+        "initial_tab": "tasks",
+        "module_type": "task",
         "title": title,
-        "module_name": title,  # For template compat
-        "first_name": "Learner", # Placeholder, worker could fetch real name or template engine
+        "module_name": title,
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),
@@ -290,10 +326,12 @@ async def dispatch_sprint_assignment_notification(
         return 0
         
     metadata = {
-        "sprint_id": sprint_id,
+        "sprint_id": str(sprint_id),
+        "target_id": str(sprint_id),
+        "target_screen": "Sprint",
+        "module_type": "sprint",
         "title": title,
         "module_name": title,
-        "first_name": "Learner",
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),
@@ -314,10 +352,12 @@ async def dispatch_roleplay_assignment_notification(
         return 0
         
     metadata = {
-        "scenario_id": scenario_id,
+        "scenario_id": str(scenario_id),
+        "target_id": str(scenario_id),
+        "target_screen": "Roleplay",
+        "module_type": "roleplay",
         "title": title,
         "module_name": title,
-        "first_name": "Learner",
     }
     return await schedule_bulk_notification_jobs(
         user_ids=list(set(user_ids)),

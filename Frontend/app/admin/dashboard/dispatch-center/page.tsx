@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye } from 'lucide-react';
+import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye, Bell } from 'lucide-react';
+import NotificationTemplatesManager from './NotificationTemplatesManager';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useRouter } from 'next/navigation';
@@ -100,7 +101,8 @@ const fetchUserByEmail = async (email: string | null) => {
 };
 
 export default function AdminDispatchCenterPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isDeveloper } = useAuth();
+  const [activeTab, setActiveTab] = useState<'dispatches' | 'templates'>('dispatches');
   const router = useRouter();
 
   // Auth state
@@ -236,7 +238,12 @@ export default function AdminDispatchCenterPage() {
         });
         if (res.ok) {
           const data = await res.json();
-          setSprints(data.sprints || []);
+          const list = Array.isArray(data)
+            ? data
+            : Array.isArray(data?.sprints)
+            ? data.sprints
+            : [];
+          setSprints(list);
         }
       } catch (e) {
         console.error('Error fetching sprints:', e);
@@ -301,10 +308,11 @@ export default function AdminDispatchCenterPage() {
 
         if (bootstrapRes.ok) {
           const data = await bootstrapRes.json();
-
-          setSubModules(data.sub_modules || []);
-          setAssignedUsers(data.users || []);
-          setSprintImageUrl(data.image_url || '');
+          const subList = Array.isArray(data) ? data : (Array.isArray(data?.sub_modules) ? data.sub_modules : []);
+          const userList = Array.isArray(data?.users) ? data.users : [];
+          setSubModules(subList);
+          setAssignedUsers(userList);
+          setSprintImageUrl(typeof data?.image_url === 'string' ? data.image_url : '');
         }
       } catch (e) {
         console.error('Error fetching sub-modules / users / image:', e);
@@ -956,17 +964,59 @@ export default function AdminDispatchCenterPage() {
 
       <main className="flex-1  p-8">
         <div className="max-w-[2000px] mx-auto">
-          {/* Header Card */}
-          <div className="bg-white rounded-xl shadow-sm p-8 border border-slate-200 mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              Admin Dispatch Center
-            </h1>
-            <p className="text-slate-600">
-              Send nudge emails or WhatsApp messages to employees assigned to a sprint.
-            </p>
+          {/* Streamlined Minimalist Header & Tab Switcher */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 pb-4 border-b border-slate-200/80">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+                {isDeveloper && activeTab === 'templates'
+                  ? 'Notification Templates'
+                  : 'Dispatch Center'}
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isDeveloper && activeTab === 'templates'
+                  ? 'Create and manage automatic messages sent when learners achieve milestones or complete modules.'
+                  : 'Send nudge emails or WhatsApp messages to employees assigned to a sprint.'}
+              </p>
+            </div>
+
+            {/* Developer Navigation Tabs */}
+            {isDeveloper && (
+              <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dispatches')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeTab === 'dispatches'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Send size={13} />
+                  <span>Sprint Dispatches</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('templates')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    activeTab === 'templates'
+                      ? 'bg-white text-indigo-700 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Bell size={13} />
+                  <span>Notification Templates</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700">
+                    AUTOMATED
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {isDeveloper && activeTab === 'templates' ? (
+            <NotificationTemplatesManager />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* ─── LEFT COLUMN: Configuration ─────────────────── */}
             <div className="space-y-6">
               {/* 1. Delivery Channel */}
@@ -2090,7 +2140,7 @@ export default function AdminDispatchCenterPage() {
                           {(sendResult.failed?.length ?? 0) > 0 && (
                             <div className="mt-2">
                               <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
-                              {sendResult.failed!.map((email) => (
+                              {(sendResult.failed || []).map((email) => (
                                 <p key={email} className="text-xs text-red-500">{email}</p>
                               ))}
                             </div>
@@ -2120,7 +2170,7 @@ export default function AdminDispatchCenterPage() {
                     </button>
                   </div>
                   <div className="divide-y divide-indigo-100">
-                    {multiModuleResult.jobs.map((job) => (
+                    {(multiModuleResult.jobs || []).map((job) => (
                       <div key={job.job_id ?? job.module_id} className="flex items-center gap-3 px-5 py-3">
                         <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0">
                           {job.week}
@@ -2203,8 +2253,9 @@ export default function AdminDispatchCenterPage() {
               )}
             </div>
           </div>
-        </div>
-      </main>
+        )}
+      </div>
+    </main>
     </div>
   );
 }

@@ -46,6 +46,7 @@ type AddonKey =
   | "reports"
   | "sprintverse"
   | "gamification"
+  | "voice_agent"
 
 type CompanyRecord = {
   company_id: string
@@ -222,6 +223,12 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     id: "gamification",
     label: "Gamification",
     description: "Enable AI-driven gamification sprints and drills.",
+    category: "addon",
+  },
+  {
+    id: "voice_agent",
+    label: "Voice Agent",
+    description: "Enable Voice Agent on the employee welcome dashboard.",
     category: "addon",
   },
 ]
