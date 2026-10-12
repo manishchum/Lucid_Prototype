@@ -17,7 +17,9 @@ export type Addon =
   | 'kpi'
   | 'reports'
   | 'sprintverse'
-  | 'role_play';
+  | 'role_play'
+  | 'role_play_openai'
+  | 'role_play_gemini';
 
 interface FeatureConfig {
   requiredTier?: Tier;
@@ -96,6 +98,8 @@ export function useFeatureGating() {
       'task_management',
       'kpi',
       'role_play',
+      'role_play_openai',
+      'role_play_gemini',
       'sprintverse',
       'reports',
     ]);

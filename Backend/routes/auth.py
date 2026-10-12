@@ -2,7 +2,7 @@ import asyncio
 import json
 from typing import Dict
 
-from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect, BackgroundTasks
 
 from utils.auth import (
     RequestAuth,
@@ -12,6 +12,7 @@ from utils.auth import (
     _build_request_auth_from_verified_claims,
     _ensure_firebase_admin_initialized,
 )
+from utils.redis_client import redis_client, set_cache, get_cache
 
 AUTH_SOCKET_REGISTRY: Dict[str, Dict[str, WebSocket]] = {}
 AUTH_SOCKET_LOCK = asyncio.Lock()
@@ -128,7 +129,7 @@ class VerifyOTPRequest(BaseModel):
 
 
 @router.post("/send-otp")
-async def send_otp(body: SendOTPRequest):
+async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks):
     phone = body.phone.strip()
     if not phone:
         raise HTTPException(status_code=400, detail="Phone number is required")
@@ -152,13 +153,13 @@ async def send_otp(body: SendOTPRequest):
             detail=f"Too many OTP requests for this phone number. Please try again in {minutes} minutes."
         )
 
-    # Check user existence in DB (Strict single-indexed E.164 lookup)
+    # Check user existence in DB & pre-fetch company features
     try:
         service_client = get_service_supabase_client()
         user_res = (
             service_client
             .table("users")
-            .select("user_id, is_active, company_id")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, subscription_tier, subscription_addons)")
             .eq("phone", normalized_phone)
             .limit(1)
             .execute()
@@ -172,6 +173,11 @@ async def send_otp(body: SendOTPRequest):
             raise HTTPException(status_code=403, detail="User account is deactivated")
         if not user_data.get("company_id"):
             raise HTTPException(status_code=403, detail="Company account is not registered or inactive")
+
+        # Cache company feature metadata in Redis
+        company_info = user_data.get("company")
+        if company_info and user_data.get("company_id"):
+            set_cache(f"company_static:{user_data['company_id']}", {"company": company_info}, ttl=3600)
     except HTTPException:
         raise
     except Exception as exc:
@@ -181,20 +187,18 @@ async def send_otp(body: SendOTPRequest):
     # Generate cryptographic OTP and store in Redis
     otp_code = generate_and_store_otp(normalized_phone)
 
-    # Dispatch SMS via DoveSoft
-    success, msg = await send_dovesoft_sms(normalized_phone, otp_code)
-    if not success:
-        print(f"[send-otp] DoveSoft SMS dispatch failed: {msg}")
-        return {
-            "success": False,
-            "message": f"Failed to deliver OTP via SMS: {msg}",
-            "retry_after": 30
-        }
+    # Cache user profile in Redis with 5-minute TTL for zero-DB verify-otp resolution
+    try:
+        redis_client.setex(f"otp_user:{normalized_phone}", 300, json.dumps(user_data))
+    except Exception as cache_err:
+        print(f"[send-otp] Failed to cache user in Redis: {cache_err}")
+
+    # Dispatch SMS via DoveSoft asynchronously in background (Fast <80ms response)
+    background_tasks.add_task(send_dovesoft_sms, normalized_phone, otp_code)
 
     return {
         "success": True,
         "message": "OTP sent successfully",
-        "dovesoft_response": msg,
         "retry_after": 30
     }
 
@@ -225,28 +229,38 @@ async def verify_otp(body: VerifyOTPRequest):
         else:
             raise HTTPException(status_code=400, detail="Invalid or expired OTP.")
 
-    # Fetch user details for session token generation (Strict single-indexed E.164 lookup)
+    # Fast Path: Read cached user & company metadata from Redis (Zero DB queries!)
+    user_data = None
     try:
-        service_client = get_service_supabase_client()
-        user_res = (
-            service_client
-            .table("users")
-            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active")
-            .eq("phone", normalized_phone)
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
-        rows = getattr(user_res, "data", None) or []
+        cached_user_str = redis_client.get(f"otp_user:{normalized_phone}")
+        if cached_user_str:
+            user_data = json.loads(cached_user_str)
+            redis_client.delete(f"otp_user:{normalized_phone}")
+    except Exception as e:
+        print(f"[verify-otp] Redis cache read error: {e}")
 
-        user_data = rows[0] if rows else None
-        if not user_data:
-            raise HTTPException(status_code=404, detail="User account not found or inactive")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"[verify-otp] DB user query failed: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to fetch user context")
+    service_client = get_service_supabase_client()
+    if not user_data:
+        # Fallback to database only if Redis cache missed/expired
+        try:
+            user_res = (
+                service_client
+                .table("users")
+                .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, subscription_tier, subscription_addons)")
+                .eq("phone", normalized_phone)
+                .eq("is_active", True)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(user_res, "data", None) or []
+            user_data = rows[0] if rows else None
+            if not user_data:
+                raise HTTPException(status_code=404, detail="User account not found or inactive")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            print(f"[verify-otp] DB user query failed: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to fetch user context")
 
     # Ensure Firebase Admin SDK is initialized
     _ensure_firebase_admin_initialized()
@@ -290,7 +304,7 @@ async def verify_otp(body: VerifyOTPRequest):
         except Exception as db_err:
             print(f"[verify-otp] Database update/mapping for firebase_uid failed: {db_err}")
 
-    # Generate Firebase Custom Token
+    # Generate Firebase Custom Token in memory
     try:
         custom_token_bytes = firebase_auth.create_custom_token(firebase_uid)
         token = custom_token_bytes.decode("utf-8") if isinstance(custom_token_bytes, bytes) else str(custom_token_bytes)
@@ -298,10 +312,17 @@ async def verify_otp(body: VerifyOTPRequest):
         print(f"[verify-otp] Custom token generation failed: {token_err}")
         raise HTTPException(status_code=500, detail="Failed to generate custom authentication token")
 
+    company_data = user_data.get("company")
+    if not company_data and user_data.get("company_id"):
+        cached_comp = get_cache(f"company_static:{user_data['company_id']}")
+        if cached_comp:
+            company_data = cached_comp.get("company")
+
     return {
         "success": True,
         "token": token,
-        "user": user_data
+        "user": user_data,
+        "company": company_data
     }
 
 

@@ -1,0 +1,14 @@
+﻿.git
+.gitignore
+.venv
+Frontend
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+Backend/.env
+Backend/backend.pid
+Backend/scheduled_jobs.db
+Backend/scratch
+Backend/python.exe.stackdump
+node_modules

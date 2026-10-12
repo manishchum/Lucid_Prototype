@@ -41,12 +41,14 @@ MIME_CONFIG = {
     "audio/ogg": {"category": "Audio", "max_size": MAX_AUDIO_SIZE_BYTES, "default_ext": ".ogg"},
     "audio/aac": {"category": "Audio", "max_size": MAX_AUDIO_SIZE_BYTES, "default_ext": ".aac"},
     "audio/3gpp": {"category": "Audio", "max_size": MAX_AUDIO_SIZE_BYTES, "default_ext": ".3gp"},
+    "audio/3gp": {"category": "Audio", "max_size": MAX_AUDIO_SIZE_BYTES, "default_ext": ".3gp"},
 
     # Video (Max 50 MB)
     "video/mp4": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".mp4"},
     "video/quicktime": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".mov"},
     "video/webm": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".webm"},
     "video/3gpp": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".3gp"},
+    "video/3gp": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".3gp"},
     "video/x-matroska": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".mkv"},
     "video/mpeg": {"category": "Video", "max_size": MAX_VIDEO_SIZE_BYTES, "default_ext": ".mpeg"},
 }

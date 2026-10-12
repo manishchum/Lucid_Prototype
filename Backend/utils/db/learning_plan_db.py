@@ -328,6 +328,11 @@ async def create_learning_plan(
         resp = user_client.table('learning_plan').insert(plan_data).execute()
         
         delete_cache_pattern(f"dashboard_summary:{user_id}*")
+        try:
+            from routes.employee_dashboard import invalidate_dashboard_l1_cache
+            invalidate_dashboard_l1_cache(str(user_id))
+        except Exception:
+            pass
         if not resp.data:
             return {"data": None, "error": "Failed to create learning plan"}
 
@@ -640,6 +645,11 @@ async def bulk_create_learning_plans(
         ####################################################
         for user_id in user_ids:
             delete_cache_pattern(f"dashboard_summary:{user_id}*")
+            try:
+                from routes.employee_dashboard import invalidate_dashboard_l1_cache
+                invalidate_dashboard_l1_cache(str(user_id))
+            except Exception:
+                pass
             print(f"cache deleted for ",{user_id})
             
         return {

@@ -38,7 +38,17 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
     Permission: Any authenticated user can view any company (basic info).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('company_id', company_id).maybe_single().execute()
+        resp = (
+            supabase
+            .table('companies')
+            .select(
+                'company_id, name, domain, company_logo, is_company_active, '
+                'subscription_tier, subscription_addons, learning_style, created_at'
+            )
+            .eq('company_id', company_id)
+            .maybe_single()
+            .execute()
+        )
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         resp.data["platform_type"] = resolve_company_platform_type(resp.data)
@@ -54,7 +64,17 @@ async def get_company_by_name(requesting_user_id: Optional[str], company_name: s
     Permission: Public access (for signup validation).
     """
     try:
-        resp = supabase.table('companies').select('*').ilike('name', company_name).maybe_single().execute()
+        resp = (
+            supabase
+            .table('companies')
+            .select(
+                'company_id, name, domain, company_logo, is_company_active, '
+                'subscription_tier, subscription_addons, created_at'
+            )
+            .ilike('name', company_name)
+            .maybe_single()
+            .execute()
+        )
         if resp.data:
             resp.data["platform_type"] = resolve_company_platform_type(resp.data)
         return {"data": resp.data, "error": None}
@@ -69,7 +89,17 @@ async def get_company_by_domain(requesting_user_id: Optional[str], domain: str) 
     Permission: Public access (for signup/email domain validation).
     """
     try:
-        resp = supabase.table('companies').select('*').eq('domain', domain).maybe_single().execute()
+        resp = (
+            supabase
+            .table('companies')
+            .select(
+                'company_id, name, domain, company_logo, is_company_active, '
+                'subscription_tier, subscription_addons, created_at'
+            )
+            .eq('domain', domain)
+            .maybe_single()
+            .execute()
+        )
         if not resp.data:
             return {"data": None, "error": "Company not found"}
         resp.data["platform_type"] = resolve_company_platform_type(resp.data)
@@ -89,7 +119,16 @@ async def list_all_companies(requesting_user_id: str) -> Dict[str, Any]:
         return {"data": None, "error": "Permission denied: Super admin access required"}
     
     try:
-        resp = supabase.table('companies').select('*').order('name').execute()
+        resp = (
+            supabase
+            .table('companies')
+            .select(
+                'company_id, name, domain, company_logo, is_company_active, '
+                'subscription_tier, subscription_addons, created_at'
+            )
+            .order('name')
+            .execute()
+        )
         if resp.data and isinstance(resp.data, list):
             for c in resp.data:
                 c["platform_type"] = resolve_company_platform_type(c)

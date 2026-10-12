@@ -72,23 +72,64 @@ def delete_cache_pattern(pattern: str):
         return None
 
 
-def invalidate_dashboard_cache(user_id: str):
-    """Invalidates employee dashboard cache instantly upon write mutation (< 1s freshness)."""
+def invalidate_user_caches(user_id: str):
+    """
+    Centralized, thread-safe cache invalidation function for a user.
+    Purges all Redis keys (dashboard summary, module progress, training plans, tasks, rank, gamification)
+    as well as Python in-memory L1 cache.
+    """
     if not user_id:
         return
     try:
         redis_client.delete(f"dashboard_summary:{user_id}")
+        delete_cache_pattern(f"dashboard_summary:{user_id}*")
+        delete_cache_pattern(f"module_progress:{user_id}*")
+        delete_cache_pattern(f"user_module_progress:{user_id}*")
+        delete_cache_pattern(f"training_plan:{user_id}*")
+        delete_cache_pattern(f"learning_plan:{user_id}*")
+        delete_cache_pattern(f"user_rank:*{user_id}*")
+        delete_cache_pattern(f"user_tasks:*{user_id}*")
+        delete_cache_pattern(f"gamification:*{user_id}*")
+        try:
+            from routes.employee_dashboard import invalidate_dashboard_l1_cache
+            invalidate_dashboard_l1_cache(user_id)
+        except Exception:
+            pass
+        # Invalidate company leaderboard ZSET if company_id is known
+        try:
+            user_comp = get_cache(f"user_company:{user_id}")
+            if user_comp:
+                invalidate_company_caches(user_comp)
+        except Exception:
+            pass
     except Exception as e:
-        print(f"[Redis] Failed to invalidate dashboard_summary:{user_id}: {e}")
+        print(f"[Redis] invalidate_user_caches error for {user_id}: {e}")
 
 
-def invalidate_company_dashboard_cache(company_id: str):
-    """Invalidates company-wide static dashboard data cache when modules/company are updated."""
+def invalidate_dashboard_cache(user_id: str):
+    """Alias for invalidate_user_caches for backward compatibility."""
+    invalidate_user_caches(user_id)
+
+
+def invalidate_company_caches(company_id: str):
+    """
+    Centralized, thread-safe cache invalidation function for company-wide static data.
+    Purges company static cache, company leaderboards (ZSET and meta), module lists, and dashboard summaries.
+    """
     if not company_id:
         return
     try:
         redis_client.delete(f"company_static:{company_id}")
-        delete_cache_pattern(f"dashboard_summary:*")
+        redis_client.delete(f"leaderboard:zset:{company_id}")
+        redis_client.delete(f"leaderboard:meta:{company_id}")
+        delete_cache_pattern(f"company_leaderboard:{company_id}*")
+        delete_cache_pattern(f"training_modules:{company_id}*")
+        delete_cache_pattern("dashboard_summary:*")
     except Exception as e:
-        print(f"[Redis] Failed to invalidate company_static:{company_id}: {e}")
+        print(f"[Redis] invalidate_company_caches error for {company_id}: {e}")
+
+
+def invalidate_company_dashboard_cache(company_id: str):
+    """Alias for invalidate_company_caches for backward compatibility."""
+    invalidate_company_caches(company_id)
 

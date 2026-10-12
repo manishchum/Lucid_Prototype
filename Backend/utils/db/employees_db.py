@@ -87,7 +87,10 @@ async def get_employees_bootstrap(
         roles_resp = (
             service_client
             .table('roles')
-            .select('*')
+            .select(
+                'role_id, name, display_name, level, description, permissions, '
+                'is_active, created_at, updated_at'
+            )
             .order('level')
             .execute()
         )
@@ -95,7 +98,10 @@ async def get_employees_bootstrap(
         functions_resp = (
             service_client
             .table('function')
-            .select('*, sub_functions:sub_function(*)')
+            .select(
+                'function_id, company_id, function_name, is_active, created_at, '
+                'sub_functions:sub_function(sub_function_id, function_id, sub_function_name, is_active, created_at)'
+            )
             .eq('company_id', company_id)
             .order('function_name')
             .execute()
@@ -104,7 +110,10 @@ async def get_employees_bootstrap(
         modules_resp = (
             service_client
             .table('training_modules')
-            .select('*')
+            .select(
+                'module_id, company_id, title, description, content_type, content_url, '
+                'gpt_summary, processing_status, review_stage, uploaded_by, created_at'
+            )
             .eq('company_id', company_id)
             .order('created_at', desc=True)
             .execute()

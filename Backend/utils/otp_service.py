@@ -145,9 +145,21 @@ def verify_otp_code(phone: str, code: str) -> Tuple[bool, str]:
         return False, "VERIFICATION_ERROR"
 
 
+_DOVESOFT_CLIENT: Optional[httpx.AsyncClient] = None
+
+def get_dovesoft_client() -> httpx.AsyncClient:
+    global _DOVESOFT_CLIENT
+    if _DOVESOFT_CLIENT is None or _DOVESOFT_CLIENT.is_closed:
+        _DOVESOFT_CLIENT = httpx.AsyncClient(
+            timeout=8.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+        )
+    return _DOVESOFT_CLIENT
+
+
 async def send_dovesoft_sms(phone: str, otp_code: str) -> Tuple[bool, str]:
     """
-    Sends OTP via DoveSoft SMS API.
+    Sends OTP via DoveSoft SMS API using connection pooling.
     """
     api_url = os.getenv("DOVESOFT_API_URL", "https://api.dovesoft.io/api/json/sendsms/")
     sender_id = os.getenv("DOVESOFT_SENDER_ID", "")
@@ -176,13 +188,13 @@ async def send_dovesoft_sms(phone: str, otp_code: str) -> Tuple[bool, str]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(api_url, json=payload, headers=headers)
-            logger.info(f"DoveSoft API response status={response.status_code} body={response.text}")
-            if response.status_code == 200:
-                return True, f"SMS status {response.status_code}: {response.text}"
-            else:
-                return False, f"DoveSoft API returned status code {response.status_code}: {response.text}"
+        client = get_dovesoft_client()
+        response = await client.post(api_url, json=payload, headers=headers)
+        logger.info(f"DoveSoft API response status={response.status_code} body={response.text}")
+        if response.status_code == 200:
+            return True, f"SMS status {response.status_code}: {response.text}"
+        else:
+            return False, f"DoveSoft API returned status code {response.status_code}: {response.text}"
     except Exception as e:
         print(f"[DOVESOFT ERROR] Exception: {e}")
         logger.error(f"Exception sending SMS via DoveSoft: {e}")

@@ -172,7 +172,7 @@ async function generateFlashcardsFromApi(content, companyId, userId) {
           'X-User-ID': userId,
           'X-Company-ID': companyId,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           content,
           company_id: companyId,
           user_id: userId,

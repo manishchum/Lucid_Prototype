@@ -11,7 +11,7 @@ from google.genai import types
 
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
-from task_manager import service
+from task_manager import route as service
 
 router = APIRouter()
 
@@ -190,7 +190,7 @@ async def submit_text_analysis(
         submission_id = existing_row["submission_id"]
 
     # 3. Queue background task
-    from analysis.background import run_ai_pipeline_bg
+    from task_manager.analyzer.pipeline import run_ai_pipeline_bg
     # run_ai_pipeline_bg.delay(
     background_tasks.add_task(
         run_ai_pipeline_bg,

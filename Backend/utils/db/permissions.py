@@ -128,22 +128,36 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
 
 async def check_company_access(user_id: str, company_id: str) -> bool:
     """
-    Ensure the user belongs to the given company_id.
+    Ensure the user belongs to the given company_id with Redis cache.
     """
+    if not user_id or not company_id:
+        return False
+
+    cache_key = f"user_company_access:{user_id}:{company_id}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return bool(cached)
+
     try:
         service_supabase = get_service_supabase_client()
         # Developers can operate across companies.
         if await check_user_permission(user_id, 'developer'):
+            set_cache(cache_key, 1, ttl=3600)
             return True
 
         resolved_user_id = _resolve_user_id_for_permissions(service_supabase, user_id)
         if not resolved_user_id:
+            set_cache(cache_key, 0, ttl=300)
             return False
 
         resp = service_supabase.table('users').select('company_id').eq('user_id', resolved_user_id).maybe_single().execute()
         if not resp.data:
+            set_cache(cache_key, 0, ttl=300)
             return False
-        return str(resp.data.get('company_id')) == str(company_id)
+
+        has_access = str(resp.data.get('company_id')) == str(company_id)
+        set_cache(cache_key, 1 if has_access else 0, ttl=3600)
+        return has_access
     except Exception as e:
         print(f"[check_company_access] exception: {e}")
         return False
