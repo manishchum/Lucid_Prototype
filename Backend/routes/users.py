@@ -120,7 +120,7 @@ async def _send_welcome_email(created_payload, custom_password: Optional[str] = 
             company_name=company_name,
             phone=created_user.get("phone"),
             platform_type=platform_type,
-            default_password=custom_password or DEFAULT_PASSWORD or "workfloww@2025",
+            default_password=custom_password or DEFAULT_PASSWORD,
         )
         if not send_result.get("success"):
             print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")

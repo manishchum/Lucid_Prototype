@@ -260,7 +260,7 @@ async def send_welcome_email(
 ) -> Dict[str, Any]:
     settings = _smtp_settings()
     app_frontend_url = frontend_url or settings["frontend_url"]
-    pwd = default_password or os.getenv("DEFAULT_PASSWORD") or "workfloww@2025"
+    pwd = default_password or os.getenv("DEFAULT_PASSWORD")
     email_payload = _build_welcome_email(
         recipient_name=recipient_name,
         company_name=company_name,

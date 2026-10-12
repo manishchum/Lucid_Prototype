@@ -6,8 +6,8 @@ from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 import os
 
-# Default password for new users
-DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD") or "workfloww@2025"
+# Default password for new users (from environment)
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
@@ -367,24 +367,14 @@ async def create_user(
                 ).execute()
                 return {"data": resp.data, "error": None, "reactivated": True}
 
-        # Hash password if not provided, if it's the plain default password, or if it's not already hashed
-        password = user_data.get('password')
-        default_pwd = DEFAULT_PASSWORD or "workfloww@2025"
-        if not password or password == default_pwd:
-            # Use default password and hash it
+        # Hash password if provided or fall back to DEFAULT_PASSWORD from env
+        raw_password = user_data.get('password') or DEFAULT_PASSWORD
+        if raw_password:
             hashed_password = bcrypt.hashpw(
-                default_pwd.encode('utf-8'),
+                raw_password.encode('utf-8'),
                 bcrypt.gensalt()
             ).decode('utf-8')
             user_data['password'] = hashed_password
-        elif isinstance(password, str) and not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
-            # If password doesn't look like a bcrypt hash, hash it
-            hashed_password = bcrypt.hashpw(
-                password.encode('utf-8'),
-                bcrypt.gensalt()
-            ).decode('utf-8')
-            user_data['password'] = hashed_password
-        # If it already looks like a bcrypt hash, leave it as-is
 
         response = service_client.table("users").insert(user_data).execute()
 
@@ -470,24 +460,14 @@ async def create_user_signup(
             #     # return {"data": resp.data, "error": None, "reactivated": True}
             #     return {"data": None, "error": "An account with this email already exists. Please contact your administrator to reactivate your account if you believe this is an error."}
 
-        # Hash password if not provided, if it's the plain default password, or if it's not already hashed
-        password = user_data.get('password')
-        default_pwd = DEFAULT_PASSWORD or "workfloww@2025"
-        if not password or password == default_pwd:
-            # Use default password and hash it
+        # Hash password if provided or fall back to DEFAULT_PASSWORD from env
+        raw_password = user_data.get('password') or DEFAULT_PASSWORD
+        if raw_password:
             hashed_password = bcrypt.hashpw(
-                default_pwd.encode('utf-8'),
+                raw_password.encode('utf-8'),
                 bcrypt.gensalt()
             ).decode('utf-8')
             user_data['password'] = hashed_password
-        elif isinstance(password, str) and not (password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')):
-            # If password doesn't look like a bcrypt hash, hash it
-            hashed_password = bcrypt.hashpw(
-                password.encode('utf-8'),
-                bcrypt.gensalt()
-            ).decode('utf-8')
-            user_data['password'] = hashed_password
-        # If it already looks like a bcrypt hash, leave it as-is
 
         response = supabase.table('users').insert(user_data).execute()
         return {"data": response.data, "error": None}
