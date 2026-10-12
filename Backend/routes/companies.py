@@ -234,7 +234,6 @@ async def create_company_with_logo_route(
         "name": name,
         "domain": domain,
         "company_logo": public_url,
-        "learning_style": learning_style,
         "platform_type": platform_type,
     }
     
