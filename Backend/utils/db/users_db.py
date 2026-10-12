@@ -315,6 +315,64 @@ async def get_users_by_company(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
+def format_user_friendly_db_error(error: Any) -> str:
+    """Convert raw database or PostgREST exceptions into clean, human-readable error messages."""
+    msg = ""
+    code = ""
+    details = ""
+    
+    if hasattr(error, "message"):
+        msg = str(getattr(error, "message", ""))
+    if hasattr(error, "code"):
+        code = str(getattr(error, "code", ""))
+    if hasattr(error, "details"):
+        details = str(getattr(error, "details", ""))
+
+    err_str = str(error)
+    
+    # Try parsing stringified dict e.g. "{'message': '...', 'code': '23505', ...}"
+    if not msg and err_str.strip().startswith("{") and err_str.strip().endswith("}"):
+        try:
+            import ast
+            parsed = ast.literal_eval(err_str.strip())
+            if isinstance(parsed, dict):
+                msg = str(parsed.get("message", ""))
+                code = str(parsed.get("code", ""))
+                details = str(parsed.get("details", ""))
+        except Exception:
+            pass
+
+    combined = f"{err_str} {msg} {details} {code}".lower()
+
+    # Unique constraint (23505)
+    if "users_email_key" in combined or ("email" in combined and ("already exists" in combined or "23505" in combined or "duplicate key" in combined)):
+        return "An account with this email already exists."
+    if "users_phone_key" in combined or ("phone" in combined and ("already exists" in combined or "23505" in combined or "duplicate key" in combined)):
+        return "An account with this phone number already exists."
+    if "23505" in combined or "duplicate key" in combined:
+        return "A user with these details already exists."
+
+    # Foreign key (23503)
+    if "23503" in combined or "foreign key" in combined:
+        if "company" in combined:
+            return "The selected company does not exist."
+        if "function" in combined or "department" in combined:
+            return "The selected function or department does not exist."
+        return "Referenced department, function, or company record not found."
+
+    # Not null (23502)
+    if "23502" in combined or "not-null" in combined:
+        return "One or more required fields are missing."
+
+    # If postgrest message is clean text, return message or details
+    if details and not details.startswith("{"):
+        return details
+    if msg and not msg.startswith("{"):
+        return msg
+
+    return err_str
+
+
 async def create_user(
     requesting_user_id: str,
     user_data: Dict[str, Any]
@@ -420,7 +478,8 @@ async def create_user(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {"data": None, "error": str(e)}
+        friendly_error = format_user_friendly_db_error(e)
+        return {"data": None, "error": friendly_error}
 
 
 
@@ -551,7 +610,7 @@ async def update_user(
 
         return {"data": updated, "error": None}
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        return {"data": None, "error": format_user_friendly_db_error(e)}
 
 async def delete_user(
     requesting_user_id: str,

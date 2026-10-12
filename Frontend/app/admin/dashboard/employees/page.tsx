@@ -710,8 +710,17 @@ export default function EmployeesPage() {
       
       {/* success banners are shown via unified Radix toasts now */}
       {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert variant="destructive" className="flex items-start justify-between">
+          <AlertDescription className="flex-1">{error}</AlertDescription>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            className="text-red-600 hover:text-red-800 ml-4 font-semibold text-sm leading-none p-1 rounded hover:bg-red-100 transition-colors"
+            title="Dismiss error"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
         </Alert>
       )}
 
@@ -1472,6 +1481,61 @@ export default function EmployeesPage() {
   );
 }
 
+// Helper to transform technical or database errors into clean, user-friendly messages
+export function formatUserErrorMessage(raw: any): string {
+  if (!raw) return 'An unexpected error occurred';
+  let str = typeof raw === 'string' ? raw : (raw.detail || raw.error || raw.message || JSON.stringify(raw));
+
+  // Check for Postgres/Supabase unique constraint violations
+  if (
+    str.includes('users_email_key') ||
+    (str.includes('23505') && str.toLowerCase().includes('email')) ||
+    (str.toLowerCase().includes('duplicate key') && str.toLowerCase().includes('email')) ||
+    (str.toLowerCase().includes('already exists') && str.toLowerCase().includes('email'))
+  ) {
+    return 'An account with this email already exists';
+  }
+
+  if (
+    str.includes('users_phone_key') ||
+    (str.includes('23505') && str.toLowerCase().includes('phone')) ||
+    (str.toLowerCase().includes('already exists') && str.toLowerCase().includes('phone'))
+  ) {
+    return 'An account with this phone number already exists';
+  }
+
+  if (str.includes('23505') || str.toLowerCase().includes('duplicate key')) {
+    return 'A user with these details already exists';
+  }
+
+  // Foreign key violations
+  if (str.includes('23503') || str.toLowerCase().includes('foreign key')) {
+    if (str.toLowerCase().includes('function') || str.toLowerCase().includes('department')) {
+      return 'Selected department or function does not exist';
+    }
+    return 'Referenced department, function, or company record not found';
+  }
+
+  // Not null violations
+  if (str.includes('23502') || str.toLowerCase().includes('not-null')) {
+    return 'A required field is missing';
+  }
+
+  // If string contains Python-like dict representation e.g. {'message': '...', 'details': '...'}
+  if (str.startsWith('{') && (str.includes("'message'") || str.includes('"message"'))) {
+    const detailsMatch = str.match(/['"]details['"]:\s*['"]([^'"]+)['"]/);
+    if (detailsMatch && detailsMatch[1]) {
+      return formatUserErrorMessage(detailsMatch[1]);
+    }
+    const messageMatch = str.match(/['"]message['"]:\s*['"]([^'"]+)['"]/);
+    if (messageMatch && messageMatch[1]) {
+      return formatUserErrorMessage(messageMatch[1]);
+    }
+  }
+
+  return str;
+}
+
 // Placeholder components that need to be implemented
 function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError }: any) {
   const [mode, setMode] = useState<'manual' | 'upload' | 'detailed'>('upload');
@@ -1587,24 +1651,36 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             })
           });
           if (!createRes.ok) {
-            const errorData = await createRes.json();
-            results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+            const errorData = await createRes.json().catch(() => ({}));
+            const rawDetail = errorData.detail || errorData.error || errorData.message || 'Failed to create user';
+            results.errors.push(`${email}: ${formatUserErrorMessage(rawDetail)}`);
             continue;
           }
           results.added++;
-        } catch (err) {
-          results.errors.push(`${email}: Failed to add`);
+        } catch (err: any) {
+          results.errors.push(`${email}: ${formatUserErrorMessage(err?.message || 'Failed to add')}`);
         }
       }
 
       if (results.errors.length > 0) {
-        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.join('; ')}`);
+        const errorList = results.errors.slice(0, 5).join('; ') + (results.errors.length > 5 ? ` (and ${results.errors.length - 5} more)` : '');
+        let summary = '';
+        if (results.added > 0) {
+          summary = `Successfully added ${results.added} user${results.added !== 1 ? 's' : ''}${results.skipped > 0 ? `, ${results.skipped} skipped (already registered)` : ''}. ${results.errors.length} failed: ${errorList}`;
+        } else {
+          summary = `Failed to add ${results.errors.length} user${results.errors.length !== 1 ? 's' : ''}${results.skipped > 0 ? ` (${results.skipped} skipped)` : ''}: ${errorList}`;
+        }
+        onError(summary);
+        if (results.added > 0) {
+          setManualEmails('');
+          onSuccess();
+        }
       } else {
         setManualEmails('');
         onSuccess();
       }
-    } catch (err) {
-      onError('Failed to add employees');
+    } catch (err: any) {
+      onError(formatUserErrorMessage(err?.message || 'Failed to add employees'));
     } finally {
       setUploading(false);
     }
@@ -1852,7 +1928,8 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             if (!createRes.ok) {
               const errorData = await createRes.json().catch(() => ({}));
               console.error(`[Bulk Upload Error] Failed to create user ${email}:`, errorData.detail || errorData.error || 'Unknown error');
-              results.errors.push(`${email}: ${errorData.detail || errorData.error || 'Failed to create user'}`);
+              const rawDetail = errorData.detail || errorData.error || errorData.message || 'Failed to create user';
+              results.errors.push(`${email}: ${formatUserErrorMessage(rawDetail)}`);
               continue;
             }
             
@@ -1862,23 +1939,35 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             results.added++;
           } catch (createError: any) {
             console.error(`[Bulk Upload Exception] Error creating ${email}:`, createError);
-            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
+            results.errors.push(`${email}: ${formatUserErrorMessage(createError.message || 'Failed to create user')}`);
           }
-        } catch (e){
+        } catch (e: any){
           console.warn(`[Bulk Upload Warning] Unhandled exception on row:`, e);
+          results.errors.push(formatUserErrorMessage(e?.message || 'Row processing error'));
         }
       }
 
-
       if (results.errors.length > 0) {
-        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.slice(0, 5).join('; ')}${results.errors.length > 5 ? ` and ${results.errors.length - 5} more...` : ''}`);
+        const errorList = results.errors.slice(0, 5).join('; ') + (results.errors.length > 5 ? ` (and ${results.errors.length - 5} more)` : '');
+        let summary = '';
+        if (results.added > 0) {
+          summary = `Successfully added ${results.added} user${results.added !== 1 ? 's' : ''}${results.skipped > 0 ? `, ${results.skipped} skipped (already registered)` : ''}. ${results.errors.length} failed: ${errorList}`;
+        } else {
+          summary = `Failed to upload users${results.skipped > 0 ? ` (${results.skipped} skipped)` : ''}: ${errorList}`;
+        }
+        onError(summary);
+        if (results.added > 0) {
+          setFile(null);
+          setPreview([]);
+          onSuccess();
+        }
       } else {
         setFile(null);
         setPreview([]);
         onSuccess();
       }
-    } catch (err) {
-      onError('Failed to upload employees');
+    } catch (err: any) {
+      onError(formatUserErrorMessage(err?.message || 'Failed to upload employees'));
       // console.log(err)
     } finally {
       setUploading(false);
@@ -2581,12 +2670,13 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
 
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      if (error.message.includes('users_email_key') || (error.code === '23505' && error.message.includes('email'))) {
+      const friendlyMsg = formatUserErrorMessage(error?.message || error);
+      if (friendlyMsg.toLowerCase().includes('email')) {
         setError('Oops! This email already exists.');
-      } else if (error.message.includes('users_phone_key') || error.message.includes('phone')) {
-        setError('Oops! This number already exists.');
+      } else if (friendlyMsg.toLowerCase().includes('phone') || friendlyMsg.toLowerCase().includes('number')) {
+        setError('Oops! This phone number already exists.');
       } else {
-        setError('Failed to create employee: ' + error.message);
+        setError(friendlyMsg);
       }
     } finally {
       setLoading(false);
@@ -4303,13 +4393,14 @@ function UpdateEmployeeModal({
 
     } catch (error: any) {
       console.error('Failed to update user:', error);
-      if (error.code === '23505' && error.message.includes('email')) {
+      const friendlyMsg = formatUserErrorMessage(error?.message || error);
+      if (friendlyMsg.toLowerCase().includes('email')) {
         setFieldErrors(prev => ({
           ...prev,
           email: 'An employee with this email already exists'
         }));
       } else {
-        setError('Failed to update employee: ' + error.message);
+        setError(friendlyMsg);
       }
     } finally {
       setLoading(false);

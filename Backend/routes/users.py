@@ -270,7 +270,12 @@ async def create_user_endpoint(
         )
     result = await create_user(auth_ctx.user_id, user_data)
     if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+        err_msg = str(result["error"])
+        if "already exists" in err_msg.lower():
+            raise HTTPException(status_code=409, detail=err_msg)
+        if "permission" in err_msg.lower():
+            raise HTTPException(status_code=403, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     if not reactivated:
@@ -305,7 +310,12 @@ async def update_user_endpoint(
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await update_user(auth_ctx.user_id, target_user_id, updates)
     if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+        err_msg = str(result["error"])
+        if "already exists" in err_msg.lower():
+            raise HTTPException(status_code=409, detail=err_msg)
+        if "permission" in err_msg.lower():
+            raise HTTPException(status_code=403, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
     return {"user": result["data"], "message": "User updated successfully"}
 
 
