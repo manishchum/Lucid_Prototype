@@ -33,84 +33,187 @@ def _smtp_settings() -> Dict[str, Any]:
 
 
 def _build_welcome_email(
-  recipient_name: str,
-  company_name: str,
-  frontend_url: str,
-  login_email: str,
-  default_password: str,
-  phone: Optional[str] = None,
+    recipient_name: str,
+    company_name: str,
+    frontend_url: str,
+    login_email: str,
+    default_password: str,
+    phone: Optional[str] = None,
+    platform_type: str = "web",
 ) -> Dict[str, str]:
     display_name = recipient_name.strip() if recipient_name else "there"
     safe_company_name = company_name.strip() if company_name else "your organization"
     subject = f"Welcome to {safe_company_name}"
-    cta_url = f"{frontend_url}/login"
-    playstore_url = "https://play.google.com/store/apps/details?id=com.workfloww.lucidmobile"
-    phone_display = phone if phone else "Not provided"
+    web_portal_url = "https://lucid.workfloww.ai/"
+    cta_url = "https://lucid.workfloww.ai/"
+    playstore_url = "https://play.google.com/store/apps/details?id=com.workfloww.lucidmobile&pcampaignid=web_share"
+    phone_display = phone.strip() if phone and str(phone).strip() else "Your registered mobile number"
+    portal_domain = "lucid.workfloww.ai"
+
+    normalized_platform = (platform_type or "web").strip().lower()
+    if normalized_platform not in ("web", "mobile", "both"):
+        normalized_platform = "web"
+
+    # Shared HTML styles
+    html_styles = """
+    body { margin: 0; padding: 0; background: #f4f7fb; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1f2937; }
+    .container { max-width: 640px; margin: 0 auto; padding: 32px 20px; }
+    .card { background: #ffffff; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.10); }
+    .header { background: linear-gradient(135deg, #0f766e 0%, #2563eb 100%); color: #ffffff; padding: 28px 32px; }
+    .header h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; }
+    .header p { margin: 8px 0 0; opacity: 0.92; font-size: 15px; }
+    .content { padding: 32px; background: #ffffff; }
+    .highlight { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #0f766e; border-radius: 14px; padding: 22px; margin: 20px 0; }
+    .highlight-mobile { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #2563eb; border-radius: 14px; padding: 22px; margin: 20px 0; }
+    .button { display: inline-block; padding: 13px 26px; background: #0f766e; color: #ffffff !important; text-decoration: none; border-radius: 999px; font-weight: 700; font-size: 14px; }
+    .button-blue { display: inline-block; padding: 13px 26px; background: #2563eb; color: #ffffff !important; text-decoration: none; border-radius: 999px; font-weight: 700; font-size: 14px; }
+    .footer { padding: 18px 32px 28px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; background: #ffffff; }
+    .cred-row { margin-top: 8px; color: #334155; font-size: 14px; }
+    .cred-label { font-weight: 600; color: #1e293b; display: inline-block; min-width: 130px; }
+    """
+
+    if normalized_platform == "web":
+        # Format 1: Web based (matches image)
+        body_content = f"""
+        <p style="margin: 0 0 16px; font-size: 15px; color: #1e293b;">Hello {display_name},</p>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #334155;">Your account for <strong>{safe_company_name}</strong> has been created successfully.</p>
+
+        <div class="highlight">
+          <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 14px;">Your login credentials</div>
+          <div class="cred-row"><span class="cred-label">Platform:</span> Lucid</div>
+          <div class="cred-row"><span class="cred-label">Web Portal:</span> <a href="{web_portal_url}" style="color: #2563eb; text-decoration: none;">{portal_domain}</a></div>
+          <div class="cred-row"><span class="cred-label">Username:</span> <a href="mailto:{login_email}" style="color: #2563eb; text-decoration: none;">{login_email}</a></div>
+          <div class="cred-row"><span class="cred-label">Default Password:</span> <span style="font-family: monospace; font-weight: 600; color: #0f172a;">{default_password}</span></div>
+          <div style="margin-top: 14px; font-size: 13px; line-height: 1.5; color: #64748b;">
+            Please log in using the above credentials. We recommend changing your password after your first login to ensure the security of your account.
+          </div>
+        </div>
+
+        <p style="margin: 24px 0 12px; font-size: 14px; color: #334155;">Access your account here:</p>
+        <a href="{cta_url}" class="button">Go to Login</a>
+        """
+
+        text = (
+            f"Hello {display_name},\n\n"
+            f"Your account for {safe_company_name} has been created successfully.\n\n"
+            f"Your login credentials:\n"
+            f"Platform: Lucid\n"
+            f"Web Portal: {portal_domain}\n"
+            f"Username: {login_email}\n"
+            f"Default Password: {default_password}\n\n"
+            f"Please log in using the above credentials. We recommend changing your password after your first login to ensure the security of your account.\n\n"
+            f"Access your account here: {cta_url}\n\n"
+            f"This is an automated message from Lucid Platform."
+        )
+
+    elif normalized_platform == "mobile":
+        # Format 2: Mobile based (download link & phone number for OTP)
+        body_content = f"""
+        <p style="margin: 0 0 16px; font-size: 15px; color: #1e293b;">Hello {display_name},</p>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #334155;">Your account for <strong>{safe_company_name}</strong> has been created successfully.</p>
+
+        <div class="highlight">
+          <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 14px;">Your login credentials</div>
+          <div class="cred-row"><span class="cred-label">Platform:</span> Lucid Mobile</div>
+          <div class="cred-row"><span class="cred-label">Username:</span> <strong style="color: #0f172a;">{phone_display}</strong></div>
+          <div style="margin-top: 14px; font-size: 13px; line-height: 1.5; color: #64748b;">
+            Please log in with OTP using your registered mobile number.
+          </div>
+        </div>
+
+        <p style="margin: 24px 0 12px; font-size: 14px; font-weight: 600; color: #334155;">Download Mobile App:</p>
+        <a href="{playstore_url}" class="button">Get It On Google Play</a>
+        """
+
+        text = (
+            f"Hello {display_name},\n\n"
+            f"Your account for {safe_company_name} has been created successfully.\n\n"
+            f"Your login credentials:\n"
+            f"Platform: Lucid Mobile\n"
+            f"Username (Mobile Number): {phone_display}\n\n"
+            f"Please log in with OTP using your mobile number.\n\n"
+            f"Download our mobile app: {playstore_url}\n\n"
+            f"This is an automated message from Lucid Platform."
+        )
+
+    else:
+        # Format 3: Both (Web & Mobile information)
+        body_content = f"""
+        <p style="margin: 0 0 16px; font-size: 15px; color: #1e293b;">Hello {display_name},</p>
+        <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #334155;">Your account for <strong>{safe_company_name}</strong> has been created successfully. You can access your account via our web portal or mobile application.</p>
+
+        <!-- Web Credentials -->
+        <div class="highlight">
+          <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 14px;">Web Portal Credentials</div>
+          <div class="cred-row"><span class="cred-label">Platform:</span> Lucid Web</div>
+          <div class="cred-row"><span class="cred-label">Web Portal:</span> <a href="{web_portal_url}" style="color: #2563eb; text-decoration: none;">{portal_domain}</a></div>
+          <div class="cred-row"><span class="cred-label">Username:</span> <a href="mailto:{login_email}" style="color: #2563eb; text-decoration: none;">{login_email}</a></div>
+          <div class="cred-row"><span class="cred-label">Default Password:</span> <span style="font-family: monospace; font-weight: 600; color: #0f172a;">{default_password}</span></div>
+          <div style="margin-top: 14px; font-size: 13px; line-height: 1.5; color: #64748b;">
+            Please log in using the above credentials. We recommend changing your password after your first login to ensure the security of your account.
+          </div>
+          <div style="margin-top: 18px;">
+            <a href="{cta_url}" class="button">Go to Login</a>
+          </div>
+        </div>
+
+        <!-- Mobile Credentials -->
+        <div class="highlight-mobile">
+          <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 14px;">Mobile App Access</div>
+          <div class="cred-row"><span class="cred-label">Platform:</span> Lucid Mobile</div>
+          <div class="cred-row"><span class="cred-label">Username:</span> <strong style="color: #0f172a;">{phone_display}</strong></div>
+          <div style="margin-top: 14px; font-size: 13px; line-height: 1.5; color: #64748b;">
+            Please log in with OTP using your registered mobile number.
+          </div>
+          <p style="margin: 18px 0 10px; font-size: 14px; font-weight: 600; color: #334155;">Download Mobile App:</p>
+          <a href="{playstore_url}" class="button-blue">Get It On Google Play</a>
+        </div>
+        """
+
+        text = (
+            f"Hello {display_name},\n\n"
+            f"Your account for {safe_company_name} has been created successfully. You can access your account via our web portal or mobile application.\n\n"
+            f"--- WEB PORTAL CREDENTIALS ---\n"
+            f"Platform: Lucid Web\n"
+            f"Web Portal: {portal_domain}\n"
+            f"Username: {login_email}\n"
+            f"Default Password: {default_password}\n"
+            f"Go to login: {cta_url}\n\n"
+            f"--- MOBILE APP ACCESS ---\n"
+            f"Platform: Lucid Mobile\n"
+            f"Username (Mobile Number): {phone_display}\n"
+            f"Please log in with OTP using your mobile number.\n"
+            f"Download our mobile app: {playstore_url}\n\n"
+            f"This is an automated message from Lucid Platform."
+        )
 
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-  <meta charset=\"utf-8\"> 
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"> 
+  <meta charset="utf-8"> 
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
   <title>{subject}</title>
   <style>
-    body {{ margin: 0; padding: 0; background: #f4f7fb; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1f2937; }}
-    .container {{ max-width: 640px; margin: 0 auto; padding: 32px 20px; }}
-    .card {{ background: #ffffff; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.10); }}
-    .header {{ background: linear-gradient(135deg, #0f766e 0%, #2563eb 100%); color: #ffffff; padding: 28px 32px; }}
-    .header h1 {{ margin: 0; font-size: 28px; line-height: 1.2; }}
-    .header p {{ margin: 8px 0 0; opacity: 0.92; }}
-    .content {{ padding: 32px; background: #ffffff; }}
-    .highlight {{ background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #0f766e; border-radius: 14px; padding: 20px; margin: 22px 0; }}
-    .button {{ display: inline-block; margin-top: 22px; padding: 13px 24px; background: #0f766e; color: #ffffff !important; text-decoration: none; border-radius: 999px; font-weight: 700; }}
-    .footer {{ padding: 18px 32px 28px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; background: #ffffff; }}
+{html_styles}
   </style>
 </head>
 <body>
-  <div class=\"container\">
-    <div class=\"card\">
-      <div class=\"header\">
+  <div class="container">
+    <div class="card">
+      <div class="header">
         <h1>Your account is ready</h1>
         <p>Welcome To The Lucid Platform.</p>
       </div>
-      <div class=\"content\">
-        <p>Hello {display_name},</p>
-        <p>Your account for <strong>{safe_company_name}</strong> has been created successfully.</p>
-
-        <div class="highlight">
-          <strong>Your login credentials</strong>
-          <!-- <div style="margin-top: 8px; color: #475569;"><strong>Email:</strong> {login_email}</div> -->
-          <div style="margin-top: 4px; color: #475569;"><strong>Mobile Number:</strong> {phone_display}</div>
-          <!-- <div style="margin-top: 4px; color: #475569;"><strong>Password: {default_password}</strong></div> -->
-          <div style="margin-top: 8px; color: #475569;">Please login with OTP using your mobile number.</div>
-        </div>
-
-        <p>Download Mobile App:</p>
-        <a href="{playstore_url}" class="button">Get It On Google Play</a>
-        <!-- <p>Download our mobile app:</p>
-        <a href="{playstore_url}" class="button">Get it on Google Play</a> -->
+      <div class="content">
+{body_content}
       </div>
       <div class="footer">
-        <p>This is an automated message from Lucid Learning.</p>
+        <p>This is an automated message from Lucid Platform.</p>
       </div>
     </div>
   </div>
 </body>
 </html>"""
-
-    text = (
-        f"Hello {display_name},\n\n"
-        f"Your account for {safe_company_name} has been created successfully.\n\n"
-        f"Your login credentials:\n"
-        # f"Email: {login_email}\n"
-        f"Mobile Number: {phone_display}\n"
-        # f"Password: {default_password}\n"
-        # f"Please change your password after your first login.\n\n"
-        f"Please login with OTP using your mobile number.\n\n"
-        # f"Go to login: {cta_url}\n\n"
-        f"Download our mobile app: {playstore_url}\n\n"
-        f"This is an automated message from Lucid Learning."
-    )
 
     return {"subject": subject, "html": html, "text": text}
 
@@ -152,16 +255,20 @@ async def send_welcome_email(
     company_name: str,
     frontend_url: Optional[str] = None,
     phone: Optional[str] = None,
+    platform_type: str = "web",
+    default_password: Optional[str] = None,
 ) -> Dict[str, Any]:
     settings = _smtp_settings()
     app_frontend_url = frontend_url or settings["frontend_url"]
+    pwd = default_password or os.getenv("DEFAULT_PASSWORD")
     email_payload = _build_welcome_email(
-        recipient_name,
-        company_name,
-        app_frontend_url,
-        recipient_email,
-        "workfloww@2025",
-        phone,
+        recipient_name=recipient_name,
+        company_name=company_name,
+        frontend_url=app_frontend_url,
+        login_email=recipient_email,
+        default_password=pwd,
+        phone=phone,
+        platform_type=platform_type,
     )
 
     try:

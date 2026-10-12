@@ -2056,6 +2056,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
   const [newCompanyDomain, setNewCompanyDomain] = useState('');
   const [newCompanyLogoFile, setNewCompanyLogoFile] = useState<File | null>(null);
   const [newCompanyLogoPreview, setNewCompanyLogoPreview] = useState('');
+  const [newCompanyPlatformType, setNewCompanyPlatformType] = useState<'web' | 'mobile' | 'both'>('web');
   const [creatingCompany, setCreatingCompany] = useState(false);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [provisioningCompany, setProvisioningCompany] = useState<any | null>(null);
@@ -2421,6 +2422,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
       formData.append('domain', newCompanyDomain.trim().toLowerCase());
       formData.append('logo', newCompanyLogoFile);
       formData.append('learning_style', 'false');
+      formData.append('platform_type', newCompanyPlatformType);
 
       const res = await fetchWithAuth(`${API_URL}/api/companies/with-logo`, {
         method: 'POST',
@@ -2454,6 +2456,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
       setNewCompanyDomain('');
       setNewCompanyLogoFile(null);
       setNewCompanyLogoPreview('');
+      setNewCompanyPlatformType('web');
 
       await loadFunctionTemplatesForProvisioning();
       setProvisioningCompany(createdCompany);
@@ -2728,6 +2731,46 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
                         </div>
                       )}
                       <p className="text-xs text-gray-500">Upload company logo (stored in logos bucket).</p>
+
+                      <div className="space-y-1.5 pt-1">
+                        <label className="text-xs font-semibold text-gray-700">Platform & Onboarding Mode</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('web')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'web'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            🌐 Web
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('mobile')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'mobile'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            📱 Mobile
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('both')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'both'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            🌐📱 Both
+                          </button>
+                        </div>
+                      </div>
+
                       <Button type="button" variant="outline" onClick={handleCreateCompany} disabled={creatingCompany}>
                         {creatingCompany ? 'Creating company...' : 'Create Company'}
                       </Button>
