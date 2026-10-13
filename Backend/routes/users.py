@@ -274,7 +274,12 @@ async def create_user_endpoint(
         )
     result = await create_user(auth_ctx.user_id, user_data)
     if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+        err_msg = str(result["error"])
+        if "already exists" in err_msg.lower():
+            raise HTTPException(status_code=409, detail=err_msg)
+        if "permission" in err_msg.lower():
+            raise HTTPException(status_code=403, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
     if not reactivated:
@@ -309,7 +314,12 @@ async def update_user_endpoint(
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await update_user(auth_ctx.user_id, target_user_id, updates)
     if result["error"]:
-        raise HTTPException(status_code=403, detail=result["error"])
+        err_msg = str(result["error"])
+        if "already exists" in err_msg.lower():
+            raise HTTPException(status_code=409, detail=err_msg)
+        if "permission" in err_msg.lower():
+            raise HTTPException(status_code=403, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
     return {"user": result["data"], "message": "User updated successfully"}
 
 
@@ -322,6 +332,16 @@ async def delete_user_endpoint(
     result = await delete_user(auth_ctx.user_id, target_user_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
+
+    try:
+        from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches
+        effective_company = auth_ctx.company_id
+        if effective_company:
+            invalidate_employees_bootstrap_cache(effective_company)
+        invalidate_user_caches(target_user_id)
+    except Exception as cache_err:
+        print(f"[delete_user_endpoint] Post-delete cache purge error: {cache_err}")
+
     return {"message": "User deleted successfully"}
 
 

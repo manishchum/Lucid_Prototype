@@ -8,6 +8,7 @@ from utils.db.learning_plan_db import get_company_learning_plans
 async def get_employees_bootstrap(
     requesting_user_id: str,
     company_id: str,
+    force_refresh: bool = False,
 ) -> Dict[str, Any]:
     """
     Load the dashboard bootstrap payload for a company.
@@ -15,9 +16,10 @@ async def get_employees_bootstrap(
     """
     cache_key = f"employees_bootstrap:{company_id}"
 
-    cached = get_cache(cache_key)
-    if cached:
-        return {"data": cached, "error": None}
+    if not force_refresh:
+        cached = get_cache(cache_key)
+        if cached:
+            return {"data": cached, "error": None}
 
     try:
         has_permission = await check_user_permission(requesting_user_id, 'manager')
@@ -128,7 +130,7 @@ async def get_employees_bootstrap(
         plans = plans_result.get("data",[])
 
         response_payload = {
-            'users': users_resp.data or [],
+            'users': users,
             'roles': roles_resp.data or [],
             'functions': functions_resp.data or [],
             'training_modules': modules_resp.data or [],
