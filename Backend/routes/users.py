@@ -335,7 +335,7 @@ async def delete_user_endpoint(
 
     try:
         from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches
-        effective_company = get_effective_company_id(auth_ctx)
+        effective_company = auth_ctx.company_id
         if effective_company:
             invalidate_employees_bootstrap_cache(effective_company)
         invalidate_user_caches(target_user_id)
