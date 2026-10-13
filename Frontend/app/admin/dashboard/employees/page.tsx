@@ -27,7 +27,8 @@ import {
   Search,
   Building2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Loader2
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
@@ -132,6 +133,7 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -303,16 +305,25 @@ export default function EmployeesPage() {
     }
   };
 
-  const loadBootstrap = async (companyId: string) => {
+  const loadBootstrap = async (companyId: string, forceRefresh: boolean = false, showSpinner: boolean = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) {
+        setLoading(true);
+      }
       setError('');
 
+      const url = forceRefresh
+        ? `${API_URL}/api/employees/bootstrap/${companyId}?refresh=true&_t=${Date.now()}`
+        : `${API_URL}/api/employees/bootstrap/${companyId}`;
+
       const res = await fetchWithAuth(
-        `${API_URL}/api/employees/bootstrap/${companyId}`,
+        url,
         {
+          cache: 'no-store',
           headers: {
-            'X-User-ID': admin?.user_id || ''
+            'X-User-ID': admin?.user_id || '',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
           }
         }
       );
@@ -333,7 +344,9 @@ export default function EmployeesPage() {
       console.error('Employee bootstrap failed', error);
       setError(`Failed to load employee bootstrap: ${error.message}`);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
@@ -581,28 +594,35 @@ export default function EmployeesPage() {
   const confirmDeleteUser = async () => {
     if (!userToDelete || !currentUserId) return;
 
+    const deletedUserId = userToDelete.user_id;
+    const deletedUserName = userToDelete.name;
+
     try {
-      setLoading(true);
+      setIsDeleting(true);
       setError('');
       
       // Use API to delete user (soft delete)
-      const res = await fetchWithAuth(`${API_URL}/api/users/${userToDelete.user_id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/${deletedUserId}`, {
         method: 'DELETE',
         headers: { 'X-User-ID': currentUserId },
       });
       
       if (!res.ok) {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Failed to delete user');
       }
 
-      setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
+      // Optimistically remove user immediately from local state
+      setUsers(prev => prev.filter(u => u.user_id !== deletedUserId));
+      setSelectedUsers(prev => prev.filter(id => id !== deletedUserId));
+
+      setSuccess(`User ${deletedUserName} has been deactivated successfully`);
       setShowDeleteConfirm(false);
       setUserToDelete(null);
       
-      // Reload users to reflect changes
+      // Reload users from backend with forceRefresh to sync state
       if (admin?.company_id) {
-        await loadBootstrap(admin.company_id);
+        await loadBootstrap(admin.company_id, true, false);
       }
       
       // Scroll to top to see updated list
@@ -610,7 +630,7 @@ export default function EmployeesPage() {
     } catch (error: any) {
       setError(`Failed to delete user: ${error.message}`);
     } finally {
-      setLoading(false);
+      setIsDeleting(false);
     }
   };
 
@@ -792,7 +812,7 @@ export default function EmployeesPage() {
                   functions={functions}
                   roles={roles}
                   onSuccess={() => {
-                    loadBootstrap(admin.company_id);
+                    loadBootstrap(admin.company_id, true);
                     setSuccess("Users uploaded successfully!");
                     // Scroll to top to see the new users
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1253,7 +1273,8 @@ export default function EmployeesPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="text-green-600"
+                                  className="text-green-600 disabled:opacity-50"
+                                  disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                                   onClick={() => handleEditUser(user)}
                                 >
                                   <Edit className="w-4 h-4 mr-1" />
@@ -1261,7 +1282,8 @@ export default function EmployeesPage() {
                                 <Button 
                                   variant="outline" 
                                   size="sm" 
-                                  className="text-red-600"
+                                  className="text-red-600 disabled:opacity-50"
+                                  disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                                   onClick={() => handleDeleteUser(user)}
                                 >
                                   <Trash2 className="w-4 h-4 mr-1" />
@@ -1295,7 +1317,8 @@ export default function EmployeesPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-8 w-8 disabled:opacity-50"
+                              disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                               onClick={() => handleEditUser(user)}
                             >
                               <Edit className="w-4 h-4" />
@@ -1303,7 +1326,8 @@ export default function EmployeesPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-8 w-8 disabled:opacity-50"
+                              disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                               onClick={() => handleDeleteUser(user)}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1395,7 +1419,7 @@ export default function EmployeesPage() {
         isSuperAdmin={isSuperAdmin}
         isDeveloper={isDeveloper}
         onSuccess={() => {
-          loadBootstrap(admin.company_id);
+          loadBootstrap(admin.company_id, true);
           setSuccess("User added successfully!");
           setShowAddModal(false);
           // Scroll to top to see the new user
@@ -1418,7 +1442,7 @@ export default function EmployeesPage() {
           functions={functions}
           roles={roles}
           onSuccess={() => {
-            loadBootstrap(admin.company_id);
+            loadBootstrap(admin.company_id, true);
             setSuccess("Employee updated successfully!");
             setShowUpdateModal(false);
             // Scroll to top to see the updated employee
@@ -1438,6 +1462,7 @@ export default function EmployeesPage() {
             <div className="flex justify-end gap-3">
               <Button
                 variant="outline"
+                disabled={isDeleting}
                 onClick={() => {
                   setShowDeleteConfirm(false);
                   setUserToDelete(null);
@@ -1448,9 +1473,11 @@ export default function EmployeesPage() {
 
               <Button
                 onClick={confirmDeleteUser}
-                className="bg-red-600 hover:bg-red-700"
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700 flex items-center"
               >
-                Delete User
+                {isDeleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {isDeleting ? 'Deleting...' : 'Delete User'}
               </Button>
             </div>
           </div>

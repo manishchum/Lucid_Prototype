@@ -423,6 +423,19 @@ async def create_user(
                 resp = service_client.table('users').update(reactivation_fields).eq(
                     'user_id', existing_data['user_id']
                 ).execute()
+
+                try:
+                    from utils.redis_client import (
+                        invalidate_employees_bootstrap_cache,
+                        invalidate_user_caches,
+                        invalidate_company_caches,
+                    )
+                    invalidate_employees_bootstrap_cache(company_id)
+                    invalidate_user_caches(existing_data['user_id'])
+                    invalidate_company_caches(company_id)
+                except Exception as cache_err:
+                    print(f"[create_user/reactivate] Cache invalidation warning: {cache_err}")
+
                 return {"data": resp.data, "error": None, "reactivated": True}
 
         # Hash password if provided or fall back to DEFAULT_PASSWORD from env
@@ -463,6 +476,16 @@ async def create_user(
                     "learning_style": "default",
                     "gpt_analysis": None,
                 }).execute()
+
+        try:
+            from utils.redis_client import (
+                invalidate_employees_bootstrap_cache,
+                invalidate_company_caches,
+            )
+            invalidate_employees_bootstrap_cache(company_id)
+            invalidate_company_caches(company_id)
+        except Exception as cache_err:
+            print(f"[create_user] Cache invalidation warning: {cache_err}")
 
         return {"data": response.data, "error": None}
 
@@ -590,6 +613,18 @@ async def update_user(
         if not updated:
             return {"data": None, "error": "User not found or no changes applied"}
 
+        try:
+            from utils.redis_client import (
+                invalidate_employees_bootstrap_cache,
+                invalidate_user_caches,
+                invalidate_company_caches,
+            )
+            invalidate_employees_bootstrap_cache(target_company)
+            invalidate_user_caches(target_user_id)
+            invalidate_company_caches(target_company)
+        except Exception as cache_err:
+            print(f"[update_user] Cache invalidation warning: {cache_err}")
+
         return {"data": updated, "error": None}
     except Exception as e:
         return {"data": None, "error": format_user_friendly_db_error(e)}
@@ -633,6 +668,19 @@ async def delete_user(
             'is_active': False,
             'employment_status': 'INACTIVE'
         }).eq('user_id', target_user_id).execute()
+
+        # Invalidate employee bootstrap, user, and company caches immediately
+        try:
+            from utils.redis_client import (
+                invalidate_employees_bootstrap_cache,
+                invalidate_user_caches,
+                invalidate_company_caches,
+            )
+            invalidate_employees_bootstrap_cache(target_company)
+            invalidate_user_caches(target_user_id)
+            invalidate_company_caches(target_company)
+        except Exception as cache_err:
+            print(f"[delete_user] Cache invalidation warning: {cache_err}")
 
         return {"data": response.data, "error": None}
     except Exception as e:

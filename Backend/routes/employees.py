@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.db.employees_db import get_employees_bootstrap
@@ -10,9 +10,10 @@ router = APIRouter(prefix="/api/employees", tags=["employees"])
 @router.get("/bootstrap/{company_id}")
 async def employees_bootstrap(
 	company_id: str,
+	refresh: bool = Query(False),
 	auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-	result = await get_employees_bootstrap(auth_ctx.user_id, company_id)
+	result = await get_employees_bootstrap(auth_ctx.user_id, company_id, force_refresh=refresh)
 
 	if result.get("error"):
 		error_message = result["error"]
