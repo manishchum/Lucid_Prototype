@@ -35,7 +35,7 @@ jobs:
           mkdir -pv "$HOME/.ssh"
           echo "SSH directory creation succeeded"
 
-      
+        
       - name: Configure SSH
         env:
           WORKER_VM_SSH_PRIVATE_KEY: ${{ secrets.WORKER_VM_SSH_PRIVATE_KEY }}
