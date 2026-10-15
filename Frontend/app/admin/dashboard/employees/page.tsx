@@ -27,7 +27,8 @@ import {
   Search,
   Building2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Loader2
 } from 'lucide-react';
 import { toast as shadcnToast } from '@/hooks/use-toast';
 import { formatContentType } from '@/lib/contentType';
@@ -132,6 +133,7 @@ export default function EmployeesPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const { progress: loadingProgress, show: showLoadingProgress } = useIllusionProgress(authLoading || loading);
 
@@ -303,16 +305,25 @@ export default function EmployeesPage() {
     }
   };
 
-  const loadBootstrap = async (companyId: string) => {
+  const loadBootstrap = async (companyId: string, forceRefresh: boolean = false, showSpinner: boolean = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) {
+        setLoading(true);
+      }
       setError('');
 
+      const url = forceRefresh
+        ? `${API_URL}/api/employees/bootstrap/${companyId}?refresh=true&_t=${Date.now()}`
+        : `${API_URL}/api/employees/bootstrap/${companyId}`;
+
       const res = await fetchWithAuth(
-        `${API_URL}/api/employees/bootstrap/${companyId}`,
+        url,
         {
+          cache: 'no-store',
           headers: {
-            'X-User-ID': admin?.user_id || ''
+            'X-User-ID': admin?.user_id || '',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
           }
         }
       );
@@ -333,7 +344,9 @@ export default function EmployeesPage() {
       console.error('Employee bootstrap failed', error);
       setError(`Failed to load employee bootstrap: ${error.message}`);
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
@@ -581,28 +594,35 @@ export default function EmployeesPage() {
   const confirmDeleteUser = async () => {
     if (!userToDelete || !currentUserId) return;
 
+    const deletedUserId = userToDelete.user_id;
+    const deletedUserName = userToDelete.name;
+
     try {
-      setLoading(true);
+      setIsDeleting(true);
       setError('');
       
       // Use API to delete user (soft delete)
-      const res = await fetchWithAuth(`${API_URL}/api/users/${userToDelete.user_id}`, {
+      const res = await fetchWithAuth(`${API_URL}/api/users/${deletedUserId}`, {
         method: 'DELETE',
         headers: { 'X-User-ID': currentUserId },
       });
       
       if (!res.ok) {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || 'Failed to delete user');
       }
 
-      setSuccess(`User ${userToDelete.name} has been deactivated successfully`);
+      // Optimistically remove user immediately from local state
+      setUsers(prev => prev.filter(u => u.user_id !== deletedUserId));
+      setSelectedUsers(prev => prev.filter(id => id !== deletedUserId));
+
+      setSuccess(`User ${deletedUserName} has been deactivated successfully`);
       setShowDeleteConfirm(false);
       setUserToDelete(null);
       
-      // Reload users to reflect changes
+      // Reload users from backend with forceRefresh to sync state
       if (admin?.company_id) {
-        await loadBootstrap(admin.company_id);
+        await loadBootstrap(admin.company_id, true, false);
       }
       
       // Scroll to top to see updated list
@@ -610,7 +630,7 @@ export default function EmployeesPage() {
     } catch (error: any) {
       setError(`Failed to delete user: ${error.message}`);
     } finally {
-      setLoading(false);
+      setIsDeleting(false);
     }
   };
 
@@ -710,8 +730,17 @@ export default function EmployeesPage() {
       
       {/* success banners are shown via unified Radix toasts now */}
       {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+        <Alert variant="destructive" className="flex items-start justify-between">
+          <AlertDescription className="flex-1">{error}</AlertDescription>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            className="text-red-600 hover:text-red-800 ml-4 font-semibold text-sm leading-none p-1 rounded hover:bg-red-100 transition-colors"
+            title="Dismiss error"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
         </Alert>
       )}
 
@@ -783,7 +812,7 @@ export default function EmployeesPage() {
                   functions={functions}
                   roles={roles}
                   onSuccess={() => {
-                    loadBootstrap(admin.company_id);
+                    loadBootstrap(admin.company_id, true);
                     setSuccess("Users uploaded successfully!");
                     // Scroll to top to see the new users
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1244,7 +1273,8 @@ export default function EmployeesPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="text-green-600"
+                                  className="text-green-600 disabled:opacity-50"
+                                  disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                                   onClick={() => handleEditUser(user)}
                                 >
                                   <Edit className="w-4 h-4 mr-1" />
@@ -1252,7 +1282,8 @@ export default function EmployeesPage() {
                                 <Button 
                                   variant="outline" 
                                   size="sm" 
-                                  className="text-red-600"
+                                  className="text-red-600 disabled:opacity-50"
+                                  disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                                   onClick={() => handleDeleteUser(user)}
                                 >
                                   <Trash2 className="w-4 h-4 mr-1" />
@@ -1286,7 +1317,8 @@ export default function EmployeesPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-8 w-8 disabled:opacity-50"
+                              disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                               onClick={() => handleEditUser(user)}
                             >
                               <Edit className="w-4 h-4" />
@@ -1294,7 +1326,8 @@ export default function EmployeesPage() {
                             <Button
                               variant="outline"
                               size="icon"
-                              className="h-8 w-8"
+                              className="h-8 w-8 disabled:opacity-50"
+                              disabled={!user.is_active || user.employment_status === 'INACTIVE' || isDeleting}
                               onClick={() => handleDeleteUser(user)}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1386,7 +1419,7 @@ export default function EmployeesPage() {
         isSuperAdmin={isSuperAdmin}
         isDeveloper={isDeveloper}
         onSuccess={() => {
-          loadBootstrap(admin.company_id);
+          loadBootstrap(admin.company_id, true);
           setSuccess("User added successfully!");
           setShowAddModal(false);
           // Scroll to top to see the new user
@@ -1409,7 +1442,7 @@ export default function EmployeesPage() {
           functions={functions}
           roles={roles}
           onSuccess={() => {
-            loadBootstrap(admin.company_id);
+            loadBootstrap(admin.company_id, true);
             setSuccess("Employee updated successfully!");
             setShowUpdateModal(false);
             // Scroll to top to see the updated employee
@@ -1429,6 +1462,7 @@ export default function EmployeesPage() {
             <div className="flex justify-end gap-3">
               <Button
                 variant="outline"
+                disabled={isDeleting}
                 onClick={() => {
                   setShowDeleteConfirm(false);
                   setUserToDelete(null);
@@ -1439,9 +1473,11 @@ export default function EmployeesPage() {
 
               <Button
                 onClick={confirmDeleteUser}
-                className="bg-red-600 hover:bg-red-700"
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700 flex items-center"
               >
-                Delete User
+                {isDeleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {isDeleting ? 'Deleting...' : 'Delete User'}
               </Button>
             </div>
           </div>
@@ -1470,6 +1506,61 @@ export default function EmployeesPage() {
       />
     </div>
   );
+}
+
+// Helper to transform technical or database errors into clean, user-friendly messages
+export function formatUserErrorMessage(raw: any): string {
+  if (!raw) return 'An unexpected error occurred';
+  let str = typeof raw === 'string' ? raw : (raw.detail || raw.error || raw.message || JSON.stringify(raw));
+
+  // Check for Postgres/Supabase unique constraint violations
+  if (
+    str.includes('users_email_key') ||
+    (str.includes('23505') && str.toLowerCase().includes('email')) ||
+    (str.toLowerCase().includes('duplicate key') && str.toLowerCase().includes('email')) ||
+    (str.toLowerCase().includes('already exists') && str.toLowerCase().includes('email'))
+  ) {
+    return 'An account with this email already exists';
+  }
+
+  if (
+    str.includes('users_phone_key') ||
+    (str.includes('23505') && str.toLowerCase().includes('phone')) ||
+    (str.toLowerCase().includes('already exists') && str.toLowerCase().includes('phone'))
+  ) {
+    return 'An account with this phone number already exists';
+  }
+
+  if (str.includes('23505') || str.toLowerCase().includes('duplicate key')) {
+    return 'A user with these details already exists';
+  }
+
+  // Foreign key violations
+  if (str.includes('23503') || str.toLowerCase().includes('foreign key')) {
+    if (str.toLowerCase().includes('function') || str.toLowerCase().includes('department')) {
+      return 'Selected department or function does not exist';
+    }
+    return 'Referenced department, function, or company record not found';
+  }
+
+  // Not null violations
+  if (str.includes('23502') || str.toLowerCase().includes('not-null')) {
+    return 'A required field is missing';
+  }
+
+  // If string contains Python-like dict representation e.g. {'message': '...', 'details': '...'}
+  if (str.startsWith('{') && (str.includes("'message'") || str.includes('"message"'))) {
+    const detailsMatch = str.match(/['"]details['"]:\s*['"]([^'"]+)['"]/);
+    if (detailsMatch && detailsMatch[1]) {
+      return formatUserErrorMessage(detailsMatch[1]);
+    }
+    const messageMatch = str.match(/['"]message['"]:\s*['"]([^'"]+)['"]/);
+    if (messageMatch && messageMatch[1]) {
+      return formatUserErrorMessage(messageMatch[1]);
+    }
+  }
+
+  return str;
 }
 
 // Placeholder components that need to be implemented
@@ -1587,24 +1678,36 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             })
           });
           if (!createRes.ok) {
-            const errorData = await createRes.json();
-            results.errors.push(`${email}: ${errorData.detail || 'Failed to create user'}`);
+            const errorData = await createRes.json().catch(() => ({}));
+            const rawDetail = errorData.detail || errorData.error || errorData.message || 'Failed to create user';
+            results.errors.push(`${email}: ${formatUserErrorMessage(rawDetail)}`);
             continue;
           }
           results.added++;
-        } catch (err) {
-          results.errors.push(`${email}: Failed to add`);
+        } catch (err: any) {
+          results.errors.push(`${email}: ${formatUserErrorMessage(err?.message || 'Failed to add')}`);
         }
       }
 
       if (results.errors.length > 0) {
-        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.join('; ')}`);
+        const errorList = results.errors.slice(0, 5).join('; ') + (results.errors.length > 5 ? ` (and ${results.errors.length - 5} more)` : '');
+        let summary = '';
+        if (results.added > 0) {
+          summary = `Successfully added ${results.added} user${results.added !== 1 ? 's' : ''}${results.skipped > 0 ? `, ${results.skipped} skipped (already registered)` : ''}. ${results.errors.length} failed: ${errorList}`;
+        } else {
+          summary = `Failed to add ${results.errors.length} user${results.errors.length !== 1 ? 's' : ''}${results.skipped > 0 ? ` (${results.skipped} skipped)` : ''}: ${errorList}`;
+        }
+        onError(summary);
+        if (results.added > 0) {
+          setManualEmails('');
+          onSuccess();
+        }
       } else {
         setManualEmails('');
         onSuccess();
       }
-    } catch (err) {
-      onError('Failed to add employees');
+    } catch (err: any) {
+      onError(formatUserErrorMessage(err?.message || 'Failed to add employees'));
     } finally {
       setUploading(false);
     }
@@ -1852,7 +1955,8 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             if (!createRes.ok) {
               const errorData = await createRes.json().catch(() => ({}));
               console.error(`[Bulk Upload Error] Failed to create user ${email}:`, errorData.detail || errorData.error || 'Unknown error');
-              results.errors.push(`${email}: ${errorData.detail || errorData.error || 'Failed to create user'}`);
+              const rawDetail = errorData.detail || errorData.error || errorData.message || 'Failed to create user';
+              results.errors.push(`${email}: ${formatUserErrorMessage(rawDetail)}`);
               continue;
             }
             
@@ -1862,23 +1966,35 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
             results.added++;
           } catch (createError: any) {
             console.error(`[Bulk Upload Exception] Error creating ${email}:`, createError);
-            results.errors.push(`${email}: ${createError.message || 'Failed to create user'}`);
+            results.errors.push(`${email}: ${formatUserErrorMessage(createError.message || 'Failed to create user')}`);
           }
-        } catch (e){
+        } catch (e: any){
           console.warn(`[Bulk Upload Warning] Unhandled exception on row:`, e);
+          results.errors.push(formatUserErrorMessage(e?.message || 'Row processing error'));
         }
       }
 
-
       if (results.errors.length > 0) {
-        onError(`Added ${results.added}, skipped ${results.skipped}, errors: ${results.errors.slice(0, 5).join('; ')}${results.errors.length > 5 ? ` and ${results.errors.length - 5} more...` : ''}`);
+        const errorList = results.errors.slice(0, 5).join('; ') + (results.errors.length > 5 ? ` (and ${results.errors.length - 5} more)` : '');
+        let summary = '';
+        if (results.added > 0) {
+          summary = `Successfully added ${results.added} user${results.added !== 1 ? 's' : ''}${results.skipped > 0 ? `, ${results.skipped} skipped (already registered)` : ''}. ${results.errors.length} failed: ${errorList}`;
+        } else {
+          summary = `Failed to upload users${results.skipped > 0 ? ` (${results.skipped} skipped)` : ''}: ${errorList}`;
+        }
+        onError(summary);
+        if (results.added > 0) {
+          setFile(null);
+          setPreview([]);
+          onSuccess();
+        }
       } else {
         setFile(null);
         setPreview([]);
         onSuccess();
       }
-    } catch (err) {
-      onError('Failed to upload employees');
+    } catch (err: any) {
+      onError(formatUserErrorMessage(err?.message || 'Failed to upload employees'));
       // console.log(err)
     } finally {
       setUploading(false);
@@ -2056,6 +2172,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
   const [newCompanyDomain, setNewCompanyDomain] = useState('');
   const [newCompanyLogoFile, setNewCompanyLogoFile] = useState<File | null>(null);
   const [newCompanyLogoPreview, setNewCompanyLogoPreview] = useState('');
+  const [newCompanyPlatformType, setNewCompanyPlatformType] = useState<'web' | 'mobile' | 'both'>('web');
   const [creatingCompany, setCreatingCompany] = useState(false);
   const [showProvisionModal, setShowProvisionModal] = useState(false);
   const [provisioningCompany, setProvisioningCompany] = useState<any | null>(null);
@@ -2421,6 +2538,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
       formData.append('domain', newCompanyDomain.trim().toLowerCase());
       formData.append('logo', newCompanyLogoFile);
       formData.append('learning_style', 'false');
+      formData.append('platform_type', newCompanyPlatformType);
 
       const res = await fetchWithAuth(`${API_URL}/api/companies/with-logo`, {
         method: 'POST',
@@ -2454,6 +2572,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
       setNewCompanyDomain('');
       setNewCompanyLogoFile(null);
       setNewCompanyLogoPreview('');
+      setNewCompanyPlatformType('web');
 
       await loadFunctionTemplatesForProvisioning();
       setProvisioningCompany(createdCompany);
@@ -2581,12 +2700,13 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
 
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      if (error.message.includes('users_email_key') || (error.code === '23505' && error.message.includes('email'))) {
+      const friendlyMsg = formatUserErrorMessage(error?.message || error);
+      if (friendlyMsg.toLowerCase().includes('email')) {
         setError('Oops! This email already exists.');
-      } else if (error.message.includes('users_phone_key') || error.message.includes('phone')) {
-        setError('Oops! This number already exists.');
+      } else if (friendlyMsg.toLowerCase().includes('phone') || friendlyMsg.toLowerCase().includes('number')) {
+        setError('Oops! This phone number already exists.');
       } else {
-        setError('Failed to create employee: ' + error.message);
+        setError(friendlyMsg);
       }
     } finally {
       setLoading(false);
@@ -2728,6 +2848,46 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
                         </div>
                       )}
                       <p className="text-xs text-gray-500">Upload company logo (stored in logos bucket).</p>
+
+                      <div className="space-y-1.5 pt-1">
+                        <label className="text-xs font-semibold text-gray-700">Platform & Onboarding Mode</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('web')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'web'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            🌐 Web
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('mobile')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'mobile'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            📱 Mobile
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewCompanyPlatformType('both')}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                              newCompanyPlatformType === 'both'
+                                ? 'border-blue-600 bg-blue-50 text-blue-700 font-bold shadow-sm'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            🌐📱 Both
+                          </button>
+                        </div>
+                      </div>
+
                       <Button type="button" variant="outline" onClick={handleCreateCompany} disabled={creatingCompany}>
                         {creatingCompany ? 'Creating company...' : 'Create Company'}
                       </Button>
@@ -4303,13 +4463,14 @@ function UpdateEmployeeModal({
 
     } catch (error: any) {
       console.error('Failed to update user:', error);
-      if (error.code === '23505' && error.message.includes('email')) {
+      const friendlyMsg = formatUserErrorMessage(error?.message || error);
+      if (friendlyMsg.toLowerCase().includes('email')) {
         setFieldErrors(prev => ({
           ...prev,
           email: 'An employee with this email already exists'
         }));
       } else {
-        setError('Failed to update employee: ' + error.message);
+        setError(friendlyMsg);
       }
     } finally {
       setLoading(false);
