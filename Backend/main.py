@@ -43,7 +43,7 @@ from module_chat.route import router as module_chat
 from change_password.route import router as change_password_router
 from task_manager.route import router as task_manager_router
 from stt.route import router as stt_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library, auth
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library, auth, unsubscribe
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -53,6 +53,7 @@ from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
 from routes.logs import router as logs_router
+from routes.notification_workflows import router as workflows_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -372,10 +373,12 @@ app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
 app.include_router(analytics_export_router)  # analytics export router
 app.include_router(notifications.router)
+app.include_router(workflows_router)
 app.include_router(reports.router)  # notifications router
 app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
+app.include_router(unsubscribe.router)
 
 app.include_router(logs_router)
 

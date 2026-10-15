@@ -868,21 +868,19 @@ async def send_email(
 
         for email_addr, user_id_from_db in recipient_emails:
             try:
-                # COMMENTED OUT: Unsubscribe functionality not yet working
                 # 🔐 Generate unsubscribe token with user ID
-                # unsubscribe_token = generate_token(email_addr, user_id_from_db)
-                
-                # 🔗 Build unsubscribe URL
-                # unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
-                
+                unsubscribe_url = f"{frontend_url}/login"
+                try:
+                    unsubscribe_token = generate_token(email_addr, str(user_id_from_db))
+                    unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
+                except Exception:
+                    pass
+
                 # 📧 Inject unsubscribe link into HTML body
-                # email_body = inject_unsubscribe_link(
-                #     request.body,
-                #     unsubscribe_url
-                # )
-                
-                # Use request body directly without unsubscribe link injection
-                email_body = request.body
+                email_body = inject_unsubscribe_link(
+                    request.body,
+                    unsubscribe_url
+                )
                 
                 # Create message
                 msg = MIMEMultipart("alternative")
@@ -890,10 +888,9 @@ async def send_email(
                 msg["From"] = from_email
                 msg["To"] = email_addr
                 
-                # COMMENTED OUT: Unsubscribe functionality not yet working
-                # Add List-Unsubscribe header (RFC 2369) for email clients
-                # msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
-                # msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
+                # RFC 2369 / RFC 8058 List-Unsubscribe headers for email clients
+                msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+                msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
                 
                 msg.attach(MIMEText(email_body, "html"))
                 server.sendmail(from_email, email_addr, msg.as_string())

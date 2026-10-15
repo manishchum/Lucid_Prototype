@@ -100,6 +100,11 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
   }
 
+  // Ensure JSON content type is set by default when sending a serialized string body
+  if (options.body && typeof options.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   delete (options as any).registerSession;
 
   let response = await fetch(url, {
@@ -156,6 +161,10 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         "Authorization",
         `Bearer ${refreshedToken}`
       );
+
+      if (options.body && typeof options.body === "string" && !retryHeaders.has("Content-Type")) {
+        retryHeaders.set("Content-Type", "application/json");
+      }
 
       delete (options as any).registerSession;
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+import json
+from pydantic import BaseModel, model_validator
 from typing import List, Literal, Optional, Dict, Any
 from datetime import datetime
 
@@ -205,48 +206,128 @@ async def mark_all_notifications_read(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class NotificationPreferencesUpdateRequest(BaseModel):
+    push_enabled: Optional[bool] = None
+    email_enabled: Optional[bool] = None
+    in_app_enabled: Optional[bool] = None
+    whatsapp_enabled: Optional[bool] = None
+    deadline_reminders_enabled: Optional[bool] = None
+    post_completion_enabled: Optional[bool] = None
+    streak_notifications_enabled: Optional[bool] = None
+
+
+@router.get("/preferences")
+async def get_notification_preferences(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    try:
+        service_client = get_service_supabase_client()
+        res = service_client.table("notification_preferences").select("*").eq("user_id", user_id).maybe_single().execute()
+        prefs = getattr(res, "data", None)
+        if not prefs:
+            default_row = {
+                "user_id": user_id,
+                "push_enabled": True,
+                "email_enabled": True,
+                "in_app_enabled": True,
+                "whatsapp_enabled": True,
+                "deadline_reminders_enabled": True,
+                "post_completion_enabled": True,
+                "streak_notifications_enabled": True,
+            }
+            res = service_client.table("notification_preferences").insert(default_row).execute()
+            prefs = res.data[0] if res.data else default_row
+        return {"success": True, "preferences": prefs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/preferences")
+async def update_notification_preferences(
+    request: NotificationPreferencesUpdateRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    user_id = auth_ctx.user_id
+    try:
+        service_client = get_service_supabase_client()
+        update_data = {k: v for k, v in request.model_dump().items() if v is not None}
+        if not update_data:
+            return {"success": True, "message": "No preferences updated"}
+        from datetime import timezone
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        res = service_client.table("notification_preferences").upsert({
+            "user_id": user_id,
+            **update_data
+        }).execute()
+        return {"success": True, "message": "Preferences updated successfully", "preferences": res.data[0] if res.data else update_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.websocket("/ws")
 async def websocket_notifications(
     websocket: WebSocket,
-    user_id: Optional[str] = None
 ):
-    auth_user_id = user_id or websocket.query_params.get("user_id")
-    auth_token = websocket.query_params.get("token")
+    """
+    Secure real-time WebSocket notifications endpoint.
+    Strictly verifies JWT identity before connecting. Never trusts unverified user_id parameters.
+    """
+    auth_token = websocket.query_params.get("token") or websocket.headers.get("Sec-WebSocket-Protocol")
+    auth_user_id = None
 
-    if not auth_user_id and auth_token:
+    if auth_token:
         try:
             auth_ctx = get_request_auth_optional(authorization=f"Bearer {auth_token}")
-            auth_user_id = auth_ctx.user_id
+            if auth_ctx and auth_ctx.user_id:
+                auth_user_id = auth_ctx.user_id
         except Exception:
             pass
 
     await websocket.accept()
 
+    # If not verified from query param/header, allow 3.0s window for initial auth payload frame
     if not auth_user_id:
         try:
             import asyncio, json
-            init_text = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            init_text = await asyncio.wait_for(websocket.receive_text(), timeout=3.0)
             payload = json.loads(init_text)
             if payload.get("type") == "auth" and payload.get("token"):
                 auth_ctx = get_request_auth_optional(authorization=f"Bearer {payload['token']}")
-                auth_user_id = auth_ctx.user_id
+                if auth_ctx and auth_ctx.user_id:
+                    auth_user_id = auth_ctx.user_id
         except Exception:
             pass
 
     if not auth_user_id:
-        await websocket.send_json({"error": "Unauthorized: Missing user identity"})
-        await websocket.close(code=1008)
+        try:
+            await websocket.send_json({"error": "Unauthorized: Valid JWT authentication token required"})
+            await websocket.close(code=1008)
+        except Exception:
+            pass
         return
 
     await manager.connect(auth_user_id, websocket)
     try:
         while True:
-            await websocket.receive_text()
+            msg = await websocket.receive_text()
+            if msg == "ping":
+                await websocket.send_text("pong")
+            elif msg.strip().startswith("{"):
+                try:
+                    import json
+                    parsed = json.loads(msg)
+                    if parsed.get("type") == "ping":
+                        await websocket.send_json({"type": "pong"})
+                except Exception:
+                    pass
     except WebSocketDisconnect:
+        
         manager.disconnect(auth_user_id, websocket)
     except Exception as e:
-        print(f"[WebSocket] Exception on notifications WS for user {auth_user_id}: {e}")
         manager.disconnect(auth_user_id, websocket)
+
 
 
 @router.post("/assignment")
@@ -364,27 +445,14 @@ async def send_assignment_notification(
             # In-app and push notifications deliver to all assignees
             realtime_recipients.append(user)
                 
-        # Send emails synchronously
-        sent_emails = 0
-        if email_recipients:
-            email_result = await send_bulk_assignment_notification_emails(
-                recipients=email_recipients,
-                assignment_title=request.assignment_title,
-                company_name=company_name,
-                assignment_kind=request.assignment_type,
-                frontend_url=request.frontend_url,
-                send_in_app=False,
-            )
-            sent_emails = email_result.get("sent_count", 0)
-
-        # Send WebSockets & FCM Push Notifications via ARQ Worker Queue
+        # Decouple all dispatch (Email, WebSocket, FCM Push) to background ARQ worker queue
+        # Prevents blocking the HTTP request thread during bulk assignments
         from utils.notification_dispatcher import schedule_bulk_notification_jobs
         
-        realtime_user_ids = [u["user_id"] for u in realtime_recipients]
-        fcm_failed_user_ids = [] # Deprecated field since it's async now
+        all_user_ids = [u["user_id"] for u in recipients]
         sent_realtime = 0
         
-        if realtime_user_ids:
+        if all_user_ids:
             target_scr = "Sprint" if request.assignment_type == "sprint" else "Roleplay"
             metadata = {
                 "assignment_title": request.assignment_title,
@@ -392,24 +460,26 @@ async def send_assignment_notification(
                 "module_type": request.assignment_type,
                 "target_screen": target_scr,
                 "company_id": request.company_id,
+                "company_name": company_name,
+                "frontend_url": request.frontend_url,
                 "title": request.assignment_title,
+                "channels": ["IN_APP", "PUSH", "EMAIL"],
             }
             
             await schedule_bulk_notification_jobs(
-                user_ids=realtime_user_ids,
+                user_ids=all_user_ids,
                 notification_type="MODULE_ASSIGNED",
                 metadata=metadata
             )
-            
-            sent_realtime = len(realtime_user_ids)
+            sent_realtime = len(all_user_ids)
 
         return {
             "success": True,
-            "message": f"Sent assignment notifications to {sent_emails} email(s) and {sent_realtime} mobile device(s)",
-            "sent_emails": sent_emails,
+            "message": f"Queued assignment notifications for {len(email_recipients)} email recipient(s) and {sent_realtime} mobile device(s)",
+            "sent_emails": len(email_recipients),
             "sent_realtime": sent_realtime,
-            "fcm_failed_count": len(fcm_failed_user_ids),
-            "fcm_failed_user_ids": fcm_failed_user_ids,
+            "fcm_failed_count": 0,
+            "fcm_failed_user_ids": [],
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -551,34 +621,116 @@ async def require_developer_role(user_id: str) -> None:
     )
 
 
+class GlobalNotificationSettingsUpdateRequest(BaseModel):
+    in_app_enabled: Optional[bool] = None
+    push_enabled: Optional[bool] = None
+    email_enabled: Optional[bool] = None
+    whatsapp_enabled: Optional[bool] = None
+    deadline_reminders_enabled: Optional[bool] = None
+    post_completion_enabled: Optional[bool] = None
+    streak_notifications_enabled: Optional[bool] = None
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    max_daily_per_user: Optional[int] = None
+    disabled_event_keys: Optional[List[str]] = None
+    event_policies: Optional[Dict[str, Any]] = None
+
+
+@router.get("/admin/global-settings")
+async def get_global_notification_settings(
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    """Fetches system-wide global notification policies and channel controls (Developer role required)."""
+    await require_developer_role(auth_ctx.user_id)
+    try:
+        service_client = get_service_supabase_client()
+        res = service_client.table("global_notification_settings").select("*").eq("id", "global_default").maybe_single().execute()
+        settings = getattr(res, "data", None)
+        if not settings:
+            default_row = {
+                "id": "global_default",
+                "in_app_enabled": True,
+                "push_enabled": True,
+                "email_enabled": True,
+                "whatsapp_enabled": False,
+                "deadline_reminders_enabled": True,
+                "post_completion_enabled": True,
+                "streak_notifications_enabled": True,
+                "quiet_hours_enabled": False,
+                "quiet_hours_start": "22:00",
+                "quiet_hours_end": "08:00",
+                "max_daily_per_user": 10,
+                "disabled_event_keys": [],
+                "event_policies": {},
+            }
+            ins = service_client.table("global_notification_settings").insert(default_row).execute()
+            settings = ins.data[0] if ins.data else default_row
+        return {"success": True, "settings": settings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/admin/global-settings")
+async def update_global_notification_settings(
+    request: GlobalNotificationSettingsUpdateRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+):
+    """Updates system-wide global notification policies (Developer role required)."""
+    await require_developer_role(auth_ctx.user_id)
+    payload = {k: v for k, v in request.model_dump().items() if v is not None}
+    if not payload:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+    payload["updated_by"] = auth_ctx.user_id
+    from datetime import timezone
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        service_client = get_service_supabase_client()
+        res = service_client.table("global_notification_settings").update(payload).eq("id", "global_default").execute()
+        updated = res.data[0] if res.data else payload
+        from utils.notification_dispatcher import invalidate_global_notification_settings_cache
+        invalidate_global_notification_settings_cache()
+        try:
+            from utils.notifications.event_bus import get_redis_connection
+            _r = get_redis_connection()
+            if _r:
+                _r.delete("settings:disabled_events")
+        except Exception:
+            pass
+        return {"success": True, "message": "Global notification settings saved successfully", "settings": updated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 from utils.notifications.template_engine import (
     TemplateCompiler,
     TemplateLinter,
     normalize_token_key,
     CHANNEL_CONSTRAINTS,
+    compute_content_hash,
 )
 import uuid as _uuid_lib
 
 
-class VariableCreateRequest(BaseModel):
-    key: str
-    label: str
-    description: Optional[str] = None
-    data_type: Literal["string", "number", "date", "url", "percentage", "boolean"] = "string"
-    namespace: str = "custom"
-    source_path: Optional[str] = None
-    is_required: bool = False
-    default_fallback: Optional[str] = None
-    sample_value: str
+class TemplateRollbackRequest(BaseModel):
+    target_version: int
 
 
-class EventPresetCreateRequest(BaseModel):
-    key: str
-    label: str
-    category: str = "CUSTOM"
-    description: Optional[str] = None
-    default_channels: List[str] = ["IN_APP", "PUSH"]
-    recommended_variables: List[str] = []
+
+from utils.notifications.registry_contracts import (
+    get_system_variables,
+    get_system_variable_samples,
+    get_system_event_presets,
+    SYSTEM_VARIABLE_MAP,
+)
+
+
+class EventTriggerRequest(BaseModel):
+    event_key: str
+    recipient_user_id: str
+    payload: Dict[str, Any]
+    correlation_id: Optional[str] = None
+    bypass_throttle: bool = False
 
 
 class TemplateValidateRequest(BaseModel):
@@ -590,25 +742,53 @@ class TemplateValidateRequest(BaseModel):
 
 class NotificationTemplateCreateRequest(BaseModel):
     notification_type: str
+    template_name: Optional[str] = None
+    category: Optional[str] = "GENERAL"
     channel: Literal["IN_APP", "PUSH", "EMAIL", "WHATSAPP", "ALL"] = "ALL"
     variation_index: int = 0
     title_template: Optional[str] = None
     body_template: str
     cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    fallback_defaults: Dict[str, Any] = {}
     language: str = "en"
     version: int = 1
     status: Literal["DRAFT", "VALIDATED", "PUBLISHED", "ARCHIVED"] = "PUBLISHED"
     is_active: bool = True
 
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_if_needed(cls, data):
+        if isinstance(data, str):
+            try:
+                return json.loads(data)
+            except Exception:
+                pass
+        return data
+
 
 class NotificationTemplateUpdateRequest(BaseModel):
+    template_name: Optional[str] = None
     title_template: Optional[str] = None
     body_template: Optional[str] = None
+    category: Optional[str] = None
     cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
+    fallback_defaults: Optional[Dict[str, Any]] = None
     channel: Optional[Literal["IN_APP", "PUSH", "EMAIL", "WHATSAPP", "ALL"]] = None
     variation_index: Optional[int] = None
     status: Optional[Literal["DRAFT", "VALIDATED", "PUBLISHED", "ARCHIVED"]] = None
     is_active: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_if_needed(cls, data):
+        if isinstance(data, str):
+            try:
+                return json.loads(data)
+            except Exception:
+                pass
+        return data
 
 
 class TestSendTemplateRequest(BaseModel):
@@ -621,177 +801,59 @@ class TestSendTemplateRequest(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────
-# 1. VARIABLE REGISTRY ENDPOINTS
+# 1. VARIABLE & EVENT PRESET SYSTEM CONTRACTS (READ-ONLY)
 # ─────────────────────────────────────────────────────────────────
 
 @router.get("/registry/variables")
 async def get_variable_registry(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Returns the complete contract-based dynamic variable registry."""
-    try:
-        service_client = get_service_supabase_client()
-        res = (
-            service_client.table("notification_variable_registry")
-            .select("*")
-            .order("namespace", desc=False)
-            .order("key", desc=False)
-            .execute()
-        )
-        vars_list = res.data or []
-        sample_ctx = {}
-        for v in vars_list:
-            sample_ctx[v["key"]] = v.get("sample_value") or ""
-            # also add short alias without namespace for convenience
-            short_key = v["key"].split(".")[-1]
-            if short_key not in sample_ctx:
-                sample_ctx[short_key] = v.get("sample_value") or ""
+    """Returns the standardized system variable catalog for template editing and previews."""
+    return {
+        "success": True,
+        "variables": get_system_variables(),
+        "sample_context": get_system_variable_samples(),
+    }
 
-        return {
-            "success": True,
-            "variables": vars_list,
-            "sample_context": sample_ctx,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/registry/variables")
-async def create_custom_variable(
-    request: VariableCreateRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-):
-    """Registers a new developer custom variable with typed schema contract."""
-    await require_developer_role(auth_ctx.user_id)
-    key_clean = request.key.strip().lower()
-    # Ensure key has namespace prefix or default to custom
-    if "." not in key_clean:
-        key_clean = f"custom.{key_clean}"
-
-    try:
-        service_client = get_service_supabase_client()
-        insert_payload = {
-            "key": key_clean,
-            "label": request.label.strip(),
-            "description": request.description.strip() if request.description else None,
-            "data_type": request.data_type,
-            "namespace": request.namespace or "custom",
-            "source_path": request.source_path or f"payload.{key_clean.split('.')[-1]}",
-            "is_required": request.is_required,
-            "default_fallback": request.default_fallback.strip() if request.default_fallback else None,
-            "sample_value": request.sample_value.strip(),
-            "is_system": False,
-            "created_by": auth_ctx.user_id,
-        }
-        res = service_client.table("notification_variable_registry").insert(insert_payload).execute()
-        if not res.data:
-            raise HTTPException(status_code=400, detail="Failed to create variable")
-        return {"success": True, "message": "Variable registered successfully", "variable": res.data[0]}
-    except HTTPException:
-        raise
-    except Exception as e:
-        err_str = str(e)
-        if "unique" in err_str.lower() or "duplicate" in err_str.lower():
-            raise HTTPException(status_code=409, detail=f"Variable with key '{key_clean}' already exists.")
-        raise HTTPException(status_code=500, detail=err_str)
-
-
-@router.delete("/registry/variables/{variable_id}")
-async def delete_custom_variable(
-    variable_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-):
-    """Deletes a developer custom variable. System variables cannot be deleted."""
-    await require_developer_role(auth_ctx.user_id)
-    try:
-        service_client = get_service_supabase_client()
-        var_res = service_client.table("notification_variable_registry").select("is_system, key").eq("id", variable_id).maybe_single().execute()
-        var_data = getattr(var_res, "data", None)
-        if not var_data:
-            raise HTTPException(status_code=404, detail="Variable not found")
-        if var_data.get("is_system"):
-            raise HTTPException(status_code=403, detail="System variables cannot be deleted.")
-
-        service_client.table("notification_variable_registry").delete().eq("id", variable_id).execute()
-        return {"success": True, "message": f"Variable '{var_data.get('key')}' deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────
-# 2. EVENT PRESETS ENDPOINTS
-# ─────────────────────────────────────────────────────────────────
 
 @router.get("/registry/presets")
 async def get_event_presets(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Returns all notification event type presets."""
-    try:
-        service_client = get_service_supabase_client()
-        res = service_client.table("notification_event_presets").select("*").order("category", desc=False).order("key", desc=False).execute()
-        return {"success": True, "presets": res.data or []}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Returns all standardized system event trigger presets."""
+    return {
+        "success": True,
+        "presets": get_system_event_presets(),
+    }
 
 
-@router.post("/registry/presets")
-async def create_event_preset(
-    request: EventPresetCreateRequest,
+@router.post("/events/trigger")
+async def trigger_event_bus(
+    request: EventTriggerRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Registers a new developer custom event preset."""
+    """
+    Unified entrypoint to trigger contract-validated notification events.
+    Enforces JSON schema validation, applies registered fallbacks, and routes to ARQ / Hybrid Dispatcher.
+    """
     await require_developer_role(auth_ctx.user_id)
-    key_clean = request.key.strip().upper().replace(" ", "_")
-    try:
-        service_client = get_service_supabase_client()
-        insert_payload = {
-            "key": key_clean,
-            "label": request.label.strip(),
-            "category": request.category.strip().upper() or "CUSTOM",
-            "description": request.description.strip() if request.description else None,
-            "default_channels": request.default_channels or ["IN_APP", "PUSH"],
-            "recommended_variables": request.recommended_variables or [],
-            "is_system": False,
-            "created_by": auth_ctx.user_id,
-        }
-        res = service_client.table("notification_event_presets").insert(insert_payload).execute()
-        if not res.data:
-            raise HTTPException(status_code=400, detail="Failed to create event preset")
-        return {"success": True, "message": "Event preset created successfully", "preset": res.data[0]}
-    except HTTPException:
-        raise
-    except Exception as e:
-        err_str = str(e)
-        if "unique" in err_str.lower() or "duplicate" in err_str.lower():
-            raise HTTPException(status_code=409, detail=f"Preset with key '{key_clean}' already exists.")
-        raise HTTPException(status_code=500, detail=err_str)
-
-
-@router.delete("/registry/presets/{preset_id}")
-async def delete_event_preset(
-    preset_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-):
-    """Deletes a custom event preset. System presets cannot be deleted."""
-    await require_developer_role(auth_ctx.user_id)
-    try:
-        service_client = get_service_supabase_client()
-        preset_res = service_client.table("notification_event_presets").select("is_system, key").eq("id", preset_id).maybe_single().execute()
-        preset_data = getattr(preset_res, "data", None)
-        if not preset_data:
-            raise HTTPException(status_code=404, detail="Preset not found")
-        if preset_data.get("is_system"):
-            raise HTTPException(status_code=403, detail="System presets cannot be deleted.")
-
-        service_client.table("notification_event_presets").delete().eq("id", preset_id).execute()
-        return {"success": True, "message": f"Preset '{preset_data.get('key')}' deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    from utils.notifications.event_bus import publish_event
+    result = await publish_event(
+        event_key=request.event_key,
+        recipient_user_id=request.recipient_user_id,
+        payload=request.payload,
+        correlation_id=request.correlation_id,
+        bypass_throttle=request.bypass_throttle,
+    )
+    if not result.get("success"):
+        if result.get("error_code") == "SCHEMA_VALIDATION_FAILED":
+            raise HTTPException(status_code=422, detail={
+                "message": "Event payload failed contract validation",
+                "errors": result.get("errors"),
+                "event_key": request.event_key
+            })
+        raise HTTPException(status_code=400, detail=result.get("message", "Event triggering failed"))
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -805,13 +867,10 @@ async def validate_template_draft(
 ):
     """
     Validates a template against syntax rules, the variable registry contract,
-    and channel recommended/hard limits.
+    channel recommended/hard limits, exact-duplicate content, and conflict warnings.
     """
-    service_client = get_service_supabase_client()
-    var_res = service_client.table("notification_variable_registry").select("*").execute()
-    vars_list = var_res.data or []
-    known_vars = {v["key"]: v for v in vars_list}
-    sample_ctx = {v["key"]: v.get("sample_value") or "" for v in vars_list}
+    known_vars = SYSTEM_VARIABLE_MAP
+    sample_ctx = get_system_variable_samples()
 
     # Merge custom developer preview overrides if provided
     if request.custom_sample_context:
@@ -824,11 +883,41 @@ async def validate_template_draft(
         known_variables=known_vars,
         sample_context=sample_ctx,
     )
+
+    # Content Fingerprint & Duplicate / Conflict Detection
+    content_hash = compute_content_hash(
+        title_template=request.title_template,
+        body_template=request.body_template,
+        channel=request.channel,
+    )
+    lint_result["content_hash"] = content_hash
+
+    # Check for exact duplicates in database
+    try:
+        dup_query = (
+            service_client.table("notification_templates")
+            .select("id, notification_type, channel, variation_index")
+            .eq("content_hash", content_hash)
+            .eq("is_active", True)
+            .execute()
+        )
+        duplicates = dup_query.data or []
+        if duplicates:
+            lint_result["exact_duplicate"] = True
+            lint_result["duplicate_matches"] = duplicates
+            lint_result["warnings"].append(
+                f"Exact duplicate template detected: identical content exists in template '{duplicates[0]['notification_type']}' (ID: {duplicates[0]['id']})."
+            )
+        else:
+            lint_result["exact_duplicate"] = False
+    except Exception as de:
+        logger.debug(f"Duplicate template check warning: {de}")
+
     return {"success": True, "lint": lint_result}
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4. TEMPLATE CRUD & AUDIT DISPATCH ENDPOINTS
+# 4. TEMPLATE CRUD, VERSIONING & ROLLBACK ENDPOINTS
 # ─────────────────────────────────────────────────────────────────
 
 @router.get("/templates/variables")
@@ -843,6 +932,7 @@ async def get_template_variables_legacy(
 async def list_notification_templates(
     notification_type: Optional[str] = None,
     channel: Optional[str] = None,
+    category: Optional[str] = None,
     is_active: Optional[bool] = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
@@ -854,6 +944,8 @@ async def list_notification_templates(
             query = query.eq("notification_type", notification_type)
         if channel:
             query = query.eq("channel", channel)
+        if category and category.upper() != "ALL":
+            query = query.eq("category", category.upper())
         if is_active is not None:
             query = query.eq("is_active", is_active)
 
@@ -870,15 +962,15 @@ async def create_notification_template(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
-    Creates a new template. Strictly enforces linter hard errors before allowing publishing.
+    Creates a new template. Strictly enforces linter hard errors and blocks exact duplicates
+    while allowing legitimate distinct variations for the same notification type.
     """
     await require_developer_role(auth_ctx.user_id)
     service_client = get_service_supabase_client()
 
     # Load registry for compile-time validation
-    var_res = service_client.table("notification_variable_registry").select("*").execute()
-    known_vars = {v["key"]: v for v in (var_res.data or [])}
-    sample_ctx = {v["key"]: v.get("sample_value") or "" for v in (var_res.data or [])}
+    known_vars = SYSTEM_VARIABLE_MAP
+    sample_ctx = get_system_variable_samples()
 
     lint_result = TemplateLinter.lint(
         title_template=request.title_template,
@@ -899,26 +991,80 @@ async def create_notification_template(
             },
         )
 
+    # Compute deterministic content hash for duplicate prevention
+    content_hash = compute_content_hash(
+        title_template=request.title_template,
+        body_template=request.body_template,
+        channel=request.channel,
+        cta_label=request.cta_label,
+    )
+
+    # Block exact duplicates with identical normalized content in active scope
+    try:
+        dup_res = (
+            service_client.table("notification_templates")
+            .select("id, notification_type, variation_index")
+            .eq("content_hash", content_hash)
+            .eq("is_active", True)
+            .execute()
+        )
+        if dup_res.data and len(dup_res.data) > 0:
+            existing = dup_res.data[0]
+            raise HTTPException(
+                status_code=409,
+                detail=f"Exact duplicate template rejected: an active template with identical normalized content already exists (ID: {existing['id']}, Type: {existing['notification_type']}).",
+            )
+    except HTTPException:
+        raise
+    except Exception as ex:
+        logger.debug(f"Duplicate query check skipped: {ex}")
+
     try:
         insert_data = {
             "notification_type": request.notification_type.strip().upper(),
-            "channel": request.channel,
+            "template_name": request.template_name.strip() if request.template_name else None,
+            "category": (request.category or "GENERAL").strip().upper(),
+            "channel": request.channel or "ALL",
             "variation_index": request.variation_index,
             "title_template": request.title_template.strip() if request.title_template else None,
             "body_template": request.body_template.strip(),
             "cta_label": request.cta_label.strip() if request.cta_label else None,
+            "cta_url": request.cta_url.strip() if request.cta_url else None,
+            "fallback_defaults": request.fallback_defaults or {},
             "language": request.language,
             "version": request.version,
             "status": request.status,
             "is_active": request.is_active,
+            "content_hash": content_hash,
         }
         resp = service_client.table("notification_templates").insert(insert_data).execute()
         if not resp.data:
             raise HTTPException(status_code=400, detail="Failed to create template")
+
+        created_template = resp.data[0]
+        created_id = created_template["id"]
+
+        # If published, create immutable version snapshot (v1)
+        if request.status == "PUBLISHED":
+            try:
+                service_client.table("notification_template_versions").insert({
+                    "template_id": created_id,
+                    "version_number": 1,
+                    "notification_type": created_template["notification_type"],
+                    "channel": created_template["channel"],
+                    "title_template": created_template["title_template"],
+                    "body_template": created_template["body_template"],
+                    "cta_label": created_template["cta_label"],
+                    "content_hash": content_hash,
+                    "published_by": auth_ctx.user_id,
+                }).execute()
+            except Exception as ve:
+                logger.warning(f"Failed to record initial template version: {ve}")
+
         return {
             "success": True,
             "message": "Notification template created successfully",
-            "template": resp.data[0],
+            "template": created_template,
             "lint_report": lint_result,
         }
     except HTTPException:
@@ -939,33 +1085,211 @@ async def update_notification_template(
     request: NotificationTemplateUpdateRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Updates an existing notification template with validation enforcement."""
+    """
+    Updates an existing template. If published, increments version and creates an immutable snapshot.
+    """
     await require_developer_role(auth_ctx.user_id)
     service_client = get_service_supabase_client()
 
-    update_data: Dict[str, Any] = {}
+    # Fetch current template
+    current_res = (
+        service_client.table("notification_templates")
+        .select("*")
+        .eq("id", template_id)
+        .maybe_single()
+        .execute()
+    )
+    current = getattr(current_res, "data", None)
+    if not current:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    new_title = request.title_template.strip() if request.title_template is not None else current.get("title_template")
+    new_body = request.body_template.strip() if request.body_template is not None else current.get("body_template")
+    new_channel = request.channel if request.channel is not None else current.get("channel", "ALL")
+    new_cta = request.cta_label.strip() if request.cta_label is not None else current.get("cta_label")
+    new_status = request.status if request.status is not None else current.get("status", "DRAFT")
+
+    # Compute new hash
+    new_hash = compute_content_hash(
+        title_template=new_title,
+        body_template=new_body or "",
+        channel=new_channel,
+        cta_label=new_cta,
+    )
+
+    update_data: Dict[str, Any] = {
+        "content_hash": new_hash,
+    }
+    if request.template_name is not None:
+        update_data["template_name"] = request.template_name.strip()
     if request.title_template is not None:
-        update_data["title_template"] = request.title_template.strip() if request.title_template else None
+        update_data["title_template"] = new_title
     if request.body_template is not None:
-        update_data["body_template"] = request.body_template.strip()
+        update_data["body_template"] = new_body
     if request.cta_label is not None:
-        update_data["cta_label"] = request.cta_label.strip() if request.cta_label else None
+        update_data["cta_label"] = new_cta
+    if request.cta_url is not None:
+        update_data["cta_url"] = request.cta_url.strip()
+    if request.fallback_defaults is not None:
+        update_data["fallback_defaults"] = request.fallback_defaults
     if request.channel is not None:
-        update_data["channel"] = request.channel
+        update_data["channel"] = new_channel
     if request.variation_index is not None:
         update_data["variation_index"] = request.variation_index
+    if request.category is not None:
+        update_data["category"] = request.category.strip().upper()
     if request.status is not None:
-        update_data["status"] = request.status
+        update_data["status"] = new_status
     if request.is_active is not None:
         update_data["is_active"] = request.is_active
+
+    # Check if this update represents a new published version
+    current_version = int(current.get("version") or 1)
+    is_publishing_new_version = (new_status == "PUBLISHED" and (new_hash != current.get("content_hash") or current.get("status") != "PUBLISHED"))
+
+    if is_publishing_new_version:
+        new_version = current_version + 1
+        update_data["version"] = new_version
+    else:
+        new_version = current_version
 
     try:
         resp = service_client.table("notification_templates").update(update_data).eq("id", template_id).execute()
         if not resp.data:
             raise HTTPException(status_code=404, detail="Template not found")
-        return {"success": True, "message": "Notification template updated", "template": resp.data[0]}
+
+        updated_template = resp.data[0]
+
+        # Record immutable version snapshot when published
+        if is_publishing_new_version:
+            try:
+                service_client.table("notification_template_versions").insert({
+                    "template_id": template_id,
+                    "version_number": new_version,
+                    "notification_type": updated_template["notification_type"],
+                    "channel": updated_template["channel"],
+                    "title_template": updated_template["title_template"],
+                    "body_template": updated_template["body_template"],
+                    "cta_label": updated_template["cta_label"],
+                    "content_hash": new_hash,
+                    "published_by": auth_ctx.user_id,
+                }).execute()
+            except Exception as ve:
+                logger.warning(f"Failed to record template version snapshot: {ve}")
+
+        return {
+            "success": True,
+            "message": "Notification template updated",
+            "template": updated_template,
+            "version_created": is_publishing_new_version,
+            "version": new_version,
+        }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/templates/{template_id}/versions")
+async def get_template_versions(
+    template_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Returns the immutable published version history for a given template.
+    """
+    try:
+        service_client = get_service_supabase_client()
+        res = (
+            service_client.table("notification_template_versions")
+            .select("*")
+            .eq("template_id", template_id)
+            .order("version_number", desc=True)
+            .execute()
+        )
+        return {
+            "success": True,
+            "template_id": template_id,
+            "versions": res.data or [],
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/templates/{template_id}/rollback")
+async def rollback_template_version(
+    template_id: str,
+    request: TemplateRollbackRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Rolls back a template to an earlier immutable published version without mutating historical records.
+    """
+    await require_developer_role(auth_ctx.user_id)
+    service_client = get_service_supabase_client()
+
+    # Find the requested version snapshot
+    v_res = (
+        service_client.table("notification_template_versions")
+        .select("*")
+        .eq("template_id", template_id)
+        .eq("version_number", request.target_version)
+        .maybe_single()
+        .execute()
+    )
+    v_data = getattr(v_res, "data", None)
+    if not v_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {request.target_version} not found for template {template_id}",
+        )
+
+    # Fetch current version
+    t_res = (
+        service_client.table("notification_templates")
+        .select("version")
+        .eq("id", template_id)
+        .maybe_single()
+        .execute()
+    )
+    current_ver = int((t_res.data or {}).get("version") or 1)
+    new_version_num = current_ver + 1
+
+    # Restore definition and create new active version
+    update_payload = {
+        "title_template": v_data["title_template"],
+        "body_template": v_data["body_template"],
+        "cta_label": v_data.get("cta_label"),
+        "channel": v_data["channel"],
+        "content_hash": v_data["content_hash"],
+        "version": new_version_num,
+        "status": "PUBLISHED",
+        "is_active": True,
+    }
+
+    try:
+        resp = service_client.table("notification_templates").update(update_payload).eq("id", template_id).execute()
+        
+        # Save restored version snapshot
+        service_client.table("notification_template_versions").insert({
+            "template_id": template_id,
+            "version_number": new_version_num,
+            "notification_type": v_data["notification_type"],
+            "channel": v_data["channel"],
+            "title_template": v_data["title_template"],
+            "body_template": v_data["body_template"],
+            "cta_label": v_data.get("cta_label"),
+            "content_hash": v_data["content_hash"],
+            "published_by": auth_ctx.user_id,
+        }).execute()
+
+        return {
+            "success": True,
+            "message": f"Successfully rolled back template to version {request.target_version}. New active version is {new_version_num}.",
+            "template": resp.data[0] if resp.data else None,
+            "restored_from_version": request.target_version,
+            "new_version": new_version_num,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1057,11 +1381,7 @@ async def send_test_notification_template(
         pass
 
     # Load variable registry contracts
-    var_res = service_client.table("notification_variable_registry").select("*").execute()
-    reg_vars = {v["key"]: v for v in (var_res.data or [])}
-
-    # Build context: default samples + real developer profile + custom overrides
-    context: Dict[str, Any] = {v["key"]: v.get("sample_value") for v in (var_res.data or [])}
+    context: Dict[str, Any] = get_system_variable_samples()
     # Inject real developer profile
     context["subscriber.first_name"] = dev_first_name
     context["first_name"] = dev_first_name

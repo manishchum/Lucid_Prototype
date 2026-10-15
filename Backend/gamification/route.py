@@ -238,7 +238,26 @@ async def record_progress(
     new_badges = []
     if request.completed:
         new_badges = check_and_award_badges(user_id=auth.user_id, company_id=auth.company_id)
-        
+        try:
+            from utils.notifications.workflow_engine import WorkflowEngine
+            import asyncio
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="DRILL_COMPLETED",
+                    user_id=auth.user_id,
+                    payload={
+                        "sprint_id": request.sprint_id,
+                        "drill_id": request.drill_id,
+                        "earned_xp": earned_xp,
+                        "streak_multiplier": multiplier,
+                        "target_screen": "Sprint",
+                    },
+                    company_id=auth.company_id,
+                )
+            )
+        except Exception:
+            pass
+
     return {
         "status": "success", 
         "data": {

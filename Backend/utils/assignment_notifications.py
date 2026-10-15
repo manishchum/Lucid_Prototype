@@ -136,8 +136,9 @@ def _send_via_smtp(
     subject: str,
     html_body: str,
     text_body: str,
+    extra_headers: Optional[Dict[str, str]] = None,
 ) -> None:
-    server = smtplib.SMTP(smtp_host, smtp_port)
+    server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
     try:
         server.starttls()
         server.login(smtp_user, smtp_pass)
@@ -146,6 +147,9 @@ def _send_via_smtp(
         message["Subject"] = subject
         message["From"] = from_email
         message["To"] = recipient_email
+        if extra_headers:
+            for hk, hv in extra_headers.items():
+                message[hk] = hv
         message.attach(MIMEText(text_body, "plain"))
         message.attach(MIMEText(html_body, "html"))
 

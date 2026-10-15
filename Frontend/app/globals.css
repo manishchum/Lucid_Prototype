@@ -164,11 +164,15 @@
 }
 
 /* Hide scrollbar but keep scrolling */
-.custom-scrollbar {
+.custom-scrollbar,
+.scrollbar-none,
+.no-scrollbar {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE and Edge */
 }
 
-.custom-scrollbar::-webkit-scrollbar {
+.custom-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari */
 }

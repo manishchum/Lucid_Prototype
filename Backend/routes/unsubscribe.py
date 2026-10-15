@@ -1,19 +1,26 @@
-# This file has been deleted - Unsubscribe route has been removed from the application
-# 
-# The unsubscribe route and all related functionality have been disabled.
-# 
-# Changes made:
-# - Removed import from Backend/main.py
-# - Removed app.include_router() registration from Backend/main.py
-# - Commented out unsubscribe token generation in dispatch.py send_email() function
-# - Commented out unsubscribe link injection in email templates
-#
-# To restore this functionality in the future:
-# 1. Uncomment the import in main.py: from routes.unsubscribe import router as unsubscribe_router
-# 2. Uncomment the registration in main.py: app.include_router(unsubscribe_router, tags=["unsubscribe"])
-# 3. Uncomment the token generation and injection code in dispatch.py
-# 4. Verify the database integration is working correctly
+import os
+import logging
+from datetime import datetime
+from typing import Optional, Dict, Any
 
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, EmailStr
+
+from utils.auth_bridge import get_service_supabase_client
+from utils.unsubscribe_token import (
+    generate_token,
+    verify_token,
+    InvalidTokenError,
+    ExpiredTokenError,
+    MissingSecretError,
+)
+
+logger = logging.getLogger("lucid.unsubscribe")
+router = APIRouter(prefix="/api/unsubscribe", tags=["unsubscribe"])
+
+
+class UnsubscribeTokenRequest(BaseModel):
+    token: str
 
 
 class ResubscribeRequest(BaseModel):
@@ -42,8 +49,8 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     """
     try:
         logger.debug(f"Looking up user by email: {email}")
-        
-        result = supabase.table("users").select(
+        db = get_service_supabase_client()
+        result = db.table("users").select(
             "user_id, email, company_id, email_unsubscribed, unsubscribed_at"
         ).eq("email", email).execute()
         
@@ -80,14 +87,25 @@ async def update_unsubscribe_status(
         }
         
         logger.debug(f"Updating user {user_id}: {update_data}")
-        
-        result = supabase.table("users").update(update_data).eq(
+        db = get_service_supabase_client()
+        result = db.table("users").update(update_data).eq(
             "user_id", user_id
         ).execute()
         
         # Check if the update affected any rows
         if result.data and len(result.data) > 0:
             logger.info(f"Successfully updated unsubscribe status for user {user_id}: {update_data}")
+
+            # Synchronize notification_preferences.email_enabled for CAN-SPAM compliance
+            try:
+                db.table("notification_preferences").upsert({
+                    "user_id": user_id,
+                    "email_enabled": not is_unsubscribed,
+                    "updated_at": datetime.utcnow().isoformat(),
+                }).execute()
+            except Exception as pref_err:
+                logger.warning(f"Failed to synchronize notification_preferences for user {user_id}: {pref_err}")
+
             return True
         else:
             logger.warning(f"Update returned no rows for user {user_id}. Result: {result}")
@@ -101,7 +119,8 @@ async def update_unsubscribe_status(
 async def check_if_already_unsubscribed(user_id: str) -> bool:
     """Check if user is already unsubscribed."""
     try:
-        result = supabase.table("users").select("email_unsubscribed").eq(
+        db = get_service_supabase_client()
+        result = db.table("users").select("email_unsubscribed").eq(
             "user_id", user_id
         ).execute()
         
@@ -310,16 +329,32 @@ async def resubscribe(request: ResubscribeRequest):
     """
     email = request.email.lower().strip()
     
+    # Anti-abuse rate limit per email
+    throttle_key = f"rl:unsub:{email}"
+    try:
+        from utils.redis_client import redis_client
+        current_reqs = redis_client.incr(throttle_key)
+        if current_reqs == 1:
+            redis_client.expire(throttle_key, 60)
+        elif current_reqs > 10:
+            raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     try:
         # Look up user by email
         user = await get_user_by_email(email)
         
         if not user:
+            # Safe uniform return to prevent email enumeration
             logger.warning(f"Resubscribe: User not found for email {email}")
-            raise HTTPException(
-                status_code=404,
-                detail="User not found"
-            )
+            return {
+                "success": True,
+                "message": "If this email exists in our system, you have been re-subscribed to email notifications",
+                "email": email,
+            }
         
         # Check if already subscribed
         if not user.get("email_unsubscribed", False):

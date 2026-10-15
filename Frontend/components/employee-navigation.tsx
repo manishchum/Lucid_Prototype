@@ -4,11 +4,13 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, FEATURES } from "@/contexts/tenant-context";
+import { useNotifications } from "@/contexts/notification-context";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import CompanySelector from "@/components/company-selector";
 
 interface EmployeeNavigationProps {
@@ -29,6 +31,7 @@ const EmployeeNavigation = ({
   const pathname = usePathname();
   const { user: authUser, logout, userRoles, isAdmin, isSuperAdmin, isDeveloper, isManager, employeeData, loading, rolesLoaded } = useAuth();
   const { activeCompany, hasFeature } = useTenant();
+  const { unreadCount, setIsDrawerOpen } = useNotifications();
 
   // Existing Logic States
   const [isCollapsed, setIsCollapsed] = useState(forceCollapsed);
@@ -147,6 +150,7 @@ const EmployeeNavigation = ({
   }, [isCollapsed]);
 
   const isActive = (path: string) => pathname === path;
+  const isHomeScreen = pathname === '/employee/welcome' || pathname === '/';
 
   const handleNavigate = (href: string) => {
     if (href !== pathname) setIsNavigating(true);
@@ -182,12 +186,19 @@ const EmployeeNavigation = ({
         <div className="lg:hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[45]" onClick={() => setIsMobileOpen(false)} />
       )}
 
-      {/* Mobile Toggle */}
+      {/* Mobile Menu Toggle (Mobile-only to preserve desktop docked sidebar) */}
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <Button variant="outline" size="sm" onClick={() => setIsMobileOpen(!isMobileOpen)} className="bg-white shadow-md border-slate-200 w-10 h-10 p-0 rounded-[8px]">
           {isMobileOpen ? <X size={20} /> : <Menu size={20} />}
         </Button>
       </div>
+
+      {/* Mobile Top-Right Notification Bell (on non-home pages where header bell is not present) */}
+      {!isHomeScreen && (
+        <div className="lg:hidden fixed top-4 right-4 z-50">
+          <NotificationBell className="bg-white shadow-md border border-slate-200 w-10 h-10 flex items-center justify-center rounded-[8px]" />
+        </div>
+      )}
 
       <aside className={`fixed top-0 left-0 h-screen bg-white border-r border-slate-100 z-50 transition-all duration-300 ease-in-out flex flex-col overflow-visible
  ${isMobileOpen ? 'translate-x-0 w-[280px]' : '-translate-x-full lg:translate-x-0'} 
@@ -442,15 +453,13 @@ const EmployeeNavigation = ({
                       <span className="truncate">{item.label}</span>
                     </button>
                   ))}
-                  {/* Notify Button */}
+                  {/* Dispatch Center Button */}
                   <button
                     onClick={() => handleNavigate('/admin/dashboard/dispatch-center')}
                     className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive('/admin/dashboard/dispatch-center') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'} relative`}
                   >
-                    <Bell size={18} className="shrink-0" />
-                    <span className="truncate">Notify</span>
-                    {/* Notification badge */}
-                    <span className="absolute top-2 left-2 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
+                    <Send size={18} className="shrink-0" />
+                    <span className="truncate">Dispatch Center</span>
                   </button>
                 </div>
               )}
@@ -492,6 +501,34 @@ const EmployeeNavigation = ({
               )}
             </div>
           )}
+
+          {/* Notifications */}
+          <div className="relative group">
+            <button
+              onClick={() => setIsDrawerOpen(true)}
+              className="w-full flex items-center justify-between gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 text-[#1E293B] hover:bg-slate-50 relative"
+            >
+              <div className="flex items-center gap-3.5">
+                <Bell size={20} className="shrink-0 text-slate-700" />
+                {!isCollapsed && <span className="text-[15px] font-bold">Notifications</span>}
+              </div>
+              {/* Unread badge counter */}
+              {unreadCount > 0 && (
+                <>
+                  {!isCollapsed ? (
+                    <span className="bg-[#3B66F5] text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  ) : (
+                    <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white" />
+                  )}
+                </>
+              )}
+            </button>
+            {isCollapsed && (
+              <NavTooltip label={`Notifications ${unreadCount > 0 ? `(${unreadCount})` : ''}`} />
+            )}
+          </div>
 
           <div className="relative group">
             <button

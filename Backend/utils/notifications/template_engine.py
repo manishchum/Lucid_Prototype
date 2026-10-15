@@ -60,12 +60,65 @@ KEY_ALIASES = {
     "passing_score": "assessment.passing_score",
     "feedback_summary": "assessment.feedback_summary",
     "streak_days": "gamification.streak_days",
+    "streak_count": "gamification.streak_days",
     "completed_count": "gamification.completed_count",
     "xp_points": "gamification.xp_points",
     "leaderboard_rank": "gamification.leaderboard_rank",
     "badge_name": "gamification.badge_name",
     "content_name": "recommendations.content_name",
+    "module_title": "curriculum.module_name",
+    # VARK Cognitive Modality
+    "primary_style": "vark.primary_style",
+    "is_visual": "vark.is_visual",
+    "is_auditory": "vark.is_auditory",
+    "is_kinesthetic": "vark.is_kinesthetic",
+    "is_reading_writing": "vark.is_reading_writing",
+    "recommended_cta_label": "vark.recommended_cta_label",
+    "recommended_cta_url": "vark.recommended_cta_url",
+    # Gamification & Social Rivalry
+    "rival_name": "gamification.rival_name",
+    "points_to_next_rank": "gamification.points_to_next_rank",
+    "streak_expiring_hours": "gamification.streak_expiring_hours",
+    # Assessment Remediation
+    "weak_topic": "assessment.weak_topic",
+    "remediation_module": "assessment.remediation_module",
+    # Curriculum Pacing
+    "progress_percentage": "curriculum.progress_percentage",
+    "minutes_remaining": "curriculum.minutes_remaining",
+    "module_type": "curriculum.module_type",
+    "is_overdue": "curriculum.is_overdue",
+    "completed": "curriculum.completed",
+    # Workplace Tasks
+    "task_title": "task.task_title",
+    "task_due_date": "task.due_date",
+    "task_feedback": "task.feedback_summary",
+    "task_type": "task.task_type",
+    "task_status": "task.task_status",
+    "ai_validation_pass": "task.ai_validation_pass",
+    # Assessment Extras
+    "passed": "assessment.passed",
+    "attempt_number": "assessment.attempt_number",
+    "confidence_score": "assessment.confidence_score",
+    "roleplay_passed": "assessment.roleplay_passed",
+    # Gamification Extras
+    "xp": "gamification.xp_points",
+    "total_xp": "gamification.xp_points",
+    # Subscriber Organization & Profile
+    "department": "subscriber.department",
+    "role": "subscriber.role",
+    "email_unsubscribed": "subscriber.email_unsubscribed",
+    # Delivery Preferences
+    "channel_preference": "preferences.channel_preference",
+    "in_app_enabled": "preferences.in_app_enabled",
+    "email_enabled": "preferences.email_enabled",
+    "push_enabled": "preferences.push_enabled",
 }
+
+# Regex to safely match conditional blocks: {{#if condition}}...{{else}}...{{/if}}
+CONDITIONAL_BLOCK_REGEX = re.compile(
+    r"\{\{#if\s+([\w\.]+)\s*\}\}(.*?)(?:\{\{else\}\}(.*?))?\{\{/if\}\}",
+    re.DOTALL
+)
 
 # Reverse mapping: namespaced -> shorthand
 REVERSE_ALIASES = {v: k for k, v in KEY_ALIASES.items()}
@@ -107,12 +160,20 @@ def apply_filter(value: Any, filter_expr: str) -> str:
         if not val_str and filter_arg is not None:
             return filter_arg
         return val_str
-    elif filter_name == "uppercase":
+    elif filter_name in ("upper", "uppercase"):
         return val_str.upper()
-    elif filter_name == "lowercase":
+    elif filter_name in ("lower", "lowercase"):
         return val_str.lower()
     elif filter_name == "capitalize":
         return val_str.capitalize()
+    elif filter_name in ("truncate", "limit"):
+        try:
+            length = int(filter_arg) if filter_arg else 30
+            if len(val_str) > length:
+                return val_str[:max(0, length - 3)] + "..."
+            return val_str
+        except Exception:
+            return val_str
     elif filter_name == "date":
         try:
             # If already date format or ISO
@@ -235,7 +296,38 @@ class TemplateCompiler:
 
             return str(val) if val is not None else ""
 
-        rendered = TOKEN_REGEX.sub(replacer, template_str)
+        # 1. Evaluate Conditional Blocks ({{#if condition}}...{{else}}...{{/if}})
+        def condition_evaluator(match):
+            condition_key = match.group(1).strip()
+            true_block = match.group(2) or ""
+            false_block = match.group(3) or ""
+
+            canonical_key = normalize_token_key(condition_key)
+            val = None
+            if canonical_key in context:
+                val = context[canonical_key]
+            elif condition_key in context:
+                val = context[condition_key]
+            elif canonical_key in REVERSE_ALIASES and REVERSE_ALIASES[canonical_key] in context:
+                val = context[REVERSE_ALIASES[canonical_key]]
+
+            # Safe Truthiness Check
+            is_truthy = False
+            if val is not None:
+                if isinstance(val, bool):
+                    is_truthy = val
+                elif isinstance(val, (int, float)):
+                    is_truthy = val > 0
+                elif isinstance(val, str):
+                    is_truthy = val.strip().lower() not in ["", "0", "false", "no", "none", "null"]
+                else:
+                    is_truthy = bool(val)
+
+            return true_block if is_truthy else false_block
+
+        working_str = CONDITIONAL_BLOCK_REGEX.sub(condition_evaluator, template_str)
+
+        rendered = TOKEN_REGEX.sub(replacer, working_str)
         return rendered, unresolved_required
 
 
@@ -337,3 +429,26 @@ class TemplateLinter:
                 "body": rendered_body,
             },
         }
+
+
+def compute_content_hash(
+    title_template: Optional[str],
+    body_template: str,
+    channel: str = "ALL",
+    cta_label: Optional[str] = None,
+) -> str:
+    """
+    Computes a deterministic SHA-256 fingerprint from normalized template content.
+    Normalizes consecutive whitespace and lowercases string content so trivial formatting
+    differences don't bypass duplicate detection.
+    """
+    import hashlib
+
+    norm_title = re.sub(r"\s+", " ", (title_template or "").strip().lower())
+    norm_body = re.sub(r"\s+", " ", (body_template or "").strip().lower())
+    norm_channel = channel.strip().upper()
+    norm_cta = re.sub(r"\s+", " ", (cta_label or "").strip().lower())
+
+    canonical_repr = f"title:{norm_title}|body:{norm_body}|channel:{norm_channel}|cta:{norm_cta}"
+    return hashlib.sha256(canonical_repr.encode("utf-8")).hexdigest()
+
