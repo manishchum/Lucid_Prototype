@@ -275,6 +275,13 @@ async def startup_event():
     except Exception as e:
         print(f"[Startup] WebSocket manager Redis Pub/Sub initialization notice: {e}")
 
+    # Pre-warm distributed ARQ Redis scheduler pool
+    try:
+        from scheduler import scheduler
+        await scheduler.start()
+    except Exception as e:
+        print(f"[Startup] ARQ Redis scheduler initialization notice: {e}")
+
     # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
 
 
@@ -283,6 +290,12 @@ async def shutdown_event():
     try:
         from utils.websocket_manager import manager
         await manager.stop()
+    except Exception:
+        pass
+
+    try:
+        from scheduler import scheduler
+        await scheduler.shutdown()
     except Exception:
         pass
 

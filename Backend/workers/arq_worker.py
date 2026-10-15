@@ -458,20 +458,66 @@ async def scan_workflow_schedules(ctx):
         logger.error(f"[ARQ Worker] Error during scheduled workflow scan: {e}")
 
 
+async def run_leaderboard_refresh(ctx: Optional[dict] = None) -> None:
+    """Periodic task to refresh precomputed Redis ZSET company leaderboards."""
+    logger.info("[ARQ Worker] Running scheduled company leaderboard refresh...")
+    try:
+        from utils.db.leaderboard_db import refresh_company_leaderboards
+        res = await refresh_company_leaderboards()
+        logger.info(f"[ARQ Worker] Leaderboard refresh result: {res}")
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error during scheduled leaderboard refresh: {e}")
+
+
+async def arq_startup(ctx: dict) -> None:
+    logger.info("[ARQ Worker] Lucid background ARQ worker started with Redis job bus.")
+
+
+async def arq_shutdown(ctx: dict) -> None:
+    logger.info("[ARQ Worker] Lucid background ARQ worker shutting down gracefully.")
+
+
 # -----------------------------------------------------------------------------
 # Worker Settings
 # -----------------------------------------------------------------------------
+from utils.email_cron import run_email_cron, send_email_task
+from whatsapp.cron import run_whatsapp_cron
+
+
 class WorkerSettings:
     """
-    ARQ Worker Settings.
+    ARQ Distributed Worker Settings for Redis.
     Run via CLI: `python -m arq workers.arq_worker.WorkerSettings`
     """
     redis_settings = redis_settings
 
+    # Periodic background cron schedules
     cron_jobs = [
+        # 1. Notification dispatch queue (every 10s)
         cron(poll_notification_jobs, second=set(range(0, 60, 10))),
+
+        # 2. Scheduled email campaign polling (every 2m)
+        cron(run_email_cron, minute=set(range(0, 60, 2))),
+
+        # 3. Scheduled WhatsApp dispatch polling (every 2m)
+        cron(run_whatsapp_cron, minute=set(range(0, 60, 2))),
+
+        # 4. Daily streak & gamification workflow triggers (every 30m)
         cron(scan_workflow_schedules, minute={0, 30}),
+
+        # 5. Precompute company leaderboards into Redis ZSETs (hourly)
+        cron(run_leaderboard_refresh, minute={0}),
     ]
 
-    on_startup = None
-    on_shutdown = None
+    # Callable task functions that can be dynamically enqueued via arq_client.enqueue_job()
+    functions = [
+        send_email_task,
+        poll_notification_jobs,
+        run_email_cron,
+        run_whatsapp_cron,
+        run_leaderboard_refresh,
+    ]
+
+    on_startup = arq_startup
+    on_shutdown = arq_shutdown
+

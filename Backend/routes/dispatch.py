@@ -12,7 +12,6 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from scheduler import scheduler
 
 from utils.db.dispatch_db import (
     get_sprints_by_company,

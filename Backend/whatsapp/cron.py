@@ -58,13 +58,12 @@ class WhatsAppCronWorker:
     def is_time_due(self, scheduled_time: str) -> bool:
         """
         Check if it's time to send (scheduled_time is in HH:MM format).
-        Returns True if current time >= scheduled_time.
+        Returns True if current UTC time >= scheduled_time.
         """
         try:
-            sched_time = datetime.strptime(scheduled_time, "%H:%M").time()
-            current_time = datetime.utcnow().time()
-            # Send if current time is within 5 minutes before or after scheduled time
-            # (to account for cron job frequency)
+            sched_time = datetime.strptime(scheduled_time.strip(), "%H:%M").time()
+            from datetime import timezone
+            current_time = datetime.now(timezone.utc).time()
             return current_time >= sched_time
         except ValueError:
             logger.error(f"Invalid time format: {scheduled_time}")
@@ -126,6 +125,14 @@ class WhatsAppCronWorker:
             # Process each dispatch record
             for dispatch in dispatch_records:
                 await self.send_to_user(dispatch, scheduled_msg)
+
+            # If one_time message finished, deactivate schedule so it won't be re-polled
+            if scheduled_msg.get("schedule_type") == "one_time":
+                try:
+                    from utils.db.whatsapp_db import deactivate_scheduled_whatsapp
+                    await deactivate_scheduled_whatsapp(scheduled_whatsapp_id)
+                except Exception as deact_err:
+                    logger.warning(f"[WhatsAppCron] Failed to deactivate completed schedule {scheduled_whatsapp_id}: {deact_err}")
         
         except Exception as e:
             logger.error(f"❌ Error sending scheduled message: {str(e)}")
@@ -205,10 +212,10 @@ class WhatsAppCronWorker:
 whatsapp_cron_worker = WhatsAppCronWorker()
 
 
-async def run_whatsapp_cron():
+async def run_whatsapp_cron(ctx: Optional[dict] = None):
     """
     Entry point for the WhatsApp cron job.
-    This should be called every 5-10 minutes.
+    Called periodically by the distributed ARQ worker.
     """
     await whatsapp_cron_worker.process_pending_messages()
 
