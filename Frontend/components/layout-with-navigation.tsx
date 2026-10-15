@@ -75,6 +75,9 @@ const shouldShowNavigation =
   }, [shouldShowNavigation]);
 
   if (!shouldShowNavigation) {
+    if (pathname === '/' || pathname === '/login') {
+      return <>{children}</>;
+    }
     return (
       <div className="flex flex-col min-h-screen">
         <div className="flex-1">
