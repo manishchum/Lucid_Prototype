@@ -104,6 +104,19 @@ app = FastAPI(
 )
 
 
+CORS_ALLOWED_ORIGINS = {
+    o.rstrip("/")
+    for o in [
+        FRONTEND_URL,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "localhost:3000",
+        "127.0.0.1:3000",
+    ]
+    if o
+}
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch-all exception handler that returns a JSONResponse and ensures CORS headers are present.
@@ -141,10 +154,12 @@ async def global_exception_handler(request: Request, exc: Exception):
         content = {"detail": "Internal Server Error"}
         status_code = 500
 
-    # Ensure we return CORS headers matching configured frontend origin or request Origin
-    origin = request.headers.get("origin") or FRONTEND_URL
+    # Ensure CORS headers strictly match allowed origins (prevents reflecting arbitrary untrusted origins)
+    origin = request.headers.get("origin", "")
+    norm_origin = origin.rstrip("/") if origin else ""
+    cors_origin = origin if norm_origin in CORS_ALLOWED_ORIGINS else FRONTEND_URL
     headers = {
-        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Origin": cors_origin,
         "Access-Control-Allow-Credentials": "true",
     }
 
@@ -153,13 +168,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "localhost:3000",
-        "127.0.0.1:3000",
-    ],
+    allow_origins=list(CORS_ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
