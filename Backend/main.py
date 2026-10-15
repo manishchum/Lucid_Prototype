@@ -178,6 +178,9 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
+logger = logging.getLogger("lucid.backend")
+
+
 @app.middleware("http")
 async def supabase_auth_context_middleware(request: Request, call_next):
     """
@@ -196,6 +199,7 @@ async def supabase_auth_context_middleware(request: Request, call_next):
     try:
         set_current_request_info(str(request.url.path), request.method)
 
+        token_verification_failed = False
         if token:
             try:
                 from utils.auth import _verify_token, _resolve_internal_user_context, RequestAuth
@@ -220,10 +224,15 @@ async def supabase_auth_context_middleware(request: Request, call_next):
                         company_id=str(resolved_company) if resolved_company else None,
                     )
                     request.state.claims = claims
-            except Exception:
-                pass
+            except Exception as exc:
+                token_verification_failed = True
+                logger.warning(
+                    f"[auth middleware] Token verification failed for {request.method} {request.url.path}: {exc}"
+                )
 
-        if x_user_id and not getattr(request.state, "auth_ctx", None):
+        # Only allow fallback to X-User-ID if NO Bearer token was provided.
+        # If a Bearer token was supplied but failed verification, do NOT degrade to an untrusted header.
+        if x_user_id and not token_verification_failed and not getattr(request.state, "auth_ctx", None):
             set_current_user_context(
                 user_id=x_user_id,
                 company_id=x_company_id,
