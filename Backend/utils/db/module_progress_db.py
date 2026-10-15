@@ -1,6 +1,10 @@
+import asyncio
+import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from ..auth_bridge import get_service_supabase_client
+
+logger = logging.getLogger("lucid.module_progress_db")
 from .permissions import check_user_permission, check_company_access
 from .learning_plan_db import refresh_learning_plan_status
 from utils.redis_client import delete_cache_pattern
@@ -456,6 +460,9 @@ async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict
     """
     Get completion statistics for a company.
     Permission: Manager+ in the company.
+    Optimized for large enterprise scale (10k+ users, 200k+ progress records).
+    Executes server-side aggregation via PostgreSQL RPC function or PostgREST HEAD count
+    aggregation, loading zero rows into Python memory to eliminate OOMs.
     """
     try:
         has_permission = await check_user_permission(requesting_user_id, 'manager')
@@ -464,20 +471,36 @@ async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict
         if not has_permission or not has_access:
             return {"data": None, "error": "Permission denied: Manager access required"}
         
-        # Get all progress records for the company
-        resp = supabase.table('module_progress').select(
-            'module_progress_id, completed_at, pass_status, users!inner(company_id)'
-        ).eq('users.company_id', company_id).execute()
-        
-        if not resp or not getattr(resp, 'data', None):
-            return {"data": {"total": 0, "completed": 0, "passed": 0, "failed": 0}, "error": None}
-        
-        resp_data = getattr(resp, 'data', [])
-        total = len(resp_data)
-        completed = len([r for r in resp_data if r.get('completed_at')])
-        passed = len([r for r in resp_data if r.get('pass_status') is True])
-        failed = len([r for r in resp_data if r.get('completed_at') and r.get('pass_status') is False])
-        
+        # 1. Try server-side PostgreSQL RPC function for single-query aggregated stats
+        try:
+            rpc_res = await asyncio.to_thread(
+                lambda: supabase.rpc("get_company_completion_stats", {"p_company_id": company_id}).execute()
+            )
+            rpc_data = getattr(rpc_res, "data", None)
+            if rpc_data and isinstance(rpc_data, dict) and "total" in rpc_data:
+                return {"data": rpc_data, "error": None}
+        except Exception as rpc_err:
+            logger.debug(f"[get_completion_stats] RPC fallback to PostgREST count aggregation: {rpc_err}")
+
+        # 2. Resilient Fallback: Zero-memory count aggregation using PostgREST HEAD requests
+        # Transfers 0 row data over the network, counting server-side via HTTP Content-Range
+        async def _count_filtered(filter_fn):
+            def _exec():
+                q = supabase.table('module_progress').select(
+                    'module_progress_id, users!inner(company_id)', count='exact', head=True
+                ).eq('users.company_id', company_id)
+                q = filter_fn(q)
+                return q.execute()
+            resp = await asyncio.to_thread(_exec)
+            return getattr(resp, 'count', 0) or 0
+
+        total, completed, passed, failed = await asyncio.gather(
+            _count_filtered(lambda q: q),
+            _count_filtered(lambda q: q.not_.is_('completed_at', 'null')),
+            _count_filtered(lambda q: q.eq('pass_status', True)),
+            _count_filtered(lambda q: q.not_.is_('completed_at', 'null').eq('pass_status', False)),
+        )
+
         stats = {
             "total": total,
             "completed": completed,
@@ -486,7 +509,7 @@ async def get_completion_stats(requesting_user_id: str, company_id: str) -> Dict
             "completion_rate": round((completed / total * 100), 2) if total > 0 else 0,
             "pass_rate": round((passed / completed * 100), 2) if completed > 0 else 0
         }
-        
+
         return {"data": stats, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
