@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect, Query
 import json
 from pydantic import BaseModel, model_validator
 from typing import List, Literal, Optional, Dict, Any
@@ -144,21 +144,28 @@ async def get_unread_count(
 @router.get("/")
 async def list_notifications(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    limit: int = 50,
-    offset: int = 0
+    limit: int = Query(default=50, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip")
 ):
     user_id = auth_ctx.user_id
     try:
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
         service_client = get_service_supabase_client()
         resp = (
             service_client.table("notifications")
             .select("id,title,message,type,metadata,read,created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
-            .range(offset, offset + limit - 1)
+            .range(safe_offset, safe_offset + safe_limit - 1)
             .execute()
         )
-        return {"success": True, "notifications": resp.data or []}
+        return {
+            "success": True,
+            "notifications": resp.data or [],
+            "limit": safe_limit,
+            "offset": safe_offset,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -934,10 +941,14 @@ async def list_notification_templates(
     channel: Optional[str] = None,
     category: Optional[str] = None,
     is_active: Optional[bool] = None,
+    limit: int = Query(default=50, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Lists global notification templates with status and version."""
     try:
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
         service_client = get_service_supabase_client()
         query = service_client.table("notification_templates").select("*")
         if notification_type:
@@ -949,9 +960,18 @@ async def list_notification_templates(
         if is_active is not None:
             query = query.eq("is_active", is_active)
 
-        query = query.order("notification_type", desc=False).order("variation_index", desc=False)
+        query = (
+            query.order("notification_type", desc=False)
+            .order("variation_index", desc=False)
+            .range(safe_offset, safe_offset + safe_limit - 1)
+        )
         resp = query.execute()
-        return {"success": True, "templates": resp.data or []}
+        return {
+            "success": True,
+            "templates": resp.data or [],
+            "limit": safe_limit,
+            "offset": safe_offset,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

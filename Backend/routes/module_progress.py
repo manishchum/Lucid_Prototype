@@ -65,28 +65,35 @@ async def get_progress_record(
 async def get_user_progress(
     target_user_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
-    completed_only: bool = Query(False)
+    completed_only: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip")
 ):
     """
     Get all module progress records for a specific user.
     Permission: Self OR manager+ in same company.
     """
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
     cache_key = (
         f"module_progress:"
         f"{target_user_id}:"
-        f"{completed_only}"
+        f"{completed_only}:"
+        f"{safe_limit}:"
+        f"{safe_offset}"
     )
     cached = get_cache(cache_key)
     if cached:
         print(f"Module progress cache hit for user {target_user_id} {cache_key}")
         return cached
-    print(f"Module progress cache miss for user {target_user_id} {cache_key}"
-          )
+    print(f"Module progress cache miss for user {target_user_id} {cache_key}")
     result = await get_progress_by_user(
         auth_ctx.user_id,
         target_user_id,
         completed_only,
         auth_claims=auth_ctx.claims,
+        limit=safe_limit,
+        offset=safe_offset,
     )
     
     if result["error"]:
@@ -94,7 +101,9 @@ async def get_user_progress(
     
     response_payload = {
         "progress": result["data"],
-        "count": len(result["data"] or [])
+        "count": len(result["data"] or []),
+        "limit": safe_limit,
+        "offset": safe_offset,
     }
 
     set_cache(
@@ -109,21 +118,32 @@ async def get_user_progress(
 @router.get("/module/{processed_module_id}")
 async def get_module_progress(
     processed_module_id: str,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    limit: int = Query(50, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip")
 ):
     user_id = auth_ctx.user_id
     """
     Get all progress records for a specific processed module.
     Permission: Manager+ in the company that owns the module.
     """
-    result = await get_progress_by_processed_module(user_id, processed_module_id)
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
+    result = await get_progress_by_processed_module(
+        user_id,
+        processed_module_id,
+        limit=safe_limit,
+        offset=safe_offset
+    )
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
     return {
         "progress": result["data"],
-        "count": len(result["data"] or [])
+        "count": len(result["data"] or []),
+        "limit": safe_limit,
+        "offset": safe_offset,
     }
 
 
@@ -176,22 +196,35 @@ async def get_company_progress(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id),
     target_user_id: Optional[str] = Query(None),
-    completed_only: bool = Query(False)
+    completed_only: bool = Query(False),
+    limit: int = Query(50, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(0, ge=0, description="Number of records to skip")
 ):
     user_id = auth_ctx.user_id
     """
-    Get all module progress records for a company.
+    Get all module progress records for a company (paginated).
     Optionally filter by user.
     Permission: Manager+ in the company.
     """
-    result = await get_progress_by_company(user_id, effective_company_id, target_user_id, completed_only)
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
+    result = await get_progress_by_company(
+        user_id,
+        effective_company_id,
+        target_user_id,
+        completed_only,
+        limit=safe_limit,
+        offset=safe_offset
+    )
     
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
     
     return {
         "progress": result["data"],
-        "count": len(result["data"] or [])
+        "count": len(result["data"] or []),
+        "limit": safe_limit,
+        "offset": safe_offset,
     }
 
 

@@ -43,11 +43,14 @@ async def get_progress_by_id(requesting_user_id: str, progress_id: str) -> Dict[
 
 async def get_progress_by_user(requesting_user_id: str, target_user_id: str, 
                                completed_only: bool = False,
-                               auth_claims: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                               auth_claims: Optional[Dict[str, Any]] = None,
+                               limit: int = 50,
+                               offset: int = 0) -> Dict[str, Any]:
     supabase = get_service_supabase_client()
     """
-    Get all module progress records for a specific user.
+    Get paginated module progress records for a specific user.
     Permission: Self OR manager+ in same company.
+    Enforces limit = min(request_limit, 200) to protect against excessive memory usage.
     """
     try:
         query_client = supabase
@@ -67,6 +70,9 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
             if not has_permission or not has_access:
                 return {"data": None, "error": "Permission denied: Insufficient privileges"}
         
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
+
         # Build query
         query = query_client.table('module_progress').select(
             '*, processed_modules(title, original_module_id, learning_style)'
@@ -75,16 +81,19 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
         if completed_only:
             query = query.not_('completed_at', 'is', None)
         
+        query = query.range(safe_offset, safe_offset + safe_limit - 1)
         resp = query.execute()
         return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
 
-async def get_progress_by_processed_module(requesting_user_id: str, processed_module_id: str) -> Dict[str, Any]:
+async def get_progress_by_processed_module(requesting_user_id: str, processed_module_id: str,
+                                           limit: int = 50,
+                                           offset: int = 0) -> Dict[str, Any]:
     supabase = get_service_supabase_client()
     """
-    Get all progress records for a specific processed module.
+    Get paginated progress records for a specific processed module.
     Permission: Manager+ in the company that owns the module.
     """
     try:
@@ -105,9 +114,14 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
         if not has_permission or not has_access:
             return {"data": None, "error": "Permission denied: Manager access required"}
         
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
+
         resp = supabase.table('module_progress').select(
             '*, users!inner(name, email)'
-        ).eq('processed_module_id', processed_module_id).order('started_at', desc=True).execute()
+        ).eq('processed_module_id', processed_module_id).order('started_at', desc=True).range(
+            safe_offset, safe_offset + safe_limit - 1
+        ).execute()
         
         return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
@@ -148,11 +162,14 @@ async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
 
 async def get_progress_by_company(requesting_user_id: str, company_id: str,
                                   user_id: Optional[str] = None,
-                                  completed_only: bool = False) -> Dict[str, Any]:
+                                  completed_only: bool = False,
+                                  limit: int = 50,
+                                  offset: int = 0) -> Dict[str, Any]:
     supabase = get_service_supabase_client()
     """
-    Get all module progress records for a company (optionally filtered by user).
+    Get paginated module progress records for a company (optionally filtered by user).
     Permission: Manager+ in the company.
+    Enforces limit = min(request_limit, 200) to prevent OOM on large companies.
     """
     try:
         has_permission = await check_user_permission(requesting_user_id, 'manager')
@@ -161,6 +178,9 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
         if not has_permission or not has_access:
             return {"data": None, "error": "Permission denied: Manager access required"}
         
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
+
         # Build query with company filter through users table
         query = supabase.table('module_progress').select(
             '*, users!inner(name, email, company_id), processed_modules(title, original_module_id)'
@@ -172,6 +192,7 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
         if completed_only:
             query = query.not_('completed_at', 'is', None)
         
+        query = query.range(safe_offset, safe_offset + safe_limit - 1)
         resp = query.execute()
         return {"data": getattr(resp, 'data', None), "error": None}
     except Exception as e:
