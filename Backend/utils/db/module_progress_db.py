@@ -181,10 +181,11 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
 async def create_or_update_progress(requesting_user_id: str, progress_data: Dict[str, Any]) -> Dict[str, Any]:
     supabase = get_service_supabase_client()
     """
-    Create or update a module progress record (upsert functionality).
+    Create or update a module progress record (atomic upsert functionality).
     Permission: Self (for own progress) OR manager+ in same company.
     
-    This handles the common case where frontend doesn't know if a record exists.
+    This handles the common case where frontend doesn't know if a record exists,
+    using PostgreSQL ON CONFLICT (user_id, processed_module_id) to eliminate TOCTOU race conditions.
     """
     try:
         user_id = progress_data.get('user_id')
@@ -192,7 +193,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         
         module_id = progress_data.get("module_id")
 
-        if not module_id:
+        if not module_id and processed_module_id:
             pm_resp = (
                 supabase.table("processed_modules")
                 .select("original_module_id")
@@ -201,8 +202,8 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
                 .execute()
             )
 
-            if pm_resp.data:
-                module_id = pm_resp.data["original_module_id"]
+            if pm_resp and pm_resp.data:
+                module_id = pm_resp.data.get("original_module_id")
         
         if not user_id or not processed_module_id:
             return {"data": None, "error": "user_id and processed_module_id are required"}
@@ -223,142 +224,36 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             if not has_permission or not has_access:
                 return {"data": None, "error": "Permission denied: Can only update own progress or must be manager+"}
         
-        # Check if progress record exists
-        existing = supabase.table('module_progress').select('module_progress_id, completed_at').eq(
-            'user_id', user_id
-        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
-        
         view_only = progress_data.get('viewOnly', False)
-        
-        existing_data = getattr(existing, 'data', None)
-        
-        if existing_data:
 
-            if view_only:
-
-                if module_id:
-                    await refresh_learning_plan_status(
-                        user_id=user_id,
-                        module_id=module_id
-                    )
-
-                delete_cache_pattern(f"dashboard_summary:{user_id}*")
-                delete_cache_pattern("analytics:*")
-
-                return {
-                    "data": existing_data,
-                    "error": None,
-                    "action": "view"
-                }
-            
-            # Update existing record
-            progress_id = existing_data['module_progress_id']
-            
-            # Build update data
-            update_data = {}
-            
-            # Only update fields that are provided
-            if 'quiz_score' in progress_data:
-                update_data['quiz_score'] = progress_data['quiz_score']
-            
-            if 'quiz_feedback' in progress_data:
-                update_data['quiz_feedback'] = progress_data['quiz_feedback']
-            
-            if 'audio_listen_duration' in progress_data:
-                update_data['audio_listen_duration'] = progress_data['audio_listen_duration']
-            
-            if 'completed_at' in progress_data:
-                update_data['completed_at'] = progress_data['completed_at']
-            elif progress_data.get('quiz_score') is not None:
-                # Auto-mark as completed if quiz score is provided
-                update_data['completed_at'] = datetime.utcnow().isoformat()
-            
-            # Handle pass_status calculation
-            if 'quiz_score' in progress_data and 'max_score' in progress_data:
-                quiz_score = progress_data['quiz_score']
-                max_score = progress_data['max_score']
-                
-                if quiz_score is not None and max_score:
-                    # Get module's threshold
-                    module_id = progress_data.get('module_id')
-                    if not module_id:
-                        # Fetch from processed_modules
-                        pm_resp = supabase.table('processed_modules').select(
-                            'original_module_id'
-                        ).eq('processed_module_id', processed_module_id).maybe_single().execute()
-                        
-                        if pm_resp and getattr(pm_resp, "data", None):
-                            module_id = pm_resp.data.get('original_module_id')
-                    
-                    if module_id:
-                        threshold_resp = ( 
-                            supabase.table('training_modules')
-                            .select('threshold_value')
-                            .eq('module_id', module_id)
-                            .maybe_single()
-                            .execute()
-                        )
-                        if (
-                            threshold_resp and getattr(threshold_resp, "data", None)
-                            and threshold_resp.data.get("threshold_value") is not None
-                        ):
-                            score_percentage = (quiz_score / max_score) * 100
-                            update_data['pass_status'] = score_percentage >= threshold_resp.data['threshold_value']
-            
-            if not update_data:
-                return {"data": existing_data, "error": None, "action": "no_change"}
-            
-            resp = (
-                supabase.table("module_progress")
-                .update(update_data)
-                .eq("module_progress_id", progress_id)
-                .execute()
-            )
-
-            if module_id:
-                await refresh_learning_plan_status(
-                    user_id=user_id,
-                    module_id=module_id
-                )
-
-            delete_cache_pattern(f"dashboard_summary:{user_id}*")
-            delete_cache_pattern("analytics:*")
-
-            return {
-                "data": getattr(resp, "data", None),
-                "error": None,
-                "action": "updated"
-            }
-        
-        else:
-            # Create new record
-            insert_data = {
+        if view_only:
+            # If viewing or starting module:
+            # Atomically insert if not present without overwriting any existing progress/scores.
+            initial_payload = {
                 'user_id': user_id,
                 'processed_module_id': processed_module_id,
                 'started_at': progress_data.get('started_at', datetime.utcnow().isoformat()),
             }
-            
-            # Add optional fields
-            if 'quiz_score' in progress_data:
-                insert_data['quiz_score'] = progress_data['quiz_score']
-            
-            if 'quiz_feedback' in progress_data:
-                insert_data['quiz_feedback'] = progress_data['quiz_feedback']
-            
-            if 'audio_listen_duration' in progress_data:
-                insert_data['audio_listen_duration'] = progress_data['audio_listen_duration']
-            
-            if 'completed_at' in progress_data:
-                insert_data['completed_at'] = progress_data['completed_at']
-            
-            if 'pass_status' in progress_data:
-                insert_data['pass_status'] = progress_data['pass_status']
-            
-            resp = (
+            upsert_resp = (
                 supabase.table("module_progress")
-                .insert(insert_data)
+                .upsert(
+                    initial_payload,
+                    on_conflict="user_id,processed_module_id",
+                    ignore_duplicates=True
+                )
                 .execute()
             )
+
+            # Retrieve the current progress row (existing or newly inserted)
+            existing = (
+                supabase.table('module_progress')
+                .select('*')
+                .eq('user_id', user_id)
+                .eq('processed_module_id', processed_module_id)
+                .maybe_single()
+                .execute()
+            )
+            existing_data = getattr(existing, 'data', None)
 
             if module_id:
                 await refresh_learning_plan_status(
@@ -369,12 +264,89 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             delete_cache_pattern(f"dashboard_summary:{user_id}*")
             delete_cache_pattern("analytics:*")
 
+            action = "created" if getattr(upsert_resp, 'data', None) else "view"
             return {
-                "data": getattr(resp, "data", None),
+                "data": existing_data,
                 "error": None,
-                "action": "created"
+                "action": action
             }
-    
+
+        # Build payload for progress/score update via atomic ON CONFLICT upsert
+        upsert_payload = {
+            'user_id': user_id,
+            'processed_module_id': processed_module_id,
+        }
+
+        if 'quiz_score' in progress_data:
+            upsert_payload['quiz_score'] = progress_data['quiz_score']
+
+        if 'quiz_feedback' in progress_data:
+            upsert_payload['quiz_feedback'] = progress_data['quiz_feedback']
+
+        if 'audio_listen_duration' in progress_data:
+            upsert_payload['audio_listen_duration'] = progress_data['audio_listen_duration']
+
+        if 'completed_at' in progress_data:
+            upsert_payload['completed_at'] = progress_data['completed_at']
+        elif progress_data.get('quiz_score') is not None:
+            upsert_payload['completed_at'] = datetime.utcnow().isoformat()
+
+        # Handle pass_status calculation
+        if 'pass_status' in progress_data:
+            upsert_payload['pass_status'] = progress_data['pass_status']
+        elif 'quiz_score' in progress_data and 'max_score' in progress_data:
+            quiz_score = progress_data['quiz_score']
+            max_score = progress_data['max_score']
+            if quiz_score is not None and max_score:
+                if module_id:
+                    threshold_resp = (
+                        supabase.table('training_modules')
+                        .select('threshold_value')
+                        .eq('module_id', module_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    if (
+                        threshold_resp
+                        and getattr(threshold_resp, "data", None)
+                        and threshold_resp.data.get("threshold_value") is not None
+                    ):
+                        score_percentage = (quiz_score / max_score) * 100
+                        upsert_payload['pass_status'] = score_percentage >= threshold_resp.data['threshold_value']
+
+        # Only pass started_at if explicitly given AND quiz_score is not being recorded
+        # (preserves original started_at on updates; new records fall back to column default now()).
+        if 'started_at' in progress_data and 'quiz_score' not in progress_data:
+            upsert_payload['started_at'] = progress_data['started_at']
+
+        # Atomic upsert via Postgres ON CONFLICT (user_id, processed_module_id)
+        resp = (
+            supabase.table("module_progress")
+            .upsert(
+                upsert_payload,
+                on_conflict="user_id,processed_module_id"
+            )
+            .execute()
+        )
+
+        resp_data = getattr(resp, "data", None)
+        record_data = resp_data[0] if (isinstance(resp_data, list) and len(resp_data) > 0) else resp_data
+
+        if module_id:
+            await refresh_learning_plan_status(
+                user_id=user_id,
+                module_id=module_id
+            )
+
+        delete_cache_pattern(f"dashboard_summary:{user_id}*")
+        delete_cache_pattern("analytics:*")
+
+        return {
+            "data": record_data,
+            "error": None,
+            "action": "updated"
+        }
+
     except Exception as e:
         return {"data": None, "error": str(e)}
 
