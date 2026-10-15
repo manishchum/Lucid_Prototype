@@ -268,7 +268,23 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    # Pre-warm distributed WebSocket Redis Pub/Sub listener
+    try:
+        from utils.websocket_manager import manager
+        await manager.start()
+    except Exception as e:
+        print(f"[Startup] WebSocket manager Redis Pub/Sub initialization notice: {e}")
+
     # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from utils.websocket_manager import manager
+        await manager.stop()
+    except Exception:
+        pass
 
 @app.post("/api/cron/refresh_leaderboards", tags=["cron"])
 async def trigger_refresh_leaderboards():
