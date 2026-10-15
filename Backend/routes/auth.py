@@ -106,7 +106,8 @@ async def auth_socket(websocket: WebSocket):
 
 
 from pydantic import BaseModel, Field
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
+from utils.redis_limiter import check_rate_limit, get_client_ip
 from utils.supabase_client import supabase
 from utils.otp_service import (
     normalize_phone_number,
@@ -129,7 +130,11 @@ class VerifyOTPRequest(BaseModel):
 
 
 @router.post("/send-otp")
-async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks):
+async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, request: Request):
+    # Check IP-level distributed rate limit (5 requests / min per IP) before any phone or DB lookups
+    client_ip = get_client_ip(request)
+    await check_rate_limit(user_id=f"ip:{client_ip}", endpoint="auth-send-otp")
+
     phone = body.phone.strip()
     if not phone:
         raise HTTPException(status_code=400, detail="Phone number is required")
@@ -204,7 +209,11 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks):
 
 
 @router.post("/verify-otp")
-async def verify_otp(body: VerifyOTPRequest):
+async def verify_otp(body: VerifyOTPRequest, request: Request):
+    # Check IP-level distributed rate limit (10 attempts / min per IP) before OTP verification
+    client_ip = get_client_ip(request)
+    await check_rate_limit(user_id=f"ip:{client_ip}", endpoint="auth-verify-otp")
+
     phone = body.phone.strip()
     otp = body.otp.strip()
 
