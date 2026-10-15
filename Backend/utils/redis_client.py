@@ -111,10 +111,24 @@ def invalidate_dashboard_cache(user_id: str):
     invalidate_user_caches(user_id)
 
 
+def invalidate_employees_bootstrap_cache(company_id: str):
+    """
+    Invalidates the employees bootstrap cache for a company.
+    """
+    if not company_id:
+        return
+    try:
+        redis_client.delete(f"employees_bootstrap:{company_id}")
+        delete_cache_pattern(f"employees_bootstrap:{company_id}*")
+        print(f"[Redis] Invalidated employees_bootstrap cache for company {company_id}")
+    except Exception as e:
+        print(f"[Redis] invalidate_employees_bootstrap_cache error for {company_id}: {e}")
+
+
 def invalidate_company_caches(company_id: str):
     """
     Centralized, thread-safe cache invalidation function for company-wide static data.
-    Purges company static cache, company leaderboards (ZSET and meta), module lists, and dashboard summaries.
+    Purges company static cache, company leaderboards (ZSET and meta), module lists, dashboard summaries, and employee bootstrap.
     """
     if not company_id:
         return
@@ -125,6 +139,7 @@ def invalidate_company_caches(company_id: str):
         delete_cache_pattern(f"company_leaderboard:{company_id}*")
         delete_cache_pattern(f"training_modules:{company_id}*")
         delete_cache_pattern("dashboard_summary:*")
+        invalidate_employees_bootstrap_cache(company_id)
     except Exception as e:
         print(f"[Redis] invalidate_company_caches error for {company_id}: {e}")
 
