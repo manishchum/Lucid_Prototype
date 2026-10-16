@@ -32,11 +32,45 @@ from utils.db.email_db import (
 )
 from utils.supabase_client import supabase, supabase_admin
 from whatsapp.formatter import formatter
+from utils.dispatch_idempotency import DispatchIdempotency
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
 
 # Configure Gemini
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+async def _resolve_company_id(auth_ctx: RequestAuth, module_id: Optional[str] = None) -> str:
+    """Resolve effective company_id from auth context, user row, or module row."""
+    if auth_ctx and auth_ctx.company_id:
+        return str(auth_ctx.company_id)
+    if auth_ctx and auth_ctx.user_id:
+        try:
+            user_data = (
+                supabase_admin.table("users")
+                .select("company_id")
+                .eq("user_id", auth_ctx.user_id)
+                .maybe_single()
+                .execute()
+            )
+            if user_data and user_data.data and user_data.data.get("company_id"):
+                return str(user_data.data["company_id"])
+        except Exception:
+            pass
+    if module_id:
+        try:
+            mod_data = (
+                supabase_admin.table("processed_modules")
+                .select("company_id")
+                .eq("processed_module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+            if mod_data and mod_data.data and mod_data.data.get("company_id"):
+                return str(mod_data.data["company_id"])
+        except Exception:
+            pass
+    return "unknown"
 
 
 # ── Request Models ──────────────────────────────────────────────
@@ -64,6 +98,7 @@ class SendEmailRequest(BaseModel):
     body: str
     scheduled_date: Optional[str] = None
     scheduled_time: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 
 class ScheduleEmailRequest(BaseModel):
@@ -72,6 +107,7 @@ class ScheduleEmailRequest(BaseModel):
     body: str
     scheduled_date: str   # "YYYY-MM-DD"
     scheduled_time: str   # "HH:MM"
+    idempotency_key: Optional[str] = None
 
 
 class NotifyEmailRequest(BaseModel):
@@ -84,6 +120,7 @@ class NotifyEmailRequest(BaseModel):
     dry_run: bool = False                                     # True = build + return full HTML, no send
     blocks_only: bool = False                                 # True = return only the inner content block HTML
     module_ids: Optional[List[str]] = None                    # For multi-module: list of specific modules to include
+    idempotency_key: Optional[str] = None
 
 
 # ── WhatsApp Request Models ─────────────────────────────────
@@ -115,6 +152,7 @@ class NotifyWhatsAppRequest(BaseModel):
     # Optional metadata
     engagement_question: Optional[str] = None
     dry_run: bool = False  # True = return what would be sent without actually scheduling
+    idempotency_key: Optional[str] = None
 
 
 # ── Content-block email builder ─────────────────────────────────
@@ -818,6 +856,7 @@ Engagement question: {request.engagement_question or "none"}
 async def send_email(
     request: SendEmailRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     user_id = auth_ctx.user_id
     """Send the drafted email to all users assigned to the sprint.
@@ -825,91 +864,113 @@ async def send_email(
     ⭐ IMPORTANT: Now integrated with GDPR/CAN-SPAM unsubscribe system.
     Unsubscribe links are injected into all emails.
     """
-    # Import unsubscribe functions
-    from utils.unsubscribe_token import generate_token
-    from utils.email_helper import inject_unsubscribe_link
-    
-    # 1. Get assigned users
-    users_result = await get_assigned_users_for_sprint(request.module_id)
-    if users_result["error"]:
-        raise HTTPException(status_code=400, detail=users_result["error"])
+    company_id = await _resolve_company_id(auth_ctx, request.module_id)
+    raw_key = request.idempotency_key or x_idempotency_key
+    redis_key, ttl = DispatchIdempotency.build_key(
+        channel="email",
+        module_id=request.module_id,
+        company_id=company_id,
+        scheduled_date=request.scheduled_date,
+        custom_key=raw_key,
+    )
 
-    users = users_result["data"] or []
-    if not users:
-        raise HTTPException(status_code=404, detail="No users assigned to this sprint")
-
-    # Filter to only include users who haven't unsubscribed
-    subscribed_users = [u for u in users if not u.get("email_unsubscribed", False)]
-    
-    # Get list of email addresses
-    recipient_emails = [(u["email"], u.get("id")) for u in subscribed_users if u.get("email")]
-    if not recipient_emails:
-        raise HTTPException(status_code=404, detail="No valid email addresses found or all users have unsubscribed")
-
-    # 2. Send via SMTP
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_pass = os.getenv("SMTP_PASS", "")
-    from_email = os.getenv("FROM_EMAIL", smtp_user)
-    frontend_url = os.getenv("FRONTEND_URL", "https://lucid.workfloww.ai")
-
-    if not smtp_user or not smtp_pass:
-        raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
-
-    sent_count = 0
-    failed: List[str] = []
+    replay = DispatchIdempotency.acquire(
+        redis_key, ttl, {"user_id": user_id, "company_id": company_id, "action": "send_email"}
+    )
+    if replay is not None:
+        return replay
 
     try:
-        server = smtplib.SMTP(smtp_host, smtp_port)
-        server.starttls()
-        server.login(smtp_user, smtp_pass)
+        # Import unsubscribe functions
+        from utils.unsubscribe_token import generate_token
+        from utils.email_helper import inject_unsubscribe_link
+        
+        # 1. Get assigned users
+        users_result = await get_assigned_users_for_sprint(request.module_id)
+        if users_result["error"]:
+            raise HTTPException(status_code=400, detail=users_result["error"])
 
-        for email_addr, user_id_from_db in recipient_emails:
-            try:
-                # 🔐 Generate unsubscribe token with user ID
-                unsubscribe_url = f"{frontend_url}/login"
+        users = users_result["data"] or []
+        if not users:
+            raise HTTPException(status_code=404, detail="No users assigned to this sprint")
+
+        # Filter to only include users who haven't unsubscribed
+        subscribed_users = [u for u in users if not u.get("email_unsubscribed", False)]
+        
+        # Get list of email addresses
+        recipient_emails = [(u["email"], u.get("id")) for u in subscribed_users if u.get("email")]
+        if not recipient_emails:
+            raise HTTPException(status_code=404, detail="No valid email addresses found or all users have unsubscribed")
+
+        # 2. Send via SMTP
+        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_user = os.getenv("SMTP_USER", "")
+        smtp_pass = os.getenv("SMTP_PASS", "")
+        from_email = os.getenv("FROM_EMAIL", smtp_user)
+        frontend_url = os.getenv("FRONTEND_URL", "https://lucid.workfloww.ai")
+
+        if not smtp_user or not smtp_pass:
+            raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
+
+        sent_count = 0
+        failed: List[str] = []
+
+        try:
+            server = smtplib.SMTP(smtp_host, smtp_port)
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+
+            for email_addr, user_id_from_db in recipient_emails:
                 try:
-                    unsubscribe_token = generate_token(email_addr, str(user_id_from_db))
-                    unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
-                except Exception:
-                    pass
+                    # 🔐 Generate unsubscribe token with user ID
+                    unsubscribe_url = f"{frontend_url}/login"
+                    try:
+                        unsubscribe_token = generate_token(email_addr, str(user_id_from_db))
+                        unsubscribe_url = f"{frontend_url}/api/unsubscribe?token={unsubscribe_token}"
+                    except Exception:
+                        pass
 
-                # 📧 Inject unsubscribe link into HTML body
-                email_body = inject_unsubscribe_link(
-                    request.body,
-                    unsubscribe_url
-                )
-                
-                # Create message
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = request.subject
-                msg["From"] = from_email
-                msg["To"] = email_addr
-                
-                # RFC 2369 / RFC 8058 List-Unsubscribe headers for email clients
-                msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
-                msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
-                
-                msg.attach(MIMEText(email_body, "html"))
-                server.sendmail(from_email, email_addr, msg.as_string())
-                sent_count += 1
-            except Exception as e:
-                failed.append(email_addr)
-                import logging
-                logging.error(f"Failed to send email to {email_addr}: {str(e)}")
+                    # 📧 Inject unsubscribe link into HTML body
+                    email_body = inject_unsubscribe_link(
+                        request.body,
+                        unsubscribe_url
+                    )
+                    
+                    # Create message
+                    msg = MIMEMultipart("alternative")
+                    msg["Subject"] = request.subject
+                    msg["From"] = from_email
+                    msg["To"] = email_addr
+                    
+                    # RFC 2369 / RFC 8058 List-Unsubscribe headers for email clients
+                    msg["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+                    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click-Unsubscribe"
+                    
+                    msg.attach(MIMEText(email_body, "html"))
+                    server.sendmail(from_email, email_addr, msg.as_string())
+                    sent_count += 1
+                except Exception as e:
+                    failed.append(email_addr)
+                    import logging
+                    logging.error(f"Failed to send email to {email_addr}: {str(e)}")
 
-        server.quit()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SMTP connection failed: {str(e)}")
+            server.quit()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"SMTP connection failed: {str(e)}")
 
-    return {
-        "message": f"Email sent to {sent_count}/{len(recipient_emails)} users",
-        "sent_count": sent_count,
-        "failed": failed,
-        "unsubscribed_users": len(users) - len(subscribed_users),
-        "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
-    }
+        result = {
+            "message": f"Email sent to {sent_count}/{len(recipient_emails)} users",
+            "sent_count": sent_count,
+            "failed": failed,
+            "unsubscribed_users": len(users) - len(subscribed_users),
+            "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
+        }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
+    except Exception:
+        DispatchIdempotency.release_on_failure(redis_key)
+        raise
 
 
 # ── Standalone SMTP helper (called by APScheduler — must be a plain function) ─
@@ -944,6 +1005,7 @@ def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
 async def schedule_email(
     request: ScheduleEmailRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     user_id = auth_ctx.user_id
     """
@@ -976,56 +1038,96 @@ async def schedule_email(
             detail="Scheduled time must be in the future (UTC)",
         )
 
-    # 2. Get assigned users and their emails
-    users_result = await get_assigned_users_for_sprint(request.module_id)
-    if users_result["error"]:
-        raise HTTPException(status_code=400, detail=users_result["error"])
-
-    users_data = users_result["data"] or []
-    if not users_data:
-        raise HTTPException(status_code=404, detail="No users assigned to this sprint")
-
-    recipient_emails = [u["email"] for u in users_data if u.get("email")]
-    if not recipient_emails:
-        raise HTTPException(status_code=404, detail="No valid email addresses found")
-
-    # 3. Get company_id from user context
-    user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
-    user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
-    company_id = user_row.get("company_id") if user_row else None
-    if not company_id:
+    # Resolve company_id from auth context or module
+    company_id = await _resolve_company_id(auth_ctx, request.module_id)
+    if not company_id or company_id == "unknown":
         raise HTTPException(status_code=400, detail="Could not determine company_id for user")
 
-    # 4. Store in Supabase scheduled_emails table (not in APScheduler)
-    email_result = await create_scheduled_email(
+    # Idempotency acquisition before processing
+    raw_key = request.idempotency_key or x_idempotency_key
+    redis_key, ttl = DispatchIdempotency.build_key(
+        channel="email_schedule",
+        module_id=request.module_id,
         company_id=company_id,
-        subject=request.subject,
-        body=request.body,
-        recipient_emails=recipient_emails,
-        schedule_type="one_time",
         scheduled_date=request.scheduled_date,
-        scheduled_time=request.scheduled_time,
-        processed_module_id=request.module_id,
-        content_types=[],  # For schedule-email, content types may not apply
-        is_active=True,
-        created_by=user_id,
+        custom_key=raw_key,
     )
+    replay = DispatchIdempotency.acquire(
+        redis_key, ttl, {"user_id": user_id, "company_id": company_id, "action": "schedule_email"}
+    )
+    if replay is not None:
+        return replay
 
-    if email_result["error"]:
-        raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+    # DB Check for existing scheduled email with same (company_id, module_id, scheduled_date)
+    existing_db = DispatchIdempotency.check_db_scheduled_email(
+        company_id=company_id,
+        module_id=request.module_id,
+        scheduled_date=request.scheduled_date,
+    )
+    if existing_db:
+        result = {
+            "status": "scheduled",
+            "scheduled_email_id": existing_db.get("scheduled_email_id"),
+            "scheduled_at": f"{existing_db.get('scheduled_date')}T{existing_db.get('scheduled_time', '00:00')}:00",
+            "scheduled_date": existing_db.get("scheduled_date"),
+            "scheduled_time": existing_db.get("scheduled_time"),
+            "recipient_count": 0,
+            "message": "Email is already scheduled in database for this date.",
+            "idempotent_replay": True,
+            "idempotency_key": redis_key,
+        }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
 
-    email_record = email_result["data"]
-    scheduled_email_id = email_record.get("scheduled_email_id")
+    try:
+        # 2. Get assigned users and their emails
+        users_result = await get_assigned_users_for_sprint(request.module_id)
+        if users_result["error"]:
+            raise HTTPException(status_code=400, detail=users_result["error"])
 
-    return {
-        "status": "scheduled",
-        "scheduled_email_id": scheduled_email_id,
-        "scheduled_at": run_dt.isoformat(),
-        "scheduled_date": request.scheduled_date,
-        "scheduled_time": request.scheduled_time,
-        "recipient_count": len(recipient_emails),
-        "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
-    }
+        users_data = users_result["data"] or []
+        if not users_data:
+            raise HTTPException(status_code=404, detail="No users assigned to this sprint")
+
+        recipient_emails = [u["email"] for u in users_data if u.get("email")]
+        if not recipient_emails:
+            raise HTTPException(status_code=404, detail="No valid email addresses found")
+
+        # 3. Store in Supabase scheduled_emails table
+        email_result = await create_scheduled_email(
+            company_id=company_id,
+            subject=request.subject,
+            body=request.body,
+            recipient_emails=recipient_emails,
+            schedule_type="one_time",
+            scheduled_date=request.scheduled_date,
+            scheduled_time=request.scheduled_time,
+            processed_module_id=request.module_id,
+            content_types=[],  # For schedule-email, content types may not apply
+            is_active=True,
+            created_by=user_id,
+        )
+
+        if email_result["error"]:
+            raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+        email_record = email_result["data"]
+        scheduled_email_id = email_record.get("scheduled_email_id")
+
+        result = {
+            "status": "scheduled",
+            "scheduled_email_id": scheduled_email_id,
+            "scheduled_at": run_dt.isoformat(),
+            "scheduled_date": request.scheduled_date,
+            "scheduled_time": request.scheduled_time,
+            "recipient_count": len(recipient_emails),
+            "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
+        }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
+    except Exception:
+        DispatchIdempotency.release_on_failure(redis_key)
+        raise
 
 
 
@@ -1035,6 +1137,7 @@ async def schedule_email(
 async def notify_email(
     request: NotifyEmailRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     user_id = auth_ctx.user_id
     """
@@ -1134,15 +1237,6 @@ async def notify_email(
         "flashcard_data": combined_flashcards,
     }
 
-    print(f"\n[NOTIFY-EMAIL DEBUG] === FINAL MODULE DATA ===")
-    print(f"[NOTIFY-EMAIL DEBUG] Title: {module['title']}")
-    print(f"[NOTIFY-EMAIL DEBUG] Total flashcards aggregated: {len(combined_flashcards)}")
-    print(f"[NOTIFY-EMAIL DEBUG] Audio URL: {audio_url_from_db or 'NONE'}")
-    print(f"[NOTIFY-EMAIL DEBUG] Selected content types: {request.selected_content}")
-    if combined_flashcards:
-        for i, fc in enumerate(combined_flashcards[:3]):
-            print(f"[NOTIFY-EMAIL DEBUG] Flashcard {i+1}: {fc.get('heading', 'NO HEADING')}")
-
     # 2. Build the dynamic HTML body (use custom overrides when provided)
     html_body = build_email_body(
         module,
@@ -1181,6 +1275,23 @@ async def notify_email(
     if not recipient_emails:
         raise HTTPException(status_code=404, detail="No valid email addresses found")
 
+    # Resolve company_id
+    company_id = await _resolve_company_id(auth_ctx, sprint_id_for_users)
+    raw_key = request.idempotency_key or x_idempotency_key
+    redis_key, ttl = DispatchIdempotency.build_key(
+        channel="notify_email",
+        module_id=sprint_id_for_users,
+        company_id=company_id,
+        scheduled_date=request.scheduled_date,
+        custom_key=raw_key,
+    )
+
+    replay = DispatchIdempotency.acquire(
+        redis_key, ttl, {"user_id": user_id, "company_id": company_id, "action": "notify_email"}
+    )
+    if replay is not None:
+        return replay
+
     # 4a. Schedule for later if date/time provided
     if request.scheduled_date and request.scheduled_time:
         try:
@@ -1188,6 +1299,7 @@ async def notify_email(
                 f"{request.scheduled_date} {request.scheduled_time}", "%Y-%m-%d %H:%M"
             )
         except ValueError:
+            DispatchIdempotency.release_on_failure(redis_key)
             raise HTTPException(
                 status_code=400,
                 detail="Invalid date/time format. Expected YYYY-MM-DD and HH:MM",
@@ -1195,60 +1307,80 @@ async def notify_email(
 
         from datetime import timezone as _tz
         if run_dt.replace(tzinfo=_tz.utc) <= datetime.now(_tz.utc):
+            DispatchIdempotency.release_on_failure(redis_key)
             raise HTTPException(
                 status_code=400,
                 detail="Scheduled time must be in the future (UTC)",
             )
 
-        # Get company_id for Supabase storage
-        first_module_id = request.module_id or target_module_ids[0]
-        module_data = supabase_admin.table("processed_modules") \
-            .select("title") \
-            .eq("processed_module_id", first_module_id) \
-            .maybe_single() \
-            .execute()
-        module_row = module_data.data if (module_data and getattr(module_data, "data", None)) else None
-        
-        # Get company_id from user context
-        user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
-        user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
-        company_id = user_row.get("company_id") if user_row else None
-        if not company_id:
-            raise HTTPException(status_code=400, detail="Could not determine company_id for user")
-
-        # Store in Supabase scheduled_emails table (not in APScheduler)
-        email_result = await create_scheduled_email(
+        # Check DB for existing scheduled email with same (company_id, module_id, scheduled_date)
+        existing_db = DispatchIdempotency.check_db_scheduled_email(
             company_id=company_id,
-            subject=subject,
-            body=html_body,
-            recipient_emails=recipient_emails,
-            schedule_type="one_time",
+            module_id=sprint_id_for_users,
             scheduled_date=request.scheduled_date,
-            scheduled_time=request.scheduled_time,
-            processed_module_id=first_module_id,
-            module_title=module_row.get("title") if module_row else None,
-            content_types=request.selected_content,
-            custom_flashcards=request.customFlashcards,
-            custom_audio_url=request.customAudioUrl,
-            is_active=True,
-            created_by=user_id,
         )
+        if existing_db:
+            result = {
+                "status": "scheduled",
+                "scheduled_email_id": existing_db.get("scheduled_email_id"),
+                "scheduled_at": f"{existing_db.get('scheduled_date')}T{existing_db.get('scheduled_time', '00:00')}:00",
+                "scheduled_date": existing_db.get("scheduled_date"),
+                "scheduled_time": existing_db.get("scheduled_time"),
+                "recipient_count": 0,
+                "message": "Email is already scheduled in database for this date.",
+                "idempotent_replay": True,
+                "idempotency_key": redis_key,
+            }
+            DispatchIdempotency.complete(redis_key, ttl, result)
+            return result
 
-        if email_result["error"]:
-            raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+        try:
+            # Get module title for Supabase storage
+            module_data = supabase_admin.table("processed_modules") \
+                .select("title") \
+                .eq("processed_module_id", sprint_id_for_users) \
+                .maybe_single() \
+                .execute()
+            module_row = module_data.data if (module_data and getattr(module_data, "data", None)) else None
 
-        email_record = email_result["data"]
-        scheduled_email_id = email_record.get("scheduled_email_id")
+            # Store in Supabase scheduled_emails table
+            email_result = await create_scheduled_email(
+                company_id=company_id,
+                subject=subject,
+                body=html_body,
+                recipient_emails=recipient_emails,
+                schedule_type="one_time",
+                scheduled_date=request.scheduled_date,
+                scheduled_time=request.scheduled_time,
+                processed_module_id=sprint_id_for_users,
+                module_title=module_row.get("title") if module_row else None,
+                content_types=request.selected_content,
+                custom_flashcards=request.customFlashcards,
+                custom_audio_url=request.customAudioUrl,
+                is_active=True,
+                created_by=user_id,
+            )
 
-        return {
-            "status": "scheduled",
-            "scheduled_email_id": scheduled_email_id,
-            "scheduled_at": run_dt.isoformat(),
-            "scheduled_date": request.scheduled_date,
-            "scheduled_time": request.scheduled_time,
-            "recipient_count": len(recipient_emails),
-            "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
-        }
+            if email_result["error"]:
+                raise HTTPException(status_code=500, detail=f"Failed to schedule email: {email_result['error']}")
+
+            email_record = email_result["data"]
+            scheduled_email_id = email_record.get("scheduled_email_id")
+
+            result = {
+                "status": "scheduled",
+                "scheduled_email_id": scheduled_email_id,
+                "scheduled_at": run_dt.isoformat(),
+                "scheduled_date": request.scheduled_date,
+                "scheduled_time": request.scheduled_time,
+                "recipient_count": len(recipient_emails),
+                "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
+            }
+            DispatchIdempotency.complete(redis_key, ttl, result)
+            return result
+        except Exception:
+            DispatchIdempotency.release_on_failure(redis_key)
+            raise
 
     # 4b. Send immediately
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
@@ -1258,6 +1390,7 @@ async def notify_email(
     from_email = os.getenv("FROM_EMAIL", smtp_user)
 
     if not smtp_user or not smtp_pass:
+        DispatchIdempotency.release_on_failure(redis_key)
         raise HTTPException(status_code=500, detail="SMTP credentials not configured on server")
 
     sent_count = 0
@@ -1281,15 +1414,17 @@ async def notify_email(
                 failed.append(email_addr)
 
         server.quit()
+        result = {
+            "message": f"Notify email sent to {sent_count}/{len(recipient_emails)} users",
+            "sent_count": sent_count,
+            "failed": failed,
+            "selected_content": request.selected_content,
+        }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
     except Exception as e:
+        DispatchIdempotency.release_on_failure(redis_key)
         raise HTTPException(status_code=500, detail=f"SMTP connection failed: {str(e)}")
-
-    return {
-        "message": f"Notify email sent to {sent_count}/{len(recipient_emails)} users",
-        "sent_count": sent_count,
-        "failed": failed,
-        "selected_content": request.selected_content,
-    }
 
 
 # ── Multi-Module Staggered Schedule ───────────────────────────────────────────
@@ -1390,12 +1525,14 @@ class ScheduleMultiModuleRequest(BaseModel):
     """
     schedule_items: List[ScheduleMultiModuleItem]   # module + content + day/date + per-module custom content pairings
     scheduled_time: str                             # "HH:MM" in UTC (applied to all items)
+    idempotency_key: Optional[str] = None
 
 
 @router.post("/schedule-multi-module")
 async def schedule_multi_module(
     request: ScheduleMultiModuleRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     user_id = auth_ctx.user_id
     """
@@ -1417,10 +1554,28 @@ async def schedule_multi_module(
         Module A → Flashcards → 2026-03-20 09:00 UTC (one-time)
         Module B → Audio       → 2026-03-20 09:00 UTC (one-time)
     """
-    try:
-        if not request.schedule_items:
-            raise HTTPException(status_code=400, detail="schedule_items must not be empty")
+    if not request.schedule_items:
+        raise HTTPException(status_code=400, detail="schedule_items must not be empty")
 
+    first_mod = request.schedule_items[0].module_id
+    company_id = await _resolve_company_id(auth_ctx, first_mod)
+    raw_key = request.idempotency_key or x_idempotency_key
+    first_date = request.schedule_items[0].scheduled_date if request.schedule_items[0].scheduled_date else None
+    redis_key, ttl = DispatchIdempotency.build_key(
+        channel="multi_email_schedule",
+        module_id=first_mod,
+        company_id=company_id,
+        scheduled_date=first_date,
+        custom_key=raw_key,
+    )
+
+    replay = DispatchIdempotency.acquire(
+        redis_key, ttl, {"user_id": user_id, "company_id": company_id, "action": "schedule_multi_module"}
+    )
+    if replay is not None:
+        return replay
+
+    try:
         try:
             hour, minute = [int(x) for x in request.scheduled_time.split(":")]
         except ValueError:
@@ -1506,6 +1661,24 @@ async def schedule_multi_module(
                
                 print(f"[SCHEDULE DEBUG] Item {idx}: {module_id} → One-time on {scheduled_date} @ {hour:02d}:{minute:02d} UTC → {run_dt}")
 
+                # Deduplication check in DB for one-time schedule
+                existing_db = DispatchIdempotency.check_db_scheduled_email(
+                    company_id=company_id,
+                    module_id=module_id,
+                    scheduled_date=scheduled_date,
+                )
+                if existing_db:
+                    scheduled_jobs.append({
+                        "module_id": module_id,
+                        "content_type": content_type,
+                        "scheduled_date": scheduled_date,
+                        "run_date": run_dt.isoformat(),
+                        "recipient_count": 0,
+                        "scheduled_email_id": existing_db.get("scheduled_email_id"),
+                        "note": "Existing schedule found in database",
+                    })
+                    continue
+
             # Validate content type
             if content_type not in ["flashcards", "audio"]:
                 raise HTTPException(
@@ -1542,34 +1715,6 @@ async def schedule_multi_module(
             # ── Build email with ONLY the paired content type ──
             selected_content = [content_type]  # Only include this specific content type
            
-            # Debug logging - Comprehensive audio and flashcard tracking
-            print(f"\n{'='*80}")
-            print(f"[MODULE {idx}] Processing: {module_id}")
-            print(f"{'='*80}")
-            print(f"  Module Title: {module_title}")
-            print(f"  Content Type: {content_type}")
-            print(f"  Day of Week: {day_of_week}")
-            print(f"  Run Date: {run_dt}")
-            print(f"\n  📚 FLASHCARDS:")
-            print(f"    - From DB: {len(combined_flashcards)} flashcards found")
-            if combined_flashcards:
-                for i, fc in enumerate(combined_flashcards[:2]):  # Show first 2
-                    print(f"      [{i+1}] {fc.get('heading', 'No heading')}")
-            print(f"    - Custom from item: {item.customFlashcards is not None}")
-            if item.customFlashcards:
-                print(f"      Using CUSTOM flashcards ({len(item.customFlashcards)} cards)")
-            print(f"    - Will include in email: {content_type == 'flashcards'}")
-           
-            print(f"\n  🎵 AUDIO:")
-            print(f"    - From DB: {audio_url_from_db if audio_url_from_db else 'NO AUDIO'}")
-            print(f"    - Custom from item: {item.customAudioUrl if item.customAudioUrl else 'None'}")
-            if item.customAudioUrl:
-                print(f"      Using CUSTOM audio URL")
-            final_audio_url = item.customAudioUrl if item.customAudioUrl else audio_url_from_db
-            print(f"    - Final audio URL to use: {final_audio_url if final_audio_url else 'NO AUDIO'}")
-            print(f"    - Will include in email: {content_type == 'audio'}")
-            print(f"{'='*80}\n")
-           
             html_body = build_email_body(
                 module_data,
                 selected_content,
@@ -1601,13 +1746,6 @@ async def schedule_multi_module(
                     "warning": "No users assigned to this module",
                 })
                 continue
-
-            # ── Get company_id from user context ──
-            user_data = supabase_admin.table("users").select("company_id").eq("user_id", user_id).maybe_single().execute()
-            user_row = user_data.data if (user_data and getattr(user_data, "data", None)) else None
-            company_id = user_row.get("company_id") if user_row else None
-            if not company_id:
-                raise HTTPException(status_code=400, detail=f"Could not determine company_id for user")
 
             # ── Prepare days_of_week for recurring mode ──
             days_of_week_array = None
@@ -1657,16 +1795,26 @@ async def schedule_multi_module(
                 "scheduled_email_id": scheduled_email_id,
             })
 
-        return {
+        result = {
             "status": "multi_module_scheduled",
             "scheduled_time": request.scheduled_time,
             "total_items": len(request.schedule_items),
             "jobs": scheduled_jobs,
         }
+        result = {
+            "status": "multi_module_scheduled",
+            "scheduled_time": request.scheduled_time,
+            "total_items": len(request.schedule_items),
+            "jobs": scheduled_jobs,
+        }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
 
     except HTTPException:
+        DispatchIdempotency.release_on_failure(redis_key)
         raise  # re-raise FastAPI HTTP errors as-is (they already carry status codes)
     except Exception as exc:
+        DispatchIdempotency.release_on_failure(redis_key)
         # Catch-all: log and return a proper 500 so CORS headers are always present
         import traceback
         traceback.print_exc()
@@ -1674,6 +1822,7 @@ async def schedule_multi_module(
             status_code=500,
             detail=f"schedule-multi-module failed: {str(exc)}",
         )
+
 
 @router.get("/bootstrap/{module_id}")
 async def dispatch_bootstrap(
@@ -1690,12 +1839,12 @@ async def dispatch_bootstrap(
 
     return result["data"]
 
-# ── WhatsApp Notification Endpoint ──────────────────────────────
 
-@router.post("/notify-whatsapp")
+# ── WhatsApp Notification Endpoint ──────────────────────────────
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     user_id = auth_ctx.user_id
     """
@@ -1715,58 +1864,74 @@ async def notify_whatsapp(
     - Day 4: Module 2, Content Type 2
     """
    
-    try:
-        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
-       
-        # ── Validate Input ──
-        if not request.module_ids:
-            raise HTTPException(status_code=400, detail="At least one module_id is required")
-       
-        if not request.selected_content:
-            raise HTTPException(status_code=400, detail="At least one content type is required")
-       
-        if request.schedule_type not in ["one_time", "recurring"]:
-            raise HTTPException(status_code=400, detail="Invalid schedule_type")
-       
-        if request.schedule_type == "one_time" and not request.scheduled_date:
-            raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
-       
-        if request.schedule_type == "recurring" and not request.days_of_week:
-            raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
-       
-        # ── Generate Message Schedule ──
-        # Create a cartesian product of modules x content_types
-        messages_to_create = []
-        for i, module_id in enumerate(request.module_ids):
-            for j, content_type in enumerate(request.selected_content):
-                message_order = i * len(request.selected_content) + j
-                messages_to_create.append({
-                    "module_id": module_id,
-                    "content_type": content_type,
-                    "order": message_order,
+    # ── Validate Input ──
+    if not request.module_ids:
+        raise HTTPException(status_code=400, detail="At least one module_id is required")
+   
+    if not request.selected_content:
+        raise HTTPException(status_code=400, detail="At least one content type is required")
+   
+    if request.schedule_type not in ["one_time", "recurring"]:
+        raise HTTPException(status_code=400, detail="Invalid schedule_type")
+   
+    if request.schedule_type == "one_time" and not request.scheduled_date:
+        raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
+   
+    if request.schedule_type == "recurring" and not request.days_of_week:
+        raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
+   
+    # ── Generate Message Schedule ──
+    # Create a cartesian product of modules x content_types
+    messages_to_create = []
+    for i, module_id in enumerate(request.module_ids):
+        for j, content_type in enumerate(request.selected_content):
+            message_order = i * len(request.selected_content) + j
+            messages_to_create.append({
+                "module_id": module_id,
+                "content_type": content_type,
+                "order": message_order,
+            })
+   
+    print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules")
+   
+    # ── Dry Run: Return what would be created ──
+    if request.dry_run:
+        preview = []
+        for msg_plan in messages_to_create:
+            module_result = await get_module_content(msg_plan["module_id"])
+            if not module_result["error"] and module_result["data"]:
+                module = module_result["data"]
+                preview.append({
+                    "module_id": msg_plan["module_id"],
+                    "module_title": module.get("title", ""),
+                    "content_type": msg_plan["content_type"],
+                    "day_offset": msg_plan["order"],
                 })
        
-        print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules")
-       
-        # ── Dry Run: Return what would be created ──
-        if request.dry_run:
-            preview = []
-            for msg_plan in messages_to_create:
-                module_result = await get_module_content(msg_plan["module_id"])
-                if not module_result["error"] and module_result["data"]:
-                    module = module_result["data"]
-                    preview.append({
-                        "module_id": msg_plan["module_id"],
-                        "module_title": module.get("title", ""),
-                        "content_type": msg_plan["content_type"],
-                        "day_offset": msg_plan["order"],
-                    })
-           
-            return {
-                "status": "dry_run",
-                "message_count": len(preview),
-                "messages": preview,
-            }
+        return {
+            "status": "dry_run",
+            "message_count": len(preview),
+            "messages": preview,
+        }
+
+    # ── Distributed Idempotency Lock ──
+    raw_key = request.idempotency_key or x_idempotency_key
+    first_mod = request.module_ids[0] if request.module_ids else "all"
+    redis_key, ttl = DispatchIdempotency.build_key(
+        channel="whatsapp",
+        module_id=first_mod,
+        company_id=request.company_id,
+        scheduled_date=request.scheduled_date,
+        custom_key=raw_key,
+    )
+    replay = DispatchIdempotency.acquire(
+        redis_key, ttl, {"user_id": user_id, "company_id": request.company_id, "action": "notify_whatsapp"}
+    )
+    if replay is not None:
+        return replay
+   
+    try:
+        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
        
         # ── Create Scheduled Messages and Dispatch Records ──
         created_schedules = []
@@ -1780,7 +1945,6 @@ async def notify_whatsapp(
             # Fetch module content
             module_result = await get_module_content(processed_module_id)
             print(f"[NOTIFY-WHATSAPP DEBUG] Fetching content for module_id: {processed_module_id}")
-            print(module_result)
             if module_result["error"]:
                 print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching module: {module_result['error']}")
                 continue
@@ -1792,12 +1956,9 @@ async def notify_whatsapp(
            
             module_title = module.get("title", "Learning Module")
             original_module_id = module.get("original_module_id")
-           
 
-
-            print("\n[NOTIFY-WHATSAPP DEBUG] Module content fetched successfully", module)
             # Determine scheduled date based on offset
-            from datetime import datetime, timedelta, date as dt_date
+            from datetime import datetime, timedelta
            
             if request.schedule_type == "one_time":
                 schedule_date = datetime.strptime(request.scheduled_date, "%Y-%m-%d")
@@ -1805,6 +1966,27 @@ async def notify_whatsapp(
             else:
                 # For recurring, use today + offset as first occurrence
                 message_date = None
+
+            # Deduplication: Check DB if schedule already exists for same (company_id, module_id, message_date)
+            if request.schedule_type == "one_time" and message_date:
+                existing_wa = DispatchIdempotency.check_db_scheduled_whatsapp(
+                    company_id=request.company_id,
+                    module_id=processed_module_id,
+                    scheduled_date=message_date,
+                )
+                if existing_wa:
+                    print(f"[NOTIFY-WHATSAPP] Skipping duplicate schedule for module {processed_module_id} on {message_date} (already in DB)")
+                    created_schedules.append({
+                        "scheduled_whatsapp_id": existing_wa.get("scheduled_whatsapp_id"),
+                        "module_id": processed_module_id,
+                        "module_title": module_title,
+                        "content_type": content_type,
+                        "day_offset": day_offset,
+                        "recipient_count": 0,
+                        "scheduled_date": message_date,
+                        "note": "Existing schedule found in database",
+                    })
+                    continue
            
             # Build message content based on content type
             if content_type == "flashcards":
@@ -1818,9 +2000,6 @@ async def notify_whatsapp(
                 media_type = None
            
             elif content_type == "audio":
-
-                print(f"[NOTIFY-WHATSAPP DEBUG] Preparing audio content for module: {module_title}")
-                print(f"[NOTIFY-WHATSAPP DEBUG] Audio URL from DB: {module.get('audio_url', 'NONE')}")
                 audio_url = module.get("audio_url", "")
                 message_body = formatter.format_audio_message(module_title, "Audio Lesson")
                 media_url = audio_url
@@ -1834,7 +2013,6 @@ async def notify_whatsapp(
            
             elif content_type == "mindmap":
                 mindmap_data = module.get("mindmap_data", {})
-                # Assume mindmap_data has an 'image_url' field or we convert it to image
                 mindmap_url = mindmap_data.get("image_url", "") if isinstance(mindmap_data, dict) else ""
                 message_body = formatter.format_mindmap_message(module_title, "Mind Map")
                 media_url = mindmap_url
@@ -1850,11 +2028,7 @@ async def notify_whatsapp(
             else:
                 print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
                 continue
-           
 
-            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for content type '{content_type}' with media_url: {media_url}")
-            print(f"[NOTIFY-WHATSAPP DEBUG] Message body: {message_body}")
-            print("Request Body",request)
             # Create scheduled_whatsapp record
             schedule_result = await create_scheduled_whatsapp(
                 company_id=request.company_id,
@@ -1918,7 +2092,7 @@ async def notify_whatsapp(
             })
        
         # ── Return Confirmation ──
-        return {
+        result = {
             "status": "scheduled",
             "schedule_type": request.schedule_type,
             "scheduled_time": request.scheduled_time,
@@ -1926,10 +2100,14 @@ async def notify_whatsapp(
             "unique_recipients": len(all_users_affected),
             "messages": created_schedules,
         }
+        DispatchIdempotency.complete(redis_key, ttl, result)
+        return result
    
     except HTTPException:
+        DispatchIdempotency.release_on_failure(redis_key)
         raise
     except Exception as exc:
+        DispatchIdempotency.release_on_failure(redis_key)
         import traceback
         traceback.print_exc()
         raise HTTPException(
