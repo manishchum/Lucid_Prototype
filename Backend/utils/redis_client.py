@@ -82,6 +82,8 @@ def invalidate_user_caches(user_id: str):
         return
     try:
         redis_client.delete(f"dashboard_summary:{user_id}")
+        redis_client.delete(f"user_max_role_level:{user_id}")
+        delete_cache_pattern(f"user_company_access:{user_id}:*")
         delete_cache_pattern(f"dashboard_summary:{user_id}*")
         delete_cache_pattern(f"module_progress:{user_id}*")
         delete_cache_pattern(f"user_module_progress:{user_id}*")

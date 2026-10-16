@@ -112,9 +112,10 @@ async def assign_user_role(
             resp = service_supabase.table('user_role_assignments').insert(assignment).execute()
 
         try:
-            from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches
+            from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
             invalidate_employees_bootstrap_cache(target_company)
             invalidate_user_caches(target_user_id)
+            redis_client.delete(f"user_max_role_level:{target_user_id}")
         except Exception as cache_err:
             print(f"[assign_user_role] Cache invalidation warning: {cache_err}")
 
@@ -268,6 +269,16 @@ async def update_role_assignment(
         resp = service_supabase.table('user_role_assignments').update(
             filtered_updates
         ).eq('user_role_assignment_id', assignment_id).execute()
+
+        try:
+            from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
+            if user_company:
+                invalidate_employees_bootstrap_cache(user_company)
+            if target_user_id:
+                invalidate_user_caches(target_user_id)
+                redis_client.delete(f"user_max_role_level:{target_user_id}")
+        except Exception as cache_err:
+            print(f"[update_role_assignment] Cache invalidation warning: {cache_err}")
         
         return {"data": resp.data, "error": None}
     except Exception as e:
@@ -314,11 +325,12 @@ async def revoke_role_assignment(
         ).eq('user_role_assignment_id', assignment_id).execute()
 
         try:
-            from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches
+            from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
             if user_company:
                 invalidate_employees_bootstrap_cache(user_company)
             if target_user_id:
                 invalidate_user_caches(target_user_id)
+                redis_client.delete(f"user_max_role_level:{target_user_id}")
         except Exception as cache_err:
             print(f"[revoke_role_assignment] Cache invalidation warning: {cache_err}")
 
