@@ -187,16 +187,69 @@ class WorkflowEngine:
         from utils.notifications.event_bus import publish_event
 
         payload = payload or {}
-        workflows = cls.get_cached_workflows_for_trigger(trigger_lifecycle, company_id)
+
+        # 1. Enforce Strict Tenant Boundary & Recipient Validation
+        from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+
+        tenant_ok, tenant_reason, user_row = NotificationPolicyEvaluator.evaluate_tenant_isolation(
+            event_company_id=company_id,
+            recipient_user_id=user_id,
+            manager_id=payload.get("manager_id"),
+        )
+        if not tenant_ok:
+            logger.warning(f"WorkflowEngine trigger_lifecycle rejected for user {user_id}: {tenant_reason}")
+            NotificationPolicyEvaluator.record_policy_audit(
+                correlation_id=f"wf-leak-{uuid.uuid4().hex[:8]}",
+                notification_type=trigger_lifecycle,
+                recipient_user_id=user_id,
+                company_id=company_id,
+                status="REJECTED" if "LEAKAGE" in tenant_reason else "SUPPRESSED",
+                suppression_reason=tenant_reason,
+                details=payload,
+            )
+            return [{
+                "workflow_id": None,
+                "status": tenant_reason,
+                "reason": f"Tenant boundary violation: {tenant_reason}",
+            }]
+
+        auth_company_id = user_row.get("company_id")
+
+        # 2. Enforce Company Feature Entitlement Hard Gate via companies.subscription_addons
+        entitled, req_addon, ent_reason = NotificationPolicyEvaluator.evaluate_company_entitlement(
+            company_id=auth_company_id,
+            trigger_or_event=trigger_lifecycle,
+        )
+        if not entitled:
+            logger.info(
+                f"WorkflowEngine trigger_lifecycle suppressed for user {user_id} in company {auth_company_id}: "
+                f"{ent_reason} (Requires add-on: {req_addon})"
+            )
+            NotificationPolicyEvaluator.record_policy_audit(
+                correlation_id=f"wf-ent-{uuid.uuid4().hex[:8]}",
+                notification_type=trigger_lifecycle,
+                recipient_user_id=user_id,
+                company_id=auth_company_id,
+                status="SUPPRESSED",
+                suppression_reason=ent_reason,
+                details={"required_addon": req_addon, "trigger_lifecycle": trigger_lifecycle},
+            )
+            return [{
+                "workflow_id": None,
+                "status": ent_reason,
+                "reason": f"Company {auth_company_id} is not entitled to required feature '{req_addon}'",
+            }]
+
+        workflows = cls.get_cached_workflows_for_trigger(trigger_lifecycle, auth_company_id)
         if not workflows:
             logger.debug(f"No active workflows found for lifecycle '{trigger_lifecycle}'")
             return []
 
-        # 1. Enrich Learner Context
+        # 3. Enrich Learner Context
         context = await NotificationContextEnricher.enrich(
             user_id=user_id,
             base_payload=payload,
-            company_id=company_id,
+            company_id=auth_company_id,
         )
 
         results = []
@@ -377,11 +430,31 @@ class WorkflowEngine:
             if not wf.get("is_active"):
                 return False, "WORKFLOW_PAUSED"
 
+            # Re-verify tenant membership and company feature entitlement at stale-state check
+            from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+            tenant_ok, tenant_reason, user_row = NotificationPolicyEvaluator.evaluate_tenant_isolation(
+                event_company_id=company_id,
+                recipient_user_id=user_id,
+            )
+            if not tenant_ok:
+                logger.info(f"[StaleCheck] Tenant boundary violation for user {user_id}: {tenant_reason}")
+                return False, tenant_reason
+
+            auth_company = user_row.get("company_id") or company_id
+            entitled, req_addon, ent_reason = NotificationPolicyEvaluator.evaluate_company_entitlement(
+                company_id=auth_company,
+                trigger_or_event=wf.get("trigger_lifecycle") or wf.get("notification_type") or "",
+                category=wf.get("category"),
+            )
+            if not entitled:
+                logger.info(f"[StaleCheck] Suppressing delayed notification: company {auth_company} not entitled ({ent_reason})")
+                return False, ent_reason
+
             # Freshly enrich latest permitted context from authoritative tables
             context = await NotificationContextEnricher.enrich(
                 user_id=user_id,
                 base_payload=base_payload or {},
-                company_id=company_id,
+                company_id=auth_company,
             )
 
             if not cls.matches_filter_rules(wf, context):

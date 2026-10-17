@@ -16,16 +16,6 @@ export interface NotificationItem {
   created_at: string;
 }
 
-export interface NotificationPreferences {
-  push_enabled: boolean;
-  email_enabled: boolean;
-  in_app_enabled: boolean;
-  whatsapp_enabled: boolean;
-  deadline_reminders_enabled: boolean;
-  post_completion_enabled: boolean;
-  streak_notifications_enabled: boolean;
-}
-
 interface NotificationContextType {
   notifications: NotificationItem[];
   unreadCount: number;
@@ -35,8 +25,6 @@ interface NotificationContextType {
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   refreshNotifications: () => Promise<void>;
-  preferences: NotificationPreferences | null;
-  updatePreferences: (prefs: Partial<NotificationPreferences>) => Promise<boolean>;
   connectionStatus: 'connected' | 'connecting' | 'disconnected';
 }
 
@@ -49,8 +37,6 @@ const NotificationContext = createContext<NotificationContextType>({
   markAsRead: async () => {},
   markAllAsRead: async () => {},
   refreshNotifications: async () => {},
-  preferences: null,
-  updatePreferences: async () => false,
   connectionStatus: 'disconnected',
 });
 
@@ -63,7 +49,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
-  const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -104,21 +89,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [user]);
 
-  const fetchPreferences = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/preferences`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.preferences) {
-          setPreferences(data.preferences);
-        }
-      }
-    } catch (err) {
-      console.warn('[NotificationContext] Failed to fetch preferences:', err);
-    }
-  }, [user]);
-
   const markAsRead = useCallback(async (id: string) => {
     // Optimistic update
     setNotifications((prev) =>
@@ -152,30 +122,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       fetchNotifications();
     }
   }, [fetchUnreadCount, fetchNotifications]);
-
-  const updatePreferences = useCallback(
-    async (newPrefs: Partial<NotificationPreferences>): Promise<boolean> => {
-      try {
-        const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/preferences`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newPrefs),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.preferences) {
-            setPreferences(data.preferences);
-          }
-          return true;
-        }
-        return false;
-      } catch (err) {
-        console.error('[NotificationContext] Failed to update preferences:', err);
-        return false;
-      }
-    },
-    []
-  );
 
   // Setup WebSocket connection
   const connectWebSocket = useCallback(async () => {
@@ -282,7 +228,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (user) {
       fetchUnreadCount();
       fetchNotifications();
-      fetchPreferences();
       connectWebSocket();
     } else {
       if (wsRef.current) {
@@ -304,7 +249,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [user, fetchUnreadCount, fetchNotifications, fetchPreferences, connectWebSocket]);
+  }, [user, fetchUnreadCount, fetchNotifications, connectWebSocket]);
 
   return (
     <NotificationContext.Provider
@@ -317,8 +262,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         markAsRead,
         markAllAsRead,
         refreshNotifications: fetchNotifications,
-        preferences,
-        updatePreferences,
         connectionStatus,
       }}
     >

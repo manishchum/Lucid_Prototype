@@ -105,27 +105,80 @@ async def publish_event(
         except Exception as th_err:
             logger.warning(f"Redis throttle check error: {th_err}")
 
+    # Stage 1b: Strict Tenant Boundary & Company Entitlement Hard Gate
+    from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+
+    event_company = payload.get("company_id")
+    tenant_ok, tenant_reason, user_row = NotificationPolicyEvaluator.evaluate_tenant_isolation(
+        event_company_id=event_company,
+        recipient_user_id=recipient_user_id,
+        manager_id=payload.get("manager_id"),
+    )
+    if not tenant_ok:
+        logger.warning(f"[{correlation_id}] Event '{event_key}' tenant boundary violation: {tenant_reason}")
+        NotificationPolicyEvaluator.record_policy_audit(
+            correlation_id=correlation_id,
+            notification_type=event_key,
+            recipient_user_id=recipient_user_id,
+            company_id=event_company,
+            status="REJECTED" if "LEAKAGE" in tenant_reason else "SUPPRESSED",
+            suppression_reason=tenant_reason,
+            details=payload,
+        )
+        return {
+            "success": False,
+            "status": tenant_reason,
+            "error_code": tenant_reason,
+            "correlation_id": correlation_id,
+        }
+
+    recipient_company_id = user_row.get("company_id")
+
+    # Hard Gate: Company Feature Entitlement via companies.subscription_addons
+    entitled, req_addon, ent_reason = NotificationPolicyEvaluator.evaluate_company_entitlement(
+        company_id=recipient_company_id,
+        trigger_or_event=event_key,
+        category=payload.get("category"),
+    )
+    if not entitled:
+        logger.info(
+            f"[{correlation_id}] Event '{event_key}' suppressed for company {recipient_company_id}: "
+            f"{ent_reason} (Requires add-on: {req_addon})"
+        )
+        NotificationPolicyEvaluator.record_policy_audit(
+            correlation_id=correlation_id,
+            notification_type=event_key,
+            recipient_user_id=recipient_user_id,
+            company_id=recipient_company_id,
+            status="SUPPRESSED",
+            suppression_reason=ent_reason,
+            details={"required_addon": req_addon, "event_key": event_key},
+        )
+        return {
+            "success": False,
+            "status": ent_reason,
+            "error_code": ent_reason,
+            "required_addon": req_addon,
+            "correlation_id": correlation_id,
+        }
+
     # Stage 2: Variable Resolution, Recipient Context & Fallback Application
     schema = (preset or {}).get("parameter_schema") or {}
     enriched_payload = EventContractValidator.apply_fallbacks(payload, schema)
 
-    # Resolve recipient profile context (first_name, email, company) if missing
-    try:
-        user_res = db.table("users").select("name,email,company_id").eq("user_id", recipient_user_id).maybe_single().execute()
-        user_row = getattr(user_res, "data", None) or {}
-        full_name = user_row.get("name") or ""
-        first_name = (full_name.split()[0] if full_name else "there")
-        if "subscriber.first_name" not in enriched_payload or not enriched_payload["subscriber.first_name"]:
-            enriched_payload["subscriber.first_name"] = first_name
-            enriched_payload["first_name"] = first_name
-        if "subscriber.full_name" not in enriched_payload:
-            enriched_payload["subscriber.full_name"] = full_name
-            enriched_payload["full_name"] = full_name
-        if "subscriber.email" not in enriched_payload:
-            enriched_payload["subscriber.email"] = user_row.get("email") or ""
-            enriched_payload["email"] = user_row.get("email") or ""
-    except Exception as u_err:
-        logger.warning(f"Could not enrich recipient details: {u_err}")
+    # Populate recipient profile details from verified user_row
+    full_name = user_row.get("name") or ""
+    first_name = (full_name.split()[0] if full_name else "there")
+    if "subscriber.first_name" not in enriched_payload or not enriched_payload["subscriber.first_name"]:
+        enriched_payload["subscriber.first_name"] = first_name
+        enriched_payload["first_name"] = first_name
+    if "subscriber.full_name" not in enriched_payload:
+        enriched_payload["subscriber.full_name"] = full_name
+        enriched_payload["full_name"] = full_name
+    if "subscriber.email" not in enriched_payload:
+        enriched_payload["subscriber.email"] = user_row.get("email") or ""
+        enriched_payload["email"] = user_row.get("email") or ""
+    enriched_payload["company_id"] = recipient_company_id
 
     # Stage 3: Strict Contract Validation
     is_valid, validation_errors, failure_cat = EventContractValidator.validate_payload(

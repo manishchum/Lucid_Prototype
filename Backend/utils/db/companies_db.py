@@ -227,6 +227,11 @@ async def update_company(requesting_user_id: str, company_id: str, update_data: 
         if resp.data and isinstance(resp.data, list):
             for c in resp.data:
                 c["platform_type"] = resolve_company_platform_type(c)
+        try:
+            from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+            NotificationPolicyEvaluator.invalidate_company_addons_cache(company_id)
+        except Exception:
+            pass
         return {"data": resp.data, "error": None}
     except Exception as e:
         error_msg = str(e)

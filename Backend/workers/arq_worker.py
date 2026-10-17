@@ -48,13 +48,31 @@ async def _process_and_update_job(sem: asyncio.Semaphore, db, job: Dict[str, Any
             logger.info(f"[ARQ Worker] Concurrently processing job {job_id} (Type: {job.get('notification_type')})")
             success, failure_cat = await process_single_job(db, job)
 
-            is_permanent = failure_cat in [
-                "PERMANENT_SCHEMA_VIOLATION",
-                "PERMANENT_TEMPLATE_ERROR",
-                "SKIPPED_POLICY"
-            ]
+            is_permanent = (
+                failure_cat in [
+                    "PERMANENT_SCHEMA_VIOLATION",
+                    "PERMANENT_TEMPLATE_ERROR",
+                    "SKIPPED_POLICY",
+                ]
+                or (
+                    bool(failure_cat)
+                    and (
+                        failure_cat.startswith("SUPPRESSED_")
+                        or failure_cat.startswith("REJECTED_")
+                        or failure_cat.startswith("SKIPPED_")
+                    )
+                )
+            )
 
-            final_status = "SENT" if success else "FAILED"
+            if failure_cat and failure_cat.startswith("SUPPRESSED_"):
+                final_status = "SKIPPED"
+            elif failure_cat and failure_cat.startswith("REJECTED_"):
+                final_status = "FAILED"
+            elif success:
+                final_status = "SENT"
+            else:
+                final_status = "FAILED"
+
             if not success and not is_permanent and job["attempts"] < job["max_attempts"]:
                 final_status = "QUEUED"
 
@@ -62,7 +80,7 @@ async def _process_and_update_job(sem: asyncio.Semaphore, db, job: Dict[str, Any
                 db.table("notification_jobs")
                 .update({
                     "status": final_status,
-                    "processed_at": datetime.now(timezone.utc).isoformat() if final_status in ["SENT", "FAILED"] else None,
+                    "processed_at": datetime.now(timezone.utc).isoformat() if final_status in ["SENT", "FAILED", "SKIPPED"] else None,
                     "failure_category": failure_cat,
                     "dead_lettered_at": datetime.now(timezone.utc).isoformat() if is_permanent and not success else None,
                 })
@@ -108,17 +126,33 @@ async def process_single_job(db, job: Dict[str, Any]) -> tuple[bool, Optional[st
     metadata = job["metadata"] or {}
 
     try:
-        # 1. Check Dynamic Developer Matrix & Event Policies
-        from utils.notifications.event_bus import get_cached_disabled_event_keys, get_cached_event_preset
-        disabled_keys = get_cached_disabled_event_keys()
-        if notif_type in disabled_keys:
-            logger.info(f"[ARQ Worker] Job {job['id']} dropped: event '{notif_type}' disabled by developer policy.")
-            return True, "SKIPPED_POLICY"
-
-        preset = get_cached_event_preset(notif_type)
-        if preset and preset.get("is_enabled") is False:
-            logger.info(f"[ARQ Worker] Job {job['id']} dropped: event preset '{notif_type}' is currently paused.")
-            return True, "SKIPPED_POLICY"
+        # 1. Enterprise Policy Dispatch-Time Revalidation
+        # Hard Gates: Tenant Boundary & Recipient Active Status, Company Feature Entitlement
+        # Soft Gates: Global Disables, User Category and Channel Preferences
+        from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+        allowed, reason, details = await NotificationPolicyEvaluator.evaluate_full_policy(
+            event_company_id=company_id,
+            recipient_user_id=user_id,
+            trigger_or_event=notif_type,
+            category=metadata.get("category"),
+            channels=metadata.get("channels") or ["IN_APP", "PUSH"],
+            manager_id=metadata.get("manager_id"),
+            is_critical=bool(metadata.get("is_critical", False)),
+        )
+        if not allowed:
+            logger.info(f"[ARQ Worker] Job {job['id']} terminally suppressed at dispatch boundary: {reason}")
+            NotificationPolicyEvaluator.record_policy_audit(
+                correlation_id=metadata.get("correlation_id") or f"job-{job['id']}",
+                notification_type=notif_type,
+                recipient_user_id=user_id,
+                company_id=company_id,
+                status="SUPPRESSED" if "SUPPRESSED" in reason else "REJECTED",
+                suppression_reason=reason,
+                channel=metadata.get("channels", ["ALL"])[0] if metadata.get("channels") else "ALL",
+                details=details,
+                is_test=bool(metadata.get("is_test", False)),
+            )
+            return False, reason
 
         # 1b. Phase 7.6 Stale-State Check for Delayed / Scheduled Reminders
         wf_id = metadata.get("workflow_id")
@@ -135,19 +169,41 @@ async def process_single_job(db, job: Dict[str, Any]) -> tuple[bool, Optional[st
                 return True, f"SKIPPED_{reason}"
 
         # 2. Fetch Active Template
-        tpl_res = (
-            db.table("notification_templates")
-            .select("title_template,body_template,channel")
-            .eq("notification_type", notif_type)
-            .eq("is_active", True)
-            .execute()
-        )
-        templates = getattr(tpl_res, "data", [])
-        if not templates:
+        template = None
+        if metadata.get("custom_title") or metadata.get("custom_body"):
+            template = {
+                "title_template": metadata.get("custom_title"),
+                "body_template": metadata.get("custom_body"),
+                "channel": "ALL",
+            }
+        elif metadata.get("pinned_template_id"):
+            try:
+                pin_res = (
+                    db.table("notification_templates")
+                    .select("id,title_template,body_template,channel")
+                    .eq("id", metadata["pinned_template_id"])
+                    .maybe_single()
+                    .execute()
+                )
+                template = getattr(pin_res, "data", None)
+            except Exception:
+                pass
+
+        if not template:
+            tpl_res = (
+                db.table("notification_templates")
+                .select("id,title_template,body_template,channel")
+                .eq("notification_type", notif_type)
+                .eq("is_active", True)
+                .execute()
+            )
+            templates = getattr(tpl_res, "data", [])
+            if templates:
+                template = random.choice(templates)
+
+        if not template:
             logger.warning(f"No active templates found for type {notif_type}")
             return False, "PERMANENT_TEMPLATE_ERROR"
-            
-        template = random.choice(templates)
         
         # 3. Enrich Recipient Profile & Personalization Context via ContextEnricher
         from utils.notifications.context_enricher import NotificationContextEnricher
@@ -355,6 +411,22 @@ async def process_single_job(db, job: Dict[str, Any]) -> tuple[bool, Optional[st
                         }).execute()
                     except Exception as d_err:
                         pass
+
+                try:
+                    db.table("notification_dispatch_audit").insert({
+                        "correlation_id": metadata.get("correlation_id") or f"job-{job['id']}",
+                        "template_id": template.get("id") if template and template.get("id") else None,
+                        "notification_type": notif_type,
+                        "channel": "ALL",
+                        "recipient_user_id": user_id,
+                        "status": "DELIVERED" if delivery_status == "SENT" else "FAILED",
+                        "rendered_title": title_str,
+                        "rendered_body": body_str,
+                        "is_test": bool(metadata.get("is_test", False)),
+                        "dispatched_by": metadata.get("dispatched_by") or user_id,
+                    }).execute()
+                except Exception as a_err:
+                    pass
 
             if eligible_email:
                 email_status = "SENT"

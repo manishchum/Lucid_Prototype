@@ -23,6 +23,8 @@ def compute_workflow_fingerprint(
     notification_type: str,
     channels: List[str],
     delivery_policy: str = "PARALLEL",
+    title_template: Optional[str] = None,
+    body_template: Optional[str] = None,
 ) -> str:
     """
     Computes a deterministic SHA-256 fingerprint representing the core operational
@@ -39,7 +41,9 @@ def compute_workflow_fingerprint(
         f"{filter_match_type.strip().upper()}|"
         f"{notification_type.strip().upper()}|"
         f"{','.join(canonical_channels)}|"
-        f"{delivery_policy.strip().upper()}"
+        f"{delivery_policy.strip().upper()}|"
+        f"{(title_template or '').strip()}|"
+        f"{(body_template or '').strip()}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -148,27 +152,34 @@ class WorkflowSimulateRequest(BaseModel):
     def parse_string_if_needed(cls, data):
         if isinstance(data, str):
             try:
-                return json.loads(data)
+                data = json.loads(data)
             except Exception:
                 pass
+        if isinstance(data, dict):
+            if "simulated_payload" in data and "sample_payload" not in data:
+                data["sample_payload"] = data["simulated_payload"]
         return data
 
 
 async def require_developer_role(user_id: str) -> None:
-    """Verifies that the requesting user has the developer or super_admin role."""
+    """Verifies that the requesting user strictly has the developer role."""
     from utils.db.permissions import check_user_permission
     try:
-        if await check_user_permission(user_id, "developer") or await check_user_permission(user_id, "super_admin"):
+        # Strictly check for developer role (level 6)
+        if await check_user_permission(user_id, "developer"):
             return
     except Exception:
         pass
 
     try:
         service_client = get_service_supabase_client()
-        role_res = service_client.table("user_roles").select("roles(name)").eq("user_id", user_id).execute()
-        roles = [r.get("roles", {}).get("name", "").lower() for r in (role_res.data or []) if r.get("roles")]
-        if "developer" in roles or "super_admin" in roles:
-            return
+        role_res = service_client.table("user_role_assignments").select("roles(name, level)").eq("user_id", user_id).execute()
+        for r in (role_res.data or []):
+            role_data = r.get("roles") or {}
+            role_name = (role_data.get("name") or "").lower()
+            role_lvl = role_data.get("level") or 0
+            if role_name == "developer" or role_lvl >= 6:
+                return
     except Exception:
         pass
 
@@ -184,7 +195,8 @@ async def list_workflows(
     trigger_lifecycle: Optional[str] = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Lists all automated notification workflows with tenant isolation."""
+    """Lists all automated notification workflows (strictly Developer role)."""
+    await require_developer_role(auth_ctx.user_id)
     try:
         db = get_service_supabase_client()
         query = db.table("notification_workflows").select("*").order("created_at", desc=True)
@@ -198,7 +210,7 @@ async def list_workflows(
         is_dev = False
         try:
             from utils.db.permissions import check_user_permission
-            is_dev = await check_user_permission(auth_ctx.user_id, "developer") or await check_user_permission(auth_ctx.user_id, "super_admin")
+            is_dev = await check_user_permission(auth_ctx.user_id, "developer")
         except Exception:
             pass
 
@@ -243,6 +255,8 @@ async def create_workflow(
             notification_type=notif_key,
             channels=request.channels,
             delivery_policy=delivery_pol,
+            title_template=request.title_template,
+            body_template=request.body_template,
         )
 
         # Conflict Detection: Warn if another active workflow uses identical trigger with matching filters
@@ -346,7 +360,8 @@ async def get_workflow(
     workflow_id: str,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
-    """Retrieves single workflow by ID."""
+    """Retrieves single workflow by ID (strictly Developer role)."""
+    await require_developer_role(auth_ctx.user_id)
     try:
         db = get_service_supabase_client()
         res = (
@@ -400,6 +415,8 @@ async def update_workflow(
         effective_notif_type = update_payload.get("notification_type") or current.get("notification_type") or ""
         effective_channels = update_payload.get("channels") or current.get("channels") or ["IN_APP", "PUSH"]
         effective_delivery_pol = update_payload.get("delivery_policy") or current.get("delivery_policy") or "PARALLEL"
+        effective_title = update_payload.get("title_template") or current.get("title_template") or ""
+        effective_body = update_payload.get("body_template") or current.get("body_template") or ""
 
         new_fingerprint = compute_workflow_fingerprint(
             trigger_lifecycle=effective_trigger,
@@ -408,6 +425,8 @@ async def update_workflow(
             notification_type=effective_notif_type,
             channels=effective_channels,
             delivery_policy=effective_delivery_pol,
+            title_template=effective_title,
+            body_template=effective_body,
         )
         update_payload["content_fingerprint"] = new_fingerprint
 
@@ -478,8 +497,9 @@ async def get_workflow_versions(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
-    Returns the immutable published version history for a workflow.
+    Returns the immutable published version history for a workflow (strictly Developer role).
     """
+    await require_developer_role(auth_ctx.user_id)
     try:
         db = get_service_supabase_client()
         res = (
@@ -613,20 +633,38 @@ async def delete_workflow(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class WorkflowStatusToggleRequest(BaseModel):
+    is_active: bool
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_if_needed(cls, data):
+        if isinstance(data, str):
+            try:
+                return json.loads(data)
+            except Exception:
+                pass
+        return data
+
+
 @router.patch("/{workflow_id}/status")
 async def toggle_workflow_status(
     workflow_id: str,
-    is_active: bool,
+    request: Optional[WorkflowStatusToggleRequest] = None,
+    is_active: Optional[bool] = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Toggles active/paused state of a workflow. Enforces Developer Role verification."""
     await require_developer_role(auth_ctx.user_id)
+    target_active = request.is_active if request is not None else is_active
+    if target_active is None:
+        raise HTTPException(status_code=422, detail="Field 'is_active' must be provided in JSON body or query param.")
     try:
         db = get_service_supabase_client()
         res = (
             db.table("notification_workflows")
             .update({
-                "is_active": is_active,
+                "is_active": target_active,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             })
             .eq("id", workflow_id)
@@ -648,9 +686,10 @@ async def simulate_workflow(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """
-    Simulates workflow execution for live preview in the Dispatch Center wizard.
+    Simulates workflow execution for live preview in the Dispatch Center wizard (strictly Developer role).
     Tests filter matching, renders title/body templates, and validates delivery policy.
     """
+    await require_developer_role(auth_ctx.user_id)
     try:
         target_user = request.user_id or str(auth_ctx.user_id)
 

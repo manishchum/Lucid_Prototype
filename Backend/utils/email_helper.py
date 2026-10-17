@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 
-from utils.supabase_client import supabase
+from utils.supabase_client import supabase_admin
 from utils.unsubscribe_token import (
     generate_token,
     MissingSecretError,
@@ -39,7 +39,7 @@ async def check_user_email_unsubscribed(email: str) -> bool:
         bool: True if user is unsubscribed, False if subscribed or not found
     """
     try:
-        result = supabase.table("users").select("email_unsubscribed").eq(
+        result = supabase_admin.table("users").select("email_unsubscribed").eq(
             "email", email.lower()
         ).execute()
         
@@ -64,7 +64,7 @@ async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
               Returns None if user not found
     """
     try:
-        result = supabase.table("users").select(
+        result = supabase_admin.table("users").select(
             "user_id, email, email_unsubscribed, company_id, name"
         ).eq("email", email.lower()).execute()
         

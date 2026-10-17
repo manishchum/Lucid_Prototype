@@ -57,16 +57,27 @@ class WhatsAppCronWorker:
 
     def is_time_due(self, scheduled_time: str) -> bool:
         """
-        Check if it's time to send (scheduled_time is in HH:MM format).
+        Check if it's time to send (scheduled_time is in HH:MM or HH:MM:SS format).
         Returns True if current UTC time >= scheduled_time.
         """
         try:
-            sched_time = datetime.strptime(scheduled_time.strip(), "%H:%M").time()
+            time_str = str(scheduled_time).strip()
+            sched_time = None
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    sched_time = datetime.strptime(time_str, fmt).time()
+                    break
+                except ValueError:
+                    pass
+            if sched_time is None:
+                logger.error(f"Invalid time format: {scheduled_time}")
+                return False
+
             from datetime import timezone
             current_time = datetime.now(timezone.utc).time()
             return current_time >= sched_time
-        except ValueError:
-            logger.error(f"Invalid time format: {scheduled_time}")
+        except Exception as e:
+            logger.error(f"Error checking time due for '{scheduled_time}': {e}")
             return False
 
     async def process_pending_messages(self):

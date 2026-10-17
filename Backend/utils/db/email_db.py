@@ -109,7 +109,11 @@ async def get_pending_one_time_emails(
             scheduled_date = str(date.today())
         
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
+            .select(
+                "scheduled_email_id, company_id, subject, body, recipient_emails, "
+                "schedule_type, scheduled_date, scheduled_time, days_of_week, sent_at"
+            )
             .eq("schedule_type", "one_time")
             .eq("status", "pending")
             .eq("is_active", True)
@@ -137,7 +141,11 @@ async def get_pending_recurring_emails(
     try:
         # Query all recurring messages that are active
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
+            .select(
+                "scheduled_email_id, company_id, subject, body, recipient_emails, "
+                "schedule_type, scheduled_date, scheduled_time, days_of_week, sent_at"
+            )
             .eq("schedule_type", "recurring")
             .eq("status", "pending")
             .eq("is_active", True)
@@ -396,7 +404,13 @@ async def get_scheduled_email_by_id(
     """
     try:
         response = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
+            .select(
+                "scheduled_email_id, company_id, subject, body, recipient_emails, "
+                "schedule_type, scheduled_date, scheduled_time, days_of_week, content_types, "
+                "is_active, status, retry_count, max_retries, last_attempt_at, last_error, "
+                "created_at, updated_at, created_by, sent_at, module_title, processed_module_id, original_module_id"
+            )
             .eq("scheduled_email_id", scheduled_email_id)
             .single()
             .execute()
@@ -423,7 +437,12 @@ async def get_scheduled_emails_by_company(
     """
     try:
         query = (
-            supabase.table("scheduled_emails")
+            supabase_admin.table("scheduled_emails")
+            .select(
+                "scheduled_email_id, company_id, subject, recipient_emails, "
+                "schedule_type, scheduled_date, scheduled_time, days_of_week, "
+                "is_active, status, retry_count, max_retries, created_at, sent_at, module_title"
+            )
             .eq("company_id", company_id)
         )
         

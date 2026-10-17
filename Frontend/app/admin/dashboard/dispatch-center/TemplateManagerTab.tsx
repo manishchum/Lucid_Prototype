@@ -145,6 +145,7 @@ export default function TemplateManagerTab() {
   const [editingTemplate, setEditingTemplate] = useState<NotificationTemplate | null>(null);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Form Fields
   const [formCategory, setFormCategory] = useState<string>('ASSESSMENT');
@@ -310,11 +311,26 @@ export default function TemplateManagerTab() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail?.message || err.detail || 'Failed to save template');
+        let errorMsg = 'Failed to save template';
+        if (err.detail) {
+          if (typeof err.detail === 'string') {
+            errorMsg = err.detail;
+          } else if (err.detail.hard_errors && Array.isArray(err.detail.hard_errors) && err.detail.hard_errors.length > 0) {
+            errorMsg = `${err.detail.message || 'Validation error'}: ${err.detail.hard_errors.join('; ')}`;
+          } else if (err.detail.message) {
+            errorMsg = err.detail.message;
+          }
+        }
+        throw new Error(errorMsg);
       }
 
       await fetchTemplates();
       setIsModalOpen(false);
+      // Reset filter so newly created/updated template is immediately visible at the top
+      setSelectedCategory('ALL');
+      setSearchQuery('');
+      setSuccessToast(`Template "${payload.template_name}" ${editingTemplate ? 'updated' : 'created'} successfully!`);
+      setTimeout(() => setSuccessToast(null), 5000);
     } catch (err: any) {
       setModalError(err.message || 'An error occurred while saving.');
     } finally {
@@ -415,6 +431,23 @@ export default function TemplateManagerTab() {
         </div>
       </div>
 
+      {/* ─── SUCCESS TOAST BANNER ─────────────────────────────────── */}
+      {successToast && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between shadow-2xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+            <span>{successToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessToast(null)}
+            className="text-emerald-600 hover:text-emerald-800 p-1 cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* ─── SEARCH & CATEGORY FILTER BAR ──────────────────────────── */}
       <div className="bg-white p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         {/* Search Input */}
@@ -505,9 +538,17 @@ export default function TemplateManagerTab() {
                       <span>{catMeta.label}</span>
                     </span>
 
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                      v{t.version || 1}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {t.created_at &&
+                        Date.now() - new Date(t.created_at).getTime() < 1000 * 60 * 60 * 24 && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-emerald-500 text-white shadow-2xs">
+                            NEW
+                          </span>
+                        )}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                        v{t.version || 1}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Title & Slug */}

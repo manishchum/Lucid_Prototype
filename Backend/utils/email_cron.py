@@ -109,9 +109,19 @@ class EmailCronWorker:
         return False
 
     def is_time_due(self, scheduled_time: str, current_time: datetime) -> bool:
-        """Checks if the scheduled UTC time HH:MM has arrived."""
+        """Checks if the scheduled UTC time HH:MM or HH:MM:SS has arrived."""
         try:
-            sched_time_obj = datetime.strptime(scheduled_time.strip(), "%H:%M").time()
+            time_str = str(scheduled_time).strip()
+            sched_time_obj = None
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    sched_time_obj = datetime.strptime(time_str, fmt).time()
+                    break
+                except ValueError:
+                    pass
+            if sched_time_obj is None:
+                logger.warning(f"[EmailCron] Invalid scheduled_time format '{scheduled_time}'")
+                return False
             return current_time.time() >= sched_time_obj
         except Exception as e:
             logger.warning(f"[EmailCron] Invalid scheduled_time format '{scheduled_time}': {e}")
