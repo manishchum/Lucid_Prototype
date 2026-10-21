@@ -23,8 +23,16 @@ _pool_lock = asyncio.Lock()
 
 def get_redis_settings() -> RedisSettings:
     """Returns RedisSettings configured from environment variables."""
+    raw_host = os.getenv("REDIS_HOST", "127.0.0.1")
+    try:
+        import socket
+        resolved_host = socket.gethostbyname(raw_host)
+    except Exception:
+        resolved_host = raw_host
+
+    import redis as py_redis
     return RedisSettings(
-        host=os.getenv("REDIS_HOST", "127.0.0.1"),
+        host=resolved_host,
         port=int(os.getenv("REDIS_PORT", "6379")),
         username=os.getenv("REDIS_USERNAME", None),
         password=os.getenv("REDIS_PASSWORD", None),
@@ -32,6 +40,8 @@ def get_redis_settings() -> RedisSettings:
         conn_retries=5,
         conn_retry_delay=1,
         retry_on_timeout=True,
+        max_connections=3,
+        retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
     )
 
 

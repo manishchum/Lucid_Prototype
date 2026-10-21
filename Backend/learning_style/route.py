@@ -410,6 +410,29 @@ Survey Responses:
                     print(f"[LearningStyle][POST] stage={stage} saved learning_style={updatePayload.get('learning_style')} gpt_analysis_len={len(str(updatePayload.get('gpt_analysis') or ''))}")
                 redis_client.delete(f"learning_style:{user_id}")
 
+                # Trigger automated notification workflow: LEARNING_STYLE_DISCOVERED
+                try:
+                    import asyncio
+                    from utils.notifications.workflow_engine import WorkflowEngine
+                    style_str = str(finalStyle or "Auditory")
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="LEARNING_STYLE_DISCOVERED",
+                            user_id=user_id,
+                            payload={
+                                "vark.primary_style": style_str,
+                                "primary_style": style_str,
+                                "vark.is_visual": "visual" in style_str.lower(),
+                                "vark.is_auditory": "auditory" in style_str.lower(),
+                                "vark.is_kinesthetic": "kinesthetic" in style_str.lower(),
+                                "vark.is_reading_writing": "read" in style_str.lower() or "write" in style_str.lower(),
+                            },
+                            company_id=getattr(auth_ctx, "company_id", None),
+                        )
+                    )
+                except Exception as wf_ls_err:
+                    print(f"[LearningStyle] WorkflowEngine trigger error: {wf_ls_err}")
+
             # Ensure response contains dominant_style
             if gptResult and isinstance(gptResult, dict):
                 gptResult["dominant_style"] = finalStyle or gptResult.get("dominant_style") or gptResult.get("learning_style") or None

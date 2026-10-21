@@ -1,6 +1,7 @@
 import json
 import hashlib
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field, model_validator
@@ -51,7 +52,7 @@ def compute_workflow_fingerprint(
 class FilterRuleModel(BaseModel):
     field: str
     operator: str = "=="
-    value: Any
+    value: Any = None
 
 
 class WorkflowCreateRequest(BaseModel):
@@ -65,11 +66,16 @@ class WorkflowCreateRequest(BaseModel):
     channels: List[str] = ["IN_APP", "PUSH"]
     delivery_policy: str = "PARALLEL"
     rule_mode: str = "THRESHOLD"
+    recipient_routing: str = "LEARNER"  # "LEARNER", "MANAGER", "BOTH"
+    audience_filter: Optional[Dict[str, Any]] = None
+    schedule_type: str = "EVENT_DRIVEN"  # "EVENT_DRIVEN" or "RECURRING"
+    schedule_config: Optional[Dict[str, Any]] = None  # {"frequency": "DAILY", "time": "09:00", "days": ["MON"]}
+    template_id: Optional[str] = None
     pinned_template_id: Optional[str] = None
     pinned_template_version_id: Optional[str] = None
     secondary_template_id: Optional[str] = None
-    title_template: str = Field(..., min_length=1)
-    body_template: str = Field(..., min_length=1)
+    title_template: Optional[str] = None
+    body_template: Optional[str] = None
     secondary_title_template: Optional[str] = None
     secondary_body_template: Optional[str] = None
     cooldown_seconds: int = 3600
@@ -98,6 +104,11 @@ class WorkflowUpdateRequest(BaseModel):
     channels: Optional[List[str]] = None
     delivery_policy: Optional[str] = None
     rule_mode: Optional[str] = None
+    recipient_routing: Optional[str] = None
+    audience_filter: Optional[Dict[str, Any]] = None
+    schedule_type: Optional[str] = None
+    schedule_config: Optional[Dict[str, Any]] = None
+    template_id: Optional[str] = None
     pinned_template_id: Optional[str] = None
     pinned_template_version_id: Optional[str] = None
     secondary_template_id: Optional[str] = None
@@ -141,6 +152,8 @@ class WorkflowSimulateRequest(BaseModel):
     filter_rules: List[FilterRuleModel] = []
     filter_match_type: str = "ALL"
     rule_mode: str = "THRESHOLD"
+    recipient_routing: Optional[str] = "LEARNER"
+    audience_filter: Optional[Dict[str, Any]] = None
     title_template: str
     body_template: str
     secondary_title_template: Optional[str] = None
@@ -219,6 +232,11 @@ async def list_workflows(
 
         res = query.execute()
         workflows = getattr(res, "data", []) or []
+        for wf in workflows:
+            aud = wf.get("audience_filter") or {}
+            sch = aud.get("schedule") or {}
+            wf["schedule_type"] = sch.get("type", "EVENT_DRIVEN")
+            wf["schedule_config"] = sch.get("config", {})
         return {
             "success": True,
             "count": len(workflows),
@@ -248,6 +266,36 @@ async def create_workflow(
         rules_as_dict = [r.dict() for r in request.filter_rules]
         delivery_pol = request.delivery_policy.strip().upper() if request.delivery_policy else "PARALLEL"
 
+        # Resolve pinned template id from pinned_template_id or template_id
+        pinned_tpl = request.pinned_template_id or request.template_id
+
+        resolved_title_tpl = (request.title_template or "").strip()
+        resolved_body_tpl = (request.body_template or "").strip()
+
+        # If title or body template were not supplied directly, auto-fetch from pinned template
+        if (not resolved_title_tpl or not resolved_body_tpl) and pinned_tpl:
+            try:
+                pt_res = (
+                    db.table("notification_templates")
+                    .select("title_template, body_template")
+                    .eq("id", pinned_tpl)
+                    .maybe_single()
+                    .execute()
+                )
+                if pt_res.data:
+                    if not resolved_title_tpl:
+                        resolved_title_tpl = pt_res.data.get("title_template") or request.title.strip()
+                    if not resolved_body_tpl:
+                        resolved_body_tpl = pt_res.data.get("body_template") or request.description or "You have a new update."
+            except Exception as pte:
+                logger.warning(f"Could not auto-fetch pinned template {pinned_tpl}: {pte}")
+
+        # Resilient fallbacks
+        if not resolved_title_tpl:
+            resolved_title_tpl = request.title.strip()
+        if not resolved_body_tpl:
+            resolved_body_tpl = request.description or "Please check your portal for complete details."
+
         fingerprint = compute_workflow_fingerprint(
             trigger_lifecycle=request.trigger_lifecycle,
             filter_rules=rules_as_dict,
@@ -255,8 +303,8 @@ async def create_workflow(
             notification_type=notif_key,
             channels=request.channels,
             delivery_policy=delivery_pol,
-            title_template=request.title_template,
-            body_template=request.body_template,
+            title_template=resolved_title_tpl,
+            body_template=resolved_body_tpl,
         )
 
         # Conflict Detection: Warn if another active workflow uses identical trigger with matching filters
@@ -290,11 +338,19 @@ async def create_workflow(
             "channels": request.channels or ["IN_APP", "PUSH"],
             "delivery_policy": delivery_pol,
             "rule_mode": request.rule_mode.strip().upper() if request.rule_mode else "THRESHOLD",
-            "pinned_template_id": request.pinned_template_id,
+            "recipient_routing": (request.recipient_routing or "LEARNER").strip().upper(),
+            "audience_filter": {
+                **(request.audience_filter or {}),
+                "schedule": {
+                    "type": request.schedule_type or "EVENT_DRIVEN",
+                    "config": request.schedule_config or {},
+                },
+            },
+            "pinned_template_id": pinned_tpl,
             "pinned_template_version_id": request.pinned_template_version_id,
             "secondary_template_id": request.secondary_template_id,
-            "title_template": request.title_template.strip(),
-            "body_template": request.body_template.strip(),
+            "title_template": resolved_title_tpl,
+            "body_template": resolved_body_tpl,
             "secondary_title_template": request.secondary_title_template.strip() if request.secondary_title_template else None,
             "secondary_body_template": request.secondary_body_template.strip() if request.secondary_body_template else None,
             "cooldown_seconds": request.cooldown_seconds,
@@ -328,6 +384,8 @@ async def create_workflow(
                     "notification_type": created_wf["notification_type"],
                     "channels": created_wf["channels"],
                     "delivery_policy": delivery_pol,
+                    "recipient_routing": created_wf.get("recipient_routing", "LEARNER"),
+                    "audience_filter": created_wf.get("audience_filter", {}),
                     "pinned_template_id": created_wf.get("pinned_template_id"),
                     "pinned_template_version_id": created_wf.get("pinned_template_version_id"),
                     "title_template": created_wf["title_template"],
@@ -408,6 +466,20 @@ async def update_workflow(
             elif v is not None:
                 update_payload[k] = v
 
+        if "template_id" in update_payload:
+            update_payload["pinned_template_id"] = update_payload.pop("template_id")
+
+        # Pack schedule into audience_filter if updated
+        if "schedule_type" in update_payload or "schedule_config" in update_payload or "audience_filter" in update_payload:
+            aud = dict(update_payload.get("audience_filter") if "audience_filter" in update_payload else (current.get("audience_filter") or {}))
+            sch = dict(aud.get("schedule") or {})
+            if "schedule_type" in update_payload:
+                sch["type"] = update_payload.pop("schedule_type")
+            if "schedule_config" in update_payload:
+                sch["config"] = update_payload.pop("schedule_config")
+            aud["schedule"] = sch
+            update_payload["audience_filter"] = aud
+
         # Compute new fingerprint
         effective_trigger = update_payload.get("trigger_lifecycle") or current.get("trigger_lifecycle")
         effective_rules = update_payload.get("filter_rules") or current.get("filter_rules") or []
@@ -463,6 +535,8 @@ async def update_workflow(
                     "notification_type": updated_wf["notification_type"],
                     "channels": updated_wf["channels"],
                     "delivery_policy": updated_wf.get("delivery_policy") or "PARALLEL",
+                    "recipient_routing": updated_wf.get("recipient_routing", "LEARNER"),
+                    "audience_filter": updated_wf.get("audience_filter", {}),
                     "pinned_template_id": updated_wf.get("pinned_template_id"),
                     "pinned_template_version_id": updated_wf.get("pinned_template_version_id"),
                     "title_template": updated_wf["title_template"],
@@ -564,6 +638,8 @@ async def rollback_workflow_version(
             "notification_type": v_data["notification_type"],
             "channels": v_data["channels"],
             "delivery_policy": v_data.get("delivery_policy") or "PARALLEL",
+            "recipient_routing": v_data.get("recipient_routing", "LEARNER"),
+            "audience_filter": v_data.get("audience_filter", {}),
             "pinned_template_id": v_data.get("pinned_template_id"),
             "pinned_template_version_id": v_data.get("pinned_template_version_id"),
             "title_template": v_data["title_template"],
@@ -591,6 +667,8 @@ async def rollback_workflow_version(
             "notification_type": v_data["notification_type"],
             "channels": v_data["channels"],
             "delivery_policy": v_data.get("delivery_policy") or "PARALLEL",
+            "recipient_routing": v_data.get("recipient_routing", "LEARNER"),
+            "audience_filter": v_data.get("audience_filter", {}),
             "pinned_template_id": v_data.get("pinned_template_id"),
             "pinned_template_version_id": v_data.get("pinned_template_version_id"),
             "title_template": v_data["title_template"],
@@ -706,6 +784,8 @@ async def simulate_workflow(
         mock_wf = {
             "filter_rules": rules_as_dict,
             "filter_match_type": request.filter_match_type,
+            "audience_filter": request.audience_filter or {},
+            "recipient_routing": request.recipient_routing or "LEARNER",
         }
 
         if rule_mode == "UNCONDITIONAL":
@@ -751,3 +831,313 @@ async def simulate_workflow(
     except Exception as e:
         logger.error(f"Workflow simulation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def resolve_audience_recipients(
+    company_id: Optional[str],
+    audience_filter: Optional[Dict[str, Any]] = None,
+    routing: str = "LEARNER",
+) -> List[Dict[str, Any]]:
+    """Resolves matching active enrolled users for audience scoping and broadcasts."""
+    db = get_service_supabase_client()
+    audience_filter = audience_filter or {}
+    depts = [d.strip().lower() for d in (audience_filter.get("departments") or []) if d]
+    roles = [r.strip().lower() for r in (audience_filter.get("roles") or []) if r]
+    routing_clean = str(routing or "LEARNER").upper()
+
+    query = (
+        db.table("users")
+        .select("user_id, name, email, position, is_active, company_id, manager_id, function(function_name)")
+        .eq("is_active", True)
+    )
+    if company_id:
+        query = query.eq("company_id", company_id)
+
+    res = query.execute()
+    users = getattr(res, "data", []) or []
+    if not users:
+        return []
+
+    # 1. Filter by Department if specified (matches against function_name or position)
+    if depts:
+        filtered = []
+        for u in users:
+            fn = ((u.get("function") or {}).get("function_name") or u.get("position") or "").lower()
+            if any(d in fn for d in depts):
+                filtered.append(u)
+        users = filtered
+
+    # 2. Filter by Role if specified or if MANAGER routing is requested
+    if roles or routing_clean == "MANAGER":
+        target_roles = roles or ["manager", "admin", "super_admin"]
+        uids = [u["user_id"] for u in users]
+        if not uids:
+            return []
+
+        try:
+            ra_res = (
+                db.table("user_role_assignments")
+                .select("user_id, is_active, roles(name)")
+                .in_("user_id", uids)
+                .eq("is_active", True)
+                .execute()
+            )
+            role_map = {}
+            for ra in getattr(ra_res, "data", []) or []:
+                uid = ra.get("user_id")
+                r_name = ((ra.get("roles") or {}).get("name") or "").lower()
+                if uid not in role_map:
+                    role_map[uid] = set()
+                role_map[uid].add(r_name)
+
+            filtered_roles = []
+            for u in users:
+                uid = u["user_id"]
+                u_roles = role_map.get(uid, set())
+                if any(tr in u_roles for tr in target_roles):
+                    filtered_roles.append(u)
+            users = filtered_roles
+        except Exception as re_err:
+            logger.warning(f"Audience role filter fallback error: {re_err}, keeping all active users")
+
+    return users
+
+
+@router.post("/{workflow_id}/preview-audience")
+@router.get("/{workflow_id}/preview-audience")
+async def preview_workflow_audience(
+    workflow_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Returns the count and sample of enrolled company users matching this workflow's audience scope.
+    Used by the developer to verify reach before executing an immediate broadcast.
+    """
+    await require_developer_role(auth_ctx.user_id)
+    try:
+        db = get_service_supabase_client()
+        wf_res = db.table("notification_workflows").select("*").eq("id", workflow_id).maybe_single().execute()
+        wf = getattr(wf_res, "data", None)
+        if not wf:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+
+        company_id = wf.get("company_id") or auth_ctx.company_id
+        audience_filter = wf.get("audience_filter") or {}
+        routing = wf.get("recipient_routing") or "LEARNER"
+
+        matching_users = await resolve_audience_recipients(
+            company_id=company_id,
+            audience_filter=audience_filter,
+            routing=routing,
+        )
+        total_count = len(matching_users)
+
+        # Render preview with sample user
+        sample_title = wf.get("title_template") or wf.get("title")
+        sample_body = wf.get("body_template") or ""
+        first_user = matching_users[0] if matching_users else None
+        first_name = (first_user.get("name") or "").split(" ")[0] if first_user else "Learner"
+        rendered_title, _ = TemplateCompiler.render(sample_title, {"subscriber.first_name": first_name, "first_name": first_name})
+        rendered_body, _ = TemplateCompiler.render(sample_body, {"subscriber.first_name": first_name, "first_name": first_name})
+
+        return {
+            "success": True,
+            "workflow_id": workflow_id,
+            "workflow_title": wf.get("title"),
+            "category": wf.get("category"),
+            "channels": wf.get("channels") or ["IN_APP", "PUSH"],
+            "total_recipients": total_count,
+            "recipient_count": total_count,
+            "count": total_count,
+            "sample_recipients": [
+                {
+                    "id": str(u.get("user_id")),
+                    "name": u.get("name") or "User",
+                    "role": u.get("position") or "Employee",
+                    "department": (u.get("function") or {}).get("function_name") or "General",
+                }
+                for u in matching_users[:12]
+            ],
+            "rendered_preview": {
+                "title": rendered_title,
+                "body": rendered_body,
+            },
+            "audience_filter": audience_filter,
+            "recipient_routing": routing,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing audience for workflow {workflow_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workflow_id}/broadcast")
+async def broadcast_workflow(
+    workflow_id: str,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Broadcasts / Sends Now this workflow immediately to all users matching its audience filter.
+    Dispatches Mobile Push and In-App Bell notifications without waiting for lifecycle triggers.
+    """
+    await require_developer_role(auth_ctx.user_id)
+    try:
+        db = get_service_supabase_client()
+        wf_res = db.table("notification_workflows").select("*").eq("id", workflow_id).maybe_single().execute()
+        wf = getattr(wf_res, "data", None)
+        if not wf:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+
+        company_id = wf.get("company_id") or auth_ctx.company_id
+        audience_filter = wf.get("audience_filter") or {}
+        routing = wf.get("recipient_routing") or "LEARNER"
+
+        matching_users = await resolve_audience_recipients(
+            company_id=company_id,
+            audience_filter=audience_filter,
+            routing=routing,
+        )
+
+        if not matching_users:
+            return {
+                "success": True,
+                "workflow_id": workflow_id,
+                "dispatched_count": 0,
+                "message": "No enrolled users matched the audience filter for this broadcast.",
+            }
+
+        trigger = wf.get("trigger_lifecycle") or "GENERAL_ANNOUNCEMENT"
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+        async def dispatch_single_recipient(u: Dict[str, Any]) -> bool:
+            target_uid = str(u.get("user_id") or "")
+            if not target_uid:
+                return False
+            first_name = (u.get("name") or "").split(" ")[0] or "there"
+            dept_name = (u.get("function") or {}).get("function_name") or u.get("position") or "General"
+            payload = {
+                "subscriber.first_name": first_name,
+                "first_name": first_name,
+                "subscriber.full_name": u.get("name") or "Learner",
+                "subscriber.department": dept_name,
+                "subscriber.role": u.get("position") or "employee",
+                "broadcast_time": now_str,
+                "system.title": wf.get("title") or "Platform Announcement",
+                "title": wf.get("title") or "Platform Announcement",
+                "system.message": wf.get("description") or "Please check your portal for complete details.",
+                "message": wf.get("description") or "Please check your portal for complete details.",
+                "system.action_url": "/employee/dashboard",
+                "action_url": "/employee/dashboard",
+                "system.timestamp": now_str,
+                "timestamp": now_str,
+            }
+            try:
+                await WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle=trigger,
+                    user_id=target_uid,
+                    payload=payload,
+                    company_id=company_id,
+                )
+                return True
+            except Exception as single_err:
+                logger.warning(f"Broadcast trigger failed for user {target_uid}: {single_err}")
+                return False
+
+        dispatch_results = await asyncio.gather(
+            *(dispatch_single_recipient(u) for u in matching_users),
+            return_exceptions=True,
+        )
+        dispatched = sum(1 for r in dispatch_results if r is True)
+
+        # Update last_triggered_at and execution_count
+        try:
+            new_exec = (wf.get("execution_count") or 0) + dispatched
+            db.table("notification_workflows").update({
+                "execution_count": new_exec,
+                "last_triggered_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", workflow_id).execute()
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "workflow_id": workflow_id,
+            "workflow_title": wf.get("title"),
+            "dispatched_count": dispatched,
+            "channels": wf.get("channels") or ["IN_APP", "PUSH"],
+            "message": f"Successfully broadcasted to {dispatched} recipients via Push & In-App Bell.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Broadcast error for workflow {workflow_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CustomHookTriggerRequest(BaseModel):
+    hook_key: str
+    target_user_id: Optional[str] = None
+    broadcast_to_audience: bool = False
+    custom_payload: Dict[str, Any] = {}
+
+
+@router.post("/trigger-hook")
+async def trigger_custom_developer_hook(
+    request: CustomHookTriggerRequest,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """
+    Developer API to trigger any registered developer hook (e.g. APP_UPDATE_NOTICE, SYSTEM_ALERT, DEV_HEALTH_CHECK, DEV_CUSTOM_EVENT_1..5).
+    Rejects arbitrary unsupported triggers to maintain system integrity.
+    """
+    await require_developer_role(auth_ctx.user_id)
+    from utils.notifications.registry_contracts import SYSTEM_EVENT_PRESET_MAP
+    clean_hook = request.hook_key.strip().upper()
+    if clean_hook not in SYSTEM_EVENT_PRESET_MAP and not clean_hook.startswith("DEV_"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Trigger hook '{clean_hook}' is not recognized or supported by the notification system. Please select a registered hook.",
+        )
+
+    db = get_service_supabase_client()
+    company_id = auth_ctx.company_id
+
+    if request.broadcast_to_audience:
+        active_wfs = (
+            db.table("notification_workflows")
+            .select("*")
+            .eq("trigger_lifecycle", clean_hook)
+            .eq("is_active", True)
+            .execute()
+        )
+        wfs = getattr(active_wfs, "data", []) or []
+        if not wfs:
+            return {
+                "success": True,
+                "dispatched_count": 0,
+                "message": f"No active workflows found listening for hook '{clean_hook}'.",
+            }
+
+        primary_wf = wfs[0]
+        return await broadcast_workflow(primary_wf["id"], auth_ctx)
+    else:
+        target_uid = request.target_user_id or str(auth_ctx.user_id)
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        merged_payload = {
+            "system.timestamp": now_str,
+            "timestamp": now_str,
+            **request.custom_payload,
+        }
+        await WorkflowEngine.trigger_lifecycle(
+            trigger_lifecycle=clean_hook,
+            user_id=target_uid,
+            payload=merged_payload,
+            company_id=company_id,
+        )
+        return {
+            "success": True,
+            "hook_key": clean_hook,
+            "target_user_id": target_uid,
+            "message": f"Successfully fired hook '{clean_hook}' for user {target_uid}.",
+        }

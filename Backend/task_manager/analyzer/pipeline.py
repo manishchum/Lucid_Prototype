@@ -681,6 +681,49 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 delete_cache_pattern(f"user_tasks:*{sub_user_id}*")
                 from routes.employee_dashboard import invalidate_dashboard_l1_cache
                 invalidate_dashboard_l1_cache(str(sub_user_id))
+
+                # Trigger automated notification workflow: TASK_EVALUATED
+                try:
+                    from utils.notifications.workflow_engine import WorkflowEngine
+                    import asyncio
+                    eval_payload = {
+                        "submission_id": submission_id,
+                        "task_id": target_task_id,
+                        "task.task_title": task.get("title", "Workplace Task"),
+                        "task_title": task.get("title", "Workplace Task"),
+                        "task.task_status": "evaluated",
+                        "task.ai_validation_pass": ai_validation_pass,
+                        "assessment.passed": ai_validation_pass,
+                        "assessment.score": overall_score,
+                        "score": overall_score,
+                        "task.feedback_summary": reason,
+                        "assessment.feedback_summary": reason,
+                    }
+                    try:
+                        cur_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        cur_loop = None
+
+                    if cur_loop and cur_loop.is_running():
+                        cur_loop.create_task(
+                            WorkflowEngine.trigger_lifecycle(
+                                trigger_lifecycle="TASK_EVALUATED",
+                                user_id=sub_user_id,
+                                payload=eval_payload,
+                                company_id=company_id,
+                            )
+                        )
+                    else:
+                        asyncio.run(
+                            WorkflowEngine.trigger_lifecycle(
+                                trigger_lifecycle="TASK_EVALUATED",
+                                user_id=sub_user_id,
+                                payload=eval_payload,
+                                company_id=company_id,
+                            )
+                        )
+                except Exception as eval_wf_err:
+                    print(f"[AI Background] WorkflowEngine TASK_EVALUATED trigger warning: {eval_wf_err}")
         except Exception as cache_err:
             print(f"[AI Background] Cache invalidation warning: {cache_err}")
         

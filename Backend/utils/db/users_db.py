@@ -52,6 +52,21 @@ async def record_login_in_db(user_id: str) -> Dict[str, Any]:
             "login_count": new_count,
             "updated_at": now_iso
         }).eq("user_id", user_id).execute()
+
+        # Lifecycle Trigger: User Onboarding (First Login)
+        if new_count == 1:
+            try:
+                import asyncio
+                from utils.notifications.workflow_engine import WorkflowEngine
+                asyncio.create_task(
+                    WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="USER_WELCOME",
+                        user_id=user_id,
+                        payload={"login_count": 1, "is_first_login": True},
+                    )
+                )
+            except Exception as wfe:
+                print(f"[record_login_in_db] Failed to trigger USER_WELCOME workflow: {wfe}")
         
         return {"data": {"last_login": now_iso, "login_count": new_count}, "error": None}
     except Exception as e:

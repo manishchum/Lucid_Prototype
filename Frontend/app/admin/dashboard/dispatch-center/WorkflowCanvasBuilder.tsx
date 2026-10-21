@@ -17,14 +17,32 @@ import {
   GitBranch,
   Send,
   Users,
+  UserCheck,
+  Building2,
   Moon,
   Gauge,
   ShieldCheck,
   Eye,
   Settings,
   Sparkles,
+  Search,
+  Filter,
+  Tag,
+  Mail,
+  MessageSquare,
+  Bell,
+  BookOpen,
+  GraduationCap,
+  Flame,
+  Radio,
+  FileText,
+  Award,
+  Layers,
+  Compass,
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
+import { PREDEFINED_CATEGORIES } from './TemplateManagerTab';
+import { PREDEFINED_SYSTEM_TRIGGERS, PredefinedTrigger, SMART_RULE_RECIPES } from './WorkflowLinearBuilder';
 import {
   NotificationWorkflow,
   LIFECYCLE_TRIGGERS,
@@ -104,13 +122,25 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
   const [quietEnd, setQuietEnd] = useState('08:00');
   const [fatigueMaxPerDay, setFatigueMaxPerDay] = useState(3);
   const [audienceSegment, setAudienceSegment] = useState<'ALL_ACTIVE' | 'TRIAL_USERS' | 'ENTERPRISE_TEAMS' | 'CHURN_RISK'>('ALL_ACTIVE');
+  const [recipientRouting, setRecipientRouting] = useState<'LEARNER' | 'BOTH' | 'MANAGER'>(
+    workflow?.recipient_routing || 'LEARNER'
+  );
+  const [audienceFilter, setAudienceFilter] = useState<{
+    departments?: string[];
+    roles?: string[];
+    module_ids?: string[];
+  }>(workflow?.audience_filter || {});
 
   // ─── GUIDED 3-STEP SETUP WIZARD STATE (SCREEN 2) ─────────────────────────
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [wizardName, setWizardName] = useState(wTitle);
   const [wizardTrigger, setWizardTrigger] = useState(wTrigger);
+  const [wizardCategory, setWizardCategory] = useState<string>('ALL');
+  const [wizardSearch, setWizardSearch] = useState<string>('');
   const [wizardThreshold, setWizardThreshold] = useState('70');
+  const [wizardOffsetValue, setWizardOffsetValue] = useState<number>(24);
+  const [wizardOffsetUnit, setWizardOffsetUnit] = useState<'HOURS' | 'DAYS'>('HOURS');
   const [wizardChannels, setWizardChannels] = useState<string[]>(['PUSH', 'IN_APP']);
   const [wizardTemplateId, setWizardTemplateId] = useState('');
 
@@ -409,6 +439,8 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
         category: wCategory,
         filter_rules: flatRules.map((r) => ({ field: r.field, operator: r.operator, value: r.value })),
         filter_match_type: condNode?.conditionMatch || 'ALL',
+        recipient_routing: recipientRouting,
+        audience_filter: audienceFilter,
         notification_type: 'ADAPTIVE_' + wTrigger,
         channels: sampleAction?.channels || ['IN_APP', 'PUSH'],
         delivery_policy: wDeliveryPolicy,
@@ -454,69 +486,128 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
 
   // ─── COMPILE GUIDED WIZARD INTO VISUAL TREE (SCREEN 2) ───────────────────
   const handleCompileWizard = () => {
-    setWTitle(wizardName || 'Adaptive Remediation Workflow');
+    setWTitle(wizardName || 'Automated Lifecycle Workflow');
     setWTrigger(wizardTrigger);
 
     const chosenTpl = availableTemplates.find((t) => t.id === wizardTemplateId) || availableTemplates[0];
+    const trigDef = PREDEFINED_SYSTEM_TRIGGERS.find((t) => t.key === wizardTrigger);
+    if (trigDef?.category) {
+      setWCategory(trigDef.category);
+    }
+    const isZeroRule = trigDef?.ruleArchetype === 'ZERO_RULE';
+    const isTimeOffset = trigDef?.ruleArchetype === 'TIME_OFFSET';
 
-    const generatedSteps: WorkflowStep[] = [
-      {
-        id: 'step-trigger',
-        type: 'TRIGGER',
-        title: LIFECYCLE_TRIGGERS.find((t) => t.key === wizardTrigger)?.label || 'Assessment Submitted',
-        subtitle: 'Fires instantly upon matching lifecycle event in learning platform',
-        triggerKey: wizardTrigger,
-      },
-      {
-        id: 'step-condition',
-        type: 'CONDITION',
-        title: `Score Evaluation (< ${wizardThreshold}%)`,
-        subtitle: `Evaluates if learner scored below passing threshold (< ${wizardThreshold}%)`,
-        conditionMatch: 'ALL',
-        rules: [{ id: 'rule-1', field: 'score', operator: '<', value: wizardThreshold }],
-        trueBranch: [
-          {
-            id: 'step-action-remedial',
-            type: 'ACTION',
-            title: chosenTpl ? chosenTpl.name : 'Adaptive Remediation Nudge',
-            subtitle: 'Dispatches targeted review recommendation & unlocks practice micro-drill',
-            templateId: chosenTpl?.id || 'tpl-adaptive-remediation',
-            templateName: chosenTpl?.name || 'Adaptive Remediation Review',
-            channels: wizardChannels,
-            titleTemplate: chosenTpl?.title_template || '💪 Let’s strengthen {{module_name}}',
-            bodyTemplate:
-              chosenTpl?.body_template ||
-              'Hi {{first_name}}, you scored {{score}}% on {{module_name}}. Review your tailored refresher drill!',
-            templateVersion: 1,
-            templateStatus: 'PUBLISHED',
-          },
-          {
-            id: 'step-delay-remedial',
-            type: 'DELAY',
-            title: 'Learner Cooldown Wait (2 Hours)',
-            subtitle: 'Suppresses repeated alerts to respect attention & quiet hours',
-            cooldownSeconds: 7200,
-            respectQuietHours: true,
-          },
-        ],
-        falseBranch: [
-          {
-            id: 'step-action-passed',
-            type: 'ACTION',
-            title: 'Quiz Passed Celebration',
-            subtitle: 'Recognizes mastery and unlocks the next module track in the syllabus',
-            templateId: 'tpl-quiz-passed',
-            templateName: 'Quiz Passed Milestone',
-            channels: wizardChannels,
-            titleTemplate: '🎉 Fantastic job on {{module_name}}!',
-            bodyTemplate:
-              'Congratulations {{first_name}}! You passed with {{score}}% and earned +150 XP toward your weekly goal.',
-            templateVersion: 1,
-            templateStatus: 'PUBLISHED',
-          },
-        ],
-      },
-    ];
+    let generatedSteps: WorkflowStep[];
+
+    if (isZeroRule) {
+      generatedSteps = [
+        {
+          id: 'step-trigger',
+          type: 'TRIGGER',
+          title: trigDef?.label || 'Direct Lifecycle Trigger',
+          subtitle: 'Fires instantly on platform lifecycle event without filter conditions',
+          triggerKey: wizardTrigger,
+        },
+        {
+          id: 'step-action',
+          type: 'ACTION',
+          title: chosenTpl ? chosenTpl.name : 'Lifecycle Notification',
+          subtitle: 'Dispatches targeted message to learner via active push/in-app channels',
+          templateId: chosenTpl?.id,
+          templateName: chosenTpl?.name,
+          channels: wizardChannels,
+          titleTemplate: chosenTpl?.title_template || 'Notification for {{subscriber.first_name}}',
+          bodyTemplate: chosenTpl?.body_template || 'Hello {{subscriber.first_name}}, an update is available.',
+          templateVersion: 1,
+          templateStatus: 'PUBLISHED',
+        },
+      ];
+    } else if (isTimeOffset) {
+      generatedSteps = [
+        {
+          id: 'step-trigger',
+          type: 'TRIGGER',
+          title: trigDef?.label || 'Deadline Lifecycle Trigger',
+          subtitle: `Monitors deadline with relative window offset (${wizardOffsetValue} ${wizardOffsetUnit.toLowerCase()})`,
+          triggerKey: wizardTrigger,
+        },
+        {
+          id: 'step-delay',
+          type: 'DELAY',
+          title: `${wizardOffsetValue} ${wizardOffsetUnit.toLowerCase()} Before Deadline`,
+          subtitle: 'Timed schedule evaluated automatically by ARQ background worker',
+          cooldownSeconds: wizardOffsetUnit === 'DAYS' ? wizardOffsetValue * 86400 : wizardOffsetValue * 3600,
+          respectQuietHours: true,
+        },
+        {
+          id: 'step-action',
+          type: 'ACTION',
+          title: chosenTpl ? chosenTpl.name : 'Deadline Notification',
+          subtitle: 'Dispatches proactive reminder before deadline expires',
+          templateId: chosenTpl?.id,
+          templateName: chosenTpl?.name,
+          channels: wizardChannels,
+          titleTemplate: chosenTpl?.title_template || '⏰ Reminder: {{curriculum.module_name}} is due soon',
+          bodyTemplate:
+            chosenTpl?.body_template ||
+            'Hi {{subscriber.first_name}}, this is a friendly reminder that {{curriculum.module_name}} is due on {{curriculum.due_date}}.',
+          templateVersion: 1,
+          templateStatus: 'PUBLISHED',
+        },
+      ];
+    } else {
+      // THRESHOLD
+      generatedSteps = [
+        {
+          id: 'step-trigger',
+          type: 'TRIGGER',
+          title: trigDef?.label || 'Evaluation Trigger',
+          subtitle: 'Fires upon event completion and checks threshold evaluation',
+          triggerKey: wizardTrigger,
+        },
+        {
+          id: 'step-condition',
+          type: 'CONDITION',
+          title: `Score Evaluation (< ${wizardThreshold}%)`,
+          subtitle: `Evaluates if score is below threshold (< ${wizardThreshold}%)`,
+          conditionMatch: 'ALL',
+          rules: [{ id: 'rule-1', field: 'score', operator: '<', value: wizardThreshold }],
+          trueBranch: [
+            {
+              id: 'step-action-remedial',
+              type: 'ACTION',
+              title: chosenTpl ? chosenTpl.name : 'Adaptive Remediation Nudge',
+              subtitle: 'Dispatches targeted review recommendation & unlocks practice micro-drill',
+              templateId: chosenTpl?.id || 'tpl-adaptive-remediation',
+              templateName: chosenTpl?.name || 'Adaptive Remediation Review',
+              channels: wizardChannels,
+              titleTemplate: chosenTpl?.title_template || '💪 Let’s strengthen {{curriculum.module_name}}',
+              bodyTemplate:
+                chosenTpl?.body_template ||
+                'Hi {{subscriber.first_name}}, you scored {{assessment.score}}% on {{curriculum.module_name}}. Review your tailored refresher drill!',
+              templateVersion: 1,
+              templateStatus: 'PUBLISHED',
+            },
+          ],
+          falseBranch: [
+            {
+              id: 'step-action-passed',
+              type: 'ACTION',
+              title: 'Mastery Passed Celebration',
+              subtitle: 'Recognizes achievement and unlocks next track',
+              templateId: 'tpl-passed',
+              templateName: 'Passed Celebration',
+              channels: wizardChannels,
+              titleTemplate: '🎉 Fantastic job on {{curriculum.module_name}}!',
+              bodyTemplate:
+                'Congratulations {{subscriber.first_name}}! You passed and earned points toward your weekly goal.',
+              templateVersion: 1,
+              templateStatus: 'PUBLISHED',
+            },
+          ],
+        },
+      ];
+    }
 
     setSteps(generatedSteps);
     setIsWizardOpen(false);
@@ -1154,28 +1245,45 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
                         Delivery Channels
                       </label>
                       <div className="grid grid-cols-2 gap-2">
-                        {['PUSH', 'IN_APP', 'EMAIL', 'WHATSAPP'].map((ch) => {
-                          const active = (selectedStep.channels || []).includes(ch);
+                        {[
+                          { id: 'IN_APP', label: 'In-App Bell', available: true },
+                          { id: 'PUSH', label: 'Mobile Push', available: true },
+                          { id: 'EMAIL', label: 'Email Digest', available: false },
+                          { id: 'WHATSAPP', label: 'WhatsApp', available: false },
+                        ].map((ch) => {
+                          const active = (selectedStep.channels || []).includes(ch.id);
                           return (
                             <button
-                              key={ch}
+                              key={ch.id}
                               type="button"
+                              disabled={!ch.available}
                               onClick={() => {
+                                if (!ch.available) return;
                                 const nextCh = active
-                                  ? (selectedStep.channels || []).filter((c) => c !== ch)
-                                  : [...(selectedStep.channels || []), ch];
+                                  ? (selectedStep.channels || []).filter((c) => c !== ch.id)
+                                  : [...(selectedStep.channels || []), ch.id];
+                                if (nextCh.length === 0) return;
                                 setSteps((prev) =>
                                   updateStepById(prev, selectedStep.id, (s) => ({ ...s, channels: nextCh }))
                                 );
                                 setHasUnsavedChanges(true);
                               }}
-                              className={`p-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between ${
-                                active
-                                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs'
-                                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                              className={`p-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-between ${
+                                !ch.available
+                                  ? 'bg-slate-50/70 border-slate-200/80 opacity-60 cursor-not-allowed text-slate-400'
+                                  : active
+                                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs cursor-pointer'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer'
                               }`}
                             >
-                              <span>{ch}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span>{ch.label}</span>
+                                {!ch.available && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                    Coming Soon
+                                  </span>
+                                )}
+                              </div>
                               {active && <Check size={13} className="text-indigo-600" />}
                             </button>
                           );
@@ -1209,7 +1317,7 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
 
                 {/* 3. CONDITION RULES INSPECTOR */}
                 {selectedStep.type === 'CONDITION' && (
-                  <div className="space-y-3 pt-1">
+                  <div className="space-y-4 pt-1">
                     <div className="flex items-center justify-between">
                       <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                         Evaluation Rules
@@ -1225,18 +1333,78 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
                         }}
                         className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-800 text-[11px] font-bold"
                       >
-                        <option value="ALL">Match ALL</option>
-                        <option value="ANY">Match ANY</option>
+                        <option value="ALL">Match ALL Rules</option>
+                        <option value="ANY">Match ANY Rule</option>
                       </select>
                     </div>
 
+                    {/* 1-Click Smart Rule Recipes */}
+                    {SMART_RULE_RECIPES[wTrigger] && SMART_RULE_RECIPES[wTrigger].length > 0 && (
+                      <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 space-y-1.5">
+                        <div className="text-[10px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1">
+                          <Sparkles size={11} className="text-amber-600" />
+                          <span>1-Click Smart Recipes for {wTrigger}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {SMART_RULE_RECIPES[wTrigger].map((recipe, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                const newRule: CanvasRuleItem = {
+                                  id: `rule-${Date.now()}-${idx}`,
+                                  field: recipe.field,
+                                  operator: recipe.operator,
+                                  value: recipe.value,
+                                };
+                                setSteps((prev) =>
+                                  updateStepById(prev, selectedStep.id, (s) => ({
+                                    ...s,
+                                    rules: [...(s.rules || []), newRule],
+                                  }))
+                                );
+                                setHasUnsavedChanges(true);
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-white border border-amber-300 text-amber-900 text-[10px] font-semibold hover:bg-amber-100 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              title={recipe.hint}
+                            >
+                              <Plus size={9} className="text-amber-600" />
+                              <span>{recipe.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="space-y-2.5">
-                      {selectedStep.rules?.map((rule) => (
+                      {selectedStep.rules?.map((rule, rIdx) => (
                         <div
                           key={rule.id}
                           className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono font-bold text-slate-400">RULE #{rIdx + 1}</span>
+                            {(selectedStep.rules?.length || 0) > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSteps((prev) =>
+                                    updateStepById(prev, selectedStep.id, (s) => ({
+                                      ...s,
+                                      rules: s.rules?.filter((r) => r.id !== rule.id),
+                                    }))
+                                  );
+                                  setHasUnsavedChanges(true);
+                                }}
+                                className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors cursor-pointer"
+                                title="Remove rule"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="space-y-1.5">
                             <select
                               value={rule.field}
                               onChange={(e) => {
@@ -1249,55 +1417,156 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
                                 );
                                 setHasUnsavedChanges(true);
                               }}
-                              className="flex-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs"
+                              className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-medium"
                             >
                               {AVAILABLE_FIELDS.map((f) => (
                                 <option key={f.value} value={f.value}>
-                                  {f.label}
+                                  {f.label} ({f.value})
                                 </option>
                               ))}
                             </select>
 
-                            <select
-                              value={rule.operator}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setSteps((prev) =>
-                                  updateStepById(prev, selectedStep.id, (s) => ({
-                                    ...s,
-                                    rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, operator: val } : r)),
-                                  }))
-                                );
-                                setHasUnsavedChanges(true);
-                              }}
-                              className="w-16 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-indigo-600 font-mono text-xs font-bold"
-                            >
-                              <option value="<">&lt;</option>
-                              <option value="<=">&le;</option>
-                              <option value="==">==</option>
-                              <option value="!=">!=</option>
-                              <option value=">=">&ge;</option>
-                              <option value=">">&gt;</option>
-                            </select>
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                value={rule.operator}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setSteps((prev) =>
+                                    updateStepById(prev, selectedStep.id, (s) => ({
+                                      ...s,
+                                      rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, operator: val } : r)),
+                                    }))
+                                  );
+                                  setHasUnsavedChanges(true);
+                                }}
+                                className="w-1/2 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-indigo-600 font-mono text-[11px] font-bold"
+                              >
+                                <option value="<">&lt; Less than</option>
+                                <option value="<=">&le; Less or equal</option>
+                                <option value="==">== Equals</option>
+                                <option value="!=">!= Not equals</option>
+                                <option value=">=">&ge; Greater or equal</option>
+                                <option value=">">&gt; Greater than</option>
+                                <option value="between">Between [min,max]</option>
+                                <option value="is_true">Is True</option>
+                                <option value="is_false">Is False</option>
+                                <option value="in">In List</option>
+                                <option value="not_in">Not In List</option>
+                                <option value="contains">Contains</option>
+                                <option value="not_contains">Does Not Contain</option>
+                                <option value="within_days">Within Days</option>
+                                <option value="overdue_by_days">Overdue by Days</option>
+                              </select>
 
-                            <input
-                              type="text"
-                              value={rule.value}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setSteps((prev) =>
-                                  updateStepById(prev, selectedStep.id, (s) => ({
-                                    ...s,
-                                    rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, value: val } : r)),
-                                  }))
-                                );
-                                setHasUnsavedChanges(true);
-                              }}
-                              className="w-16 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-mono font-semibold"
-                            />
+                              {/* Typed Value Input */}
+                              {rule.operator === 'is_true' || rule.operator === 'is_false' ? (
+                                <div className="w-1/2 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold text-center">
+                                  Boolean Check
+                                </div>
+                              ) : rule.field === 'vark.primary_style' ? (
+                                <select
+                                  value={rule.value || 'Visual'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSteps((prev) =>
+                                      updateStepById(prev, selectedStep.id, (s) => ({
+                                        ...s,
+                                        rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, value: val } : r)),
+                                      }))
+                                    );
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-semibold"
+                                >
+                                  <option value="Visual">Visual</option>
+                                  <option value="Auditory">Auditory</option>
+                                  <option value="Kinesthetic">Kinesthetic</option>
+                                  <option value="Reading/Writing">Reading/Writing</option>
+                                </select>
+                              ) : rule.field === 'subscriber.role' ? (
+                                <select
+                                  value={rule.value || 'employee'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSteps((prev) =>
+                                      updateStepById(prev, selectedStep.id, (s) => ({
+                                        ...s,
+                                        rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, value: val } : r)),
+                                      }))
+                                    );
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-semibold"
+                                >
+                                  <option value="employee">Employee</option>
+                                  <option value="learner">Learner</option>
+                                  <option value="manager">Manager</option>
+                                  <option value="team_lead">Team Lead</option>
+                                  <option value="admin">Admin</option>
+                                </select>
+                              ) : rule.field === 'assessment.passed' || rule.field === 'curriculum.is_overdue' ? (
+                                <select
+                                  value={String(rule.value ?? 'true')}
+                                  onChange={(e) => {
+                                    const val = e.target.value === 'true';
+                                    setSteps((prev) =>
+                                      updateStepById(prev, selectedStep.id, (s) => ({
+                                        ...s,
+                                        rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, value: val } : r)),
+                                      }))
+                                    );
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-semibold"
+                                >
+                                  <option value="true">True</option>
+                                  <option value="false">False</option>
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={rule.value ?? ''}
+                                  placeholder={rule.operator === 'between' ? 'min,max (e.g. 50,75)' : 'Value'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSteps((prev) =>
+                                      updateStepById(prev, selectedStep.id, (s) => ({
+                                        ...s,
+                                        rules: s.rules?.map((r) => (r.id === rule.id ? { ...r, value: val } : r)),
+                                      }))
+                                    );
+                                    setHasUnsavedChanges(true);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-900 text-xs font-mono font-semibold"
+                                />
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newRule: CanvasRuleItem = {
+                            id: `rule-${Date.now()}`,
+                            field: 'score',
+                            operator: '<',
+                            value: '70',
+                          };
+                          setSteps((prev) =>
+                            updateStepById(prev, selectedStep.id, (s) => ({
+                              ...s,
+                              rules: [...(s.rules || []), newRule],
+                            }))
+                          );
+                          setHasUnsavedChanges(true);
+                        }}
+                        className="w-full py-2 rounded-xl border border-dashed border-slate-300 text-slate-600 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50/40 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus size={13} />
+                        <span>Add Condition Rule</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1421,28 +1690,135 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Card 1: Audience & Enrollment */}
+            {/* Card 1: Recipient Routing & Escalation */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
               <div className="flex items-center gap-2">
-                <Users size={16} className="text-indigo-600" />
-                <h3 className="text-sm font-bold text-slate-900">Audience & Enrollment Criteria</h3>
+                <UserCheck size={16} className="text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900">Recipient Routing & Escalation</h3>
               </div>
               <p className="text-xs text-slate-500">
-                Defines which learners can be enrolled when lifecycle trigger events occur.
+                Choose whether this workflow targets the learner, CCs their direct manager, or routes strictly as a manager escalation.
               </p>
-              <select
-                value={audienceSegment}
-                onChange={(e) => setAudienceSegment(e.target.value as any)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs font-semibold"
-              >
-                <option value="ALL_ACTIVE">All Active Learners</option>
-                <option value="TRIAL_USERS">Trial & Onboarding Users</option>
-                <option value="ENTERPRISE_TEAMS">Enterprise & Corporate Teams</option>
-                <option value="CHURN_RISK">At-Risk Learners (Streak &lt; 2)</option>
-              </select>
+              <div className="grid grid-cols-1 gap-2 pt-1">
+                {[
+                  { key: 'LEARNER', label: 'Learner Only', desc: 'Direct delivery to assigned learner' },
+                  { key: 'BOTH', label: 'Learner + CC Manager', desc: 'Alerts learner & CCs their manager with [Escalation] notice' },
+                  { key: 'MANAGER', label: 'Manager Escalation Only', desc: 'Direct alert to manager/lead for remediation intervention' },
+                ].map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => {
+                      setRecipientRouting(r.key as any);
+                      setHasUnsavedChanges(true);
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      recipientRouting === r.key
+                        ? 'bg-blue-50/80 border-blue-400 text-blue-900 shadow-2xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="text-xs font-bold flex items-center justify-between">
+                      <span>{r.label}</span>
+                      {recipientRouting === r.key && <Check size={13} className="text-blue-600" />}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{r.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Card 2: Fatigue & Frequency Capping */}
+            {/* Card 2: Department & Role Audience Scoping */}
+            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 size={16} className="text-purple-600" />
+                  <h3 className="text-sm font-bold text-slate-900">Audience Scoping</h3>
+                </div>
+                {((audienceFilter.departments && audienceFilter.departments.length > 0) ||
+                  (audienceFilter.roles && audienceFilter.roles.length > 0)) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAudienceFilter({});
+                      setHasUnsavedChanges(true);
+                    }}
+                    className="text-[10px] font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
+                  >
+                    Clear (Target All)
+                  </button>
+                ) : (
+                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    All Learners
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500">
+                Scope workflow triggers to specific departments or roles. Empty means all enrolled users.
+              </p>
+
+              <div className="space-y-1.5 pt-1">
+                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Departments:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['Sales', 'Engineering', 'Customer Success', 'Product', 'Operations', 'Marketing', 'HR', 'Finance'].map((dept) => {
+                    const isSelected = (audienceFilter.departments || []).includes(dept);
+                    return (
+                      <button
+                        key={dept}
+                        type="button"
+                        onClick={() => {
+                          const currentDepts = audienceFilter.departments || [];
+                          const updated = isSelected
+                            ? currentDepts.filter((d) => d !== dept)
+                            : [...currentDepts, dept];
+                          setAudienceFilter({ ...audienceFilter, departments: updated });
+                          setHasUnsavedChanges(true);
+                        }}
+                        className={`px-2 py-1 rounded-md text-[10px] font-semibold border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-purple-600 border-purple-600 text-white shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {dept}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-1.5 pt-1">
+                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Roles:</div>
+                <div className="flex flex-wrap gap-1">
+                  {['employee', 'learner', 'manager', 'team_lead', 'admin'].map((role) => {
+                    const isSelected = (audienceFilter.roles || []).includes(role);
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => {
+                          const currentRoles = audienceFilter.roles || [];
+                          const updated = isSelected
+                            ? currentRoles.filter((r) => r !== role)
+                            : [...currentRoles, role];
+                          setAudienceFilter({ ...audienceFilter, roles: updated });
+                          setHasUnsavedChanges(true);
+                        }}
+                        className={`px-2 py-1 rounded-md text-[10px] font-semibold border transition-all cursor-pointer capitalize ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {role.replace('_', ' ')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Fatigue & Frequency Capping */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
               <div className="flex items-center gap-2">
                 <Gauge size={16} className="text-amber-600" />
@@ -1465,7 +1841,7 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
               />
             </div>
 
-            {/* Card 3: Quiet Hours & Local Timezone */}
+            {/* Card 4: Quiet Hours & Local Timezone */}
             <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
               <div className="flex items-center gap-2">
                 <Moon size={16} className="text-purple-600" />
@@ -1496,8 +1872,8 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
               </div>
             </div>
 
-            {/* Card 4: Queue Precedence & Delivery Mode */}
-            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3">
+            {/* Card 5: Queue Precedence & Delivery Mode */}
+            <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-3 md:col-span-2">
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-emerald-600" />
                 <h3 className="text-sm font-bold text-slate-900">Queue Precedence & Delivery Mode</h3>
@@ -1505,7 +1881,7 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
               <p className="text-xs text-slate-500">
                 Controls Redis dispatch queue priority and channel fallback policies.
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {(['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const).map((p) => (
                   <button
                     key={p}
@@ -1574,65 +1950,114 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
                     type="text"
                     value={wizardName}
                     onChange={(e) => setWizardName(e.target.value)}
-                    placeholder="e.g. Adaptive Weak-Spot Remediation"
+                    placeholder="e.g. Learner First-Login Welcome"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs font-semibold focus:bg-white focus:border-indigo-500 outline-none"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Event Trigger Selection</label>
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {[
-                      {
-                        key: 'ASSESSMENT_SUBMITTED',
-                        title: 'Quiz & Assessment Completed',
-                        desc: 'Fires instantly when a learner submits any quiz, exam, or drill',
-                        payload: 'score, user_id, module_name',
-                        icon: Zap,
-                        badgeColor: 'bg-amber-50 text-amber-600 border-amber-200',
-                      },
-                      {
-                        key: 'LEARNER_INACTIVE_3D',
-                        title: 'Learner Inactivity (3 Days)',
-                        desc: 'Fires when a learner has not practiced or logged in for 72 hours',
-                        payload: 'days_inactive, user_id, streak_days',
-                        icon: Clock,
-                        badgeColor: 'bg-indigo-50 text-indigo-600 border-indigo-200',
-                      },
-                      {
-                        key: 'COURSE_MILESTONE_PASSED',
-                        title: 'Course Milestone Passed',
-                        desc: 'Fires when a learner masters a full sprint track or level',
-                        payload: 'module_name, user_id, earned_xp',
-                        icon: CheckCircle2,
-                        badgeColor: 'bg-emerald-50 text-emerald-600 border-emerald-200',
-                      },
-                    ].map((t) => {
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                      Event Trigger Selection
+                    </label>
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      25 System Triggers
+                    </span>
+                  </div>
+
+                  {/* Filter and Search Bar */}
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={wizardSearch}
+                        onChange={(e) => setWizardSearch(e.target.value)}
+                        placeholder="Search triggers by name or keyword..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-indigo-500 outline-none font-medium"
+                      />
+                    </div>
+                    <select
+                      value={wizardCategory}
+                      onChange={(e) => setWizardCategory(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 outline-none cursor-pointer"
+                    >
+                      <option value="ALL">All Categories</option>
+                      {PREDEFINED_CATEGORIES.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Triggers List */}
+                  <div className="grid grid-cols-1 gap-2 max-h-72 overflow-y-auto pr-1">
+                    {PREDEFINED_SYSTEM_TRIGGERS.filter((t) => {
+                      const matchCat = wizardCategory === 'ALL' || t.category === wizardCategory;
+                      const q = wizardSearch.toLowerCase().trim();
+                      const matchSearch =
+                        !q ||
+                        t.label.toLowerCase().includes(q) ||
+                        t.key.toLowerCase().includes(q) ||
+                        t.description.toLowerCase().includes(q);
+                      return matchCat && matchSearch;
+                    }).map((t) => {
                       const isSel = wizardTrigger === t.key;
-                      const Icon = t.icon;
+                      const Icon = t.icon || Zap;
                       return (
                         <div
                           key={t.key}
-                          onClick={() => setWizardTrigger(t.key)}
-                          className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                          onClick={() => {
+                            setWizardTrigger(t.key);
+                            setWCategory(t.category);
+                          }}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
                             isSel
                               ? 'bg-indigo-50/50 border-indigo-600 ring-2 ring-indigo-500/15 shadow-2xs'
                               : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          <div className={`p-2 rounded-xl border ${t.badgeColor} shrink-0 mt-0.5`}>
+                          <div
+                            className={`p-2 rounded-lg border shrink-0 mt-0.5 ${
+                              isSel
+                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}
+                          >
                             <Icon size={14} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
-                              <h4 className="text-xs font-bold text-slate-900">{t.title}</h4>
-                              <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${isSel ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'}`}>
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-bold text-slate-900">{t.label}</h4>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    t.ruleArchetype === 'ZERO_RULE'
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : t.ruleArchetype === 'TIME_OFFSET'
+                                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                      : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                  }`}
+                                >
+                                  {t.ruleArchetype === 'ZERO_RULE'
+                                    ? 'Zero-Rule'
+                                    : t.ruleArchetype === 'TIME_OFFSET'
+                                    ? 'Time Offset'
+                                    : 'Threshold'}
+                                </span>
+                              </div>
+                              <div
+                                className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                  isSel ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'
+                                }`}
+                              >
                                 {isSel && <Check size={10} />}
                               </div>
                             </div>
-                            <p className="text-[11px] text-slate-500 mt-0.5">{t.desc}</p>
-                            <span className="inline-block mt-2 font-mono text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
-                              Payload: {t.payload}
+                            <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{t.description}</p>
+                            <span className="inline-block mt-1 font-mono text-[9px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                              Hook: {t.key}
                             </span>
                           </div>
                         </div>
@@ -1661,60 +2086,119 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
             )}
 
             {/* Step 2: Evaluation Rules */}
-            {wizardStep === 2 && (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900">Define Evaluation Threshold</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">Splits the workflow path into Remediation vs Passed celebration branches</p>
-                </div>
+            {wizardStep === 2 && (() => {
+              const activeTrig = PREDEFINED_SYSTEM_TRIGGERS.find((t) => t.key === wizardTrigger);
+              const archetype = activeTrig?.ruleArchetype || 'ZERO_RULE';
 
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs font-mono font-bold text-slate-700">learner.score</span>
-                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">&lt;</span>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={wizardThreshold}
-                        onChange={(e) => setWizardThreshold(e.target.value)}
-                        className="w-16 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-900 font-mono text-center outline-none focus:border-indigo-500"
-                      />
-                      <span className="text-xs font-bold text-slate-500">%</span>
-                    </div>
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">
+                      {archetype === 'ZERO_RULE'
+                        ? 'Zero-Rule Direct Activation'
+                        : archetype === 'TIME_OFFSET'
+                        ? 'Deadline Schedule Offset'
+                        : 'Evaluation Metric Threshold'}
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {archetype === 'ZERO_RULE'
+                        ? 'Executes directly on lifecycle hook invocation without condition rules.'
+                        : archetype === 'TIME_OFFSET'
+                        ? 'Configures relative timing window before deadline expiry.'
+                        : 'Sets pass/fail score criteria or performance metric condition.'}
+                    </p>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200/80 space-y-1 text-[11px] text-slate-600">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span><strong>IF TRUE (&lt; {wizardThreshold}%):</strong> Routes to Adaptive Remediation Nudge</span>
+                  {archetype === 'ZERO_RULE' && (
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                        <Zap size={15} className="text-emerald-600" />
+                        <span>Direct Lifecycle Hook Activation</span>
+                      </div>
+                      <p className="text-xs text-emerald-700 leading-relaxed">
+                        Workflows for <strong>{activeTrig?.label || wizardTrigger}</strong> fire automatically whenever the platform hook is executed. No programmer pseudo-code or manual boolean filters required.
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-slate-400" />
-                      <span><strong>IF FALSE (&ge; {wizardThreshold}%):</strong> Routes to Quiz Passed Celebration Milestone</span>
+                  )}
+
+                  {archetype === 'TIME_OFFSET' && (
+                    <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                        <Clock size={15} className="text-amber-600" />
+                        <span>Relative Time Window Offset</span>
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-xs font-semibold text-slate-700">Dispatch reminder</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="72"
+                          value={wizardOffsetValue}
+                          onChange={(e) => setWizardOffsetValue(Number(e.target.value) || 24)}
+                          className="w-16 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-900 text-center"
+                        />
+                        <select
+                          value={wizardOffsetUnit}
+                          onChange={(e) => setWizardOffsetUnit(e.target.value as 'HOURS' | 'DAYS')}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-800"
+                        >
+                          <option value="HOURS">Hours Before Deadline</option>
+                          <option value="DAYS">Days Before Deadline</option>
+                        </select>
+                      </div>
                     </div>
+                  )}
+
+                  {archetype === 'THRESHOLD' && (
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-mono font-bold text-slate-700">learner.score</span>
+                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg">&lt;</span>
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={wizardThreshold}
+                            onChange={(e) => setWizardThreshold(e.target.value)}
+                            className="w-16 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-900 font-mono text-center outline-none focus:border-indigo-500"
+                          />
+                          <span className="text-xs font-bold text-slate-500">%</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-200/80 space-y-1 text-[11px] text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span><strong>IF TRUE (&lt; {wizardThreshold}%):</strong> Routes to Remediation Nudge</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-slate-400" />
+                          <span><strong>IF FALSE (&ge; {wizardThreshold}%):</strong> Routes to Passed Celebration</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setWizardStep(1)}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      ← Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWizardStep(3)}
+                      className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-all cursor-pointer"
+                    >
+                      Next: Actions & Channels →
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setWizardStep(1)}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                  >
-                    ← Back
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWizardStep(3)}
-                    className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-all cursor-pointer"
-                  >
-                    Next: Actions & Channels →
-                  </button>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Step 3: Template & Channels */}
             {wizardStep === 3 && (
@@ -1737,24 +2221,44 @@ export function WorkflowCanvasBuilder({ workflow, onClose, onSaved }: WorkflowCa
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Delivery Channels</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {['PUSH', 'IN_APP', 'EMAIL', 'WHATSAPP'].map((ch) => {
-                      const active = wizardChannels.includes(ch);
+                    {[
+                      { id: 'IN_APP', label: 'In-App Bell', available: true },
+                      { id: 'PUSH', label: 'Mobile Push', available: true },
+                      { id: 'EMAIL', label: 'Email Digest', available: false },
+                      { id: 'WHATSAPP', label: 'WhatsApp', available: false },
+                    ].map((ch) => {
+                      const active = wizardChannels.includes(ch.id);
                       return (
                         <button
-                          key={ch}
+                          key={ch.id}
                           type="button"
+                          disabled={!ch.available}
                           onClick={() => {
-                            setWizardChannels((prev) =>
-                              active ? prev.filter((c) => c !== ch) : [...prev, ch]
-                            );
+                            if (!ch.available) return;
+                            setWizardChannels((prev) => {
+                              if (active) {
+                                if (prev.length === 1) return prev;
+                                return prev.filter((c) => c !== ch.id);
+                              }
+                              return [...prev, ch.id];
+                            });
                           }}
-                          className={`p-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-between ${
-                            active
-                              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs'
-                              : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          className={`p-2.5 rounded-xl text-xs font-bold border transition-all flex items-center justify-between ${
+                            !ch.available
+                              ? 'bg-slate-50/70 border-slate-200/80 opacity-60 cursor-not-allowed text-slate-400'
+                              : active
+                              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs cursor-pointer'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100 cursor-pointer'
                           }`}
                         >
-                          <span>{ch}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span>{ch.label}</span>
+                            {!ch.available && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                Coming Soon
+                              </span>
+                            )}
+                          </div>
                           {active && <Check size={13} className="text-indigo-600" />}
                         </button>
                       );

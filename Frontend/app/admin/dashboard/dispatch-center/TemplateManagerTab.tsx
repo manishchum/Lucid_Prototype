@@ -28,6 +28,7 @@ import {
   Compass,
   Radio,
   FileText,
+  Megaphone,
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { useAuth } from '@/contexts/auth-context';
@@ -53,17 +54,32 @@ export interface NotificationTemplate {
 }
 
 export const PREDEFINED_CATEGORIES = [
-  { id: 'ASSESSMENT', label: 'Assessment & Quizzes', icon: GraduationCap, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
-  { id: 'CURRICULUM', label: 'Curriculum & Deadlines', icon: BookOpen, color: 'text-blue-600 bg-blue-50 border-blue-200' },
-  { id: 'GAMIFICATION', label: 'Gamification & Streaks', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200' },
-  { id: 'TASKS', label: 'Workplace Tasks', icon: Layers, color: 'text-purple-600 bg-purple-50 border-purple-200' },
-  { id: 'ONBOARDING', label: 'Onboarding & Activation', icon: Users, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-  { id: 'CONTENT', label: 'Personalized Audio & Media', icon: Radio, color: 'text-pink-600 bg-pink-50 border-pink-200' },
-  { id: 'ENGAGEMENT', label: 'Re-engagement & Nudges', icon: Compass, color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
-  { id: 'SYSTEM', label: 'Company Announcements', icon: Bell, color: 'text-slate-600 bg-slate-100 border-slate-200' },
+  { id: 'ANNOUNCEMENTS_INFO', label: 'Announcements & Info', icon: Megaphone, color: 'text-sky-600 bg-sky-50 border-sky-200' },
+  { id: 'ONBOARDING', label: 'User Onboarding', icon: Users, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+  { id: 'SPRINT_ASSIGNMENT', label: 'Sprint Assignment', icon: BookOpen, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+  { id: 'QUIZZES', label: 'Quizzes', icon: GraduationCap, color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+  { id: 'GAMIFICATION', label: 'Gamification Arena', icon: Flame, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  { id: 'DEADLINES', label: 'Deadlines', icon: Bell, color: 'text-rose-600 bg-rose-50 border-rose-200' },
+  { id: 'TASKS', label: 'Tasks', icon: Layers, color: 'text-purple-600 bg-purple-50 border-purple-200' },
+  { id: 'RE_ENGAGEMENT', label: 'Re-engagement Nudges', icon: Compass, color: 'text-cyan-600 bg-cyan-50 border-cyan-200' },
+  { id: 'ROLEPLAY', label: 'Roleplay', icon: Award, color: 'text-violet-600 bg-violet-50 border-violet-200' },
+  { id: 'CONTENT_LIBRARY', label: 'Content Library', icon: Radio, color: 'text-pink-600 bg-pink-50 border-pink-200' },
+  { id: 'REPORTS', label: 'Reports', icon: FileText, color: 'text-slate-600 bg-slate-100 border-slate-200' },
 ];
 
 export const SMART_TAG_NAMESPACES = [
+  {
+    namespace: 'system',
+    label: 'System & Announcement',
+    tags: [
+      { key: 'system.title', label: 'Announcement Title', sample: 'Company All-Hands Scheduled' },
+      { key: 'system.message', label: 'Message Text', sample: 'Please join us today at 3 PM for our quarterly update.' },
+      { key: 'system.version', label: 'App Version', sample: 'v2.4.0' },
+      { key: 'system.action_url', label: 'Action Deep Link', sample: '/employee/dashboard' },
+      { key: 'system.timestamp', label: 'Dispatch Timestamp', sample: 'Today at 3:00 PM' },
+      { key: 'custom.event_payload', label: 'Custom Hook Payload', sample: '{"status": "active"}' },
+    ],
+  },
   {
     namespace: 'subscriber',
     label: 'Learner Identity',
@@ -82,6 +98,7 @@ export const SMART_TAG_NAMESPACES = [
     tags: [
       { key: 'assessment.score', label: 'Score (%)', sample: '68%' },
       { key: 'assessment.passing_score', label: 'Passing Score', sample: '70%' },
+      { key: 'assessment.confidence_score', label: 'Confidence Score (%)', sample: '85%' },
       { key: 'assessment.weak_topic', label: 'Weak Spot Topic', sample: 'Prompt Engineering' },
       { key: 'assessment.remediation_module', label: 'Remediation Module', sample: 'Advanced Prompting Micro-Drill' },
       { key: 'assessment.feedback_summary', label: 'AI Feedback Summary', sample: 'Strong conceptual grasp, needs practice on temperature tuning.' },
@@ -106,8 +123,10 @@ export const SMART_TAG_NAMESPACES = [
     tags: [
       { key: 'gamification.streak_days', label: 'Streak Days', sample: '5' },
       { key: 'gamification.xp_points', label: 'XP Points Earned', sample: '250' },
+      { key: 'gamification.earned_xp', label: 'Earned XP', sample: '100 XP' },
       { key: 'gamification.leaderboard_rank', label: 'Leaderboard Rank', sample: '3' },
       { key: 'gamification.rival_name', label: 'Rival Competitor', sample: 'Jordan Hayes' },
+      { key: 'gamification.points_to_next_rank', label: 'Points to Next Rank', sample: '45 XP' },
       { key: 'gamification.badge_name', label: 'Unlocked Badge', sample: 'Lightning Fast' },
       { key: 'gamification.streak_expiring_hours', label: 'Hours to Streak Expiry', sample: '4' },
     ],
@@ -120,6 +139,14 @@ export const SMART_TAG_NAMESPACES = [
       { key: 'task.due_date', label: 'Task Deadline', sample: 'Tomorrow at 5 PM' },
       { key: 'task.feedback_summary', label: 'Task Review Summary', sample: 'Clear stakeholder mapping.' },
       { key: 'task.task_status', label: 'Status', sample: 'Pending Review' },
+    ],
+  },
+  {
+    namespace: 'content',
+    label: 'Content Library & Reports',
+    tags: [
+      { key: 'recommendations.content_name', label: 'Content Item Name', sample: 'Prompt Engineering Field Guide' },
+      { key: 'recommendations.content_type', label: 'Content Type', sample: 'Audio Drill' },
     ],
   },
   {
@@ -148,7 +175,7 @@ export default function TemplateManagerTab() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
   // Form Fields
-  const [formCategory, setFormCategory] = useState<string>('ASSESSMENT');
+  const [formCategory, setFormCategory] = useState<string>('ANNOUNCEMENTS_INFO');
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState('');
   const [formTitle, setFormTitle] = useState('');
@@ -199,7 +226,7 @@ export default function TemplateManagerTab() {
   // Open Create Modal
   const handleOpenCreate = () => {
     setEditingTemplate(null);
-    setFormCategory('ASSESSMENT');
+    setFormCategory('ANNOUNCEMENTS_INFO');
     setFormName('');
     setFormType('');
     setFormTitle('');
@@ -214,7 +241,7 @@ export default function TemplateManagerTab() {
   // Open Edit Modal
   const handleOpenEdit = (t: NotificationTemplate) => {
     setEditingTemplate(t);
-    setFormCategory(t.category || 'ASSESSMENT');
+    setFormCategory(t.category || 'ANNOUNCEMENTS_INFO');
     setFormName(t.template_name || t.notification_type || '');
     setFormType(t.notification_type || '');
     setFormTitle(t.title_template || '');
@@ -292,6 +319,8 @@ export default function TemplateManagerTab() {
       cta_url: formCtaUrl.trim() || null,
       fallback_defaults: {
         'subscriber.first_name': formFallbackName.trim() || 'Learner',
+        'system.title': 'Important Announcement',
+        'system.message': 'Please check your dashboard for details.',
       },
       status: 'PUBLISHED',
       is_active: true,
@@ -363,6 +392,13 @@ export default function TemplateManagerTab() {
     .replace(/\{\{subscriber\.first_name\}\}/g, loggedInFirstName)
     .replace(/\{\{subscriber\.full_name\}\}/g, loggedInFullName)
     .replace(/\{\{subscriber\.company_name\}\}/g, loggedInCompany)
+    .replace(/\{\{system\.title\}\}/g, 'Quarterly Product & Learning All-Hands')
+    .replace(/\{\{system\.message\}\}/g, 'Please join us today at 3:00 PM for our live roadmap update.')
+    .replace(/\{\{system\.version\}\}/g, 'v2.4.0')
+    .replace(/\{\{system\.action_url\}\}/g, '/employee/dashboard')
+    .replace(/\{\{system\.timestamp\}\}/g, 'Today at 3:00 PM')
+    .replace(/\{\{custom\.event_payload\}\}/g, '{"status": "active"}')
+    .replace(/\{\{recommendations\.content_name\}\}/g, 'Prompt Engineering Field Guide')
     .replace(/\{\{assessment\.score\}\}/g, '68%')
     .replace(/\{\{assessment\.weak_topic\}\}/g, 'Prompt Engineering')
     .replace(/\{\{curriculum\.module_name\}\}/g, 'Sprint 2: Async Workflows')
@@ -374,6 +410,13 @@ export default function TemplateManagerTab() {
     .replace(/\{\{subscriber\.first_name\}\}/g, loggedInFirstName)
     .replace(/\{\{subscriber\.full_name\}\}/g, loggedInFullName)
     .replace(/\{\{subscriber\.company_name\}\}/g, loggedInCompany)
+    .replace(/\{\{system\.title\}\}/g, 'Quarterly Product & Learning All-Hands')
+    .replace(/\{\{system\.message\}\}/g, 'Please join us today at 3:00 PM for our live roadmap update.')
+    .replace(/\{\{system\.version\}\}/g, 'v2.4.0')
+    .replace(/\{\{system\.action_url\}\}/g, '/employee/dashboard')
+    .replace(/\{\{system\.timestamp\}\}/g, 'Today at 3:00 PM')
+    .replace(/\{\{custom\.event_payload\}\}/g, '{"status": "active"}')
+    .replace(/\{\{recommendations\.content_name\}\}/g, 'Prompt Engineering Field Guide')
     .replace(/\{\{assessment\.score\}\}/g, '68%')
     .replace(/\{\{assessment\.weak_topic\}\}/g, 'Prompt Engineering')
     .replace(/\{\{curriculum\.module_name\}\}/g, 'Sprint 2: Async Workflows')

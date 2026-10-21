@@ -21,10 +21,18 @@ logger = logging.getLogger("lucid.arq_worker")
 # -----------------------------------------------------------------------------
 # Redis Configuration for ARQ
 # -----------------------------------------------------------------------------
-redis_host = os.getenv("REDIS_HOST", "localhost")
+raw_redis_host = os.getenv("REDIS_HOST", "localhost")
+try:
+    import socket
+    redis_host = socket.gethostbyname(raw_redis_host)
+except Exception:
+    redis_host = raw_redis_host
+
 redis_port = int(os.getenv("REDIS_PORT", "6379"))
 redis_username = os.getenv("REDIS_USERNAME", None)
 redis_password = os.getenv("REDIS_PASSWORD", None)
+
+import redis as py_redis
 
 redis_settings = RedisSettings(
     host=redis_host,
@@ -35,6 +43,8 @@ redis_settings = RedisSettings(
     conn_retries=5,
     conn_retry_delay=1,
     retry_on_timeout=True,
+    max_connections=5,
+    retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
 )
 
 # -----------------------------------------------------------------------------
@@ -99,7 +109,7 @@ async def poll_notification_jobs(ctx: Dict[str, Any]) -> None:
     """
     try:
         db = get_service_supabase_client()
-        res = db.rpc("get_and_lock_notification_jobs", {"p_limit": 50}).execute()
+        res = await asyncio.to_thread(db.rpc("get_and_lock_notification_jobs", {"p_limit": 50}).execute)
         
         jobs = getattr(res, "data", [])
         if not jobs:
@@ -485,46 +495,242 @@ async def process_single_job(db, job: Dict[str, Any]) -> tuple[bool, Optional[st
 async def scan_workflow_schedules(ctx):
     """
     Periodic Background Cron Scanner for time-based workflow triggers:
-    - DAILY_STREAK_CHECK: Finds learners with active streaks who have not practiced today.
-    Uses keyset/range pagination to evaluate all eligible learners up to 1,000 per run.
+    1. DAILY_STREAK_RESCUE / DAILY_STREAK_CHECK: Finds learners with active streaks who have not practiced today.
+    2. INACTIVITY_NUDGE_3D: Evaluates learners with no activity in >= 3 days.
+    3. MODULE_DUE_REMINDER: Evaluates upcoming sprint deadlines within next 24-48 hours.
+    4. TASK_DUE_REMINDER: Evaluates upcoming workplace task deadlines.
     """
-    logger.info("[ARQ Worker] Running scheduled workflow scan...")
+    logger.info("[ARQ Worker] Running scheduled workflow scan for time-based triggers...")
     try:
+        from datetime import timedelta
         from utils.notifications.workflow_engine import WorkflowEngine
         db = get_service_supabase_client()
+        now = datetime.now(timezone.utc)
 
-        # 1. Check if any workflows are listening for DAILY_STREAK_CHECK
-        streak_wfs = WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_CHECK")
+        # 1. Daily Streak Rescue & Check
+        streak_wfs = (
+            WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_RESCUE")
+            or WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_CHECK")
+        )
         if streak_wfs:
-            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            batch_size = 100
-            offset = 0
-            max_eval = 1000
-
-            while offset < max_eval:
+            today_str = now.strftime("%Y-%m-%d")
+            try:
                 res = (
                     db.table("user_gamification_profiles")
                     .select("user_id,company_id,current_streak_days,last_activity_date")
                     .gt("current_streak_days", 0)
                     .neq("last_activity_date", today_str)
-                    .range(offset, offset + batch_size - 1)
+                    .limit(500)
                     .execute()
                 )
                 users = getattr(res, "data", []) or []
-                if not users:
-                    break
-
                 for u in users:
+                    payload = {
+                        "streak_days": u.get("current_streak_days", 1),
+                        "gamification.streak_days": u.get("current_streak_days", 1),
+                        "gamification.streak_expiring_hours": 4,
+                    }
+                    await WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="DAILY_STREAK_RESCUE",
+                        user_id=u["user_id"],
+                        payload=payload,
+                        company_id=u.get("company_id"),
+                    )
                     await WorkflowEngine.trigger_lifecycle(
                         trigger_lifecycle="DAILY_STREAK_CHECK",
                         user_id=u["user_id"],
-                        payload={"streak_days": u["current_streak_days"]},
+                        payload=payload,
                         company_id=u.get("company_id"),
                     )
+            except Exception as streak_err:
+                logger.error(f"[ARQ Worker] Error scanning daily streak rescue: {streak_err}")
 
-                if len(users) < batch_size:
-                    break
-                offset += batch_size
+        # 2. Inactivity Nudges (3 Days)
+        inactivity_wfs = WorkflowEngine.get_cached_workflows_for_trigger("INACTIVITY_NUDGE_3D")
+        if inactivity_wfs:
+            cutoff_3d = (now - timedelta(days=3)).strftime("%Y-%m-%d")
+            try:
+                res = (
+                    db.table("user_gamification_profiles")
+                    .select("user_id,company_id,last_activity_date")
+                    .lte("last_activity_date", cutoff_3d)
+                    .limit(500)
+                    .execute()
+                )
+                inactive_users = getattr(res, "data", []) or []
+                for u in inactive_users:
+                    await WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="INACTIVITY_NUDGE_3D",
+                        user_id=u["user_id"],
+                        payload={"days_inactive": 3, "subscriber.days_inactive": 3},
+                        company_id=u.get("company_id"),
+                    )
+            except Exception as inact_err:
+                logger.error(f"[ARQ Worker] Error scanning inactivity nudges: {inact_err}")
+
+        # 3. Module & Sprint Due Reminders (upcoming within 48h)
+        due_wfs = WorkflowEngine.get_cached_workflows_for_trigger("MODULE_DUE_REMINDER")
+        if due_wfs:
+            window_start = now.isoformat()
+            window_end = (now + timedelta(days=2)).isoformat()
+            try:
+                res = (
+                    db.table("learning_plans")
+                    .select("user_id,company_id,learning_plan_id,due_date,status")
+                    .gte("due_date", window_start)
+                    .lte("due_date", window_end)
+                    .neq("status", "COMPLETED")
+                    .limit(500)
+                    .execute()
+                )
+                due_plans = getattr(res, "data", []) or []
+                for p in due_plans:
+                    await WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="MODULE_DUE_REMINDER",
+                        user_id=p["user_id"],
+                        payload={
+                            "curriculum.due_date": p.get("due_date"),
+                            "due_date": p.get("due_date"),
+                            "plan_id": p.get("learning_plan_id"),
+                        },
+                        company_id=p.get("company_id"),
+                    )
+            except Exception as due_err:
+                logger.error(f"[ARQ Worker] Error scanning module due reminders: {due_err}")
+
+        # 4. Task Due Reminders (upcoming within 48h)
+        task_due_wfs = WorkflowEngine.get_cached_workflows_for_trigger("TASK_DUE_REMINDER")
+        if task_due_wfs:
+            window_start = now.isoformat()
+            window_end = (now + timedelta(days=2)).isoformat()
+            try:
+                res = (
+                    db.table("task_assignments")
+                    .select("user_id,company_id,task_id,due_date,status")
+                    .gte("due_date", window_start)
+                    .lte("due_date", window_end)
+                    .neq("status", "completed")
+                    .limit(500)
+                    .execute()
+                )
+                due_tasks = getattr(res, "data", []) or []
+                for t in due_tasks:
+                    await WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="TASK_DUE_REMINDER",
+                        user_id=t["user_id"],
+                        payload={
+                            "task.due_date": t.get("due_date"),
+                            "due_date": t.get("due_date"),
+                            "task_id": t.get("task_id"),
+                        },
+                        company_id=t.get("company_id"),
+                    )
+            except Exception as task_err:
+                logger.error(f"[ARQ Worker] Error scanning task due reminders: {task_err}")
+
+        # 5. Scheduled Recurring Workflows (Daily, Weekly at developer-specified time)
+        try:
+            rec_res = (
+                db.table("notification_workflows")
+                .select("*")
+                .eq("is_active", True)
+                .execute()
+            )
+            all_active = getattr(rec_res, "data", []) or []
+
+            for wf in all_active:
+                aud = wf.get("audience_filter") or {}
+                sch = aud.get("schedule") or {}
+                if sch.get("type") != "RECURRING":
+                    continue
+
+                cfg = sch.get("config") or {}
+                frequency = (cfg.get("frequency") or "DAILY").upper()
+                scheduled_time = cfg.get("time") or "09:00"
+                scheduled_days = [d.upper()[:3] for d in (cfg.get("days") or ["MON", "TUE", "WED", "THU", "FRI"])]
+
+                # Resolve target timezone (supports IANA name like Asia/Kolkata, or defaults to server local/IST)
+                tz = None
+                tz_name = cfg.get("timezone")
+                if tz_name:
+                    try:
+                        import zoneinfo
+                        tz = zoneinfo.ZoneInfo(tz_name)
+                    except Exception:
+                        pass
+                if not tz:
+                    try:
+                        tz = datetime.now().astimezone().tzinfo
+                    except Exception:
+                        tz = timezone.utc
+
+                now_local = now.astimezone(tz)
+                current_day_str = now_local.strftime("%a").upper()  # "MON", "TUE", etc.
+
+                day_matches = True
+                if frequency == "WEEKLY":
+                    day_matches = current_day_str in scheduled_days
+
+                last_trig = wf.get("last_triggered_at")
+                already_fired_today = False
+                if last_trig:
+                    try:
+                        last_dt = datetime.fromisoformat(last_trig.replace("Z", "+00:00")).astimezone(tz)
+                        if last_dt.strftime("%Y-%m-%d") == now_local.strftime("%Y-%m-%d"):
+                            already_fired_today = True
+                    except Exception:
+                        pass
+
+                if day_matches and not already_fired_today:
+                    try:
+                        sched_hour, sched_min = map(int, scheduled_time.split(":"))
+                        if now_local.hour > sched_hour or (now_local.hour == sched_hour and now_local.minute >= sched_min):
+                            logger.info(f"[ARQ Worker] Firing scheduled recurring workflow '{wf.get('title')}' ({wf.get('id')}) for scheduled time {scheduled_time} (current {now_local.strftime('%H:%M %Z')})")
+                            from routes.notification_workflows import resolve_audience_recipients
+                            target_users = await resolve_audience_recipients(
+                                company_id=wf.get("company_id"),
+                                audience_filter=aud,
+                                routing=wf.get("recipient_routing") or "LEARNER",
+                            )
+
+                            now_str = now_local.strftime("%Y-%m-%d %H:%M %Z")
+                            for u in target_users:
+                                target_uid = str(u.get("user_id") or u.get("id") or "")
+                                if not target_uid:
+                                    continue
+                                first_name = (u.get("name") or "").split(" ")[0] or "there"
+                                dept_name = (u.get("function") or {}).get("function_name") or u.get("position") or "General"
+                                role_name = u.get("position") or "employee"
+                                await WorkflowEngine.trigger_lifecycle(
+                                    trigger_lifecycle=wf.get("trigger_lifecycle") or "GENERAL_ANNOUNCEMENT",
+                                    user_id=target_uid,
+                                    payload={
+                                        "subscriber.first_name": first_name,
+                                        "first_name": first_name,
+                                        "subscriber.full_name": u.get("name") or "Learner",
+                                        "subscriber.department": dept_name,
+                                        "subscriber.role": role_name,
+                                        "system.title": wf.get("title") or "Scheduled Announcement",
+                                        "title": wf.get("title") or "Scheduled Announcement",
+                                        "system.message": wf.get("description") or "Please check your portal for details.",
+                                        "message": wf.get("description") or "Please check your portal for details.",
+                                        "system.action_url": "/employee/dashboard",
+                                        "action_url": "/employee/dashboard",
+                                        "system.timestamp": now_str,
+                                        "timestamp": now_str,
+                                    },
+                                    company_id=wf.get("company_id"),
+                                )
+
+                            db.table("notification_workflows").update({
+                                "last_triggered_at": now.isoformat(),
+                                "execution_count": (wf.get("execution_count") or 0) + len(target_users),
+                            }).eq("id", wf["id"]).execute()
+                    except Exception as time_eval_err:
+                        logger.warning(f"[ARQ Worker] Error evaluating schedule time for wf {wf.get('id')}: {time_eval_err}")
+
+        except Exception as rec_scan_err:
+            logger.error(f"[ARQ Worker] Error scanning recurring workflows: {rec_scan_err}")
 
     except Exception as e:
         logger.error(f"[ARQ Worker] Error during scheduled workflow scan: {e}")
@@ -574,8 +780,8 @@ class WorkerSettings:
         # 3. Scheduled WhatsApp dispatch polling (every 2m)
         cron(run_whatsapp_cron, minute=set(range(0, 60, 2))),
 
-        # 4. Daily streak & gamification workflow triggers (every 30m)
-        cron(scan_workflow_schedules, minute={0, 30}),
+        # 4. Daily streak, gamification & scheduled workflow triggers (every 1m at second 0)
+        cron(scan_workflow_schedules, second=0),
 
         # 5. Precompute company leaderboards into Redis ZSETs (hourly)
         cron(run_leaderboard_refresh, minute={0}),

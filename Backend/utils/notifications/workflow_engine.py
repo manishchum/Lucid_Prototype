@@ -79,7 +79,7 @@ class WorkflowEngine:
     def evaluate_rule(cls, rule: Dict[str, Any], context: Dict[str, Any]) -> bool:
         """
         Evaluates a single filter rule against the enriched context.
-        Rule structure: {"field": "assessment.score", "operator": "<", "value": "70"}
+        Supports typed comparisons: numbers, booleans, enums, lists, ranges (between), and relative dates.
         """
         field_raw = str(rule.get("field") or "").strip()
         op = str(rule.get("operator") or "==").strip().lower()
@@ -94,6 +94,12 @@ class WorkflowEngine:
             actual = context.get(field_raw)
         if actual is None and "." in canonical_field:
             actual = context.get(canonical_field.split(".")[-1])
+
+        # Boolean unary checks do not require actual to be non-None
+        if op in ["is_true", "is true", "true"]:
+            return bool(actual is True or str(actual).strip().lower() in ["true", "1", "yes"])
+        if op in ["is_false", "is false", "false"]:
+            return bool(actual is False or str(actual).strip().lower() in ["false", "0", "no"])
 
         if actual is None:
             return False
@@ -113,11 +119,24 @@ class WorkflowEngine:
             elif op in ["!=", "<>", "not equal", "is not"]:
                 return b_actual != b_expected
 
+        # Range / Between comparison
+        if op in ["between", "range"]:
+            try:
+                num_actual = float(actual)
+                if isinstance(expected, (list, tuple)) and len(expected) >= 2:
+                    return float(expected[0]) <= num_actual <= float(expected[1])
+                elif isinstance(expected, str) and ("," in expected or "-" in expected):
+                    sep = "," if "," in expected else "-"
+                    parts = expected.split(sep)
+                    return float(parts[0].strip()) <= num_actual <= float(parts[1].strip())
+            except Exception:
+                pass
+
         # Normalize numeric comparisons if applicable
         try:
             if not is_actual_bool and (
                 isinstance(expected, (int, float))
-                or (isinstance(expected, str) and expected.replace(".", "", 1).isdigit())
+                or (isinstance(expected, str) and expected.replace(".", "", 1).replace("-", "", 1).isdigit())
             ):
                 num_actual = float(actual)
                 num_expected = float(expected)
@@ -136,6 +155,31 @@ class WorkflowEngine:
         except Exception:
             pass
 
+        # Relative days comparison (for deadlines / schedules)
+        if op in ["within_days", "within days"]:
+            try:
+                days_limit = float(expected)
+                # If actual is already days_left number
+                if isinstance(actual, (int, float)) or (isinstance(actual, str) and actual.isdigit()):
+                    return 0 <= float(actual) <= days_limit
+                # If actual is ISO timestamp
+                dt_actual = datetime.fromisoformat(str(actual).replace("Z", "+00:00"))
+                diff_days = (dt_actual - datetime.now(timezone.utc)).total_seconds() / 86400.0
+                return 0 <= diff_days <= days_limit
+            except Exception:
+                pass
+
+        if op in ["overdue_by_days", "overdue by days"]:
+            try:
+                days_limit = float(expected)
+                if isinstance(actual, (int, float)) or (isinstance(actual, str) and actual.isdigit()):
+                    return float(actual) < 0 and abs(float(actual)) >= days_limit
+                dt_actual = datetime.fromisoformat(str(actual).replace("Z", "+00:00"))
+                diff_days = (datetime.now(timezone.utc) - dt_actual).total_seconds() / 86400.0
+                return diff_days >= days_limit
+            except Exception:
+                pass
+
         # String / Enum comparisons
         if op in ["==", "=", "equals", "is"]:
             return str_actual == str_expected
@@ -143,14 +187,18 @@ class WorkflowEngine:
             return str_actual != str_expected
         elif op in ["contains", "has"]:
             return str_expected in str_actual
+        elif op in ["not_contains", "not contains"]:
+            return str_expected not in str_actual
         elif op in ["starts with", "startswith"]:
             return str_actual.startswith(str_expected)
         elif op in ["ends with", "endswith"]:
             return str_actual.endswith(str_expected)
         elif op in ["in"]:
-            # Comma-separated list of values
-            allowed = [v.strip().lower() for v in str_expected.split(",")]
+            allowed = [v.strip().lower() for v in str_expected.split(",") if v.strip()]
             return str_actual in allowed
+        elif op in ["not_in", "not in"]:
+            allowed = [v.strip().lower() for v in str_expected.split(",") if v.strip()]
+            return str_actual not in allowed
 
         return False
 
@@ -159,18 +207,59 @@ class WorkflowEngine:
         cls, workflow: Dict[str, Any], context: Dict[str, Any]
     ) -> bool:
         """
-        Evaluates all workflow filter conditions according to match type.
+        Evaluates all workflow filter conditions according to match type,
+        including audience scoping (department, role, module) and nested rule groups.
         """
+        # 1. Evaluate Audience Scope Filters (Department, Role, Module)
+        audience = workflow.get("audience_filter") or {}
+        if audience and isinstance(audience, dict):
+            # Department filter
+            dept_filters = audience.get("departments") or []
+            if dept_filters and isinstance(dept_filters, list):
+                user_dept = str(context.get("subscriber.department") or context.get("department") or "").strip().lower()
+                allowed_depts = [d.strip().lower() for d in dept_filters if d and str(d).strip()]
+                if allowed_depts and "all" not in allowed_depts and user_dept not in allowed_depts:
+                    return False
+
+            # Role filter
+            role_filters = audience.get("roles") or []
+            if role_filters and isinstance(role_filters, list):
+                user_role = str(context.get("subscriber.role") or context.get("role") or "").strip().lower()
+                allowed_roles = [r.strip().lower() for r in role_filters if r and str(r).strip()]
+                if allowed_roles and "all" not in allowed_roles and user_role not in allowed_roles:
+                    return False
+
+            # Module / Sprint filter
+            module_filters = audience.get("module_ids") or []
+            if module_filters and isinstance(module_filters, list):
+                current_mod_id = str(context.get("module_id") or context.get("curriculum.module_id") or "").strip()
+                current_mod_name = str(context.get("curriculum.module_name") or context.get("module_name") or "").strip().lower()
+                allowed_mods = [str(m).strip() for m in module_filters if m and str(m).strip()]
+                if allowed_mods and not any(m == current_mod_id or m.lower() == current_mod_name for m in allowed_mods):
+                    return False
+
+        # 2. Evaluate Rule Conditions (with support for nested groups)
         rules = workflow.get("filter_rules") or []
         if not rules:
             return True
 
-        match_type = str(workflow.get("filter_match_type") or "ALL").upper()
+        def _evaluate_item(item: Dict[str, Any]) -> bool:
+            if "group_rules" in item and isinstance(item["group_rules"], list):
+                sub_match = str(item.get("match_type") or "ALL").upper()
+                sub_rules = item.get("group_rules") or []
+                if not sub_rules:
+                    return True
+                if sub_match == "ANY":
+                    return any(_evaluate_item(sr) for sr in sub_rules)
+                else:
+                    return all(_evaluate_item(sr) for sr in sub_rules)
+            return cls.evaluate_rule(item, context)
 
+        match_type = str(workflow.get("filter_match_type") or "ALL").upper()
         if match_type == "ANY":
-            return any(cls.evaluate_rule(r, context) for r in rules)
+            return any(_evaluate_item(r) for r in rules)
         else:  # Default ALL (AND)
-            return all(cls.evaluate_rule(r, context) for r in rules)
+            return all(_evaluate_item(r) for r in rules)
 
     @classmethod
     async def trigger_lifecycle(
@@ -361,25 +450,54 @@ class WorkflowEngine:
                 })
                 continue
 
-            dispatch_payload = {
-                **context,
-                "workflow_id": wf_id,
-                "workflow_title": wf_title,
-                "target_screen": payload.get("target_screen") or "Home",
-                "custom_title": rendered_title,
-                "custom_body": rendered_body,
-                "channels": channels,
-                "delivery_policy": delivery_policy,
-                "pinned_template_id": pinned_tpl_id,
-                "pinned_template_version_id": pinned_ver_id,
-            }
+            # 4. Resolve Recipient Routing (Learner, Manager Escalation, or Both)
+            recipient_routing = str(wf.get("recipient_routing") or "LEARNER").upper()
+            target_recipients = [user_id]
 
-            dispatch_res = await publish_event(
-                event_key=notif_type,
-                recipient_user_id=user_id,
-                payload=dispatch_payload,
-                entity_id=payload.get("entity_id") or str(wf_id),
+            manager_id = (
+                payload.get("manager_id")
+                or context.get("manager_id")
+                or (user_row.get("manager_id") if user_row else None)
             )
+
+            if recipient_routing == "MANAGER":
+                if manager_id:
+                    target_recipients = [manager_id]
+                else:
+                    logger.info(f"Workflow {wf_id} specified MANAGER routing, but user {user_id} has no manager. Fallback to learner.")
+                    target_recipients = [user_id]
+            elif recipient_routing == "BOTH":
+                if manager_id and manager_id != user_id:
+                    target_recipients = [user_id, manager_id]
+
+            dispatch_records = []
+            for target_user_id in target_recipients:
+                is_escalation = (target_user_id == manager_id and target_user_id != user_id)
+                msg_title = f"[Escalation] {rendered_title}" if is_escalation else rendered_title
+
+                dispatch_payload = {
+                    **context,
+                    "workflow_id": wf_id,
+                    "workflow_title": wf_title,
+                    "category": wf.get("category"),
+                    "company_id": auth_company_id,
+                    "target_screen": payload.get("target_screen") or "Home",
+                    "custom_title": msg_title,
+                    "custom_body": rendered_body,
+                    "channels": channels,
+                    "delivery_policy": delivery_policy,
+                    "pinned_template_id": pinned_tpl_id,
+                    "pinned_template_version_id": pinned_ver_id,
+                    "is_manager_escalation": is_escalation,
+                }
+
+                dispatch_res = await publish_event(
+                    event_key=notif_type,
+                    recipient_user_id=target_user_id,
+                    payload=dispatch_payload,
+                    entity_id=payload.get("entity_id") or str(wf_id),
+                )
+                dispatch_records.append({"recipient_id": target_user_id, "result": dispatch_res})
 
             # 5. Record Execution Telemetry
             try:
@@ -395,7 +513,8 @@ class WorkflowEngine:
                 "workflow_id": wf_id,
                 "workflow_title": wf_title,
                 "status": "TRIGGERED",
-                "dispatch_result": dispatch_res,
+                "recipient_routing": recipient_routing,
+                "dispatches": dispatch_records,
             })
 
         return results

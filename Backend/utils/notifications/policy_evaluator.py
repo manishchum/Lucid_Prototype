@@ -18,6 +18,7 @@ CATEGORY_ADDON_MAP: Dict[str, str] = {
     "TASKS": "task_management",
     "ROLEPLAY": "role_play",
     "CONTENT": "lucid_studio",
+    "CONTENT_LIBRARY": "lucid_studio",
     "STUDIO": "lucid_studio",
     "KPI": "kpi",
     "REPORTS": "reports",
@@ -30,17 +31,22 @@ CATEGORY_ADDON_MAP: Dict[str, str] = {
 
 TRIGGER_ADDON_MAP: Dict[str, str] = {
     # Gamification
+    "GAMIFICATION_SPRINT_READY": "gamification",
+    "GAMIFICATION_DRILL_REMINDER": "gamification",
     "DAILY_STREAK_CHECK": "gamification",
     "STREAK_MILESTONE": "gamification",
     "BADGE_UNLOCKED": "gamification",
     "LEADERBOARD_ALERT": "gamification",
     "DRILL_COMPLETED": "gamification",
     # AI Roleplay
+    "ROLEPLAY_ASSIGNED": "role_play",
     "ROLEPLAY_REPORT_READY": "role_play",
+    "ROLEPLAY_RETAKE": "role_play",
     "ROLEPLAY_SESSION_COMPLETED": "role_play",
     # Tasks
     "TASK_ASSIGNED": "task_management",
     "TASK_EVALUATED": "task_management",
+    "TASK_DUE_REMINDER": "task_management",
     "TASK_OVERDUE": "task_management",
     "TASK_SUBMITTED": "task_management",
     # Studio Media & Sub-features
@@ -64,39 +70,64 @@ TRIGGER_ADDON_MAP: Dict[str, str] = {
 
 # Core platform categories and triggers that are always entitled (unless trigger overrides above)
 CORE_CATEGORIES = {
-    "CURRICULUM",
-    "ASSESSMENT",
     "ONBOARDING",
+    "SPRINT_ASSIGNMENT",
+    "CURRICULUM",
+    "QUIZZES",
+    "ASSESSMENT",
+    "DEADLINES",
+    "RE_ENGAGEMENT",
     "ENGAGEMENT",
+    "ANNOUNCEMENTS_INFO",
     "SYSTEM",
     "GENERAL",
 }
 
 CORE_TRIGGERS = {
+    # Onboarding
+    "USER_WELCOME",
+    "LEARNING_STYLE_DISCOVERED",
+    # Sprints
+    "MODULE_ASSIGNED",
+    "MODULE_ASSIGNMENT",
+    "MODULE_PROGRESS_UPDATED",
+    "COURSE_COMPLETED",
+    # Quizzes
     "ASSESSMENT_COMPLETED",
     "QUIZ_PASSED",
     "QUIZ_FAILED",
     "MODULE_PASSED",
     "MODULE_FAILED",
+    "QUIZ_WAITING_REMINDER",
     "POST_COMPLETION_FEEDBACK",
-    "MODULE_ASSIGNED",
-    "MODULE_ASSIGNMENT",
-    "MODULE_PROGRESS_UPDATED",
+    # Deadlines
     "MODULE_DUE_REMINDER",
     "MODULE_OVERDUE",
-    "COURSE_COMPLETED",
     "DEADLINE_MISSED",
     "DEADLINE_24H",
     "DEADLINE_48H",
-    "MILESTONE_MODULES",
-    "USER_WELCOME",
-    "LEARNING_STYLE_DISCOVERED",
+    # Re-engagement
     "DAILY_NUDGE",
     "SCHEDULED_SCAN",
+    "POST_ASSIGNMENT_NUDGE",
     "REENGAGEMENT",
+    # Announcements & General Info
     "GENERAL_ANNOUNCEMENT",
-    "CERTIFICATE_ISSUED",
+    "TEAM_CHECKIN_NUDGE",
+    "SYSTEM_ALERT",
+    "APP_UPDATE_NOTICE",
+    "DEV_HEALTH_CHECK",
+    "DEV_CUSTOM_EVENT_1",
+    "DEV_CUSTOM_EVENT_2",
+    "DEV_CUSTOM_EVENT_3",
+    "DEV_CUSTOM_EVENT_4",
+    "DEV_CUSTOM_EVENT_5",
+    # Content Library & Reports
+    "NEW_CONTENT_UPLOADED",
+    "SPRINT_REPORT_GENERATED",
+    "ROLEPLAY_REPORT_GENERATED",
     "RECOMMENDED_CONTENT",
+    "CERTIFICATE_ISSUED",
 }
 
 CRITICAL_SECURITY_EVENTS = {

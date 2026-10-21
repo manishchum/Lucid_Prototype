@@ -31,6 +31,16 @@ import {
   Search,
   Filter,
   Tag,
+  UserCheck,
+  Building2,
+  Shield,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  FileText,
+  CheckCircle,
+  RefreshCw,
+  Megaphone,
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { useAuth } from '@/contexts/auth-context';
@@ -51,8 +61,15 @@ export interface WorkflowFormData {
   description?: string;
   category: string;
   trigger_lifecycle: string;
+  notification_type?: string;
   template_id?: string;
+  pinned_template_id?: string;
+  pinned_template_version_id?: string;
   secondary_template_id?: string;
+  title_template?: string;
+  body_template?: string;
+  secondary_title_template?: string;
+  secondary_body_template?: string;
   rule_mode: 'THRESHOLD' | 'DUAL_BRANCH' | 'UNCONDITIONAL';
   filter_rules: WorkflowRule[];
   filter_match_type: 'ALL' | 'ANY';
@@ -60,163 +77,395 @@ export interface WorkflowFormData {
   cooldown_seconds: number;
   priority: string;
   is_active: boolean;
+  recipient_routing?: 'LEARNER' | 'MANAGER' | 'BOTH';
+  audience_filter?: {
+    departments?: string[];
+    roles?: string[];
+    module_ids?: string[];
+  };
+  schedule_type?: 'EVENT_DRIVEN' | 'RECURRING';
+  schedule_config?: {
+    frequency?: 'DAILY' | 'WEEKLY' | 'EVERY_N_DAYS';
+    days?: string[];
+    time?: string;
+    interval_days?: number;
+  };
 }
 
-export const PREDEFINED_SYSTEM_TRIGGERS = [
-  // ASSESSMENT
+export function formatApiError(errDetail: any, fallbackMessage: string = 'An error occurred'): string {
+  if (!errDetail) return fallbackMessage;
+  if (typeof errDetail === 'string') return errDetail;
+  if (Array.isArray(errDetail)) {
+    return errDetail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const loc = Array.isArray(item.loc)
+            ? item.loc.filter((l: any) => l !== 'body').join('.')
+            : '';
+          const msg = item.msg || JSON.stringify(item);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(item);
+      })
+      .join('; ');
+  }
+  if (typeof errDetail === 'object') {
+    if (errDetail.message) return String(errDetail.message);
+    return JSON.stringify(errDetail);
+  }
+  return String(errDetail);
+}
+
+// Deprecated smart recipes kept empty for backwards compatibility
+export const SMART_RULE_RECIPES: Record<string, any[]> = {};
+
+export interface PredefinedTrigger {
+  key: string;
+  category: string;
+  label: string;
+  description: string;
+  ruleArchetype: 'ZERO_RULE' | 'THRESHOLD' | 'TIME_OFFSET';
+  icon: any;
+  variables: string[];
+}
+
+export const PREDEFINED_SYSTEM_TRIGGERS: PredefinedTrigger[] = [
+  // ─── 0. ANNOUNCEMENTS & INFO ──────────────────────────────────────────
   {
-    key: 'ASSESSMENT_COMPLETED',
-    category: 'ASSESSMENT',
-    label: 'Quiz & Assessment Completed',
-    description: 'Fires instantly whenever any learner finishes an exam or quiz submission.',
-    icon: GraduationCap,
-    variables: ['assessment.score', 'assessment.passing_score', 'assessment.weak_topic', 'assessment.passed'],
+    key: 'GENERAL_ANNOUNCEMENT',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'General Announcement / Broadcast',
+    description: 'Company-wide or targeted announcement delivered directly via In-App Bell & Mobile Push.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Megaphone,
+    variables: ['subscriber.first_name', 'system.title', 'system.message', 'system.action_url'],
   },
   {
-    key: 'QUIZ_PASSED',
-    category: 'ASSESSMENT',
-    label: 'Quiz Passed Milestone',
-    description: 'Fires when a learner completes an assessment scoring above the passing mark.',
-    icon: CheckCircle2,
-    variables: ['assessment.score', 'gamification.earned_xp', 'curriculum.module_name'],
+    key: 'TEAM_CHECKIN_NUDGE',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'Team Check-in / How are you doing?',
+    description: 'Friendly pulse check-in nudge sent periodically or manually to support learner wellbeing.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Compass,
+    variables: ['subscriber.first_name', 'subscriber.company_name', 'system.action_url'],
   },
   {
-    key: 'QUIZ_FAILED',
-    category: 'ASSESSMENT',
-    label: 'Quiz Retry & Remediation Needed',
-    description: 'Fires when a score falls below the required threshold to trigger recovery practice.',
+    key: 'SYSTEM_ALERT',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'System Notice / Maintenance Alert',
+    description: 'Alerts learners of scheduled maintenance, system outages, or critical status advisories.',
+    ruleArchetype: 'ZERO_RULE',
     icon: AlertCircle,
-    variables: ['assessment.score', 'assessment.weak_topic', 'assessment.remediation_module'],
+    variables: ['subscriber.first_name', 'system.title', 'system.message'],
   },
   {
-    key: 'ROLEPLAY_REPORT_READY',
-    category: 'ASSESSMENT',
-    label: 'AI Roleplay Evaluation Ready',
-    description: 'Fires when an AI simulation or roleplay scenario finishes speech/audio grading.',
-    icon: GraduationCap,
-    variables: ['assessment.confidence_score', 'assessment.feedback_summary'],
+    key: 'APP_UPDATE_NOTICE',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'App Update / New Feature Release',
+    description: 'Informs learners about new product features, drills, or platform upgrades.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Sparkles,
+    variables: ['subscriber.first_name', 'system.title', 'system.version', 'system.action_url'],
+  },
+  {
+    key: 'DEV_HEALTH_CHECK',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'Developer Health / Ping Check',
+    description: 'Developer diagnostics ping to verify in-app delivery and mobile push tokens.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Zap,
+    variables: ['subscriber.first_name', 'system.title'],
+  },
+  {
+    key: 'DEV_CUSTOM_EVENT_1',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'Developer Hook 1 (Custom Trigger)',
+    description: 'Custom programmatic hook triggered via POST /api/notifications/workflows/trigger-hook.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Zap,
+    variables: ['subscriber.first_name', 'custom.event_payload'],
+  },
+  {
+    key: 'DEV_CUSTOM_EVENT_2',
+    category: 'ANNOUNCEMENTS_INFO',
+    label: 'Developer Hook 2 (Custom Trigger)',
+    description: 'Secondary custom programmatic hook triggered via developer API.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Zap,
+    variables: ['subscriber.first_name', 'custom.event_payload'],
   },
 
-  // CURRICULUM
-  {
-    key: 'MODULE_ASSIGNED',
-    category: 'CURRICULUM',
-    label: 'New Sprint / Module Assigned',
-    description: 'Fires when an administrator or algorithm enrolls a learner into a new module.',
-    icon: BookOpen,
-    variables: ['curriculum.module_name', 'curriculum.due_date', 'curriculum.action_url'],
-  },
-  {
-    key: 'MODULE_PROGRESS_UPDATED',
-    category: 'CURRICULUM',
-    label: 'Curriculum Pacing & Progress',
-    description: 'Fires as learners complete sub-sections and checkpoints.',
-    icon: BookOpen,
-    variables: ['curriculum.progress_percentage', 'curriculum.minutes_remaining'],
-  },
-  {
-    key: 'MODULE_DUE_REMINDER',
-    category: 'CURRICULUM',
-    label: 'Module Due Reminder',
-    description: 'Fires 48 hours or 24 hours prior to a sprint deadline.',
-    icon: Clock,
-    variables: ['curriculum.days_left', 'curriculum.due_date', 'curriculum.action_url'],
-  },
-  {
-    key: 'MODULE_OVERDUE',
-    category: 'CURRICULUM',
-    label: 'Module Overdue Alert',
-    description: 'Fires when a module target deadline passes without completion.',
-    icon: AlertCircle,
-    variables: ['curriculum.module_name', 'curriculum.days_left'],
-  },
-
-  // GAMIFICATION
-  {
-    key: 'DAILY_STREAK_CHECK',
-    category: 'GAMIFICATION',
-    label: 'Daily Streak Rescue Check',
-    description: 'Fires in the evening if a learner has not completed their daily micro-drill.',
-    icon: Flame,
-    variables: ['gamification.streak_days', 'gamification.streak_expiring_hours'],
-  },
-  {
-    key: 'STREAK_MILESTONE',
-    category: 'GAMIFICATION',
-    label: 'Streak Milestone Reached',
-    description: 'Fires on hitting day 3, 7, 14, 30 continuous streak milestones.',
-    icon: Flame,
-    variables: ['gamification.streak_days', 'gamification.xp_points'],
-  },
-  {
-    key: 'BADGE_UNLOCKED',
-    category: 'GAMIFICATION',
-    label: 'Achievement Badge Unlocked',
-    description: 'Fires when unlocking milestone achievements and skill certifications.',
-    icon: Award,
-    variables: ['gamification.badge_name', 'gamification.earned_xp'],
-  },
-  {
-    key: 'LEADERBOARD_ALERT',
-    category: 'GAMIFICATION',
-    label: 'Leaderboard Shift Alert',
-    description: 'Fires when a rival overtakes the learner in the weekly division standings.',
-    icon: Users,
-    variables: ['gamification.leaderboard_rank', 'gamification.rival_name', 'gamification.points_to_next_rank'],
-  },
-
-  // TASKS
-  {
-    key: 'TASK_ASSIGNED',
-    category: 'TASKS',
-    label: 'Workplace Task Assigned',
-    description: 'Fires when a manager assigns a real-world workplace action item.',
-    icon: Layers,
-    variables: ['task.task_title', 'task.due_date'],
-  },
-  {
-    key: 'TASK_EVALUATED',
-    category: 'TASKS',
-    label: 'Task AI Evaluation Ready',
-    description: 'Fires when an uploaded document or submission completes AI assessment.',
-    icon: Layers,
-    variables: ['task.task_title', 'task.feedback_summary'],
-  },
-
-  // ONBOARDING
+  // ─── 1. USER ONBOARDING ────────────────────────────────────────────────
   {
     key: 'USER_WELCOME',
     category: 'ONBOARDING',
     label: 'Learner Welcome & Activation',
-    description: 'Fires upon initial account creation and invitation.',
+    description: 'Triggered when a learner logs in for the very first time.',
+    ruleArchetype: 'ZERO_RULE',
     icon: Users,
-    variables: ['subscriber.first_name', 'subscriber.company_name'],
+    variables: ['subscriber.first_name', 'subscriber.company_name', 'subscriber.role', 'subscriber.department'],
   },
   {
     key: 'LEARNING_STYLE_DISCOVERED',
     category: 'ONBOARDING',
     label: 'VARK Modality Diagnosed',
     description: 'Fires once the learner completes their VARK learning intake quiz.',
+    ruleArchetype: 'ZERO_RULE',
     icon: Compass,
-    variables: ['vark.primary_style', 'vark.recommended_cta_label'],
+    variables: ['subscriber.first_name', 'vark.primary_style', 'vark.recommended_cta_label'],
   },
 
-  // ENGAGEMENT & SYSTEM
+  // ─── 2. SPRINT ASSIGNMENT ──────────────────────────────────────────────
   {
-    key: 'DAILY_NUDGE',
-    category: 'ENGAGEMENT',
-    label: 'Daily Micro-Learning Nudge',
-    description: 'Fires morning personalized study prompt respecting quiet hours.',
+    key: 'MODULE_ASSIGNED',
+    category: 'SPRINT_ASSIGNMENT',
+    label: 'Sprint Assigned',
+    description: 'Fires immediately when an admin, lead, or system assigns a sprint to a user.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: BookOpen,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'curriculum.due_date', 'curriculum.action_url'],
+  },
+  {
+    key: 'COURSE_COMPLETED',
+    category: 'SPRINT_ASSIGNMENT',
+    label: 'Sprint Track Finished',
+    description: 'Celebrates 100% completion of an entire sprint track or curriculum path.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Award,
+    variables: ['subscriber.first_name', 'curriculum.module_name'],
+  },
+
+  // ─── 3. QUIZZES ────────────────────────────────────────────────────────
+  {
+    key: 'QUIZ_PASSED',
+    category: 'QUIZZES',
+    label: 'Quiz Passed Milestone',
+    description: 'Sent immediately when user completes quiz above pass threshold.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: CheckCircle2,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'assessment.score', 'gamification.xp_points'],
+  },
+  {
+    key: 'QUIZ_FAILED',
+    category: 'QUIZZES',
+    label: 'Quiz Retry & Remediation Needed',
+    description: 'Gentle notice with retry encouragement when quiz score is below threshold.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: AlertCircle,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'assessment.score', 'assessment.weak_topic'],
+  },
+  {
+    key: 'ASSESSMENT_COMPLETED',
+    category: 'QUIZZES',
+    label: 'Quiz Result / Evaluation',
+    description: 'Fires upon quiz submission; allows setting custom score thresholds (e.g. Score >= 80%).',
+    ruleArchetype: 'THRESHOLD',
+    icon: GraduationCap,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'assessment.score', 'assessment.passing_score'],
+  },
+  {
+    key: 'QUIZ_WAITING_REMINDER',
+    category: 'QUIZZES',
+    label: 'Quiz Waiting to Take Reminder',
+    description: 'Reminder sent when an assigned sprint quiz has not been attempted after X days.',
+    ruleArchetype: 'TIME_OFFSET',
+    icon: Clock,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'curriculum.action_url'],
+  },
+  {
+    key: 'POST_COMPLETION_FEEDBACK',
+    category: 'QUIZZES',
+    label: 'Post-Completion CSAT Survey Prompt',
+    description: 'Prompts learner for 1-click feedback immediately upon finishing a quiz.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: MessageSquare,
+    variables: ['subscriber.first_name', 'curriculum.module_name'],
+  },
+
+  // ─── 4. GAMIFICATION ARENA ────────────────────────────────────────────
+  {
+    key: 'GAMIFICATION_SPRINT_READY',
+    category: 'GAMIFICATION',
+    label: 'Gamification Sprint Ready',
+    description: 'Fires when an arena sprint battle or weekly speed sprint challenge unlocks.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Flame,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'gamification.xp_points'],
+  },
+  {
+    key: 'GAMIFICATION_DRILL_REMINDER',
+    category: 'GAMIFICATION',
+    label: 'Gamification Drills Waiting to Take',
+    description: 'Nudge sent when arena drills or flash challenges have been pending for X days.',
+    ruleArchetype: 'TIME_OFFSET',
+    icon: Clock,
+    variables: ['subscriber.first_name', 'gamification.xp_points'],
+  },
+  {
+    key: 'DAILY_STREAK_CHECK',
+    category: 'GAMIFICATION',
+    label: 'Daily Streak Rescue Check & Reminder',
+    description: 'Warns learner that their active streak will expire unless they practice before midnight.',
+    ruleArchetype: 'THRESHOLD',
+    icon: Flame,
+    variables: ['subscriber.first_name', 'gamification.streak_days', 'gamification.points_to_next_rank', 'gamification.rival_name'],
+  },
+  {
+    key: 'STREAK_MILESTONE',
+    category: 'GAMIFICATION',
+    label: 'Streak Milestone Reached',
+    description: 'Celebrates continuous learning streak milestones (e.g. 7-day, 14-day, 30-day).',
+    ruleArchetype: 'THRESHOLD',
+    icon: Award,
+    variables: ['subscriber.first_name', 'gamification.streak_days', 'gamification.xp_points'],
+  },
+  {
+    key: 'BADGE_UNLOCKED',
+    category: 'GAMIFICATION',
+    label: 'Achievement Badge Unlocked',
+    description: 'Celebrates unlocking an achievement badge or skill certification.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Award,
+    variables: ['subscriber.first_name', 'gamification.badge_name', 'gamification.earned_xp'],
+  },
+  {
+    key: 'LEADERBOARD_ALERT',
+    category: 'GAMIFICATION',
+    label: 'Leaderboard Shift Alert',
+    description: 'Notifies learner when they climb ranks or get overtaken on the competitive arena leaderboard.',
+    ruleArchetype: 'THRESHOLD',
+    icon: Users,
+    variables: ['subscriber.first_name', 'gamification.leaderboard_rank', 'gamification.rival_name', 'gamification.points_to_next_rank'],
+  },
+
+  // ─── 5. DEADLINES ─────────────────────────────────────────────────────
+  {
+    key: 'MODULE_DUE_REMINDER',
+    category: 'DEADLINES',
+    label: 'Sprint Due Reminder',
+    description: 'Automated reminder dispatched at a developer-configured time ahead of sprint deadline.',
+    ruleArchetype: 'TIME_OFFSET',
+    icon: Clock,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'curriculum.days_left', 'curriculum.due_date'],
+  },
+  {
+    key: 'TASK_DUE_REMINDER',
+    category: 'DEADLINES',
+    label: 'Task Due Reminder',
+    description: 'Automated reminder dispatched at a developer-configured time ahead of practical task deadline.',
+    ruleArchetype: 'TIME_OFFSET',
+    icon: Clock,
+    variables: ['subscriber.first_name', 'task.task_title', 'task.due_date'],
+  },
+  {
+    key: 'MODULE_OVERDUE',
+    category: 'DEADLINES',
+    label: 'Overdue Escalation Alert',
+    description: 'Escalation notice when an assigned sprint or task passes its completion deadline.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: AlertCircle,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'subscriber.manager_name'],
+  },
+
+  // ─── 6. TASKS ─────────────────────────────────────────────────────────
+  {
+    key: 'TASK_ASSIGNED',
+    category: 'TASKS',
+    label: 'Workplace Task Assigned',
+    description: 'Fires immediately when a manager or lead assigns a practical workplace assignment.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Layers,
+    variables: ['subscriber.first_name', 'task.task_title', 'task.due_date'],
+  },
+  {
+    key: 'TASK_EVALUATED',
+    category: 'TASKS',
+    label: 'Task AI Evaluation Ready',
+    description: 'Fires when AI finishes evaluating submission with pass/fail verdict and coaching advice.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Layers,
+    variables: ['subscriber.first_name', 'task.task_title', 'task.feedback_summary'],
+  },
+
+  // ─── 7. RE-ENGAGEMENT NUDGES ──────────────────────────────────────────
+  {
+    key: 'SCHEDULED_SCAN',
+    category: 'RE_ENGAGEMENT',
+    label: 'Inactivity Sweep Nudge',
+    description: 'Periodic automated sweep targeting learners who have had zero activity for X days.',
+    ruleArchetype: 'THRESHOLD',
     icon: Compass,
     variables: ['subscriber.first_name', 'curriculum.module_name'],
   },
   {
-    key: 'GENERAL_ANNOUNCEMENT',
-    category: 'SYSTEM',
-    label: 'Company-Wide Announcement',
-    description: 'Platform broadcast or curriculum release announcement.',
-    icon: Bell,
-    variables: ['subscriber.company_name'],
+    key: 'POST_ASSIGNMENT_NUDGE',
+    category: 'RE_ENGAGEMENT',
+    label: 'Pending Assignment Follow-up Nudge',
+    description: 'Follow-up nudge sent when a sprint or task has remained unstarted after X days.',
+    ruleArchetype: 'TIME_OFFSET',
+    icon: Clock,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'curriculum.action_url'],
+  },
+
+  // ─── 8. ROLEPLAY ──────────────────────────────────────────────────────
+  {
+    key: 'ROLEPLAY_ASSIGNED',
+    category: 'ROLEPLAY',
+    label: 'Roleplay Scenario Assigned',
+    description: 'Fires when an interactive conversation or sales simulation is assigned.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Award,
+    variables: ['subscriber.first_name', 'curriculum.module_name'],
+  },
+  {
+    key: 'ROLEPLAY_REPORT_READY',
+    category: 'ROLEPLAY',
+    label: 'Roleplay Report Generated',
+    description: 'Dispatched when AI audio/speech simulation evaluation and scoring is complete.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: GraduationCap,
+    variables: ['subscriber.first_name', 'assessment.confidence_score', 'assessment.feedback_summary', 'assessment.score'],
+  },
+  {
+    key: 'ROLEPLAY_RETAKE',
+    category: 'ROLEPLAY',
+    label: 'Roleplay Retake Needed',
+    description: 'Fires when roleplay fluency or confidence falls below threshold, recommending practice.',
+    ruleArchetype: 'THRESHOLD',
+    icon: AlertCircle,
+    variables: ['subscriber.first_name', 'assessment.score', 'assessment.feedback_summary'],
+  },
+
+  // ─── 9. CONTENT LIBRARY ───────────────────────────────────────────────
+  {
+    key: 'NEW_CONTENT_UPLOADED',
+    category: 'CONTENT_LIBRARY',
+    label: 'New Content Uploaded',
+    description: 'Fires when new podcasts, articles, or resources are added to the library.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: Radio,
+    variables: ['subscriber.first_name', 'recommendations.content_name'],
+  },
+
+  // ─── 10. REPORTS ──────────────────────────────────────────────────────
+  {
+    key: 'SPRINT_REPORT_GENERATED',
+    category: 'REPORTS',
+    label: 'Sprint Performance Report Ready',
+    description: 'Summary report generated upon completion of a sprint track or checkpoint.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: FileText,
+    variables: ['subscriber.first_name', 'curriculum.module_name', 'assessment.score'],
+  },
+  {
+    key: 'ROLEPLAY_REPORT_GENERATED',
+    category: 'REPORTS',
+    label: 'Roleplay Rubric Report Ready',
+    description: 'Detailed rubric and coaching report generated for simulation exercises.',
+    ruleArchetype: 'ZERO_RULE',
+    icon: FileText,
+    variables: ['subscriber.first_name', 'assessment.score', 'assessment.feedback_summary'],
   },
 ];
 
@@ -243,9 +492,9 @@ export default function WorkflowLinearBuilder({
 
   // Form State
   const [workflowTitle, setWorkflowTitle] = useState(initialWorkflow?.title || '');
-  const [workflowCategory, setWorkflowCategory] = useState(initialWorkflow?.category || 'ASSESSMENT');
+  const [workflowCategory, setWorkflowCategory] = useState(initialWorkflow?.category || 'ONBOARDING');
   const [selectedTriggerKey, setSelectedTriggerKey] = useState(
-    initialWorkflow?.trigger_lifecycle || 'ASSESSMENT_COMPLETED'
+    initialWorkflow?.trigger_lifecycle || 'USER_WELCOME'
   );
 
   // Step 2: Templates
@@ -256,10 +505,40 @@ export default function WorkflowLinearBuilder({
     initialWorkflow?.secondary_template_id || ''
   );
 
-  // Step 3: Rules
+  // Current Trigger definition
+  const currentTrigger =
+    PREDEFINED_SYSTEM_TRIGGERS.find((t) => t.key === selectedTriggerKey) ||
+    PREDEFINED_SYSTEM_TRIGGERS[0];
+
+  // Step 3: Rules & Archetypes
   const [ruleMode, setRuleMode] = useState<'THRESHOLD' | 'DUAL_BRANCH' | 'UNCONDITIONAL'>(
-    initialWorkflow?.rule_mode || 'THRESHOLD'
+    initialWorkflow?.rule_mode || (currentTrigger.ruleArchetype === 'ZERO_RULE' ? 'UNCONDITIONAL' : 'THRESHOLD')
   );
+  const [dualBranchEnabled, setDualBranchEnabled] = useState<boolean>(
+    initialWorkflow?.rule_mode === 'DUAL_BRANCH'
+  );
+
+  // Relative Time Offset State (for TIME_OFFSET triggers)
+  const [timeOffsetValue, setTimeOffsetValue] = useState<number>(() => {
+    if (initialWorkflow?.filter_rules && initialWorkflow.filter_rules.length > 0) {
+      const val = Number(initialWorkflow.filter_rules[0].value);
+      if (!isNaN(val) && val > 0) return val;
+    }
+    return 24;
+  });
+  const [timeOffsetUnit, setTimeOffsetUnit] = useState<'HOURS' | 'DAYS'>('HOURS');
+
+  // Contextual Metric Threshold State (for THRESHOLD triggers)
+  const [thresholdOperator, setThresholdOperator] = useState<string>(
+    initialWorkflow?.filter_rules?.[0]?.operator || '>='
+  );
+  const [thresholdValue, setThresholdValue] = useState<string>(
+    initialWorkflow?.filter_rules?.[0]?.value !== undefined
+      ? String(initialWorkflow.filter_rules[0].value)
+      : '70'
+  );
+
+  // Fallback explicit rules array
   const [rules, setRules] = useState<WorkflowRule[]>(
     initialWorkflow?.filter_rules && initialWorkflow.filter_rules.length > 0
       ? initialWorkflow.filter_rules.map((r: any) => ({
@@ -267,15 +546,36 @@ export default function WorkflowLinearBuilder({
           operator: r.operator || '<',
           value: r.value !== undefined ? String(r.value) : '70',
         }))
-      : [{ field: 'assessment.score', operator: '<', value: '70' }]
+      : []
   );
 
-  // Step 4: Channels
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(
-    initialWorkflow?.channels && initialWorkflow.channels.length > 0
-      ? initialWorkflow.channels
-      : ['IN_APP', 'PUSH']
+  // Step 3 Extended: Recipient Routing & Audience Scoping
+  const [recipientRouting, setRecipientRouting] = useState<'LEARNER' | 'MANAGER' | 'BOTH'>(
+    initialWorkflow?.recipient_routing || 'LEARNER'
   );
+  const [audienceFilter, setAudienceFilter] = useState<{
+    departments: string[];
+    roles: string[];
+    module_ids: string[];
+  }>({
+    departments: Array.isArray(initialWorkflow?.audience_filter?.departments)
+      ? initialWorkflow.audience_filter.departments
+      : [],
+    roles: Array.isArray(initialWorkflow?.audience_filter?.roles)
+      ? initialWorkflow.audience_filter.roles
+      : [],
+    module_ids: Array.isArray(initialWorkflow?.audience_filter?.module_ids)
+      ? initialWorkflow.audience_filter.module_ids
+      : [],
+  });
+  const [isAudienceExpanded, setIsAudienceExpanded] = useState(false);
+
+  // Step 4: Channels (Strictly Mobile Push and In-App for this phase)
+  const [selectedChannels, setSelectedChannels] = useState<string[]>(() => {
+    const raw = initialWorkflow?.channels || ['IN_APP', 'PUSH'];
+    const filtered = raw.filter((c: string) => ['IN_APP', 'PUSH'].includes(c));
+    return filtered.length > 0 ? filtered : ['IN_APP', 'PUSH'];
+  });
   const [cooldownHours, setCooldownHours] = useState<number>(
     Math.round((initialWorkflow?.cooldown_seconds || 3600) / 3600) || 1
   );
@@ -286,6 +586,24 @@ export default function WorkflowLinearBuilder({
   const [testError, setTestError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Schedule Mode & Config State
+  const [scheduleType, setScheduleType] = useState<'EVENT_DRIVEN' | 'RECURRING'>(
+    initialWorkflow?.schedule_type || initialWorkflow?.audience_filter?.schedule?.type || 'EVENT_DRIVEN'
+  );
+  const [scheduleConfig, setScheduleConfig] = useState({
+    frequency: (initialWorkflow?.schedule_config?.frequency || initialWorkflow?.audience_filter?.schedule?.config?.frequency || 'DAILY') as 'DAILY' | 'WEEKLY' | 'EVERY_N_DAYS',
+    time: (initialWorkflow?.schedule_config?.time || initialWorkflow?.audience_filter?.schedule?.config?.time || '09:00') as string,
+    days: (initialWorkflow?.schedule_config?.days || initialWorkflow?.audience_filter?.schedule?.config?.days || ['MON', 'TUE', 'WED', 'THU', 'FRI']) as string[],
+    interval_days: (initialWorkflow?.schedule_config?.interval_days || initialWorkflow?.audience_filter?.schedule?.config?.interval_days || 1) as number,
+    timezone: (initialWorkflow?.schedule_config?.timezone || initialWorkflow?.audience_filter?.schedule?.config?.timezone || (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Asia/Kolkata')) as string,
+  });
+
+  // Broadcast & Audience Preview State
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastStatus, setBroadcastStatus] = useState<{ success: boolean; message: string } | null>(null);
+  const [previewingAudience, setPreviewingAudience] = useState(false);
+  const [audiencePreviewData, setAudiencePreviewData] = useState<{ count: number; sample: any[] } | null>(null);
 
   // Fetch templates
   useEffect(() => {
@@ -298,7 +616,6 @@ export default function WorkflowLinearBuilder({
           const list = data.templates || [];
           setAvailableTemplates(list);
 
-          // If no template is selected yet, default to first matching category
           if (!selectedTemplateId && list.length > 0) {
             const matching = list.find((t: NotificationTemplate) => t.category === workflowCategory);
             if (matching) setSelectedTemplateId(matching.id);
@@ -314,16 +631,22 @@ export default function WorkflowLinearBuilder({
     load();
   }, [workflowCategory]);
 
-  // Current Trigger definition
-  const currentTrigger =
-    PREDEFINED_SYSTEM_TRIGGERS.find((t) => t.key === selectedTriggerKey) ||
-    PREDEFINED_SYSTEM_TRIGGERS[0];
+  // Sync ruleMode when trigger or dual-branching changes
+  useEffect(() => {
+    if (dualBranchEnabled) {
+      setRuleMode('DUAL_BRANCH');
+    } else if (currentTrigger.ruleArchetype === 'ZERO_RULE') {
+      setRuleMode('UNCONDITIONAL');
+    } else {
+      setRuleMode('THRESHOLD');
+    }
+  }, [selectedTriggerKey, dualBranchEnabled, currentTrigger.ruleArchetype]);
 
   // Selected Primary & Secondary Template Objects
   const primaryTemplate = availableTemplates.find((t) => t.id === selectedTemplateId);
   const secondaryTemplate = availableTemplates.find((t) => t.id === secondaryTemplateId);
 
-  // Step 2: Split-Pane Master-Detail State & Interpolators
+  // Step 2: Split-Pane State
   const [templateSearchQuery, setTemplateSearchQuery] = useState('');
   const [templateCategoryFilter, setTemplateCategoryFilter] = useState('ALL');
   const [activeBranchTab, setActiveBranchTab] = useState<'PRIMARY' | 'SECONDARY'>('PRIMARY');
@@ -343,84 +666,91 @@ export default function WorkflowLinearBuilder({
     return matchesCategory && matchesQuery;
   });
 
-  // Current active template being previewed/selected in Step 2
-  const activeTemplateForBranch =
-    ruleMode === 'DUAL_BRANCH' && activeBranchTab === 'SECONDARY'
-      ? secondaryTemplate
-      : primaryTemplate;
-
-  // Logged in name for dynamic preview
-  const loggedInName = employeeData?.name || user?.displayName || 'Learner';
-
-  // Sample token values for dynamic live preview
-  const sampleTokenMap: Record<string, string> = {
-    first_name: loggedInName.split(' ')[0] || 'Alex',
-    name: loggedInName || 'Alex Chen',
-    user_name: loggedInName || 'Alex Chen',
-    'subscriber.name': loggedInName || 'Alex Chen',
-    'subscriber.role': 'Security Analyst',
-    'subscriber.department': 'Cyber Defense',
-    module_name: 'Cybersecurity Fundamentals',
-    'curriculum.module_name': 'Cybersecurity Fundamentals',
-    'curriculum.days_left': '2',
-    time_remaining: '24 hours',
-    progress: '85',
-    'curriculum.progress_percentage': '85',
-    score: '88',
-    'assessment.score': '88',
-    passing_score: '70',
-    assessment_name: 'Threat Modeling Challenge',
-    streak_days: '7',
-    'gamification.streak_days': '7',
-    'gamification.xp_points': '450',
-    badge_name: 'Rapid Incident Responder',
-    task_title: 'Analyze Firewall Logs',
-    completed_count: '4',
+  // Extract variables helper
+  const extractTokens = (tpl?: NotificationTemplate | null): string[] => {
+    if (!tpl) return [];
+    const text = `${tpl.title_template || ''} ${tpl.body_template || ''}`;
+    const matches = text.match(/\{\{([^}]+)\}\}/g) || [];
+    return Array.from(
+      new Set(
+        matches
+          .map((m) => m.replace(/[{}]/g, '').trim())
+          .filter((k) => !k.startsWith('#') && !k.startsWith('/') && !k.startsWith('^'))
+      )
+    );
   };
 
-  const renderInterpolatedPreview = (text?: string): string => {
-    if (!text) return '';
-    return text.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_, token) => {
-      const cleanToken = token.trim();
-      return sampleTokenMap[cleanToken] || sampleTokenMap[cleanToken.toLowerCase()] || `[${cleanToken}]`;
-    });
+  // Interpolation helper for real-time live preview
+  const loggedInName = employeeData?.name || (user as any)?.name || user?.email?.split('@')[0] || 'Learner';
+  const renderInterpolatedPreview = (rawText?: string): string => {
+    if (!rawText) return '';
+    return rawText
+      .replace(/\{\{\s*subscriber\.first_name\s*\}\}/gi, loggedInName)
+      .replace(/\{\{\s*subscriber\.full_name\s*\}\}/gi, `${loggedInName} Mercer`)
+      .replace(/\{\{\s*first_name\s*\}\}/gi, loggedInName)
+      .replace(/\{\{\s*subscriber\.company_name\s*\}\}/gi, 'Acme Corp')
+      .replace(/\{\{\s*company_name\s*\}\}/gi, 'Acme Corp')
+      .replace(/\{\{\s*curriculum\.module_name\s*\}\}/gi, 'Sprint 2: Async Workflows')
+      .replace(/\{\{\s*module_name\s*\}\}/gi, 'Sprint 2: Async Workflows')
+      .replace(/\{\{\s*assessment\.score\s*\}\}/gi, '88%')
+      .replace(/\{\{\s*score\s*\}\}/gi, '88%')
+      .replace(/\{\{\s*assessment\.weak_topic\s*\}\}/gi, 'Objection Handling')
+      .replace(/\{\{\s*gamification\.streak_days\s*\}\}/gi, '7')
+      .replace(/\{\{\s*streak_days\s*\}\}/gi, '7')
+      .replace(/\{\{\s*gamification\.badge_name\s*\}\}/gi, 'Master Negotiator')
+      .replace(/\{\{\s*badge_name\s*\}\}/gi, 'Master Negotiator')
+      .replace(/\{\{\s*curriculum\.days_left\s*\}\}/gi, '2')
+      .replace(/\{\{\s*days_left\s*\}\}/gi, '2')
+      .replace(/\{\{\s*curriculum\.due_date\s*\}\}/gi, 'Friday, Oct 24')
+      .replace(/\{\{\s*due_date\s*\}\}/gi, 'Friday, Oct 24')
+      .replace(/\{\{\s*task\.task_title\s*\}\}/gi, 'Quarterly Client Case Review')
+      .replace(/\{\{\s*task_title\s*\}\}/gi, 'Quarterly Client Case Review')
+      .replace(/\{\{#[^}]+\}\}/g, '')
+      .replace(/\{\{\/[^}]+\}\}/g, '');
   };
 
-  // Extract all {{token}} from a template
-  const extractTokens = (t?: NotificationTemplate): string[] => {
-    if (!t) return [];
-    const combined = `${t.title_template || ''} ${t.body_template || ''}`;
-    const matches = combined.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g);
-    const tokens = new Set<string>();
-    for (const m of matches) {
-      if (m[1]) tokens.add(m[1].trim());
+  const handleToggleChannel = (channel: string) => {
+    if (!['IN_APP', 'PUSH'].includes(channel)) return;
+    if (selectedChannels.includes(channel)) {
+      if (selectedChannels.length === 1) {
+        setErrorMsg('At least one delivery channel is required.');
+        return;
+      }
+      setSelectedChannels(selectedChannels.filter((c) => c !== channel));
+    } else {
+      setSelectedChannels([...selectedChannels, channel]);
     }
-    return Array.from(tokens);
   };
 
-  // Add / Remove Rule Row
-  const handleAddRule = () => {
-    setRules((prev) => [...prev, { field: currentTrigger.variables[0] || 'assessment.score', operator: '<', value: '70' }]);
+  // Compile final filter_rules to send to backend
+  const buildFinalRules = (): WorkflowRule[] => {
+    if (ruleMode === 'UNCONDITIONAL') {
+      return [];
+    }
+
+    if (currentTrigger.ruleArchetype === 'TIME_OFFSET') {
+      const isDueTrigger = ['MODULE_DUE_REMINDER', 'TASK_DUE_REMINDER'].includes(currentTrigger.key);
+      const field = isDueTrigger ? 'curriculum.days_left' : 'days_pending';
+      const days = timeOffsetUnit === 'HOURS' ? Math.max(1, Math.round(timeOffsetValue / 24)) : timeOffsetValue;
+      return [{ field, operator: '<=', value: days }];
+    }
+
+    if (currentTrigger.ruleArchetype === 'THRESHOLD') {
+      let field = 'assessment.score';
+      if (currentTrigger.key === 'DAILY_STREAK_CHECK' || currentTrigger.key === 'STREAK_MILESTONE') {
+        field = 'gamification.streak_days';
+      } else if (currentTrigger.key === 'LEADERBOARD_ALERT') {
+        field = 'gamification.leaderboard_rank';
+      } else if (currentTrigger.key === 'SCHEDULED_SCAN') {
+        field = 'inactivity_days';
+      }
+      return [{ field, operator: thresholdOperator, value: thresholdValue }];
+    }
+
+    return rules.length > 0 ? rules : [];
   };
 
-  const handleRemoveRule = (index: number) => {
-    setRules((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleUpdateRule = (index: number, key: keyof WorkflowRule, val: any) => {
-    setRules((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, [key]: val } : r))
-    );
-  };
-
-  // Toggle Channel
-  const handleToggleChannel = (ch: string) => {
-    setSelectedChannels((prev) =>
-      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]
-    );
-  };
-
-  // Step Validation Logic
+  // Step Validation
   const validateStep = (step: number): boolean => {
     setErrorMsg(null);
     if (step === 1) {
@@ -443,17 +773,15 @@ export default function WorkflowLinearBuilder({
         return false;
       }
     } else if (step === 3) {
-      if (ruleMode !== 'UNCONDITIONAL') {
-        for (let i = 0; i < rules.length; i++) {
-          if (!rules[i].value || !String(rules[i].value).trim()) {
-            setErrorMsg(`Condition #${i + 1} has an empty value. Please specify a threshold value.`);
-            return false;
-          }
+      if (ruleMode !== 'UNCONDITIONAL' && currentTrigger.ruleArchetype === 'THRESHOLD') {
+        if (!String(thresholdValue).trim()) {
+          setErrorMsg('Please specify a threshold value.');
+          return false;
         }
       }
     } else if (step === 4) {
       if (selectedChannels.length === 0) {
-        setErrorMsg('Please select at least one delivery channel (e.g. In-App, Push, Email).');
+        setErrorMsg('Please select at least one delivery channel (Mobile Push or In-App Bell).');
         return false;
       }
     }
@@ -491,11 +819,14 @@ export default function WorkflowLinearBuilder({
     setTestError(null);
     setTestResult(null);
 
+    const finalRules = buildFinalRules();
     const payload = {
       trigger_lifecycle: selectedTriggerKey,
       rule_mode: ruleMode,
-      filter_rules: ruleMode === 'UNCONDITIONAL' ? [] : rules,
+      filter_rules: finalRules,
       filter_match_type: 'ALL',
+      recipient_routing: recipientRouting,
+      audience_filter: audienceFilter,
       title_template: primaryTemplate.title_template,
       body_template: primaryTemplate.body_template,
       secondary_title_template: secondaryTemplate?.title_template || primaryTemplate.title_template,
@@ -506,6 +837,8 @@ export default function WorkflowLinearBuilder({
         weak_topic: 'Prompt Engineering',
         module_name: 'Sprint 2: Async Workflows',
         streak_days: 5,
+        department: 'Enterprise Sales',
+        role: 'employee',
       },
     };
 
@@ -530,6 +863,103 @@ export default function WorkflowLinearBuilder({
     }
   };
 
+  // Preview Audience Count & Sample
+  const handlePreviewAudience = async () => {
+    const wfId = initialWorkflow?.id;
+    if (!wfId) return;
+    try {
+      setPreviewingAudience(true);
+      const res = await fetchWithAuth(`${API_BASE}/api/notifications/workflows/${wfId}/preview-audience`);
+      if (res.ok) {
+        const data = await res.json();
+        const count = data.total_recipients ?? data.recipient_count ?? data.count ?? (data.sample_recipients?.length || 0);
+        setAudiencePreviewData({
+          count: count,
+          sample: data.sample_recipients || [],
+        });
+      }
+    } catch (err) {
+      console.error('Failed to preview audience:', err);
+    } finally {
+      setPreviewingAudience(false);
+    }
+  };
+
+  // One-Click Instant Broadcast
+  const handlePreviewAndBroadcast = async () => {
+    setBroadcasting(true);
+    setBroadcastStatus(null);
+    let wfId = initialWorkflow?.id;
+    try {
+      if (!wfId) {
+        if (!validateStep(1) || !validateStep(2) || !validateStep(3) || !validateStep(4)) {
+          setBroadcasting(false);
+          return;
+        }
+        const finalRules = buildFinalRules();
+        const payload: WorkflowFormData = {
+          title: workflowTitle.trim(),
+          category: workflowCategory,
+          trigger_lifecycle: selectedTriggerKey,
+          notification_type: `WF_${selectedTriggerKey}`,
+          template_id: selectedTemplateId,
+          pinned_template_id: selectedTemplateId,
+          title_template: primaryTemplate?.title_template || workflowTitle.trim(),
+          body_template: primaryTemplate?.body_template || 'Please check your portal for complete details.',
+          secondary_template_id: ruleMode === 'DUAL_BRANCH' ? secondaryTemplateId : undefined,
+          secondary_title_template: secondaryTemplate?.title_template,
+          secondary_body_template: secondaryTemplate?.body_template,
+          rule_mode: ruleMode,
+          filter_rules: finalRules,
+          filter_match_type: 'ALL',
+          channels: selectedChannels,
+          cooldown_seconds: cooldownHours * 3600,
+          priority: 'NORMAL',
+          is_active: true,
+          recipient_routing: recipientRouting,
+          audience_filter: audienceFilter,
+          schedule_type: scheduleType,
+          schedule_config: scheduleType === 'RECURRING' ? scheduleConfig : undefined,
+        };
+        const res = await fetchWithAuth(`${API_BASE}/api/notifications/workflows`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(formatApiError(err.detail, 'Failed to save workflow before broadcasting'));
+        }
+        const created = await res.json();
+        wfId = created.workflow?.id;
+      }
+
+      if (!wfId) throw new Error('Workflow ID is missing.');
+
+      const broadcastRes = await fetchWithAuth(`${API_BASE}/api/notifications/workflows/${wfId}/broadcast`, {
+        method: 'POST',
+      });
+      if (!broadcastRes.ok) {
+        const err = await broadcastRes.json().catch(() => ({}));
+        throw new Error(formatApiError(err.detail, 'Broadcast dispatch failed.'));
+      }
+      const bData = await broadcastRes.json();
+      const count = bData.dispatched_count ?? bData.recipients_matched ?? bData.count ?? 0;
+      setBroadcastStatus({
+        success: true,
+        message: bData.message || `Successfully broadcasted to ${count} matching learners via In-App Bell & Mobile Push!`,
+      });
+      onSaved();
+    } catch (err: any) {
+      setBroadcastStatus({
+        success: false,
+        message: err.message || 'An error occurred during broadcast.',
+      });
+    } finally {
+      setBroadcasting(false);
+    }
+  };
+
   // Save / Submit Workflow
   const handleSaveWorkflow = async () => {
     if (!validateStep(1) || !validateStep(2) || !validateStep(3) || !validateStep(4)) {
@@ -539,26 +969,30 @@ export default function WorkflowLinearBuilder({
     setSaving(true);
     setErrorMsg(null);
 
-    const payload = {
+    const finalRules = buildFinalRules();
+    const payload: WorkflowFormData = {
       title: workflowTitle.trim(),
-      description: `Automated trigger on ${currentTrigger.label}`,
-      trigger_lifecycle: selectedTriggerKey,
       category: workflowCategory,
+      trigger_lifecycle: selectedTriggerKey,
+      notification_type: `WF_${selectedTriggerKey}`,
+      template_id: selectedTemplateId,
       pinned_template_id: selectedTemplateId,
-      secondary_template_id: ruleMode === 'DUAL_BRANCH' ? secondaryTemplateId : null,
-      title_template: primaryTemplate?.title_template || 'Notification Title',
-      body_template: primaryTemplate?.body_template || 'Notification message copy',
-      secondary_title_template: secondaryTemplate?.title_template || null,
-      secondary_body_template: secondaryTemplate?.body_template || null,
+      title_template: primaryTemplate?.title_template || workflowTitle.trim(),
+      body_template: primaryTemplate?.body_template || 'Please check your portal for complete details.',
+      secondary_template_id: ruleMode === 'DUAL_BRANCH' ? secondaryTemplateId : undefined,
+      secondary_title_template: secondaryTemplate?.title_template,
+      secondary_body_template: secondaryTemplate?.body_template,
       rule_mode: ruleMode,
-      filter_rules: ruleMode === 'UNCONDITIONAL' ? [] : rules,
+      filter_rules: finalRules,
       filter_match_type: 'ALL',
-      notification_type: `${selectedTriggerKey}_WF`,
       channels: selectedChannels,
-      delivery_policy: 'PARALLEL',
       cooldown_seconds: cooldownHours * 3600,
       priority: 'NORMAL',
-      is_active: true,
+      is_active: initialWorkflow?.is_active ?? true,
+      recipient_routing: recipientRouting,
+      audience_filter: audienceFilter,
+      schedule_type: scheduleType,
+      schedule_config: scheduleType === 'RECURRING' ? scheduleConfig : undefined,
     };
 
     try {
@@ -575,33 +1009,50 @@ export default function WorkflowLinearBuilder({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail?.message || err.detail || 'Failed to save workflow');
+        throw new Error(formatApiError(err.detail, 'Failed to save workflow definition'));
       }
 
       onSaved();
+      onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save workflow.');
+      setErrorMsg(err.message || 'An unexpected error occurred while saving.');
     } finally {
       setSaving(false);
     }
   };
 
+  const stepsList = [
+    { num: 1, label: 'Trigger Event', desc: 'Category & Hook' },
+    { num: 2, label: 'Message Template', desc: 'In-App & Push Copy' },
+    { num: 3, label: 'Rules & Audience', desc: 'Archetype & Scoping' },
+    { num: 4, label: 'Channels & Test', desc: 'Push & Bell Delivery' },
+  ];
+
+  const activeTemplateForBranch =
+    activeBranchTab === 'SECONDARY' && secondaryTemplate
+      ? secondaryTemplate
+      : primaryTemplate;
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      {/* ─── LOCKED STABLE MODAL BOX (FIXES DYNAMIC JUMPING SIZE) ───── */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-5xl h-[740px] max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* ─── MODAL TOP HEADER (SHRINK-0) ────────────────────────────── */}
-        <div className="shrink-0 px-6 py-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+      <div className="relative w-full max-w-5xl h-[92vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+        {/* ─── HEADER BAR ────────────────────────────────────────────────────── */}
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-              <Zap size={18} />
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+              <Zap size={20} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">
-                {initialWorkflow ? 'Edit Notification Workflow' : 'Create Notification Workflow'}
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                4-Step Linear Wizard • Predefined System Triggers & Real-User Test
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900">
+                  {initialWorkflow?.id ? 'Edit Notification Workflow' : 'Create Notification Workflow'}
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Mobile Push & In-App Studio
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Configure automated notification triggers, audience targeting, and multi-channel delivery.
               </p>
             </div>
           </div>
@@ -609,407 +1060,445 @@ export default function WorkflowLinearBuilder({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="w-9 h-9 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
-        {/* ─── STEPPER BAR (SHRINK-0) ─────────────────────────────────── */}
-        <div className="shrink-0 px-6 py-3 border-b border-slate-100 bg-white grid grid-cols-4 gap-2">
-          {[
-            { num: 1, title: 'Trigger Event' },
-            { num: 2, title: 'Pick Templates' },
-            { num: 3, title: 'Define Rules' },
-            { num: 4, title: 'Channels & Test' },
-          ].map((s) => {
-            const isActive = currentStep === s.num;
-            const isCompleted = currentStep > s.num;
-            return (
-              <button
-                key={s.num}
-                type="button"
-                onClick={() => handleStepJump(s.num)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-left transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs'
-                    : isCompleted
-                    ? 'text-slate-700 hover:bg-slate-50'
-                    : 'text-slate-400 hover:bg-slate-50'
-                }`}
-              >
-                <span
-                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${
+        {/* ─── STEP PROGRESS BREADCRUMBS ─────────────────────────────────────── */}
+        <div className="px-6 py-3 bg-slate-50/80 border-b border-slate-100 shrink-0">
+          <div className="grid grid-cols-4 gap-2">
+            {stepsList.map((s) => {
+              const isActive = currentStep === s.num;
+              const isPassed = currentStep > s.num;
+              return (
+                <button
+                  key={s.num}
+                  type="button"
+                  onClick={() => handleStepJump(s.num)}
+                  className={`flex items-center gap-2.5 p-2 rounded-xl text-left transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-indigo-600 text-white'
-                      : isCompleted
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : 'bg-slate-100 text-slate-400'
+                      ? 'bg-white shadow-2xs border border-indigo-200'
+                      : isPassed
+                      ? 'hover:bg-slate-100/70 opacity-90'
+                      : 'opacity-40 hover:opacity-60'
                   }`}
                 >
-                  {isCompleted ? <Check size={11} /> : s.num}
-                </span>
-                <span className="truncate">{s.title}</span>
-              </button>
-            );
-          })}
+                  <div
+                    className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
+                      isPassed
+                        ? 'bg-emerald-500 text-white'
+                        : isActive
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {isPassed ? <Check size={13} /> : s.num}
+                  </div>
+                  <div className="min-w-0">
+                    <div
+                      className={`text-xs font-bold truncate ${
+                        isActive ? 'text-indigo-900' : 'text-slate-700'
+                      }`}
+                    >
+                      {s.label}
+                    </div>
+                    <div className="text-[10px] text-slate-400 truncate">{s.desc}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* ─── MODAL BODY: STEP CONTENT (FLEX-1 WITH STABLE SCROLL) ───── */}
-        <div className={`flex-1 min-h-0 ${currentStep === 2 ? 'p-5 flex flex-col overflow-hidden' : 'overflow-y-auto p-6 space-y-6 custom-scrollbar'}`}>
-          {errorMsg && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 animate-in fade-in duration-100">
-              <AlertCircle size={15} className="shrink-0" />
+        {/* ─── ERROR BANNER ─────────────────────────────────────────────────── */}
+        {errorMsg && (
+          <div className="mx-6 mt-3 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center justify-between shrink-0 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={15} className="shrink-0 text-rose-500" />
               <span>{errorMsg}</span>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setErrorMsg(null)}
+              className="text-rose-400 hover:text-rose-700 font-bold"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
+        {/* ─── SCROLLABLE STEP BODY ─────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto p-6 min-h-0">
           {/* ═════════════════════════════════════════════════════════════
-              STEP 1: WORKFLOW DETAILS & TRIGGER EVENT
+              STEP 1: SELECT EVENT TRIGGER & NAME
              ═════════════════════════════════════════════════════════════ */}
           {currentStep === 1 && (
-            <div className="space-y-5 animate-in fade-in duration-100">
-              {/* Workflow Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                  <span>Workflow Name</span>
-                  <span className="text-rose-500">*</span>
-                  <InfoTooltip content="Descriptive identifier for this automation pipeline. Appears in audit logs and management reports." />
-                </label>
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={workflowTitle}
-                  onChange={(e) => {
-                    setWorkflowTitle(e.target.value);
-                    if (errorMsg) setErrorMsg(null);
-                  }}
-                  placeholder="e.g. Adaptive Quiz Weak-Spot Remediation"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all font-medium"
-                />
-              </div>
+            <div className="space-y-6 animate-in fade-in duration-100">
+              {/* Title & Category Input */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                    <span>Workflow Name</span>
+                    <span className="text-rose-500">*</span>
+                    <InfoTooltip content="A concise, descriptive name for admins to identify this automation." />
+                  </label>
+                  <input
+                    ref={titleInputRef}
+                    type="text"
+                    value={workflowTitle}
+                    onChange={(e) => setWorkflowTitle(e.target.value)}
+                    placeholder="e.g. Daily Streak Rescue Reminder"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all bg-white"
+                  />
+                </div>
 
-              {/* Event Domain Selection */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                  <span>Select Event Domain / Category</span>
-                  <InfoTooltip content="The functional domain of the learning platform that emits this trigger." />
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {PREDEFINED_CATEGORIES.map((cat) => {
-                    const isSelected = workflowCategory === cat.id;
-                    const Icon = cat.icon;
-                    return (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => {
-                          setWorkflowCategory(cat.id);
-                          const firstInCat = PREDEFINED_SYSTEM_TRIGGERS.find((t) => t.category === cat.id);
-                          if (firstInCat) setSelectedTriggerKey(firstInCat.key);
-                        }}
-                        className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
-                          isSelected
-                            ? 'bg-indigo-50 border-indigo-400 shadow-2xs'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className={`p-1.5 rounded-lg w-fit mb-2 ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                          <Icon size={14} />
-                        </div>
-                        <div className={`text-xs font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
-                          {cat.label}
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                    <span>Domain / Category</span>
+                    <InfoTooltip content="Categorizes the workflow into one of the 10 core product domains." />
+                  </label>
+                  <select
+                    value={workflowCategory}
+                    onChange={(e) => {
+                      setWorkflowCategory(e.target.value);
+                      const firstTrigger = PREDEFINED_SYSTEM_TRIGGERS.find(
+                        (t) => t.category === e.target.value
+                      );
+                      if (firstTrigger) setSelectedTriggerKey(firstTrigger.key);
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                  >
+                    {PREDEFINED_CATEGORIES.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {/* Predefined Trigger Dropdown */}
+              {/* Predefined Triggers Grid */}
               <div>
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                  <span>Select Predefined System Trigger Event</span>
-                  <span className="text-rose-500">*</span>
-                  <InfoTooltip content="Standard system contract event that activates this workflow when fired by backend or frontend." />
-                </label>
-                <div className="space-y-2">
-                  {PREDEFINED_SYSTEM_TRIGGERS.filter((t) => t.category === workflowCategory).map((trig) => {
-                    const isSelected = selectedTriggerKey === trig.key;
-                    const Icon = trig.icon;
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <span>Select Trigger Event</span>
+                    <span className="text-rose-500">*</span>
+                    <InfoTooltip content="Choose which system event initiates this notification workflow." />
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    Showing triggers for <strong>{PREDEFINED_CATEGORIES.find(c => c.id === workflowCategory)?.label || workflowCategory}</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {PREDEFINED_SYSTEM_TRIGGERS.filter(
+                    (t) => t.category === workflowCategory
+                  ).map((trigger) => {
+                    const isSelected = selectedTriggerKey === trigger.key;
+                    const Icon = trigger.icon;
+
                     return (
                       <div
-                        key={trig.key}
-                        onClick={() => setSelectedTriggerKey(trig.key)}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-start justify-between gap-3 ${
+                        key={trigger.key}
+                        onClick={() => {
+                          setSelectedTriggerKey(trigger.key);
+                          if (errorMsg) setErrorMsg(null);
+                        }}
+                        className={`p-4 rounded-2xl border transition-all cursor-pointer relative flex flex-col justify-between ${
                           isSelected
-                            ? 'bg-amber-50/70 border-amber-400 shadow-2xs'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                            ? 'bg-indigo-50/70 border-indigo-500 shadow-2xs ring-2 ring-indigo-500/15'
+                            : 'bg-white border-slate-200/90 hover:border-slate-300 hover:shadow-2xs'
                         }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={`p-2 rounded-xl shrink-0 mt-0.5 ${
-                              isSelected ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            <Icon size={15} />
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                              <span>{trig.label}</span>
-                              <span className="font-mono text-[10px] text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                                {trig.key}
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                                  isSelected
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                <Icon size={16} />
+                              </div>
+                              <span className="text-xs font-bold text-slate-900">
+                                {trigger.label}
                               </span>
                             </div>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              {trig.description}
-                            </p>
-                            {/* Available variables chip */}
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {trig.variables.map((v) => (
-                                <span
-                                  key={v}
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-100 text-slate-600"
-                                >
-                                  {`{{${v}}}`}
-                                </span>
-                              ))}
-                            </div>
+
+                            {/* Archetype Badge */}
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                trigger.ruleArchetype === 'ZERO_RULE'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : trigger.ruleArchetype === 'TIME_OFFSET'
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {trigger.ruleArchetype === 'ZERO_RULE'
+                                ? '✨ Zero-Rule'
+                                : trigger.ruleArchetype === 'TIME_OFFSET'
+                                ? '⏱️ Time Offset'
+                                : '🎯 Threshold'}
+                            </span>
                           </div>
+
+                          <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
+                            {trigger.description}
+                          </p>
                         </div>
 
-                        <div className="shrink-0 mt-1">
-                          <div
-                            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                              isSelected ? 'border-amber-600 bg-amber-600 text-white' : 'border-slate-300 bg-white'
-                            }`}
-                          >
-                            {isSelected && <Check size={10} />}
-                          </div>
+                        {/* Variables Pills */}
+                        <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold text-slate-400">Available:</span>
+                          {trigger.variables.slice(0, 3).map((v) => (
+                            <span
+                              key={v}
+                              className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200/60"
+                            >
+                              {v.split('.').pop()}
+                            </span>
+                          ))}
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
+
+              {/* Dispatch Trigger Mode & Recurring Schedule Selector */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <span>Dispatch Trigger Mode</span>
+                      <InfoTooltip content="Choose whether this workflow triggers immediately on events/broadcasts or runs on a scheduled recurring timer." />
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Determine how and when notification policies are evaluated.
+                    </p>
+                  </div>
+
+                  <div className="inline-flex p-1 bg-white rounded-xl border border-slate-200 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleType('EVENT_DRIVEN')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        scheduleType === 'EVENT_DRIVEN'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Zap size={13} />
+                      <span>⚡ Real-time Event</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleType('RECURRING')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        scheduleType === 'RECURRING'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Clock size={13} />
+                      <span>⏰ Scheduled Recurring</span>
+                    </button>
+                  </div>
+                </div>
+
+                {scheduleType === 'RECURRING' && (
+                  <div className="p-3.5 bg-white rounded-xl border border-indigo-100 shadow-2xs space-y-3 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          Recurrence Frequency
+                        </label>
+                        <select
+                          value={scheduleConfig.frequency}
+                          onChange={(e) =>
+                            setScheduleConfig((prev) => ({
+                              ...prev,
+                              frequency: e.target.value as any,
+                            }))
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        >
+                          <option value="DAILY">Every Day</option>
+                          <option value="WEEKLY">Specific Days of Week</option>
+                          <option value="EVERY_N_DAYS">Every N Days</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                          Dispatch Time (24h)
+                        </label>
+                        <input
+                          type="time"
+                          value={scheduleConfig.time}
+                          onChange={(e) =>
+                            setScheduleConfig((prev) => ({ ...prev, time: e.target.value }))
+                          }
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                      </div>
+
+                      {scheduleConfig.frequency === 'EVERY_N_DAYS' && (
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                            Interval (Days)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={scheduleConfig.interval_days}
+                            onChange={(e) =>
+                              setScheduleConfig((prev) => ({
+                                ...prev,
+                                interval_days: Math.max(1, parseInt(e.target.value) || 1),
+                              }))
+                            }
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {scheduleConfig.frequency === 'WEEKLY' && (
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                          Active Dispatch Days
+                        </label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].map((day) => {
+                            const isSelected = (scheduleConfig.days || []).includes(day);
+                            return (
+                              <button
+                                key={day}
+                                type="button"
+                                onClick={() => {
+                                  const currentDays = scheduleConfig.days || [];
+                                  const nextDays = isSelected
+                                    ? currentDays.filter((d) => d !== day)
+                                    : [...currentDays, day];
+                                  setScheduleConfig((prev) => ({ ...prev, days: nextDays }));
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                }`}
+                              >
+                                {day}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-indigo-700 font-medium">
+                      ℹ️ Evaluated by ARQ background worker daily at the scheduled time across matching audience members.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
           {/* ═════════════════════════════════════════════════════════════
-              STEP 2: SELECT TEMPLATES (SINGLE OR DUAL BRANCH)
+              STEP 2: MESSAGE TEMPLATE SELECTION & LIVE PREVIEW
              ═════════════════════════════════════════════════════════════ */}
           {currentStep === 2 && (
-            <div className="flex-1 min-h-0 flex flex-col space-y-3.5 animate-in fade-in duration-100">
-              {/* Top Control Bar: Step Title + Info + Single/Dual-Branch Switch */}
-              <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="space-y-4 animate-in fade-in duration-100">
+              <div className="flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <span>Step 2: Choose Message Template(s)</span>
-                    <InfoTooltip content="Bind approved copy created in the Templates Catalog to this event trigger. Copy is channel-agnostic and interpolated with live event variables." />
+                    <span>Step 2: Assign Notification Template</span>
+                    <InfoTooltip content="Select which pre-approved message copy will be rendered and sent when this workflow triggers." />
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    Select approved notification copy. In Dual Branch mode, pick distinct copy for TRUE and FALSE outcomes.
+                    Choose from published templates or preview how variables interpolate for learners.
                   </p>
                 </div>
 
-                {/* Dual-Branch Switch */}
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl shrink-0 self-start sm:self-auto">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRuleMode('THRESHOLD');
-                      setActiveBranchTab('PRIMARY');
-                      if (errorMsg) setErrorMsg(null);
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      ruleMode !== 'DUAL_BRANCH'
-                        ? 'bg-white text-slate-900 shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    Single Template
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRuleMode('DUAL_BRANCH');
-                      if (errorMsg) setErrorMsg(null);
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      ruleMode === 'DUAL_BRANCH'
-                        ? 'bg-indigo-600 text-white shadow-2xs font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <GitBranch size={12} />
-                    <span>Dual Branch (IF/ELSE)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Dual-Branch Branch Navigator (When DUAL_BRANCH is active) */}
-              {ruleMode === 'DUAL_BRANCH' && (
-                <div className="shrink-0 grid grid-cols-2 gap-2.5 p-1.5 bg-slate-100/80 rounded-2xl border border-slate-200/80">
-                  <button
-                    type="button"
-                    onClick={() => setActiveBranchTab('PRIMARY')}
-                    className={`p-2 rounded-xl text-left transition-all cursor-pointer flex items-center justify-between ${
-                      activeBranchTab === 'PRIMARY'
-                        ? 'bg-white text-indigo-900 shadow-xs border border-indigo-200 ring-2 ring-indigo-500/10'
-                        : 'text-slate-600 hover:bg-white/60'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${activeBranchTab === 'PRIMARY' ? 'bg-indigo-600' : 'bg-slate-400'}`} />
-                      <div className="truncate">
-                        <div className="text-[11px] font-bold">1. Primary Branch (IF TRUE) *</div>
-                        <div className="text-[10px] text-slate-500 truncate">
-                          {primaryTemplate ? (primaryTemplate.template_name || primaryTemplate.notification_type) : 'Select template below...'}
-                        </div>
-                      </div>
-                    </div>
-                    {primaryTemplate && (
-                      <span className="p-1 rounded-full bg-emerald-100 text-emerald-700 shrink-0 ml-1">
-                        <Check size={11} />
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveBranchTab('SECONDARY')}
-                    className={`p-2 rounded-xl text-left transition-all cursor-pointer flex items-center justify-between ${
-                      activeBranchTab === 'SECONDARY'
-                        ? 'bg-white text-amber-900 shadow-xs border border-amber-200 ring-2 ring-amber-500/10'
-                        : 'text-slate-600 hover:bg-white/60'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${activeBranchTab === 'SECONDARY' ? 'bg-amber-600' : 'bg-slate-400'}`} />
-                      <div className="truncate">
-                        <div className="text-[11px] font-bold">2. Secondary Branch (IF FALSE) *</div>
-                        <div className="text-[10px] text-slate-500 truncate">
-                          {secondaryTemplate ? (secondaryTemplate.template_name || secondaryTemplate.notification_type) : 'Select template below...'}
-                        </div>
-                      </div>
-                    </div>
-                    {secondaryTemplate && (
-                      <span className="p-1 rounded-full bg-emerald-100 text-emerald-700 shrink-0 ml-1">
-                        <Check size={11} />
-                      </span>
-                    )}
-                  </button>
-                </div>
-              )}
-
-              {/* ─── SPLIT-PANE CONTAINER (7 COLS LEFT + 5 COLS RIGHT) ─── */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 flex-1 min-h-0">
-                {/* ── LEFT PANE: SEARCH, CATEGORIES & TEMPLATE CARDS ── */}
-                <div className="lg:col-span-7 flex flex-col min-h-0 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/90">
-                  {/* Search Bar */}
-                  <div className="relative shrink-0 mb-2.5">
-                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={templateSearchQuery}
-                      onChange={(e) => setTemplateSearchQuery(e.target.value)}
-                      placeholder="Search templates by title, body, or keywords..."
-                      className="w-full pl-10 pr-9 py-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all font-medium"
-                    />
-                    {templateSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setTemplateSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full cursor-pointer transition-colors"
-                        title="Clear search"
-                      >
-                        <X size={13} />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Category Filter Chips */}
-                  <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto pb-1.5 mb-2.5 scrollbar-none">
+                {ruleMode === 'DUAL_BRANCH' && (
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                     <button
                       type="button"
-                      onClick={() => setTemplateCategoryFilter('ALL')}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                        templateCategoryFilter === 'ALL'
-                          ? 'bg-slate-900 text-white shadow-2xs'
-                          : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                      onClick={() => setActiveBranchTab('PRIMARY')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        activeBranchTab === 'PRIMARY'
+                          ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                          : 'text-slate-500 hover:text-slate-800'
                       }`}
                     >
-                      All ({availableTemplates.length})
+                      Primary (IF TRUE)
                     </button>
-                    {PREDEFINED_CATEGORIES.map((cat) => {
-                      const count = availableTemplates.filter((t) => t.category === cat.id).length;
-                      const isSel = templateCategoryFilter === cat.id;
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setTemplateCategoryFilter(cat.id)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-indigo-600 text-white shadow-2xs'
-                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          {cat.label} ({count})
-                        </button>
-                      );
-                    })}
+                    <button
+                      type="button"
+                      onClick={() => setActiveBranchTab('SECONDARY')}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        activeBranchTab === 'SECONDARY'
+                          ? 'bg-white text-amber-800 shadow-2xs border border-amber-200'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      Secondary (IF FALSE)
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Split Pane: Left Catalog, Right Live Preview */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                {/* ── LEFT PANE: TEMPLATE CATALOG ── */}
+                <div className="lg:col-span-7 flex flex-col space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search size={13} className="absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={templateSearchQuery}
+                        onChange={(e) => setTemplateSearchQuery(e.target.value)}
+                        placeholder="Search templates by title or slug..."
+                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
 
-                  {/* Active selection banner for Dual Branch */}
-                  {ruleMode === 'DUAL_BRANCH' && (
-                    <div className="shrink-0 mb-2 px-2.5 py-1 rounded-lg bg-white border border-slate-200/90 flex items-center justify-between text-[11px]">
-                      <span className="font-bold text-slate-700">
-                        Assigning template to:{' '}
-                        <span className={activeBranchTab === 'PRIMARY' ? 'text-indigo-600' : 'text-amber-600'}>
-                          {activeBranchTab === 'PRIMARY' ? 'IF TRUE Branch' : 'IF FALSE Branch'}
-                        </span>
-                      </span>
-                      <span className="text-slate-400 text-[10px]">Click any card below to select</span>
-                    </div>
-                  )}
-
-                  {/* Scrollable Templates List (Fills remaining height) */}
-                  <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                    {templatesLoading ? (
-                      <div className="p-8 text-center text-xs text-slate-400">Loading approved templates...</div>
-                    ) : filteredTemplates.length === 0 ? (
-                      <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-slate-200">
-                        <p className="text-xs font-semibold text-slate-600">No matching templates found</p>
-                        <p className="text-[11px] text-slate-400 mt-1">Try another search keyword or category filter.</p>
+                  {/* Template List */}
+                  <div className="max-h-[380px] overflow-y-auto space-y-2 pr-1">
+                    {filteredTemplates.length === 0 ? (
+                      <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500">
+                        No templates found matching your search.
                       </div>
                     ) : (
                       filteredTemplates.map((t) => {
                         const isPrimarySelected = selectedTemplateId === t.id;
                         const isSecondarySelected = secondaryTemplateId === t.id;
                         const isCurrentlyActiveForBranch =
-                          ruleMode === 'DUAL_BRANCH'
-                            ? (activeBranchTab === 'PRIMARY' && isPrimarySelected) ||
-                              (activeBranchTab === 'SECONDARY' && isSecondarySelected)
+                          activeBranchTab === 'SECONDARY' && ruleMode === 'DUAL_BRANCH'
+                            ? isSecondarySelected
                             : isPrimarySelected;
 
                         return (
                           <div
                             key={t.id}
                             onClick={() => {
-                              if (ruleMode === 'DUAL_BRANCH') {
-                                if (activeBranchTab === 'PRIMARY') {
-                                  setSelectedTemplateId(t.id);
-                                } else {
-                                  setSecondaryTemplateId(t.id);
-                                }
+                              if (activeBranchTab === 'SECONDARY' && ruleMode === 'DUAL_BRANCH') {
+                                setSecondaryTemplateId(t.id);
                               } else {
                                 setSelectedTemplateId(t.id);
                               }
                               if (errorMsg) setErrorMsg(null);
                             }}
-                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer relative ${
+                            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer relative ${
                               isCurrentlyActiveForBranch
                                 ? activeBranchTab === 'SECONDARY' && ruleMode === 'DUAL_BRANCH'
                                   ? 'bg-amber-50/90 border-amber-500 ring-2 ring-amber-500/15 shadow-2xs'
@@ -1017,13 +1506,10 @@ export default function WorkflowLinearBuilder({
                                 : 'bg-white border-slate-200/90 hover:border-slate-300 hover:shadow-2xs'
                             }`}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="flex items-start justify-between gap-2 mb-1.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
                                   {t.category}
-                                </span>
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500">
-                                  v{t.version}
                                 </span>
                                 {isPrimarySelected && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
@@ -1032,7 +1518,7 @@ export default function WorkflowLinearBuilder({
                                 )}
                                 {isSecondarySelected && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                    Fallback (IF False)
+                                    Secondary (IF False)
                                   </span>
                                 )}
                               </div>
@@ -1059,28 +1545,6 @@ export default function WorkflowLinearBuilder({
                             <p className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
                               {t.body_template}
                             </p>
-
-                            {/* Tags preview */}
-                            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                              {extractTokens(t).slice(0, 3).map((token) => (
-                                <span
-                                  key={token}
-                                  className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-purple-50 text-purple-700 border border-purple-200/60"
-                                >
-                                  {`{{${token}}}`}
-                                </span>
-                              ))}
-                              {extractTokens(t).length > 3 && (
-                                <span className="text-[10px] text-slate-400 font-medium">
-                                  +{extractTokens(t).length - 3} more
-                                </span>
-                              )}
-                              {t.cta_label && (
-                                <span className="ml-auto text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                                  CTA: {t.cta_label}
-                                </span>
-                              )}
-                            </div>
                           </div>
                         );
                       })
@@ -1088,87 +1552,53 @@ export default function WorkflowLinearBuilder({
                   </div>
                 </div>
 
-                {/* ── RIGHT PANE: REAL-TIME NOTIFICATION PREVIEW & INSPECTOR ── */}
-                <div className="lg:col-span-5 flex flex-col min-h-0 bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs">
-                  {/* Preview Header & Channel Toggle */}
-                  <div className="shrink-0 flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles size={14} className="text-indigo-600" />
-                      <span className="text-xs font-bold text-slate-800">Live Rendered Preview</span>
-                      <InfoTooltip content="Real-time rendering of how the notification appears to the learner, with interpolated sample variables." />
+                {/* ── RIGHT PANE: REAL-TIME LIVE NOTIFICATION PREVIEW ── */}
+                <div className="lg:col-span-5 flex flex-col bg-white p-4 rounded-2xl border border-slate-200/90 shadow-2xs justify-between">
+                  <div>
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-indigo-600" />
+                        <span className="text-xs font-bold text-slate-800">Live Render Preview</span>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewChannel('PUSH')}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                            previewChannel === 'PUSH'
+                              ? 'bg-white text-slate-900 shadow-2xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <Smartphone size={11} />
+                          <span>Push</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewChannel('IN_APP')}
+                          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                            previewChannel === 'IN_APP'
+                              ? 'bg-white text-slate-900 shadow-2xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          <Bell size={11} />
+                          <span>In-App</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => setPreviewChannel('PUSH')}
-                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                          previewChannel === 'PUSH'
-                            ? 'bg-white text-slate-900 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                        title="Mobile Push Notification preview"
-                      >
-                        <Smartphone size={11} />
-                        <span>Push</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setPreviewChannel('IN_APP')}
-                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
-                          previewChannel === 'IN_APP'
-                            ? 'bg-white text-slate-900 shadow-2xs'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                        title="In-App Banner preview"
-                      >
-                        <Bell size={11} />
-                        <span>In-App</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Dual branch preview selector (if DUAL_BRANCH) */}
-                  {ruleMode === 'DUAL_BRANCH' && (
-                    <div className="shrink-0 flex items-center justify-between gap-1 p-1 bg-slate-50 rounded-xl border border-slate-200/70 mb-3 text-[11px]">
-                      <button
-                        type="button"
-                        onClick={() => setActiveBranchTab('PRIMARY')}
-                        className={`flex-1 py-1 rounded-lg font-bold transition-all text-center cursor-pointer ${
-                          activeBranchTab === 'PRIMARY'
-                            ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        Previewing IF TRUE
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveBranchTab('SECONDARY')}
-                        className={`flex-1 py-1 rounded-lg font-bold transition-all text-center cursor-pointer ${
-                          activeBranchTab === 'SECONDARY'
-                            ? 'bg-white text-amber-800 shadow-2xs border border-amber-200'
-                            : 'text-slate-500 hover:text-slate-800'
-                        }`}
-                      >
-                        Previewing IF FALSE
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Preview Render Box */}
-                  <div className="shrink-0">
                     {activeTemplateForBranch ? (
                       previewChannel === 'PUSH' ? (
-                        /* Mobile Push Card */
-                        <div className="bg-slate-900 text-white p-3.5 rounded-2xl border border-slate-800 shadow-sm space-y-2">
+                        <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 shadow-sm space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                               <div className="w-4 h-4 rounded-md bg-indigo-600 flex items-center justify-center text-[9px] font-bold">
                                 <Zap size={9} />
                               </div>
                               <span className="text-[10px] font-bold tracking-wider text-slate-300 uppercase">
-                                Workfloww
+                                Lucid
                               </span>
                             </div>
                             <span className="text-[10px] text-slate-400">now</span>
@@ -1182,18 +1612,9 @@ export default function WorkflowLinearBuilder({
                               {renderInterpolatedPreview(activeTemplateForBranch.body_template)}
                             </p>
                           </div>
-
-                          {activeTemplateForBranch.cta_label && (
-                            <div className="pt-1.5 border-t border-slate-800 flex justify-end">
-                              <span className="text-[10px] font-bold text-indigo-400 bg-indigo-950/60 px-2 py-1 rounded-lg border border-indigo-800/80">
-                                {activeTemplateForBranch.cta_label} &rarr;
-                              </span>
-                            </div>
-                          )}
                         </div>
                       ) : (
-                        /* In-App Toast Card */
-                        <div className="bg-white p-3.5 rounded-2xl border-2 border-indigo-200 shadow-xs space-y-2">
+                        <div className="bg-white p-4 rounded-2xl border-2 border-indigo-200 shadow-xs space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                               <div className="p-1 rounded-lg bg-indigo-50 text-indigo-600">
@@ -1214,76 +1635,17 @@ export default function WorkflowLinearBuilder({
                               {renderInterpolatedPreview(activeTemplateForBranch.body_template)}
                             </p>
                           </div>
-
-                          {activeTemplateForBranch.cta_label && (
-                            <div className="pt-1 flex justify-start">
-                              <span className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 underline underline-offset-2">
-                                {activeTemplateForBranch.cta_label}
-                              </span>
-                            </div>
-                          )}
                         </div>
                       )
                     ) : (
-                      <div className="p-6 text-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
-                        <Smartphone size={24} className="mx-auto text-slate-300 mb-2" />
-                        <p className="text-xs font-semibold text-slate-600">No template selected</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">Click a template card on the left to inspect its live preview.</p>
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        Select a template on the left to see live preview.
                       </div>
                     )}
                   </div>
 
-                  {/* Variable Mapping Inspector (Scrollable bottom of right pane) */}
-                  <div className="flex-1 min-h-0 overflow-y-auto mt-3.5 pt-3 border-t border-slate-100 custom-scrollbar">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                        <Tag size={12} className="text-slate-400" />
-                        <span>Dynamic Token Inspector</span>
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {extractTokens(activeTemplateForBranch).length} token(s)
-                      </span>
-                    </div>
-
-                    {extractTokens(activeTemplateForBranch).length === 0 ? (
-                      <p className="text-[11px] text-slate-400 italic">
-                        This template uses static text without variable tokens.
-                      </p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {extractTokens(activeTemplateForBranch).map((token) => {
-                          const isTriggerVar = currentTrigger.variables.some((v) => v.toLowerCase().includes(token.toLowerCase()) || token.toLowerCase().includes(v.toLowerCase()));
-                          const isProfileVar = ['first_name', 'name', 'user_name', 'subscriber.name', 'subscriber.role', 'subscriber.department'].includes(token.toLowerCase());
-
-                          return (
-                            <div
-                              key={token}
-                              className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between text-[11px]"
-                            >
-                              <span className="font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200/60">
-                                {`{{${token}}}`}
-                              </span>
-
-                              <div className="flex items-center gap-1 text-[10px] font-semibold">
-                                {isTriggerVar ? (
-                                  <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                                    <Check size={9} /> Trigger Event
-                                  </span>
-                                ) : isProfileVar ? (
-                                  <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 flex items-center gap-1">
-                                    <Check size={9} /> User Profile
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
-                                    Payload Var
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                  <div className="mt-4 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[10px] text-slate-500">
+                    Preview rendered for authenticated profile: <strong>{loggedInName}</strong>
                   </div>
                 </div>
               </div>
@@ -1291,165 +1653,395 @@ export default function WorkflowLinearBuilder({
           )}
 
           {/* ═════════════════════════════════════════════════════════════
-              STEP 3: DEFINE RULES (HYBRID RULE ENGINE)
+              STEP 3: STREAMLINED RULES, TIMING & AUDIENCE SCOPING
              ═════════════════════════════════════════════════════════════ */}
           {currentStep === 3 && (
             <div className="space-y-5 animate-in fade-in duration-100">
               <div>
                 <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <span>Step 3: Define Trigger Rules & Conditions</span>
-                  <InfoTooltip content="Set conditions comparing event parameters (like score or streak) to target values." />
+                  <span>Step 3: Trigger Rules, Reminders & Audience Scoping</span>
+                  <InfoTooltip content="Rules control under what conditions the notification is dispatched, along with relative timing and recipient routing." />
                 </h4>
                 <p className="text-[11px] text-slate-500">
-                  Control under what conditions the notification is dispatched when the event fires.
+                  Configure trigger rules tailored for <strong>{currentTrigger.label}</strong>.
                 </p>
               </div>
 
-              {/* Rule Mode Tabs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                {[
-                  {
-                    id: 'THRESHOLD',
-                    title: 'Threshold Filter',
-                    desc: 'Dispatch only when score, streak, or deadline matches criteria.',
-                  },
-                  {
-                    id: 'DUAL_BRANCH',
-                    title: 'Dual Branch (IF / ELSE)',
-                    desc: 'Route to Template A if True, or Template B if False.',
-                  },
-                  {
-                    id: 'UNCONDITIONAL',
-                    title: 'Always Dispatch',
-                    desc: 'Send unconditionally whenever the event occurs.',
-                  },
-                ].map((mode) => {
-                  const isSelected = ruleMode === mode.id;
-                  return (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => {
-                        setRuleMode(mode.id as any);
-                        if (errorMsg) setErrorMsg(null);
-                      }}
-                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-50 border-indigo-400 shadow-2xs'
-                          : 'bg-white border-slate-200 hover:border-slate-300'
-                      }`}
-                    >
-                      <div className={`text-xs font-bold mb-1 ${isSelected ? 'text-indigo-900' : 'text-slate-800'}`}>
-                        {mode.title}
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-snug">{mode.desc}</p>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Dynamic Rules Builder (Only if not UNCONDITIONAL) */}
-              {ruleMode !== 'UNCONDITIONAL' ? (
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                      <span>Evaluation Criteria (ALL must match)</span>
-                      <InfoTooltip content="All conditions must be satisfied for the rule to evaluate to TRUE." />
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleAddRule}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
-                    >
-                      + Add Rule Condition
-                    </button>
+              {/* ARCHETYPE A: ZERO-RULE (DIRECT LIFECYCLE EVENT) */}
+              {currentTrigger.ruleArchetype === 'ZERO_RULE' && (
+                <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-start gap-3.5 shadow-2xs">
+                  <div className="p-2.5 rounded-xl bg-emerald-600 text-white shrink-0">
+                    <Zap size={16} />
                   </div>
-
-                  <div className="space-y-2">
-                    {rules.map((rule, idx) => (
-                      <div
-                        key={idx}
-                        className="flex flex-wrap items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200"
-                      >
-                        {/* Variable Picker */}
-                        <select
-                          value={rule.field}
-                          onChange={(e) => handleUpdateRule(idx, 'field', e.target.value)}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                        >
-                          {currentTrigger.variables.map((v) => (
-                            <option key={v} value={v}>
-                              {v}
-                            </option>
-                          ))}
-                          <option value="subscriber.role">subscriber.role</option>
-                          <option value="subscriber.department">subscriber.department</option>
-                          <option value="gamification.streak_days">gamification.streak_days</option>
-                        </select>
-
-                        {/* Operator */}
-                        <select
-                          value={rule.operator}
-                          onChange={(e) => handleUpdateRule(idx, 'operator', e.target.value)}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-bold"
-                        >
-                          <option value="<">&lt; (Less than)</option>
-                          <option value="<=">&le; (Less than or equal)</option>
-                          <option value=">">&gt; (Greater than)</option>
-                          <option value=">=">&ge; (Greater than or equal)</option>
-                          <option value="==">== (Equals)</option>
-                          <option value="!=">!= (Not equals)</option>
-                        </select>
-
-                        {/* Target Value */}
-                        <input
-                          type="text"
-                          value={rule.value}
-                          onChange={(e) => handleUpdateRule(idx, 'value', e.target.value)}
-                          placeholder="e.g. 70"
-                          className="flex-1 min-w-[80px] px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-
-                        {/* Delete Button */}
-                        {rules.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveRule(idx)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                  <div>
+                    <h5 className="text-xs font-bold text-emerald-950">
+                      Direct Lifecycle Trigger (Zero Conditions Required)
+                    </h5>
+                    <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
+                      This workflow will fire immediately every time <strong>{currentTrigger.label}</strong> occurs in the platform. No complicated boolean conditions are required. You can optionally scope which departments or roles receive it below.
+                    </p>
                   </div>
-
-                  {ruleMode === 'DUAL_BRANCH' && (
-                    <div className="text-[11px] text-slate-500 mt-2 p-2.5 rounded-xl bg-white border border-slate-200/80">
-                      <strong>Branching Behavior:</strong> If condition is TRUE → dispatches <strong>{primaryTemplate?.template_name || 'Primary Template'}</strong>. If condition is FALSE → dispatches <strong>{secondaryTemplate?.template_name || 'Secondary Template'}</strong>.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="p-6 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
-                  This workflow will fire unconditionally every time <strong>{currentTrigger.label}</strong> is ingested.
                 </div>
               )}
+
+              {/* ARCHETYPE B: TIME_OFFSET (DEADLINES & REMINDERS) */}
+              {currentTrigger.ruleArchetype === 'TIME_OFFSET' && (
+                <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-indigo-600 text-white">
+                      <Clock size={15} />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-indigo-950">
+                        Relative Reminder Timing Configuration
+                      </h5>
+                      <p className="text-[11px] text-indigo-700">
+                        Configure when the reminder nudge will be sent to the learner.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
+                    <span className="text-xs font-semibold text-slate-700">Notify exactly</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={timeOffsetValue}
+                      onChange={(e) => setTimeOffsetValue(Math.max(1, Number(e.target.value) || 1))}
+                      className="w-20 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <select
+                      value={timeOffsetUnit}
+                      onChange={(e) => setTimeOffsetUnit(e.target.value as any)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value="HOURS">Hours</option>
+                      <option value="DAYS">Days</option>
+                    </select>
+                    <span className="text-xs font-semibold text-slate-700">
+                      {['MODULE_DUE_REMINDER', 'TASK_DUE_REMINDER'].includes(currentTrigger.key)
+                        ? 'Before Assigned Deadline'
+                        : 'After Assignment (if not yet started)'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ARCHETYPE C: THRESHOLD (METRIC EVALUATION) */}
+              {currentTrigger.ruleArchetype === 'THRESHOLD' && (
+                <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-amber-600 text-white">
+                      <SlidersHorizontal size={15} />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-amber-950">
+                        Metric Threshold Evaluation Criteria
+                      </h5>
+                      <p className="text-[11px] text-amber-800">
+                        Specify the target threshold that triggers this notification.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 bg-white p-3.5 rounded-xl border border-amber-200/80 shadow-2xs">
+                    <span className="text-xs font-semibold text-slate-700">
+                      {currentTrigger.key === 'ASSESSMENT_COMPLETED' && 'Quiz Score:'}
+                      {currentTrigger.key === 'DAILY_STREAK_CHECK' && 'Active Streak:'}
+                      {currentTrigger.key === 'STREAK_MILESTONE' && 'Streak Days Reached:'}
+                      {currentTrigger.key === 'LEADERBOARD_ALERT' && 'Rank Drop / Delta:'}
+                      {currentTrigger.key === 'SCHEDULED_SCAN' && 'Inactivity Duration:'}
+                      {currentTrigger.key === 'ROLEPLAY_RETAKE' && 'Fluency / Rubric Score:'}
+                    </span>
+
+                    <select
+                      value={thresholdOperator}
+                      onChange={(e) => setThresholdOperator(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    >
+                      <option value=">=">&ge; (Greater than or equal)</option>
+                      <option value="<">&lt; (Less than)</option>
+                      <option value="<=">&le; (Less than or equal)</option>
+                      <option value=">">&gt; (Greater than)</option>
+                      <option value="==">== (Exact match)</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={thresholdValue}
+                      onChange={(e) => setThresholdValue(e.target.value)}
+                      placeholder="e.g. 70"
+                      className="w-24 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-center text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+
+                    <span className="text-xs font-bold text-slate-500">
+                      {['ASSESSMENT_COMPLETED', 'ROLEPLAY_RETAKE'].includes(currentTrigger.key)
+                        ? '%'
+                        : ['STREAK_MILESTONE', 'DAILY_STREAK_CHECK', 'SCHEDULED_SCAN'].includes(currentTrigger.key)
+                        ? 'Days'
+                        : 'Positions'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* DUAL BRANCHING TOGGLE */}
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">
+                    Enable Dual-Branching (Pass / Fail Secondary Template)
+                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Optionally route to a secondary template if condition evaluates to False.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDualBranchEnabled(!dualBranchEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                    dualBranchEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      dualBranchEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* RECIPIENT ROUTING & ESCALATION POLICY */}
+              <div className="space-y-2 pt-2">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <UserCheck size={14} className="text-indigo-600" />
+                  <span>Recipient Routing Policy</span>
+                  <InfoTooltip content="Determines who receives the notification: the active learner, their direct reporting manager, or both." />
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {[
+                    {
+                      id: 'LEARNER',
+                      label: 'Learner Only',
+                      desc: 'Direct notification to the active learner.',
+                      icon: Users,
+                    },
+                    {
+                      id: 'BOTH',
+                      label: 'Learner + CC Manager',
+                      desc: 'Notifies learner and carbon copies their manager.',
+                      icon: UserCheck,
+                    },
+                    {
+                      id: 'MANAGER',
+                      label: 'Manager Only (Escalation)',
+                      desc: 'Direct escalation to reporting manager only.',
+                      icon: Shield,
+                    },
+                  ].map((route) => {
+                    const isSelected = recipientRouting === route.id;
+                    const Icon = route.icon;
+                    return (
+                      <button
+                        key={route.id}
+                        type="button"
+                        onClick={() => setRecipientRouting(route.id as any)}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? 'bg-indigo-50/80 border-indigo-500 shadow-2xs ring-1 ring-indigo-500/20'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <div
+                            className={`p-1 rounded-lg ${
+                              isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            <Icon size={13} />
+                          </div>
+                          <span
+                            className={`text-xs font-bold ${
+                              isSelected ? 'text-indigo-900' : 'text-slate-800'
+                            }`}
+                          >
+                            {route.label}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 leading-snug">{route.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* AUDIENCE SCOPING ACCORDION (OPTIONAL) */}
+              {(() => {
+                const activeDepts = audienceFilter?.departments || [];
+                const activeRoles = audienceFilter?.roles || [];
+                const totalAudienceFilters = activeDepts.length + activeRoles.length;
+
+                return (
+                  <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setIsAudienceExpanded(!isAudienceExpanded)}
+                      className="w-full px-4 py-3 bg-slate-50/70 hover:bg-slate-100/70 flex items-center justify-between text-left transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Building2 size={14} className="text-slate-600" />
+                        <span className="text-xs font-bold text-slate-800">
+                          Audience Scope & Department Filters (Optional)
+                        </span>
+                        {totalAudienceFilters > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                            {totalAudienceFilters} active filters
+                          </span>
+                        )}
+                      </div>
+                      {isAudienceExpanded ? (
+                        <ChevronUp size={15} className="text-slate-400" />
+                      ) : (
+                        <ChevronDown size={15} className="text-slate-400" />
+                      )}
+                    </button>
+
+                    {isAudienceExpanded && (
+                      <div className="p-4 space-y-4 border-t border-slate-100 bg-white animate-in fade-in duration-100">
+                        {/* Department Pills */}
+                        <div>
+                          <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                            <span>Target Specific Departments</span>
+                            {activeDepts.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setAudienceFilter((prev) => ({
+                                    ...(prev || {}),
+                                    departments: [],
+                                    roles: prev?.roles || [],
+                                    module_ids: prev?.module_ids || [],
+                                  }))
+                                }
+                                className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Clear all
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              'Sales',
+                              'Customer Success',
+                              'Engineering',
+                              'Operations',
+                              'Marketing',
+                              'Product',
+                              'HR',
+                              'Finance',
+                            ].map((dept) => {
+                              const isDeptActive = activeDepts.includes(dept);
+                              return (
+                                <button
+                                  key={dept}
+                                  type="button"
+                                  onClick={() => {
+                                    setAudienceFilter((prev) => {
+                                      const cur = prev?.departments || [];
+                                      return {
+                                        roles: prev?.roles || [],
+                                        module_ids: prev?.module_ids || [],
+                                        departments: isDeptActive
+                                          ? cur.filter((d) => d !== dept)
+                                          : [...cur, dept],
+                                      };
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                                    isDeptActive
+                                      ? 'bg-indigo-600 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {dept}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Account Role Pills */}
+                        <div>
+                          <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                            <span>Target Specific Account Roles</span>
+                            {activeRoles.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setAudienceFilter((prev) => ({
+                                    ...(prev || {}),
+                                    departments: prev?.departments || [],
+                                    roles: [],
+                                    module_ids: prev?.module_ids || [],
+                                  }))
+                                }
+                                className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Clear all
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {['employee', 'manager', 'admin'].map((role) => {
+                              const isRoleActive = activeRoles.includes(role);
+                              return (
+                                <button
+                                  key={role}
+                                  type="button"
+                                  onClick={() => {
+                                    setAudienceFilter((prev) => {
+                                      const cur = prev?.roles || [];
+                                      return {
+                                        departments: prev?.departments || [],
+                                        module_ids: prev?.module_ids || [],
+                                        roles: isRoleActive
+                                          ? cur.filter((r) => r !== role)
+                                          : [...cur, role],
+                                      };
+                                    });
+                                  }}
+                                  className={`px-2.5 py-1 rounded-xl text-xs font-semibold capitalize transition-all cursor-pointer ${
+                                    isRoleActive
+                                      ? 'bg-blue-600 text-white shadow-2xs'
+                                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  {role}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
           {/* ═════════════════════════════════════════════════════════════
-              STEP 4: CHANNELS & TEST AGAINST LOGGED-IN PORTAL USER
+              STEP 4: DELIVERY CHANNELS & TEST SIMULATION
              ═════════════════════════════════════════════════════════════ */}
           {currentStep === 4 && (
             <div className="space-y-5 animate-in fade-in duration-100">
               <div>
                 <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <span>Step 4: Select Delivery Channels & Run Live Verification</span>
-                  <InfoTooltip content="Transport channels deliver the notification. You can test the payload before saving." />
+                  <span>Step 4: Select Delivery Channels & Live Simulation</span>
+                  <InfoTooltip content="Transport channels deliver the notification. In this phase, notifications are strictly routed to Mobile Push and In-App Bell." />
                 </h4>
                 <p className="text-[11px] text-slate-500">
-                  Select allowed delivery channels and test the flow against your real authenticated account.
+                  Select destination delivery channels and test live rendering before deploying.
                 </p>
               </div>
 
@@ -1458,14 +2050,14 @@ export default function WorkflowLinearBuilder({
                 <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-2">
                   <span>Delivery Channels</span>
                   <span className="text-rose-500">*</span>
-                  <InfoTooltip content="Select at least one destination transport. In-App bell, mobile push, email digest, or WhatsApp." />
+                  <InfoTooltip content="Active channels: Mobile Push and In-App Bell. Email and WhatsApp will become available in subsequent phases." />
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {[
-                    { id: 'IN_APP', label: 'In-App Bell', icon: Bell, color: 'text-indigo-600' },
-                    { id: 'PUSH', label: 'Mobile Push', icon: Smartphone, color: 'text-emerald-600' },
-                    { id: 'EMAIL', label: 'Email Digest', icon: Mail, color: 'text-blue-600' },
-                    { id: 'WHATSAPP', label: 'WhatsApp', icon: MessageSquare, color: 'text-green-600' },
+                    { id: 'IN_APP', label: 'In-App Bell', icon: Bell, color: 'text-indigo-600', available: true },
+                    { id: 'PUSH', label: 'Mobile Push', icon: Smartphone, color: 'text-emerald-600', available: true },
+                    { id: 'EMAIL', label: 'Email Digest', icon: Mail, color: 'text-blue-600', available: false },
+                    { id: 'WHATSAPP', label: 'WhatsApp', icon: MessageSquare, color: 'text-green-600', available: false },
                   ].map((ch) => {
                     const isSelected = selectedChannels.includes(ch.id);
                     const Icon = ch.icon;
@@ -1473,22 +2065,36 @@ export default function WorkflowLinearBuilder({
                       <div
                         key={ch.id}
                         onClick={() => {
+                          if (!ch.available) return;
                           handleToggleChannel(ch.id);
                           if (errorMsg) setErrorMsg(null);
                         }}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? 'bg-indigo-50/60 border-indigo-400 shadow-2xs'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between ${
+                          !ch.available
+                            ? 'bg-slate-50/70 border-slate-200/80 opacity-60 cursor-not-allowed select-none'
+                            : isSelected
+                            ? 'bg-indigo-50/60 border-indigo-400 shadow-2xs cursor-pointer'
+                            : 'bg-white border-slate-200 hover:border-slate-300 cursor-pointer'
                         }`}
                       >
                         <div className="flex items-center gap-2.5">
                           <Icon size={16} className={ch.color} />
-                          <span className="text-xs font-bold text-slate-800">{ch.label}</span>
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 block">{ch.label}</span>
+                            {!ch.available && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                Coming Soon
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div
                           className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                            isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 bg-white'
+                            !ch.available
+                              ? 'border-slate-200 bg-slate-100'
+                              : isSelected
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'border-slate-300 bg-white'
                           }`}
                         >
                           {isSelected && <Check size={10} />}
@@ -1523,17 +2129,16 @@ export default function WorkflowLinearBuilder({
                 </div>
               </div>
 
-              {/* ─── LIVE TEST RUNNER SECTION ─────────────────────────── */}
+              {/* LIVE SIMULATION RUNNER */}
               <div className="p-4 rounded-2xl bg-slate-900 text-white space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs font-bold flex items-center gap-1.5 text-amber-400">
                       <Sparkles size={14} />
-                      <span>Live Test Run (Authenticated User Context)</span>
-                      <InfoTooltip content="Simulates rule evaluation and token rendering with your currently logged-in account (Ansh Gahoi) without sending real production alerts." />
+                      <span>Live Simulation (Authenticated User Context)</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Tests rule evaluation and interpolates variables using your active profile (
+                      Simulate rule evaluation and token rendering with your currently active account (
                       <strong>{loggedInName}</strong>).
                     </p>
                   </div>
@@ -1542,51 +2147,127 @@ export default function WorkflowLinearBuilder({
                     type="button"
                     onClick={handleRunTest}
                     disabled={testing}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
-                    <Play size={12} className={testing ? 'animate-spin' : ''} />
-                    <span>{testing ? 'Testing...' : 'Test Workflow'}</span>
+                    {testing ? <RefreshCw size={13} className="animate-spin" /> : <Play size={13} />}
+                    <span>{testing ? 'Evaluating...' : 'Run Live Test'}</span>
                   </button>
                 </div>
 
                 {testError && (
-                  <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs">
-                    {testError}
+                  <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
+                    <AlertCircle size={14} className="shrink-0 text-rose-400" />
+                    <span>{testError}</span>
                   </div>
                 )}
 
                 {testResult && (
-                  <div className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2 text-xs">
-                    <div className="flex items-center justify-between border-b border-slate-700 pb-2">
-                      <span className="font-semibold text-slate-300">
-                        Rule Mode: <span className="font-mono text-amber-400">{testResult.rule_mode}</span>
-                      </span>
+                  <div className="p-3 rounded-xl bg-slate-800 border border-slate-700 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-300">Simulation Verdict:</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${
-                          testResult.matches_conditions
-                            ? 'bg-emerald-900/80 text-emerald-300 border border-emerald-700'
-                            : 'bg-rose-900/80 text-rose-300 border border-rose-700'
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          testResult.rule_evaluation_passed
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                         }`}
                       >
-                        {testResult.matches_conditions ? '✓ Condition MATCHED (TRUE)' : '✕ Condition FAILED (FALSE)'}
+                        {testResult.rule_evaluation_passed ? 'CONDITION TRUE' : 'CONDITION FALSE'}
                       </span>
                     </div>
-
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-                        Rendered Title (Evaluated with your profile)
-                      </div>
-                      <div className="font-bold text-white text-xs">{testResult.rendered_title}</div>
+                    <div className="text-[11px] text-slate-300">
+                      <strong>Rendered Title:</strong> {testResult.rendered_title || '(Empty)'}
                     </div>
-
-                    <div>
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-                        Rendered Message Body
-                      </div>
-                      <div className="text-slate-300 text-[11px] leading-relaxed">
-                        {testResult.rendered_body}
-                      </div>
+                    <div className="text-[11px] text-slate-400">
+                      <strong>Rendered Body:</strong> {testResult.rendered_body || '(Empty)'}
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ONE-CLICK INSTANT BROADCAST */}
+              <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200/90 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold flex items-center gap-1.5 text-indigo-950">
+                      <Send size={14} className="text-indigo-600" />
+                      <span>One-Click Broadcast / Dispatch Now</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Instantly blast this notification to all matching audience members via In-App Bell and Mobile Push.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {initialWorkflow?.id && (
+                      <button
+                        type="button"
+                        onClick={handlePreviewAudience}
+                        disabled={previewingAudience}
+                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        {previewingAudience ? <RefreshCw size={12} className="animate-spin" /> : <Eye size={12} />}
+                        <span>{previewingAudience ? 'Checking...' : 'Check Audience'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handlePreviewAndBroadcast}
+                      disabled={broadcasting}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {broadcasting ? <RefreshCw size={13} className="animate-spin" /> : <Zap size={13} />}
+                      <span>{broadcasting ? 'Broadcasting...' : '⚡ Broadcast to Audience'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {audiencePreviewData && (
+                  <div className="p-3 bg-white rounded-xl border border-indigo-100 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-700">Matching Recipient Audience:</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {audiencePreviewData.count} Enrolled Users Match Scope
+                      </span>
+                    </div>
+                    {audiencePreviewData.sample.length > 0 && (
+                      <div className="space-y-1 pt-0.5">
+                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                          <span className="font-medium text-slate-500">
+                            Sample Preview (first {Math.min(audiencePreviewData.sample.length, 6)} of {audiencePreviewData.count}):
+                          </span>
+                          {audiencePreviewData.count > 6 && (
+                            <span className="text-[10px] font-semibold text-indigo-600">
+                              +{audiencePreviewData.count - Math.min(audiencePreviewData.sample.length, 6)} more will receive this
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {audiencePreviewData.sample.slice(0, 6).map((s: any, idx: number) => (
+                            <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/60 font-mono text-[10px]">
+                              {typeof s === 'string' ? s : `${s.name || s.email} (${s.department || 'General'})`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {broadcastStatus && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                      broadcastStatus.success
+                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                        : 'bg-rose-50 border border-rose-200 text-rose-800'
+                    }`}
+                  >
+                    {broadcastStatus.success ? (
+                      <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                    )}
+                    <span>{broadcastStatus.message}</span>
                   </div>
                 )}
               </div>
@@ -1594,37 +2275,48 @@ export default function WorkflowLinearBuilder({
           )}
         </div>
 
-        {/* ─── MODAL FOOTER NAVIGATION (SHRINK-0) ────────────────────── */}
-        <div className="shrink-0 px-6 py-4 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between">
-          <button
-            type="button"
-            disabled={currentStep === 1}
-            onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
-          >
-            <ArrowLeft size={13} />
-            <span>Previous</span>
-          </button>
+        {/* ─── FOOTER ACTIONS ────────────────────────────────────────────────── */}
+        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+          <div>
+            {currentStep > 1 && (
+              <button
+                type="button"
+                onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft size={14} />
+                <span>Back</span>
+              </button>
+            )}
+          </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+
             {currentStep < 4 ? (
               <button
                 type="button"
                 onClick={handleNextStep}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
               >
                 <span>Continue</span>
-                <ArrowRight size={13} />
+                <ArrowRight size={14} />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleSaveWorkflow}
                 disabled={saving}
-                className="flex items-center gap-1.5 px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                className="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <Check size={14} />
-                <span>{saving ? 'Saving...' : initialWorkflow ? 'Update Workflow' : 'Save & Publish Workflow'}</span>
+                {saving ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                <span>{saving ? 'Publishing...' : 'Save & Activate Workflow'}</span>
               </button>
             )}
           </div>

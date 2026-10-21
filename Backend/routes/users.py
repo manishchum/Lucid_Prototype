@@ -287,6 +287,28 @@ async def create_user_endpoint(
             await _send_welcome_email(result.get("data"), request.password)
         except Exception as exc:
             print(f"[users create] Warning: Failed to send welcome email: {exc}")
+
+        # Trigger Automated Notification Workflow Engine for USER_WELCOME
+        try:
+            created_user_row = _extract_created_user_row(result.get("data"))
+            if created_user_row and created_user_row.get("user_id"):
+                from utils.notifications.workflow_engine import WorkflowEngine
+                await WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="USER_WELCOME",
+                    user_id=created_user_row["user_id"],
+                    payload={
+                        "user_id": created_user_row["user_id"],
+                        "name": created_user_row.get("name"),
+                        "first_name": (created_user_row.get("name") or "").split()[0] if created_user_row.get("name") else "there",
+                        "email": created_user_row.get("email"),
+                        "company_id": created_user_row.get("company_id") or auth_ctx.company_id,
+                        "position": created_user_row.get("position"),
+                        "login_count": 0,
+                    },
+                    company_id=created_user_row.get("company_id") or auth_ctx.company_id,
+                )
+        except Exception as wf_exc:
+            print(f"[users create] Warning: Failed to trigger USER_WELCOME workflow: {wf_exc}")
     return {
         "success": True,
         "data": {

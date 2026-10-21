@@ -1218,6 +1218,31 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
                     title=payload.title,
                 )
             )
+
+            # Trigger automated notification workflow TASK_ASSIGNED
+            try:
+                from utils.notifications.workflow_engine import WorkflowEngine
+                for uid in assigned_uids:
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="TASK_ASSIGNED",
+                            user_id=uid,
+                            payload={
+                                "task_id": task_id,
+                                "assignment_id": assignment_id,
+                                "task.task_title": payload.title,
+                                "task_title": payload.title,
+                                "task.due_date": str(payload.due_date),
+                                "due_date": str(payload.due_date),
+                                "task.task_type": str(db_submission_format),
+                                "task.task_status": "assigned",
+                            },
+                            company_id=company_id,
+                        )
+                    )
+            except Exception as task_wf_err:
+                print(f"[task-manager] Warning: TASK_ASSIGNED workflow trigger failed: {task_wf_err}")
+
             # Invalidate dashboard summary and task caches for every assigned user immediately
             for uid in assigned_uids:
                 try:
@@ -1532,6 +1557,32 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         invalidate_dashboard_l1_cache(str(payload.user_id))
     except Exception:
         pass
+
+    # Trigger automated notification workflow: TASK_SUBMITTED
+    try:
+        from utils.notifications.workflow_engine import WorkflowEngine
+        # Fetch task title
+        task_info = db.table("tasks").select("title").eq("task_id", resolved_task_id).maybe_single().execute()
+        task_title = (task_info.data or {}).get("title", "Workplace Task") if task_info else "Workplace Task"
+
+        asyncio.create_task(
+            WorkflowEngine.trigger_lifecycle(
+                trigger_lifecycle="TASK_SUBMITTED",
+                user_id=payload.user_id,
+                payload={
+                    "task_id": resolved_task_id,
+                    "submission_id": submission_id,
+                    "task.task_title": task_title,
+                    "task_title": task_title,
+                    "task.task_status": "submitted",
+                    "task.task_type": submission_type,
+                },
+                company_id=company_id,
+            )
+        )
+    except Exception as sub_wf_err:
+        print(f"[task-manager] Warning: TASK_SUBMITTED workflow trigger failed: {sub_wf_err}")
+
     return {
         "status": "success",
         "message": "Task submitted successfully",
