@@ -470,53 +470,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
-      if (effectiveUser?.email && !isAuthPage) {
-        setRolesLoaded(false)
-        try {
-          await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-            method: "POST",
-            registerSession: true as any,
-          } as any);
-        } catch (err) {
-          console.error("[auth-context] Failed to register session:", err);
-        } 
-        let profile = readCachedProfile();
+      if (effectiveUser?.email) {
+        if (!isAuthPage) {
+          setRolesLoaded(false)
+          try {
+            await fetchWithAuth(`${API_BASE}/api/auth/session`, {
+              method: "POST",
+              registerSession: true as any,
+            } as any);
+          } catch (err) {
+            console.error("[auth-context] Failed to register session:", err);
+          } 
+          let profile = readCachedProfile();
 
-        if (!profile) {
-            profile = await loadCachedFullProfile(effectiveUser);
+          if (!profile) {
+              profile = await loadCachedFullProfile(effectiveUser);
 
-            if (profile) {
-                writeCachedProfile(profile);
-            }
-        }
-
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-            setIsManager(Boolean(profile.isManager))
-            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
-            setRolesLoaded(true)
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-            setIsManager(false)
-            setIsManagerofUsers(false)
-            setRolesLoaded(false)
+              if (profile) {
+                  writeCachedProfile(profile);
+              }
           }
-        }
 
-        if (!firebaseUser) {
-          writeManualAuthUser(effectiveUser)
+          if (profile !== undefined) {
+            if (profile) {
+              writeCachedProfile(profile)
+              setEmployeeData(profile.employeeData)
+              setUserId(profile.userId)
+              setUserRoles(profile.userRoles)
+              setIsAdmin(profile.isAdmin)
+              setIsSuperAdmin(profile.isSuperAdmin)
+              setIsDeveloper(Boolean(profile.isDeveloper))
+              setIsManager(Boolean(profile.isManager))
+              setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+              setRolesLoaded(true)
+            } else {
+              setEmployeeData(null)
+              setUserId(null)
+              setUserRoles([])
+              setIsAdmin(false)
+              setIsSuperAdmin(false)
+              setIsDeveloper(false)
+              setIsManager(false)
+              setIsManagerofUsers(false)
+              setRolesLoaded(false)
+            }
+          }
+
+          if (!firebaseUser) {
+            writeManualAuthUser(effectiveUser)
+          }
+        } else {
+          // If on an auth page but already authenticated, restore cached profile
+          const profile = readCachedProfile();
+          if (profile) {
+            setEmployeeData(profile.employeeData);
+            setUserId(profile.userId);
+            setUserRoles(profile.userRoles);
+            setIsAdmin(profile.isAdmin);
+            setIsSuperAdmin(profile.isSuperAdmin);
+            setIsDeveloper(Boolean(profile.isDeveloper));
+            setIsManager(Boolean(profile.isManager));
+            setIsManagerofUsers(Boolean(profile.isManagerofUsers));
+            setRolesLoaded(true);
+          }
         }
       } else {
         // Reset all data on logout

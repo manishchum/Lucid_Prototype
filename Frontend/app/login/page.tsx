@@ -28,7 +28,13 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login } = useAuth()
+  const { user, loading: authLoading, login } = useAuth()
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/employee/welcome')
+    }
+  }, [user, authLoading, router])
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -69,6 +75,8 @@ function LoginContent() {
         return "Please enter a valid email address."
       case "auth/too-many-requests":
         return "Too many failed attempts. Please wait and try again."
+      case "auth/network-request-failed":
+        return "Network request failed. Please check your connection and try again."
       default:
         return message || "Unable to sign in right now. Please try again."
     }
@@ -176,6 +184,17 @@ function LoginContent() {
     } finally {
       setLoading(false)
     }
+  }
+
+  if (authLoading || user) {
+    return (
+      <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
+          <p className="mt-4 text-sm text-slate-500 font-medium">Checking session...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
