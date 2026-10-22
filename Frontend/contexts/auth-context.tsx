@@ -217,10 +217,15 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
           const companyPayload = await companyRes.json()
 
           if (!companyPayload?.data) {
+            console.error("[auth-context] Company fetch returned no data:", companyPayload)
             throw new Error("Your organization is no longer available. Please contact your administrator.")
           }
 
-          if (companyPayload.data.is_company_active === false) {
+          const isCompanyActive = 
+            companyPayload.data.is_company_active !== false && 
+            companyPayload.data.is_active !== false;
+
+          if (!isCompanyActive) {
             throw new Error("Your organization account has been deactivated. Please contact your administrator.")
           }
         }

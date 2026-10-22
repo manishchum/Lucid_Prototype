@@ -54,6 +54,7 @@ from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
 from routes.logs import router as logs_router
 from routes.notification_workflows import router as workflows_router
+from routes.coach_upload import router as coach_upload_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -428,6 +429,7 @@ app.include_router(auth.router)
 app.include_router(unsubscribe.router)
 
 app.include_router(logs_router)
+app.include_router(coach_upload_router)
 
 
 if __name__ == "__main__":

@@ -129,7 +129,7 @@ async def get_company(
 
     cached = get_cache(cache_key)
 
-    if cached:
+    if cached and isinstance(cached, dict) and cached.get("data"):
         print(f"COMPANY CACHE HIT {cache_key}")
         return cached
 
@@ -145,11 +145,14 @@ async def get_company(
         "error": result.get("error")
     }
 
-    set_cache(
-        cache_key,
-        response_payload,
-        ttl=3600
-    )
+    if company:
+        set_cache(
+            cache_key,
+            response_payload,
+            ttl=3600
+        )
+    else:
+        delete_cache_pattern(cache_key)
 
     return response_payload
 

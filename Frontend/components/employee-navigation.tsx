@@ -6,7 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder } from "lucide-react";
+import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder, Database } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { useTenant, FEATURES } from "@/contexts/tenant-context";
 import { useNotifications } from "@/contexts/notification-context";
@@ -440,6 +440,7 @@ const EmployeeNavigation = ({
                       // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
                       { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                       { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
+                      { href: "/admin/coach-uploads", label: "Coach Ingestion", icon: Database },
                       { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                       { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
                     ]),
