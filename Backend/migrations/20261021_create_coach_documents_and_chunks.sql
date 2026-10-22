@@ -81,6 +81,17 @@ CREATE TABLE IF NOT EXISTS public.coach_spreadsheet_rows (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Defensive Column Additions (in case tables were pre-created)
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS target_employee_id UUID;
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS manual_description TEXT;
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS document_period TEXT;
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE public.coach_uploaded_documents ADD COLUMN IF NOT EXISTS parsed_metadata JSONB DEFAULT '{}'::jsonb;
+
+ALTER TABLE public.coach_document_chunks ADD COLUMN IF NOT EXISTS target_employee_id UUID;
+ALTER TABLE public.coach_spreadsheet_rows ADD COLUMN IF NOT EXISTS target_employee_id UUID;
+
 -- ============================================================================
 -- 5. INDEXES FOR PERFORMANCE & SEARCH SPEED
 -- ============================================================================

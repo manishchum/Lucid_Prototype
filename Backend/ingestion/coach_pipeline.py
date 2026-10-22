@@ -6,7 +6,7 @@ Parses multi-format documents, embeds text chunks, stores spreadsheet records, a
 
 import os
 import traceback
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ingestion.coach_parser import parse_manual_upload
 from ingestion.coach_store import (
@@ -23,12 +23,14 @@ def run_coach_file_ingestion(
     document_id: str,
     company_id: str,
     file_name: str,
-    file_type: str
+    file_type: str,
+    target_employee_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes the ingestion pipeline for a given uploaded document.
     """
-    print(f"[COACH INGESTION] Starting ingestion for doc={document_id}, file={file_name} ({file_type})")
+    scope_desc = f"employee={target_employee_id}" if target_employee_id else "team/company-wide"
+    print(f"[COACH INGESTION] Starting ingestion for doc={document_id}, file={file_name} ({file_type}, {scope_desc})")
     
     try:
         # Step 1: Update status to parsing
@@ -43,17 +45,24 @@ def run_coach_file_ingestion(
             file_path=file_path,
             file_name=file_name,
             file_type=file_type,
-            employee_roster=employee_roster
+            employee_roster=employee_roster,
+            target_employee_id=target_employee_id
         )
         print(f"[COACH INGESTION] Parsed {len(chunks)} chunks and {len(spreadsheet_rows)} spreadsheet rows")
         
         if not chunks and not spreadsheet_rows:
             raise ValueError(f"No extractable text or data found in {file_name}")
 
-        # Step 4: Generate Embeddings
-        update_document_status(document_id, status="embedding")
-        text_contents = [c["content"] for c in chunks]
+        # Step 4: Update metadata immediately and change status to embedding
+        parsed_metadata["chunks_count"] = len(chunks)
+        parsed_metadata["spreadsheet_rows_count"] = len(spreadsheet_rows)
+        update_document_status(
+            document_id=document_id,
+            status="embedding",
+            parsed_metadata=parsed_metadata
+        )
         
+        text_contents = [c["content"] for c in chunks]
         print(f"[COACH INGESTION] Generating embeddings for {len(text_contents)} chunks...")
         embeddings = embed_chunks(text_contents)
         

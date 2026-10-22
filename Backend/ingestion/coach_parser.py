@@ -7,6 +7,7 @@ Extracts clean text chunks with strict proof coordinates (page, slide, sheet, ro
 
 import os
 import re
+import datetime
 from typing import List, Dict, Any, Tuple, Optional
 import pandas as pd
 
@@ -57,30 +58,75 @@ def chunk_words(text: str, size: int = 300, overlap: int = 40) -> List[str]:
     return chunks
 
 
-def match_employee_in_text(text: str, employee_roster: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def match_employee_in_text(
+    text: str,
+    employee_roster: List[Dict[str, Any]],
+    strict_full_name: bool = True
+) -> Optional[Dict[str, Any]]:
     """
     Check if any known company employee name appears in the text block or row.
-    Returns the matching employee dict with 'user_id' and 'name' if found.
+    
+    Rules for high confidence:
+      - strict_full_name=True (Multi-Employee Sheet Mode / General Document Scanning):
+          Requires high-confidence full name (at least 2 words, e.g. first + last name, length >= 5).
+          Prevents accidental matches on common single words like 'Kumar', 'Singh', 'May', 'Admin'.
+      - strict_full_name=False (Targeted Cell under an Employee/User column):
+          Allows matching 2-word names anywhere in the cell, or single-word names if the cell explicitly
+          equals that single name.
     """
     if not text or not employee_roster:
         return None
+        
+    text_clean = text.strip()
+    text_lower = text_clean.lower()
     
-    text_lower = text.lower()
+    # Generic administrative tokens that should never trigger an employee match
+    SYSTEM_EXCLUSIONS = {
+        "admin", "administrator", "user", "test", "staff", "employee", "person", "manager", "lead",
+        "team", "others", "none", "null", "undefined", "total", "overall", "general", "supervisor"
+    }
+
     for emp in employee_roster:
-        emp_name = emp.get("name", "").strip().lower()
-        if not emp_name or len(emp_name) < 3:
+        raw_name = emp.get("name") or ""
+        emp_name = raw_name.strip()
+        emp_name_lower = emp_name.lower()
+        
+        if not emp_name_lower or emp_name_lower in SYSTEM_EXCLUSIONS:
             continue
-        # Exact word match for employee name
-        pattern = r'\b' + re.escape(emp_name) + r'\b'
-        if re.search(pattern, text_lower):
-            return emp
+            
+        name_parts = emp_name_lower.split()
+        
+        if strict_full_name:
+            # Multi-Employee Mode: MUST have at least 2 words (e.g., First Last) and >= 5 chars
+            if len(name_parts) < 2 or len(emp_name_lower) < 5:
+                continue
+            pattern = r'\b' + re.escape(emp_name_lower) + r'\b'
+            if re.search(pattern, text_lower):
+                return emp
+        else:
+            # Cell in an employee column
+            if len(name_parts) >= 2 and len(emp_name_lower) >= 5:
+                pattern = r'\b' + re.escape(emp_name_lower) + r'\b'
+                if re.search(pattern, text_lower):
+                    return emp
+            elif len(name_parts) == 1 and len(emp_name_lower) >= 3:
+                # Single-word name: only match if cell matches name directly
+                pattern = r'^' + re.escape(emp_name_lower) + r'(\s+.*|\(.*\))?$'
+                if re.match(pattern, text_lower):
+                    return emp
+                    
     return None
 
 
 # ============================================================================
 # 1. PDF PARSER (Preserves Page Number & Section Context)
 # ============================================================================
-def parse_pdf(file_path: str, file_name: str, employee_roster: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def parse_pdf(
+    file_path: str,
+    file_name: str,
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     if not fitz:
         raise ImportError("PyMuPDF (fitz) is required for PDF parsing.")
     
@@ -95,9 +141,13 @@ def parse_pdf(file_path: str, file_name: str, employee_roster: List[Dict[str, An
         if not page_text:
             continue
         
-        # Detect if an employee is explicitly referenced on this page
-        matched_emp = match_employee_in_text(page_text, employee_roster)
-        emp_id = matched_emp.get("user_id") if matched_emp else None
+        # Determine employee identity:
+        # Parent Inheritance if target_employee_id selected; else high-confidence roster match
+        if target_employee_id:
+            emp_id = target_employee_id
+        else:
+            matched_emp = match_employee_in_text(page_text, employee_roster, strict_full_name=True)
+            emp_id = matched_emp.get("user_id") if matched_emp else None
         
         # Split long pages into digestible chunks
         sub_chunks = chunk_words(page_text, size=300, overlap=40)
@@ -126,7 +176,12 @@ def parse_pdf(file_path: str, file_name: str, employee_roster: List[Dict[str, An
 # ============================================================================
 # 2. DOCX / WORD PARSER (Preserves Headings & Section Titles)
 # ============================================================================
-def parse_docx(file_path: str, file_name: str, employee_roster: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def parse_docx(
+    file_path: str,
+    file_name: str,
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     if not docx:
         raise ImportError("python-docx is required for DOCX parsing.")
     
@@ -143,8 +198,12 @@ def parse_docx(file_path: str, file_name: str, employee_roster: List[Dict[str, A
         if not full_text:
             return
         
-        matched_emp = match_employee_in_text(full_text, employee_roster)
-        emp_id = matched_emp.get("user_id") if matched_emp else None
+        # Parent Inheritance if target_employee_id selected; else high-confidence roster match
+        if target_employee_id:
+            emp_id = target_employee_id
+        else:
+            matched_emp = match_employee_in_text(full_text, employee_roster, strict_full_name=True)
+            emp_id = matched_emp.get("user_id") if matched_emp else None
         
         sub_chunks = chunk_words(full_text, size=300, overlap=40)
         for sc in sub_chunks:
@@ -192,11 +251,16 @@ def parse_docx(file_path: str, file_name: str, employee_roster: List[Dict[str, A
                 rows_data.append(" | ".join(cell_texts))
         if rows_data:
             table_text = "\n".join(rows_data)
-            matched_emp = match_employee_in_text(table_text, employee_roster)
+            if target_employee_id:
+                table_emp_id = target_employee_id
+            else:
+                matched_emp = match_employee_in_text(table_text, employee_roster, strict_full_name=True)
+                table_emp_id = matched_emp.get("user_id") if matched_emp else None
+
             chunks.append({
                 "content": f"[Table {table_idx + 1}]\n{table_text}",
                 "chunk_type": "table_row",
-                "target_employee_id": matched_emp.get("user_id") if matched_emp else None,
+                "target_employee_id": table_emp_id,
                 "citation": {
                     "file_name": file_name,
                     "file_type": "docx",
@@ -216,7 +280,12 @@ def parse_docx(file_path: str, file_name: str, employee_roster: List[Dict[str, A
 # ============================================================================
 # 3. PPTX / POWERPOINT PARSER (Preserves Slide Number & Slide Title)
 # ============================================================================
-def parse_pptx(file_path: str, file_name: str, employee_roster: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def parse_pptx(
+    file_path: str,
+    file_name: str,
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
     if not pptx:
         raise ImportError("python-pptx is required for PPTX parsing.")
     
@@ -261,11 +330,16 @@ def parse_pptx(file_path: str, file_name: str, employee_roster: List[Dict[str, A
         heading = slide_title or f"Slide {slide_num}"
         content = f"[{heading}]\n{full_slide_content}" if full_slide_content else f"[{heading}]"
         
-        matched_emp = match_employee_in_text(content, employee_roster)
+        if target_employee_id:
+            emp_id = target_employee_id
+        else:
+            matched_emp = match_employee_in_text(content, employee_roster, strict_full_name=True)
+            emp_id = matched_emp.get("user_id") if matched_emp else None
+
         chunks.append({
             "content": content,
             "chunk_type": "slide",
-            "target_employee_id": matched_emp.get("user_id") if matched_emp else None,
+            "target_employee_id": emp_id,
             "citation": {
                 "file_name": file_name,
                 "file_type": "pptx",
@@ -283,89 +357,347 @@ def parse_pptx(file_path: str, file_name: str, employee_roster: List[Dict[str, A
 
 
 # ============================================================================
-# 4. EXCEL & CSV SPREADSHEET PARSER (Heterogeneous Format Handling)
+# 4. EXCEL & CSV SPREADSHEET PARSER (Dynamic Header Detection & Normalization)
 # ============================================================================
+
+def _is_number_like(val: Any) -> bool:
+    """Checks if a cell value behaves like a number (numeric, currency, percentage)."""
+    if val is None or pd.isna(val):
+        return False
+    if isinstance(val, (int, float, complex)):
+        return True
+    s = str(val).strip().replace(",", "")
+    if not s:
+        return False
+    return bool(re.match(r"^[\$€£₹]?\s*[-+]?\d+(\.\d+)?%?$", s))
+
+
+def _is_date_like(val: Any) -> bool:
+    """Checks if a cell value behaves like a date/timestamp."""
+    if val is None or pd.isna(val):
+        return False
+    if isinstance(val, (datetime.date, datetime.datetime, pd.Timestamp)):
+        return True
+    s = str(val).strip()
+    if not s:
+        return False
+    # Matches common international date formats: 2026-10-20, 02.04.26, 10/20/2026, 02-Apr-2026
+    if re.match(r"^\d{1,4}[-./]\d{1,2}[-./]\d{1,4}$", s):
+        return True
+    if re.match(r"^\d{1,2}[-/\s][a-zA-Z]{3,}[-/\s]\d{2,4}$", s):
+        return True
+    return False
+
+
+def detect_header_row_index(df_raw: pd.DataFrame, max_search_rows: int = 25) -> int:
+    """
+    Intelligently detects the true table header row using purely structural,
+    data-type, and statistical heuristics — 100% agnostic of specific column names or domains.
+    
+    Heuristic rules:
+      1. Fill Ratio: Table headers span the full width of the table, whereas
+         decorative banners or report titles typically occupy only 1 or 2 merged cells.
+      2. Data Types: Header cells are strictly text labels; rows containing numbers,
+         floats, currencies, percentages, or dates are heavily penalized.
+      3. Uniqueness: Table column headers are distinct labels (not repetitive values).
+      4. Brevity: Column headers are concise identifiers (< 60 chars), unlike long narrative text.
+      5. Lookahead: A true header row is immediately followed by rows containing populated data.
+    """
+    total_rows = len(df_raw)
+    if total_rows <= 1:
+        return 0
+        
+    search_limit = min(max_search_rows, total_rows)
+    best_row_idx = 0
+    best_score = -999999.0
+    row_0_score = -999999.0
+
+    # Determine maximum non-empty width across the sampled rows
+    row_non_empty_counts = [
+        sum(1 for v in df_raw.iloc[i] if pd.notna(v) and str(v).strip() != "")
+        for i in range(search_limit)
+    ]
+    max_non_empty = max(row_non_empty_counts) if row_non_empty_counts else 1
+
+    for r in range(search_limit):
+        row_vals = df_raw.iloc[r]
+        valid_cells = [
+            v for v in row_vals
+            if pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() != "nan"
+        ]
+        
+        if not valid_cells:
+            if r == 0:
+                row_0_score = -999.0
+            continue
+            
+        n_cells = len(valid_cells)
+        # 1. Fill ratio relative to the widest row in the sheet
+        fill_ratio = n_cells / max(1, max_non_empty)
+        
+        # 2. Type analysis: Headers are text strings; data rows contain numbers/dates
+        num_numbers = sum(1 for v in valid_cells if _is_number_like(v))
+        num_dates = sum(1 for v in valid_cells if _is_date_like(v))
+        num_long_texts = sum(1 for v in valid_cells if len(str(v).strip()) > 60)
+        num_texts = max(0, n_cells - num_numbers - num_dates)
+        
+        text_ratio = num_texts / n_cells
+        unique_vals = set(str(v).strip().lower() for v in valid_cells)
+        unique_ratio = len(unique_vals) / n_cells
+        
+        # 3. Lookahead: Check if next row exists and contains populated data
+        next_row_bonus = 0.0
+        if r + 1 < total_rows:
+            next_row_vals = [
+                v for v in df_raw.iloc[r + 1]
+                if pd.notna(v) and str(v).strip() != "" and str(v).strip().lower() != "nan"
+            ]
+            if len(next_row_vals) >= max_non_empty * 0.4:
+                # Extra bonus if the following row contains numbers or dates (characteristic of data)
+                has_data_types = any(_is_number_like(v) or _is_date_like(v) for v in next_row_vals)
+                next_row_bonus = 30.0 if has_data_types else 15.0
+
+        # 4. Banner penalty: Rows with only 1 or 2 filled cells when table is wide
+        banner_penalty = 0.0
+        if max_non_empty >= 4 and n_cells <= 2:
+            banner_penalty = 60.0
+
+        score = (
+            (fill_ratio * 55.0)
+            + (text_ratio * 45.0)
+            + (unique_ratio * 25.0)
+            + next_row_bonus
+            - (num_numbers * 20.0)
+            - (num_dates * 30.0)
+            - (num_long_texts * 20.0)
+            - banner_penalty
+        )
+        
+        if r == 0:
+            row_0_score = score
+            
+        if score > best_score:
+            best_score = score
+            best_row_idx = r
+
+    # Preference for row 0 if it is already a strong standard header
+    if row_0_score >= 80.0 and (best_score - row_0_score) < 25.0:
+        return 0
+        
+    return best_row_idx
+
+
+def clean_and_disambiguate_headers(raw_headers: List[Any]) -> List[str]:
+    """
+    Cleans raw header cells:
+      - Strips whitespace & removes newlines
+      - Replaces empty / NaN / 'Unnamed' with informative Column_1, Column_2...
+      - Disambiguates duplicate column names (e.g. Total -> Total, Total_2)
+    """
+    clean_cols = []
+    seen = {}
+    
+    for i, h in enumerate(raw_headers, start=1):
+        if h is None or pd.isna(h):
+            col_name = f"Column_{i}"
+        else:
+            s = str(h).replace("\r", " ").replace("\n", " ").strip()
+            s = re.sub(r"\s+", " ", s)
+            if not s or s.lower() == "nan" or s.lower().startswith("unnamed"):
+                col_name = f"Column_{i}"
+            else:
+                col_name = s
+                
+        base = col_name
+        count = seen.get(base, 0)
+        if count > 0:
+            col_name = f"{base}_{count + 1}"
+        seen[base] = count + 1
+        
+        clean_cols.append(col_name)
+        
+    return clean_cols
+
+
+def extract_clean_sheet_with_headers(df_raw: pd.DataFrame) -> Tuple[int, List[str], pd.DataFrame]:
+    """
+    Finds the true header row, extracts and disambiguates column names,
+    and returns (header_row_idx, clean_columns, data_df).
+    Data rows retain their original df_raw index so that physical Excel row numbers
+    can be accurately calculated via: actual_row_number = int(row_idx) + 1.
+    """
+    if df_raw.empty:
+        return 0, [], df_raw
+        
+    header_idx = detect_header_row_index(df_raw)
+    raw_headers = df_raw.iloc[header_idx].tolist()
+    clean_columns = clean_and_disambiguate_headers(raw_headers)
+    
+    # Slice rows strictly after the detected header row (preserve index!)
+    df_data = df_raw.iloc[header_idx + 1:].copy()
+    
+    # Align column count if df_data has more or fewer columns than clean_columns
+    if len(clean_columns) < df_data.shape[1]:
+        clean_columns += [f"Column_{i+1}" for i in range(len(clean_columns), df_data.shape[1])]
+    elif len(clean_columns) > df_data.shape[1]:
+        clean_columns = clean_columns[:df_data.shape[1]]
+        
+    df_data.columns = clean_columns
+    
+    # Drop rows that are completely NaN
+    df_data = df_data.dropna(how="all")
+    # Drop columns that are completely NaN across all data rows
+    df_data = df_data.dropna(axis=1, how="all")
+    
+    return header_idx, list(df_data.columns), df_data
+
+
 def parse_spreadsheet(
     file_path: str,
     file_name: str,
     file_type: str,
-    employee_roster: List[Dict[str, Any]] = None
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Parses arbitrary Excel sheets (.xlsx, .xls) and CSV files.
-    Generates:
-      1. Contextualized semantic markdown chunks for vector search.
-      2. High-level sheet summary chunks.
-      3. Structured JSON records for exact SQL calculations (coach_spreadsheet_rows).
+    Applies dynamic header row detection to eliminate 'Unnamed: 0' issues from banners/blank rows.
+    
+    Employee Assignment:
+      - Parent Inheritance: If target_employee_id is provided (Admin selected employee in UI dropdown),
+        all rows and chunks strictly inherit that target_employee_id.
+      - Multi-Employee Mode: If target_employee_id is None ('Team / Company Wide'), matches rows against
+        employee_roster using high-confidence full name (first + last name) matching.
     """
     chunks = []
     spreadsheet_rows = []
     sheet_names_found = []
+    columns_by_sheet = {}
+    detected_headers = {}
     
-    # Load sheet dict
+    # Resolve target employee name if parent inheritance is active
+    parent_emp_name = None
+    if target_employee_id and employee_roster:
+        for emp in employee_roster:
+            if emp.get("user_id") == target_employee_id:
+                parent_emp_name = emp.get("name")
+                break
+
+    # Load sheet dict with header=None to capture raw rows including banners/blanks
     if file_type == "csv":
-        # Handle potential encoding variances
         try:
-            df_dict = {"CSV_Data": pd.read_csv(file_path)}
+            df_raw = pd.read_csv(file_path, header=None)
         except UnicodeDecodeError:
-            df_dict = {"CSV_Data": pd.read_csv(file_path, encoding="latin1")}
+            df_raw = pd.read_csv(file_path, encoding="latin1", header=None)
+        df_dict = {"CSV_Data": df_raw}
     else:
-        # Excel: load all sheets
         excel_file = pd.ExcelFile(file_path)
         sheet_names_found = excel_file.sheet_names
-        df_dict = {sheet: pd.read_excel(file_path, sheet_name=sheet) for sheet in sheet_names_found}
+        df_dict = {
+            sheet: pd.read_excel(file_path, sheet_name=sheet, header=None)
+            for sheet in sheet_names_found
+        }
         
     total_valid_rows = 0
     
-    for sheet_name, df in df_dict.items():
-        if df.empty:
+    for sheet_name, df_raw in df_dict.items():
+        if df_raw.empty:
             continue
             
-        # Clean column names (strip whitespace, stringify)
-        df.columns = [str(c).strip() for c in df.columns]
-        # Remove completely empty rows and columns
-        df = df.dropna(how="all").dropna(axis=1, how="all")
-        if df.empty:
+        header_idx, columns_list, df = extract_clean_sheet_with_headers(df_raw)
+        if df.empty or not columns_list:
             continue
             
-        columns_list = list(df.columns)
+        columns_by_sheet[sheet_name] = columns_list
+        detected_headers[sheet_name] = header_idx + 1  # 1-indexed Excel row
         num_rows = len(df)
         total_valid_rows += num_rows
         
+        # Constants for scalability
+        MAX_ROW_CHUNKS_PER_SHEET = 250
+        MAX_STORED_ROWS_PER_SHEET = 5000
+
         # 1. Tier B: High-Level Sheet Summary Chunk
         summary_text = (
             f"Spreadsheet: {file_name} | Sheet Tab: {sheet_name}\n"
-            f"Columns: {', '.join(columns_list)}\n"
+            f"Detected Header Row: Row {header_idx + 1}\n"
+            f"Columns ({len(columns_list)}): {', '.join(columns_list)}\n"
             f"Total Records: {num_rows} rows.\n"
-            f"This sheet tracks employee performance, KPIs, goals, evaluation scores, or team feedback."
+            f"This sheet tracks employee performance, KPIs, goals, evaluation scores, or operational metrics."
         )
         chunks.append({
             "content": summary_text,
             "chunk_type": "sheet_summary",
-            "target_employee_id": None,
+            "target_employee_id": target_employee_id,
             "citation": {
                 "file_name": file_name,
                 "file_type": file_type,
                 "page_number": None,
                 "slide_number": None,
                 "sheet_name": sheet_name,
-                "row_number": None,
+                "row_number": header_idx + 1,
                 "section_title": f"Summary of {sheet_name}",
                 "evaluator_name": None,
                 "eval_period": None
             }
         })
         
-        # Identify possible Employee Name column
+        # Identify possible Employee column using standard identity terms
         emp_col = None
         for col in columns_list:
-            if any(term in col.lower() for term in ["employee", "staff", "name", "team member", "person"]):
+            c_lower = col.lower().strip()
+            if any(term in c_lower for term in ["employee", "staff", "user", "person", "agent", "rep", "evaluator", "member"]):
                 emp_col = col
                 break
-                
-        # 2. Iterate each row: Generate Structured Row + Semantic Markdown Chunk
-        for row_idx, row in df.iterrows():
-            actual_row_number = int(row_idx) + 2  # 1-indexed Excel row (+1 for 0-index, +1 for header)
+
+        if not emp_col:
+            for col in columns_list:
+                c_lower = col.lower().strip()
+                if c_lower in ["name", "full name", "first name", "staff name", "person name"]:
+                    emp_col = col
+                    break
+
+        # 2. Add Schema / Column Catalog Chunk if dataset is large
+        if num_rows > MAX_ROW_CHUNKS_PER_SHEET:
+            sample_row_text = " | ".join([f"{col}: {df.iloc[0][col]}" for col in columns_list[:10]])
+            schema_chunk = (
+                f"[Dataset Catalog: {file_name} | Sheet: {sheet_name}]\n"
+                f"Header Row: Row {header_idx + 1}\n"
+                f"Total Records: {num_rows:,} rows across {len(columns_list)} columns.\n"
+                f"Available Fields: {', '.join(columns_list)}\n"
+                f"Sample Row: {sample_row_text}\n"
+                f"This dataset is indexed for exact SQL / metric aggregation and entity lookup."
+            )
+            chunks.append({
+                "content": schema_chunk,
+                "chunk_type": "sheet_summary",
+                "target_employee_id": target_employee_id,
+                "citation": {
+                    "file_name": file_name,
+                    "file_type": file_type,
+                    "page_number": None,
+                    "slide_number": None,
+                    "sheet_name": sheet_name,
+                    "row_number": header_idx + 1,
+                    "section_title": f"Schema Catalog of {sheet_name}",
+                    "evaluator_name": None,
+                    "eval_period": None
+                }
+            })
+
+        # 3. Iterate rows: vectorize top rows + store structured rows
+        rows_vectorized_count = 0
+        stored_rows_count = 0
+
+        # Subsample df for structured DB storage if too massive
+        df_for_storage = df.iloc[:MAX_STORED_ROWS_PER_SHEET]
+
+        for row_idx, row in df_for_storage.iterrows():
+            # Exact physical Excel row number (1-indexed) derived from original df_raw index
+            try:
+                actual_row_number = int(row_idx) + 1
+            except (ValueError, TypeError):
+                actual_row_number = header_idx + 2 + stored_rows_count
             
             # Build clean key-value dictionary for JSONB storage
             row_dict = {}
@@ -381,55 +713,75 @@ def parse_spreadsheet(
             if not row_dict:
                 continue
                 
-            # Extract employee identity
-            raw_emp_name = str(row_dict.get(emp_col, "")).strip() if emp_col else None
-            matched_emp = None
-            if raw_emp_name:
-                matched_emp = match_employee_in_text(raw_emp_name, employee_roster)
-            if not matched_emp:
-                # Fallback: scan whole row text
-                row_text_joined = " ".join([str(v) for v in row_dict.values()])
-                matched_emp = match_employee_in_text(row_text_joined, employee_roster)
+            # Extract employee identity:
+            if target_employee_id:
+                # 1. Parent Inheritance: Whole file was uploaded for this employee
+                emp_id = target_employee_id
+                resolved_emp_name = parent_emp_name
+            else:
+                # 2. Multi-Employee Sheet Mode: High-Confidence Matching
+                raw_cell_name = str(row_dict.get(emp_col, "")).strip() if emp_col else None
+                matched_emp = None
                 
-            emp_id = matched_emp.get("user_id") if matched_emp else None
+                # Check identity column first
+                if raw_cell_name:
+                    matched_emp = match_employee_in_text(raw_cell_name, employee_roster, strict_full_name=False)
+                    
+                # Fallback: scan whole row text with strict 2-word full name (first + last name) matching
+                if not matched_emp:
+                    row_text_joined = " ".join([str(v) for v in row_dict.values()])
+                    matched_emp = match_employee_in_text(row_text_joined, employee_roster, strict_full_name=True)
+                    
+                emp_id = matched_emp.get("user_id") if matched_emp else None
+                resolved_emp_name = raw_cell_name or (matched_emp.get("name") if matched_emp else None)
             
-            # Store in spreadsheet_rows list
+            # Store in spreadsheet_rows list (capped at MAX_STORED_ROWS_PER_SHEET)
             spreadsheet_rows.append({
                 "sheet_name": sheet_name,
                 "row_index": actual_row_number,
                 "target_employee_id": emp_id,
-                "employee_name": raw_emp_name or (matched_emp.get("name") if matched_emp else None),
+                "employee_name": resolved_emp_name,
                 "row_data": row_dict
             })
+            stored_rows_count += 1
+
+            # Only vectorize rows up to MAX_ROW_CHUNKS_PER_SHEET to prevent stalling on 100k-row files
+            if rows_vectorized_count < MAX_ROW_CHUNKS_PER_SHEET:
+                row_details = " | ".join([f"{k}: {v}" for k, v in row_dict.items()])
+                semantic_content = (
+                    f"[Source: {file_name} | Sheet: {sheet_name} | Row: {actual_row_number}]\n"
+                    f"{row_details}"
+                )
+                
+                chunks.append({
+                    "content": semantic_content,
+                    "chunk_type": "table_row",
+                    "target_employee_id": emp_id,
+                    "citation": {
+                        "file_name": file_name,
+                        "file_type": file_type,
+                        "page_number": None,
+                        "slide_number": None,
+                        "sheet_name": sheet_name,
+                        "row_number": actual_row_number,
+                        "section_title": f"Row {actual_row_number}",
+                        "evaluator_name": None,
+                        "eval_period": None
+                    }
+                })
+                rows_vectorized_count += 1
             
-            # Convert row into self-contained semantic Markdown text
-            row_details = " | ".join([f"{k}: {v}" for k, v in row_dict.items()])
-            semantic_content = (
-                f"[Source: {file_name} | Sheet: {sheet_name} | Row: {actual_row_number}]\n"
-                f"{row_details}"
-            )
-            
-            chunks.append({
-                "content": semantic_content,
-                "chunk_type": "table_row",
-                "target_employee_id": emp_id,
-                "citation": {
-                    "file_name": file_name,
-                    "file_type": file_type,
-                    "page_number": None,
-                    "slide_number": None,
-                    "sheet_name": sheet_name,
-                    "row_number": actual_row_number,
-                    "section_title": f"Row {actual_row_number}",
-                    "evaluator_name": None,
-                    "eval_period": None
-                }
-            })
-            
+    first_sheet = sheet_names_found[0] if sheet_names_found else "CSV_Data"
     parsed_metadata = {
         "sheet_names": sheet_names_found or ["CSV_Data"],
+        "columns_detected": columns_by_sheet.get(first_sheet, []),
+        "columns_by_sheet": columns_by_sheet,
+        "header_row_detected": detected_headers.get(first_sheet, 1),
         "total_rows": total_valid_rows,
-        "format": file_type
+        "stored_rows": len(spreadsheet_rows),
+        "chunks_count": len(chunks),
+        "format": file_type,
+        "large_file_optimized": total_valid_rows > 300
     }
     
     return chunks, spreadsheet_rows, parsed_metadata
@@ -442,7 +794,8 @@ def parse_manual_upload(
     file_path: str,
     file_name: str,
     file_type: str,
-    employee_roster: List[Dict[str, Any]] = None
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     Main entry point for manual upload parsing.
@@ -452,19 +805,19 @@ def parse_manual_upload(
     ext = file_type.lower().replace(".", "")
     
     if ext == "pdf":
-        chunks = parse_pdf(file_path, file_name, employee_roster)
+        chunks = parse_pdf(file_path, file_name, employee_roster, target_employee_id=target_employee_id)
         return chunks, [], {"format": "pdf", "total_chunks": len(chunks)}
         
     elif ext in ["docx", "doc"]:
-        chunks = parse_docx(file_path, file_name, employee_roster)
+        chunks = parse_docx(file_path, file_name, employee_roster, target_employee_id=target_employee_id)
         return chunks, [], {"format": "docx", "total_chunks": len(chunks)}
         
     elif ext in ["pptx", "ppt"]:
-        chunks = parse_pptx(file_path, file_name, employee_roster)
+        chunks = parse_pptx(file_path, file_name, employee_roster, target_employee_id=target_employee_id)
         return chunks, [], {"format": "pptx", "total_chunks": len(chunks)}
         
     elif ext in ["xlsx", "xls", "csv"]:
-        return parse_spreadsheet(file_path, file_name, ext, employee_roster)
+        return parse_spreadsheet(file_path, file_name, ext, employee_roster, target_employee_id=target_employee_id)
         
     else:
         raise ValueError(f"Unsupported file format for Performance Coach: .{ext}")

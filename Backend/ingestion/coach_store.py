@@ -84,7 +84,7 @@ def insert_coach_chunks(
     company_id: str,
     chunks: List[Dict[str, Any]],
     embeddings: np.ndarray,
-    batch_size: int = 50
+    batch_size: int = 150
 ) -> int:
     """
     Inserts vector chunks with citations into coach_document_chunks table in batches.
@@ -121,7 +121,7 @@ def insert_spreadsheet_rows(
     document_id: str,
     company_id: str,
     spreadsheet_rows: List[Dict[str, Any]],
-    batch_size: int = 100
+    batch_size: int = 500
 ) -> int:
     """
     Inserts raw structured spreadsheet rows into coach_spreadsheet_rows for exact math/filtering.

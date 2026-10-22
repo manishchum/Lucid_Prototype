@@ -311,12 +311,12 @@ export default function CoachUploadsPage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2">
+            {/* <div className="flex items-center gap-2">
               <span className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full">
                 AI Knowledge Ingestion
               </span>
               <span className="text-xs text-slate-500">Multi-Tenant Scoped</span>
-            </div>
+            </div> */}
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">
               Performance Coach — Document Ingestion Hub
             </h1>
@@ -743,6 +743,27 @@ export default function CoachUploadsPage() {
                   <pre className="font-mono text-[11px] whitespace-pre-wrap overflow-x-auto">
                     {inspectDoc.error_message || "Unknown error during ingestion."}
                   </pre>
+                </div>
+              )}
+
+              {/* Detected Columns & Header Banner */}
+              {inspectDoc.parsed_metadata?.columns_detected && inspectDoc.parsed_metadata.columns_detected.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
+                  <div className="flex items-center justify-between text-slate-700 font-semibold">
+                    <span>Detected Columns ({inspectDoc.parsed_metadata.columns_detected.length})</span>
+                    {inspectDoc.parsed_metadata?.header_row_detected && (
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Header at Excel Row {inspectDoc.parsed_metadata.header_row_detected}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
+                    {inspectDoc.parsed_metadata.columns_detected.map((col: string, idx: number) => (
+                      <span key={idx} className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-mono text-slate-700">
+                        {col}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 

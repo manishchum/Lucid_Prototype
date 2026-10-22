@@ -32,7 +32,8 @@ def _run_ingestion_background(
     document_id: str,
     company_id: str,
     file_name: str,
-    file_type: str
+    file_type: str,
+    target_employee_id: Optional[str] = None
 ):
     """Background worker task to run file parsing and embedding."""
     try:
@@ -41,7 +42,8 @@ def _run_ingestion_background(
             document_id=document_id,
             company_id=company_id,
             file_name=file_name,
-            file_type=file_type
+            file_type=file_type,
+            target_employee_id=target_employee_id
         )
     finally:
         # Clean up local temporary file after ingestion
@@ -139,7 +141,8 @@ async def upload_performance_document(
         document_id=doc_record["id"],
         company_id=company_id,
         file_name=file_name,
-        file_type=file_ext
+        file_type=file_ext,
+        target_employee_id=target_employee_id
     )
 
     return {
