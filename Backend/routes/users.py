@@ -171,9 +171,10 @@ async def list_users_by_filter(
     title_id: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
     employment_status: Optional[str] = Query(None),
-    auth_ctx: RequestAuth = Depends(get_request_auth_optional),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
 ):
-    """List users by filter criteria."""
+    """List users by filter criteria scoped strictly to the caller's company."""
     filters = {}
     if function_id:
         filters["function_id"] = function_id
@@ -186,11 +187,14 @@ async def list_users_by_filter(
     if employment_status:
         filters["employment_status"] = employment_status
 
-    data = await get_users_by_filter(filters)
+    result = await get_users_by_filter(filters, company_id=effective_company_id)
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result["error"])
+    users = result.get("data") or []
     
     return {
         "success": True,
-        "data": {"users": data or [], "count": len(data) if data else 0},
+        "data": {"users": users, "count": len(users)},
         "error": None
     }
 

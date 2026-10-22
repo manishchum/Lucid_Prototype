@@ -701,13 +701,17 @@ async def delete_user(
     except Exception as e:
         return {"data": None, "error": str(e)}
 
-async def get_users_by_filter(filters: dict):
+async def get_users_by_filter(filters: dict, company_id: Optional[str] = None):
     try:
         query = supabase.table("users").select(
             'user_id, company_id, name, email, phone, position, hire_date, '
             'employment_status, function_id, sub_function_id, manager_id, avatar_url, '
             'is_active, created_at, updated_at'
         )
+
+        effective_company_id = company_id or filters.get("company_id")
+        if effective_company_id:
+            query = query.eq("company_id", str(effective_company_id))
 
         if "function_id" in filters:
             query = query.eq("function_id", filters["function_id"])
