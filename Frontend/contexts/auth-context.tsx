@@ -387,7 +387,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const connectAuthSocket = async () => {
       try {
         const token = await getFirebaseIdToken()
-        if (!token || authSocketCurrentUserId === user.uid) return
+        if (!token) return
+
+        if (
+          authSocketSingleton &&
+          (authSocketSingleton.readyState === WebSocket.OPEN ||
+            authSocketSingleton.readyState === WebSocket.CONNECTING)
+        ) {
+          return
+        }
 
         const deviceId = localStorage.getItem("device_id") || (() => {
           const generatedId = crypto.randomUUID()
@@ -396,10 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })()
 
         const wsBase = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws")
-        if (authSocketSingleton && authSocketSingleton.readyState === WebSocket.OPEN) {
-          if (authSocketCurrentUserId === user.uid) {
-            return
-          }
+        if (authSocketSingleton) {
           try {
             authSocketSingleton.close()
           } catch {
@@ -418,7 +423,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const payload = JSON.parse(event.data)
             if (payload?.type === "force_logout" || payload?.type === "session_replaced") {
-              window.dispatchEvent(new Event("lucid:auth:force-logout"))
+              window.dispatchEvent(
+                new CustomEvent("lucid:auth:force-logout", { detail: { reason: "session_replaced" } })
+              )
             }
           } catch {
             // ignore malformed payloads
@@ -426,11 +433,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         socket.onclose = () => {
-          if (auth.currentUser) {
-            reconnectTimer = setTimeout(connectAuthSocket, 3000)
-          } else if (authSocketSingleton === socket) {
+          if (authSocketSingleton === socket) {
             authSocketSingleton = null
             authSocketCurrentUserId = null
+          }
+          if (auth?.currentUser) {
+            reconnectTimer = setTimeout(connectAuthSocket, 3000)
           }
         }
       } catch (error) {
@@ -528,8 +536,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
-    const forceLogoutListener = async () => {
-      console.warn("[auth-context] Handling lucid:auth:force-logout event");
+    const forceLogoutListener = async (event?: Event) => {
+      console.warn("[auth-context] Handling lucid:auth:force-logout event", event);
+      if (authSocketSingleton) {
+        try {
+          authSocketSingleton.close();
+        } catch {}
+        authSocketSingleton = null;
+        authSocketCurrentUserId = null;
+      }
       await logout();
       if (typeof window !== 'undefined') {
         window.location.href = '/login';

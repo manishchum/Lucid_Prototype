@@ -172,6 +172,29 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           const data = (raw && typeof raw === 'object' && raw.data) ? raw.data : raw;
           if (!data || typeof data !== 'object') return;
 
+          // Intercept internal auth/session displacement messages - do NOT toast or display as notification
+          if (
+            data.type === 'force_logout' ||
+            data.reason === 'session_replaced' ||
+            raw.type === 'force_logout' ||
+            raw.reason === 'session_replaced'
+          ) {
+            const currentDeviceId = typeof window !== 'undefined' ? localStorage.getItem('device_id') : null;
+            const targetPlatform = data.platform || raw.platform || 'web';
+            const keepDeviceId = data.keep_device_id || raw.keep_device_id;
+
+            if (targetPlatform === 'web' && (!keepDeviceId || keepDeviceId !== currentDeviceId)) {
+              console.warn('[NotificationContext] Received force_logout via WebSocket for this device. Logging out silently.');
+              try {
+                ws.close();
+              } catch {}
+              window.dispatchEvent(
+                new CustomEvent('lucid:auth:force-logout', { detail: { reason: 'session_replaced' } })
+              );
+            }
+            return;
+          }
+
           // Received notification payload
           const newNotif: NotificationItem = {
             id: data.id || `ws-${Date.now()}`,
