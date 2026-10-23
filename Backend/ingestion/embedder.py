@@ -46,7 +46,7 @@ def embed_chunks(chunks: list[str]) -> np.ndarray:
     prefixed = [DOCUMENT_PREFIX + c for c in chunks]
     embeddings = model.encode(
         prefixed,
-        batch_size=6,
+        batch_size=32,
         show_progress_bar=True,
         normalize_embeddings=True,  # VERY IMPORTANT for cosine similarity
     )

@@ -105,7 +105,7 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
         # Backward compatibility: NULL is_active is treated as active.
         assignments = [a for a in (resp.data or []) if a.get('is_active') is not False]
         if not assignments:
-            set_cache(cache_key, 0, ttl=300)
+            set_cache(cache_key, 0, ttl=60)
             return False
 
         # compute max level from assigned roles
@@ -120,11 +120,23 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
             if level > max_level:
                 max_level = level
 
-        set_cache(cache_key, max_level, ttl=300)
+        set_cache(cache_key, max_level, ttl=60)
         return max_level >= req_level
     except Exception as e:
         print(f"[check_user_permission] exception: {e}")
         return False
+
+
+def invalidate_user_role_cache(user_id: str) -> None:
+    """Immediately invalidates the cached max role level for a user upon role assignment or revocation."""
+    if not user_id:
+        return
+    try:
+        from utils.redis_client import redis_client
+        redis_client.delete(f"user_max_role_level:{user_id}")
+    except Exception as e:
+        print(f"[permissions] Error invalidating user_max_role_level cache for {user_id}: {e}")
+
 
 async def check_company_access(user_id: str, company_id: str) -> bool:
     """

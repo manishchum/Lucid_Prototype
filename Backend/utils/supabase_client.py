@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import traceback
 from contextvars import ContextVar, Token
 from contextlib import contextmanager
@@ -155,19 +156,40 @@ def get_user_supabase_client(user_id: Optional[str] = None, company_id: Optional
     _user_client_cache[cache_key] = client
     return client
 
+_admin_client: Optional[Client] = None
+_admin_client_lock = threading.Lock()
+
+
 def get_supabase_admin() -> Client:
     """
     Get Supabase admin instance (bypasses RLS) for specific backend operations and migrations.
+    Lazily initialized and cached on first use to avoid eager connection creation.
     """
-    supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+    global _admin_client
+    if _admin_client is not None:
+        return _admin_client
 
-    if not supabase_url:
-        raise ValueError("NEXT_PUBLIC_SUPABASE_URL environment variable not set")
-    if not supabase_key:
-        raise ValueError("SUPABASE_SERVICE_ROLE_KEY environment variable not set")
+    with _admin_client_lock:
+        if _admin_client is not None:
+            return _admin_client
 
-    return create_client(supabase_url.rstrip("/") + "/", supabase_key)
+        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY")
+
+        if not supabase_url:
+            raise ValueError("NEXT_PUBLIC_SUPABASE_URL environment variable not set")
+        if not supabase_key:
+            raise ValueError("SUPABASE_SERVICE_ROLE_KEY environment variable not set")
+
+        _admin_client = create_client(supabase_url.rstrip("/") + "/", supabase_key)
+        return _admin_client
+
+
+def reset_supabase_admin() -> None:
+    """Reset cached admin client, primarily for testing or credential reloading."""
+    global _admin_client
+    with _admin_client_lock:
+        _admin_client = None
 
 
 def _log_unauthenticated_db_access(action: str) -> str:
@@ -259,9 +281,55 @@ class ContextAwareSupabaseProxy:
         return getattr(self._resolve_client(name), name)
 
 
+class LazySupabaseAdminProxy:
+    """
+    Lazy proxy for the Supabase admin client (bypasses RLS).
+    Defers client initialization and TLS connection until first use, preventing application
+    crashes at import time when SUPABASE_SERVICE_ROLE_KEY is missing or during CI/testing.
+    """
+
+    def _get_client(self) -> Client:
+        return get_supabase_admin()
+
+    def table(self, table_name: str):
+        return self._get_client().table(table_name)
+
+    def from_(self, table_name: str):
+        return self._get_client().from_(table_name)
+
+    def rpc(self, fn: str, params: Optional[Dict[str, Any]] = None):
+        return self._get_client().rpc(fn, params or {})
+
+    @property
+    def storage(self):
+        return self._get_client().storage
+
+    @property
+    def auth(self):
+        return self._get_client().auth
+
+    @property
+    def postgrest(self):
+        return self._get_client().postgrest
+
+    @property
+    def realtime(self):
+        return self._get_client().realtime
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_client(), name)
+
+    def __repr__(self) -> str:
+        status = "initialized" if _admin_client is not None else "uninitialized"
+        return f"<LazySupabaseAdminProxy ({status})>"
+
+    def __bool__(self) -> bool:
+        return True
+
+
 # Export ready-to-use instances
 # supabase: Context-aware proxy that strictly enforces client-scoped RLS using the anon key.
 supabase = ContextAwareSupabaseProxy()
 
-# supabase_admin: Service role client explicitly used for internal admin tasks & migrations only.
-supabase_admin = get_supabase_admin()
+# supabase_admin: Lazy proxy for service role client, initialized on first use.
+supabase_admin: Client = LazySupabaseAdminProxy()  # type: ignore[assignment]

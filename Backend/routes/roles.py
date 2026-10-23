@@ -12,6 +12,7 @@ from utils.db.roles_db import (
     revoke_role_assignment
 )
 
+from utils.redis_client import redis_client
 from utils.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
@@ -132,6 +133,12 @@ async def create_role_assignment(
     
     data = await assign_user_role(auth_ctx.user_id, request.user_id, role_data)
     
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        redis_client.delete(f"user_max_role_level:{request.user_id}")
+    except Exception as e:
+        print(f"[create_role_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,
@@ -159,6 +166,19 @@ async def update_assignment(
     
     data = await update_role_assignment(auth_ctx.user_id, assignment_id, updates)
     
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        target_uid = None
+        resp_data = data.get("data") if data else None
+        if isinstance(resp_data, list) and len(resp_data) > 0 and isinstance(resp_data[0], dict):
+            target_uid = resp_data[0].get("user_id")
+        elif isinstance(resp_data, dict):
+            target_uid = resp_data.get("user_id")
+        if target_uid:
+            redis_client.delete(f"user_max_role_level:{target_uid}")
+    except Exception as e:
+        print(f"[update_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,
@@ -177,6 +197,19 @@ async def revoke_assignment(
     """
     data = await revoke_role_assignment(auth_ctx.user_id, assignment_id)
     
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        target_uid = None
+        resp_data = data.get("data") if data else None
+        if isinstance(resp_data, list) and len(resp_data) > 0 and isinstance(resp_data[0], dict):
+            target_uid = resp_data[0].get("user_id")
+        elif isinstance(resp_data, dict):
+            target_uid = resp_data.get("user_id")
+        if target_uid:
+            redis_client.delete(f"user_max_role_level:{target_uid}")
+    except Exception as e:
+        print(f"[revoke_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,

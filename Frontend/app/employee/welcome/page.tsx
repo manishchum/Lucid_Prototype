@@ -26,6 +26,7 @@ import {
   Download, Linkedin, X, Mic
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useTasks } from "@/hooks/useTasks";
 import { submitTaskResponse } from "@/lib/taskApi";
 import type { SubmitTaskPayload, Task } from "@/lib/taskApi";
@@ -1173,6 +1174,11 @@ export default function EmployeeWelcome() {
               >
                 <Trophy className="w-5 h-5 text-amber-500" />
               </Button>
+
+              <NotificationBell
+                iconSize={19}
+                className="h-10 w-10 shrink-0 rounded-[8px] border border-slate-200 bg-white shadow-sm hover:bg-blue-50 hover:border-blue-200 hover:text-[#3B66F5] transition-colors flex items-center justify-center text-slate-600 p-0"
+              />
             </div>
           </div>
 

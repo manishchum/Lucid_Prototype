@@ -29,6 +29,27 @@ def resolve_company_platform_type(company_data: Optional[Dict[str, Any]]) -> str
     return "web"
 
 
+def normalize_company_record(company_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Normalizes company record properties, ensuring both is_company_active and is_active
+    are consistently populated, and resolves platform_type.
+    """
+    if not company_data or not isinstance(company_data, dict):
+        return company_data
+
+    # Support both is_company_active and is_active columns seamlessly
+    is_active = True
+    if "is_company_active" in company_data and company_data["is_company_active"] is not None:
+        is_active = bool(company_data["is_company_active"])
+    elif "is_active" in company_data and company_data["is_active"] is not None:
+        is_active = bool(company_data["is_active"])
+
+    company_data["is_company_active"] = is_active
+    company_data["is_active"] = is_active
+    company_data["platform_type"] = resolve_company_platform_type(company_data)
+    return company_data
+
+
 # ==================== COMPANY OPERATIONS ====================
 
 async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) -> Dict[str, Any]:
@@ -41,18 +62,14 @@ async def get_company_by_id(requesting_user_id: Optional[str], company_id: str) 
         resp = (
             supabase
             .table('companies')
-            .select(
-                'company_id, name, domain, company_logo, is_company_active, '
-                'subscription_tier, subscription_addons, learning_style, created_at'
-            )
+            .select('*')
             .eq('company_id', company_id)
             .maybe_single()
             .execute()
         )
         if not resp.data:
             return {"data": None, "error": "Company not found"}
-        resp.data["platform_type"] = resolve_company_platform_type(resp.data)
-        return {"data": resp.data, "error": None}
+        return {"data": normalize_company_record(resp.data), "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
 
@@ -227,6 +244,11 @@ async def update_company(requesting_user_id: str, company_id: str, update_data: 
         if resp.data and isinstance(resp.data, list):
             for c in resp.data:
                 c["platform_type"] = resolve_company_platform_type(c)
+        try:
+            from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
+            NotificationPolicyEvaluator.invalidate_company_addons_cache(company_id)
+        except Exception:
+            pass
         return {"data": resp.data, "error": None}
     except Exception as e:
         error_msg = str(e)

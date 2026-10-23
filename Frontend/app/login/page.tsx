@@ -28,7 +28,13 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login } = useAuth()
+  const { user, loading: authLoading, login } = useAuth()
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/employee/welcome')
+    }
+  }, [user, authLoading, router])
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -69,6 +75,8 @@ function LoginContent() {
         return "Please enter a valid email address."
       case "auth/too-many-requests":
         return "Too many failed attempts. Please wait and try again."
+      case "auth/network-request-failed":
+        return "Network request failed. Please check your connection and try again."
       default:
         return message || "Unable to sign in right now. Please try again."
     }
@@ -178,6 +186,17 @@ function LoginContent() {
     }
   }
 
+  if (authLoading || user) {
+    return (
+      <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
+          <p className="mt-4 text-sm text-slate-500 font-medium">Checking session...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-screen max-h-screen w-screen bg-white font-sans relative overflow-hidden flex flex-col justify-between select-none">
       {/* Dynamic Background Organic Curve dividing Left and Right */}
@@ -232,7 +251,7 @@ function LoginContent() {
                 Lucid
               </span>
               <span className="text-[11px] sm:text-[11.5px] text-slate-500 font-normal mt-0.5 tracking-tight">
-                by Workfloww.ai
+                by workfloww.ai
               </span>
             </div>
           </Link>
@@ -254,7 +273,7 @@ function LoginContent() {
             </h1>
 
             <p className="text-slate-500 text-[13px] sm:text-[14px] font-normal pt-2.5 sm:pt-3.5 tracking-tight leading-relaxed whitespace-nowrap">
-              Enterprise Productivity Platform Accelerating Business
+              Enterprise Productivity Platform Accelerating Business Outcomes
             </p>
           </div>
 

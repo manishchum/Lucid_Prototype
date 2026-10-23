@@ -147,7 +147,7 @@ export default function LandingPage() {
               Lucid
             </span>
             <span className="text-[11px] sm:text-[11.5px] text-slate-500 font-normal mt-0.5 tracking-tight">
-              by Workfloww.ai
+              by workfloww.ai
             </span>
           </div>
         </Link>
@@ -185,7 +185,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="text-slate-500 text-[12px] sm:text-[13.5px] md:text-[14.5px] font-normal pt-0.5 tracking-tight">
-            Enterprise productivity platform accelerating business
+            Enterprise Productivity Platform Accelerating Business Outcomes
           </p>
         </div>
 
