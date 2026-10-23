@@ -20,7 +20,7 @@ def fetch_company_employees(company_id: str) -> List[Dict[str, Any]]:
             .eq("company_id", company_id)
             .execute()
         )
-        return res.data or []
+        return getattr(res, "data", None) or []
     except Exception as e:
         print(f"[COACH STORE] Warning: Could not fetch company employees: {e}")
         return []
@@ -52,9 +52,10 @@ def create_document_record(
         "parsed_metadata": {}
     }
     res = supabase.table("coach_uploaded_documents").insert(row).execute()
-    if not res.data:
+    data = getattr(res, "data", None) if res else None
+    if not data:
         raise RuntimeError("Failed to create coach_uploaded_documents record.")
-    return res.data[0]
+    return data[0]
 
 
 def update_document_status(
@@ -111,8 +112,9 @@ def insert_coach_chunks(
     for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
         res = supabase.table("coach_document_chunks").insert(batch).execute()
-        if res.data:
-            inserted_count += len(res.data)
+        data = getattr(res, "data", None) if res else None
+        if data:
+            inserted_count += len(data)
 
     return inserted_count
 
@@ -145,7 +147,8 @@ def insert_spreadsheet_rows(
     for i in range(0, len(rows_to_insert), batch_size):
         batch = rows_to_insert[i:i + batch_size]
         res = supabase.table("coach_spreadsheet_rows").insert(batch).execute()
-        if res.data:
-            inserted_count += len(res.data)
+        data = getattr(res, "data", None) if res else None
+        if data:
+            inserted_count += len(data)
 
     return inserted_count

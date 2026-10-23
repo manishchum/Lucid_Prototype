@@ -95,7 +95,7 @@ def run_coach_file_ingestion(
             parsed_metadata=parsed_metadata
         )
         
-        print(f"[COACH INGESTION] ✅ Successfully ingested doc={document_id}")
+        print(f"[COACH INGESTION] [OK] Successfully ingested doc={document_id}")
         return {
             "document_id": document_id,
             "status": "completed",
