@@ -23,7 +23,13 @@ import {
   Info, 
   X,
   ChevronRight,
-  UserCheck
+  UserCheck,
+  FolderSync,
+  HardDrive,
+  FolderOpen,
+  Radio,
+  Check,
+  ShieldCheck
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -47,6 +53,9 @@ interface CoachDocument {
     total_rows?: number
     slide_count?: number
     format?: string
+    columns_detected?: string[]
+    header_row_detected?: number | string
+    [key: string]: any
   }
   created_at: string
   target_employee_id?: string | null
@@ -57,6 +66,20 @@ interface EmployeeOption {
   user_id: string
   name: string
   email: string
+}
+
+interface GoogleDriveIntegration {
+  id: string
+  google_account_email: string
+  folder_id: string
+  folder_name: string
+  sync_status: string
+  webhook_active: boolean
+  webhook_expiration?: string | null
+  last_synced_at?: string | null
+  total_synced_files: number
+  error_message?: string | null
+  connected_at?: string | null
 }
 
 export default function CoachUploadsPage() {
@@ -88,6 +111,12 @@ export default function CoachUploadsPage() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Google Drive State
+  const [gdriveStatus, setGdriveStatus] = useState<{ connected: boolean; integration?: GoogleDriveIntegration } | null>(null)
+  const [gdriveLoading, setGdriveLoading] = useState(true)
+  const [syncingGDrive, setSyncingGDrive] = useState(false)
+  const [disconnectingGDrive, setDisconnectingGDrive] = useState(false)
 
   // 1. Fetch Ingested Documents
   const fetchDocuments = useCallback(async () => {
@@ -123,14 +152,144 @@ export default function CoachUploadsPage() {
     }
   }, [companyId])
 
+  // Fetch Google Drive Status
+  const fetchGDriveStatus = useCallback(async () => {
+    try {
+      setGdriveLoading(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/integrations/google-drive/status`)
+      if (res.ok) {
+        const data = await res.json()
+        setGdriveStatus(data)
+      }
+    } catch (err) {
+      console.warn("[coach-upload] Failed to fetch Google Drive status:", err)
+    } finally {
+      setGdriveLoading(false)
+    }
+  }, [])
+
+  const handleConnectGDrive = async () => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/integrations/google-drive/auth-url`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.auth_url) {
+          // Open OAuth consent in a centered popup browser window
+          const width = 600
+          const height = 720
+          const left = window.screenX + Math.max(0, (window.outerWidth - width) / 2)
+          const top = window.screenY + Math.max(0, (window.outerHeight - height) / 2)
+
+          const popup = window.open(
+            data.auth_url,
+            "GoogleDriveOAuthPopup",
+            `width=${width},height=${height},left=${left},top=${top},status=no,toolbar=no,menubar=no,location=yes,resizable=yes,scrollbars=yes`
+          )
+
+          if (!popup || popup.closed || typeof popup.closed === "undefined") {
+            // Popup blocker prevented popup window, fallback to full page redirect
+            window.location.href = data.auth_url
+          } else {
+            popup.focus()
+          }
+        }
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to initialize Google Drive connection.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to connect Google Drive.")
+    }
+  }
+
+  const handleSyncGDriveNow = async () => {
+    try {
+      setSyncingGDrive(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/integrations/google-drive/sync-now`, {
+        method: "POST"
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSuccessToast(data.message || "Google Drive synchronized successfully.")
+        await fetchDocuments()
+        await fetchGDriveStatus()
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Sync failed.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to trigger sync.")
+    } finally {
+      setSyncingGDrive(false)
+    }
+  }
+
+  const handleDisconnectGDrive = async () => {
+    if (!confirm("Are you sure you want to disconnect Google Drive? Automatic real-time ingestion will stop.")) {
+      return
+    }
+    try {
+      setDisconnectingGDrive(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/integrations/google-drive/disconnect`, {
+        method: "POST"
+      })
+      if (res.ok) {
+        setSuccessToast("Google Drive disconnected successfully.")
+        await fetchGDriveStatus()
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to disconnect.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to disconnect.")
+    } finally {
+      setDisconnectingGDrive(false)
+    }
+  }
+
+  // Handle OAuth messages from popup window & fallback URL query parameters
+  useEffect(() => {
+    // 1. Listen for postMessage from popup window
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.data?.type === "GOOGLE_DRIVE_OAUTH_SUCCESS") {
+        const email = event.data.email || ""
+        setSuccessToast(`Google Drive ${email ? `(${email}) ` : ""}connected successfully! Live ingestion is active for 'Lucid Coach Ingestion'.`)
+        fetchGDriveStatus()
+        fetchDocuments()
+      } else if (event.data?.type === "GOOGLE_DRIVE_OAUTH_ERROR") {
+        setErrorToast(`Google Drive connection error: ${event.data.error || "Unknown error"}`)
+      }
+    }
+
+    window.addEventListener("message", handleOAuthMessage)
+
+    // 2. Fallback: inspect URL query params if user completed full-page redirect
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get("gdrive_connected") === "true") {
+        const email = params.get("email") || ""
+        setSuccessToast(`Google Drive ${email ? `(${email}) ` : ""}connected successfully! Live ingestion is active for 'Lucid Coach Ingestion'.`)
+        window.history.replaceState({}, "", window.location.pathname)
+        fetchGDriveStatus()
+        fetchDocuments()
+      } else if (params.get("gdrive_error")) {
+        setErrorToast(`Google Drive connection error: ${params.get("gdrive_error")}`)
+        window.history.replaceState({}, "", window.location.pathname)
+      }
+    }
+
+    return () => window.removeEventListener("message", handleOAuthMessage)
+  }, [fetchGDriveStatus, fetchDocuments])
+
   useEffect(() => {
     if (rolesLoaded && hasAccess) {
       fetchDocuments()
       fetchEmployees()
+      fetchGDriveStatus()
     } else if (rolesLoaded && !hasAccess) {
       setLoading(false)
     }
-  }, [rolesLoaded, hasAccess, fetchDocuments, fetchEmployees])
+  }, [rolesLoaded, hasAccess, fetchDocuments, fetchEmployees, fetchGDriveStatus])
 
   // 3. Auto-poll if any document is in progress (pending, parsing, embedding)
   useEffect(() => {
@@ -318,6 +477,22 @@ export default function CoachUploadsPage() {
         </div>
       </div>
     )
+  // Format Google Drive sync date as dd - month (in alphabet) - yyyy, hh:mm AM/PM
+  const formatGDriveSyncDate = (isoString?: string | null) => {
+    if (!isoString) return "Pending initial scan"
+    const d = new Date(isoString)
+    if (isNaN(d.getTime())) return "Pending initial scan"
+
+    const day = String(d.getDate()).padStart(2, "0")
+    const month = d.toLocaleString("en-US", { month: "long" })
+    const year = d.getFullYear()
+    const time = d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+
+    return `${day} - ${month} - ${year}, ${time}`
   }
 
   // Summary Metrics
@@ -415,6 +590,131 @@ export default function CoachUploadsPage() {
             <div className="text-2xl font-bold text-purple-600 mt-1">{totalRows.toLocaleString()}</div>
             <div className="text-xs text-slate-500 mt-1">Exact JSONB tabular records</div>
           </div>
+        </div>
+
+        {/* Google Drive Connector Card */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 md:p-8 overflow-hidden relative">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-50 via-indigo-50 to-emerald-50 border border-slate-200/60 flex items-center justify-center flex-shrink-0 shadow-sm">
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none">
+                  <path d="M8.2 2L15.8 2L23.4 15L15.8 15L8.2 2Z" fill="#FFC107" />
+                  <path d="M0.6 15L8.2 2L12 8.5L4.4 21.5L0.6 15Z" fill="#0066DA" />
+                  <path d="M4.4 21.5L12 8.5L19.6 21.5L4.4 21.5Z" fill="#00AC47" />
+                  <path d="M12 8.5L15.8 15L23.4 15L19.6 21.5L12 8.5Z" fill="#2684FC" />
+                </svg>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-lg font-bold text-slate-900">Google Drive Real-Time Ingestion</h2>
+                  {gdriveStatus?.connected && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Sync Active
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                  {gdriveStatus?.connected
+                    ? "Files placed into the dedicated Google Drive folder are automatically converted (Google Docs/Sheets -> PDF/Excel), indexed, and vectorized into the Coach vault."
+                    : "Connect your organization's Google Drive. Files uploaded to the dedicated 'Lucid Coach Ingestion' folder are ingested automatically in real time."}
+                </p>
+              </div>
+            </div>
+
+            {/* Actions / Status Controls */}
+            <div className="flex items-center gap-2.5 self-start md:self-auto flex-shrink-0">
+              {gdriveLoading ? (
+                <div className="text-xs text-slate-400 flex items-center gap-2">
+                  <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+                  Checking connection...
+                </div>
+              ) : gdriveStatus?.connected ? (
+                <>
+                  <a
+                    href={gdriveStatus.integration?.folder_id ? `https://drive.google.com/drive/folders/${gdriveStatus.integration.folder_id}` : "https://drive.google.com"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-sm"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                    Open Folder in Drive
+                  </a>
+
+                  <button
+                    onClick={handleSyncGDriveNow}
+                    disabled={syncingGDrive}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition shadow-sm disabled:opacity-50"
+                  >
+                    <FolderSync className={`w-3.5 h-3.5 ${syncingGDrive ? "animate-spin text-indigo-600" : ""}`} />
+                    {syncingGDrive ? "Syncing..." : "Sync Now"}
+                  </button>
+
+                  <button
+                    onClick={handleDisconnectGDrive}
+                    disabled={disconnectingGDrive}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50/70 border border-rose-200 rounded-xl hover:bg-rose-100 transition disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={handleConnectGDrive}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-sm"
+                >
+                  <HardDrive className="w-4 h-4" />
+                  Connect Google Drive
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Connected Details Bar */}
+          {gdriveStatus?.connected && gdriveStatus.integration && (
+            <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50/50 p-4 rounded-xl text-xs">
+              <div>
+                <span className="text-slate-400 font-medium block">Google Account</span>
+                <span className="text-slate-800 font-semibold truncate block mt-0.5">
+                  {gdriveStatus.integration.google_account_email}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Monitored Folder</span>
+                <a
+                  href={gdriveStatus.integration.folder_id ? `https://drive.google.com/drive/folders/${gdriveStatus.integration.folder_id}` : "https://drive.google.com"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold inline-flex items-center gap-1 mt-0.5 group"
+                  title="Open folder in Google Drive"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>{gdriveStatus.integration.folder_name}</span>
+                  <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100" />
+                </a>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Auto-Ingested Files</span>
+                <span className="text-slate-800 font-semibold block mt-0.5">
+                  {gdriveStatus.integration.total_synced_files} file(s) processed
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Last Synced</span>
+                <span className="text-slate-700 block mt-0.5">
+                  {formatGDriveSyncDate(gdriveStatus.integration.last_synced_at)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {gdriveStatus?.connected && gdriveStatus.integration?.error_message && (
+            <div className="mt-3 p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <span>{gdriveStatus.integration.error_message}</span>
+            </div>
+          )}
         </div>
 
         {/* Drag & Drop Upload Card */}
@@ -636,6 +936,12 @@ export default function CoachUploadsPage() {
                                 <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                                   {doc.file_type}
                                 </span>
+                                {doc.manual_description?.toLowerCase().includes("google drive") && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
+                                    <FolderSync className="w-3 h-3 text-sky-600" />
+                                    Google Drive
+                                  </span>
+                                )}
                               </div>
                               <div className="text-xs text-slate-400 mt-0.5">
                                 {formatBytes(doc.file_size_bytes)}

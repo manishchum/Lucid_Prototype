@@ -747,6 +747,18 @@ async def run_leaderboard_refresh(ctx: Optional[dict] = None) -> None:
         logger.error(f"[ARQ Worker] Error during scheduled leaderboard refresh: {e}")
 
 
+async def run_gdrive_webhook_renewal(ctx: Optional[dict] = None) -> None:
+    """Periodic task to automatically renew Google Drive watch webhooks."""
+    logger.info("[ARQ Worker] Checking expiring Google Drive watch webhooks...")
+    try:
+        from services.google_drive_service import renew_expiring_webhooks
+        renewed = await renew_expiring_webhooks()
+        if renewed:
+            logger.info(f"[ARQ Worker] Renewed {renewed} Google Drive watch channel(s).")
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error renewing Google Drive webhooks: {e}")
+
+
 async def arq_startup(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker started with Redis job bus.")
 
@@ -786,6 +798,9 @@ class WorkerSettings:
 
         # 5. Precompute company leaderboards into Redis ZSETs (hourly)
         cron(run_leaderboard_refresh, minute={0}),
+
+        # 6. Google Drive watch webhook renewal (hourly at minute 15)
+        cron(run_gdrive_webhook_renewal, minute={15}),
     ]
 
     # Callable task functions that can be dynamically enqueued via arq_client.enqueue_job()
@@ -796,8 +811,10 @@ class WorkerSettings:
         run_email_cron,
         run_whatsapp_cron,
         run_leaderboard_refresh,
+        run_gdrive_webhook_renewal,
     ]
 
     on_startup = arq_startup
     on_shutdown = arq_shutdown
+
 
