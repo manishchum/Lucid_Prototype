@@ -200,6 +200,17 @@ async def process_single_job(db, job: Dict[str, Any]) -> bool:
         return False
 
 
+async def poll_whatsapp_dispatches(ctx: Dict[str, Any]) -> None:
+    """
+    Polls scheduled WhatsApp messages and dispatches pending records when due.
+    """
+    try:
+        from whatsapp.cron import run_whatsapp_cron
+        await run_whatsapp_cron()
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error in poll_whatsapp_dispatches: {e}")
+
+
 # -----------------------------------------------------------------------------
 # Worker Settings
 # -----------------------------------------------------------------------------
@@ -212,6 +223,7 @@ class WorkerSettings:
     
     cron_jobs = [
         cron(poll_notification_jobs, second=set(range(0, 60, 10))),
+        cron(poll_whatsapp_dispatches, minute=set(range(0, 60, 1))),
     ]
     
     on_startup = None

@@ -150,25 +150,24 @@ class WhatsAppCronWorker:
             media_url = scheduled_msg.get("media_url")
             media_type = scheduled_msg.get("media_type")
             
-            # Send based on media type
-            result = None
-            if media_type == "image":
-                result = await self.service.send_image_message(
-                    phone_number, media_url, message_body
-                )
-            elif media_type == "audio":
-                result = await self.service.send_audio_message(phone_number, media_url)
-            elif media_type == "video":
-                result = await self.service.send_video_message(
-                    phone_number, media_url, message_body
-                )
-            elif media_type == "document":
-                result = await self.service.send_document_message(
-                    phone_number, media_url, message_body
-                )
-            else:
-                # Default to text message
-                result = await self.service.send_text_message(phone_number, message_body)
+            # Resolve user name for template personalization (value1)
+            user_name = "Learner"
+            if user_id:
+                try:
+                    from utils.supabase_client import supabase_admin
+                    u_resp = supabase_admin.table("users").select("name,first_name").eq("user_id", user_id).maybe_single().execute()
+                    if u_resp.data:
+                        user_name = u_resp.data.get("first_name") or u_resp.data.get("name") or "Learner"
+                except Exception as ex:
+                    logger.debug(f"Could not resolve name for user {user_id}: {ex}")
+
+            result = await self.service.send_template_message(
+                recipient_phone=phone_number,
+                user_name=user_name,
+                message_body=message_body,
+                media_url=media_url,
+                media_type=media_type,
+            )
             
             # Update dispatch status
             if result.get("success"):

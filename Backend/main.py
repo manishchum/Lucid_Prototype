@@ -249,7 +249,28 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    # Background WhatsApp periodic dispatcher loop (runs every 60 seconds)
+    async def _whatsapp_cron_loop():
+        while True:
+            try:
+                await asyncio.sleep(60)
+                from whatsapp.cron import run_whatsapp_cron
+                await run_whatsapp_cron()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[WhatsApp Cron Loop] Non-fatal error: {e}")
+
+    asyncio.create_task(_whatsapp_cron_loop())
+
     # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+@app.post("/api/cron/whatsapp-dispatch", tags=["cron"])
+async def trigger_whatsapp_cron():
+    """Trigger manual or Cloud Scheduler polling of pending scheduled WhatsApp messages."""
+    from whatsapp.cron import run_whatsapp_cron
+    await run_whatsapp_cron()
+    return {"success": True, "message": "WhatsApp dispatch cron executed successfully"}
 
 @app.post("/api/cron/refresh_leaderboards", tags=["cron"])
 async def trigger_refresh_leaderboards():

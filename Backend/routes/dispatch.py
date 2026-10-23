@@ -26,6 +26,7 @@ from utils.db.whatsapp_db import (
     create_whatsapp_dispatch_batch,
     get_users_for_module,
     get_module_content,
+    update_dispatch_status,
 )
 from utils.db.email_db import (
     create_scheduled_email,
@@ -33,6 +34,7 @@ from utils.db.email_db import (
 )
 from utils.supabase_client import supabase, supabase_admin
 from whatsapp.formatter import formatter
+from whatsapp.service import whatsapp_service
 
 router = APIRouter(prefix="/api/dispatch", tags=["dispatch"])
 
@@ -108,12 +110,14 @@ class NotifyWhatsAppRequest(BaseModel):
     selected_content: List[str]  # e.g. ["flashcards", "audio", "video"]
    
     # Scheduling
-    schedule_type: str  # "one_time" or "recurring"
+    schedule_type: str = "one_time"  # "one_time" or "recurring"
     scheduled_date: Optional[str] = None  # "YYYY-MM-DD" for one_time
     scheduled_time: str = "09:00"  # "HH:MM" format
     days_of_week: Optional[List[int]] = None  # [0,1,2,3,4] for recurring (0=Sun, 6=Sat)
    
-    # Optional metadata
+    # Optional metadata & Immediate flag
+    custom_message: Optional[str] = None
+    is_immediate: Optional[bool] = None
     engagement_question: Optional[str] = None
     dry_run: bool = False  # True = return what would be sent without actually scheduling
 
@@ -1702,26 +1706,15 @@ async def notify_whatsapp(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     user_id = auth_ctx.user_id
-    """
-    Schedule WhatsApp messages for content distribution.
-   
-    This endpoint creates scheduled WhatsApp messages and dispatch records for
-    all assigned users. It handles:
-   
-    1. Multi-module distribution (spread across days)
-    2. Multiple content types (one message per content type, per module)
-    3. One-time and recurring schedules
-   
-    Example: 2 modules x 2 content types = 4 messages
-    - Day 1: Module 1, Content Type 1
-    - Day 2: Module 2, Content Type 1
-    - Day 3: Module 1, Content Type 2
-    - Day 4: Module 2, Content Type 2
-    """
-   
     try:
         print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
        
+        # Determine if this should be dispatched immediately or scheduled
+        is_immediate = (
+            request.is_immediate is True
+            or (request.schedule_type == "one_time" and not request.scheduled_date)
+        )
+
         # ── Validate Input ──
         if not request.module_ids:
             raise HTTPException(status_code=400, detail="At least one module_id is required")
@@ -1732,10 +1725,10 @@ async def notify_whatsapp(
         if request.schedule_type not in ["one_time", "recurring"]:
             raise HTTPException(status_code=400, detail="Invalid schedule_type")
        
-        if request.schedule_type == "one_time" and not request.scheduled_date:
+        if not is_immediate and request.schedule_type == "one_time" and not request.scheduled_date:
             raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
        
-        if request.schedule_type == "recurring" and not request.days_of_week:
+        if not is_immediate and request.schedule_type == "recurring" and not request.days_of_week:
             raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
        
         # ── Generate Message Schedule ──
@@ -1750,7 +1743,7 @@ async def notify_whatsapp(
                     "order": message_order,
                 })
        
-        print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules")
+        print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules (is_immediate={is_immediate})")
        
         # ── Dry Run: Return what would be created ──
         if request.dry_run:
@@ -1775,6 +1768,8 @@ async def notify_whatsapp(
         # ── Create Scheduled Messages and Dispatch Records ──
         created_schedules = []
         all_users_affected = set()
+        total_sent_count = 0
+        total_failed_count = 0
        
         for msg_plan in messages_to_create:
             processed_module_id = msg_plan["module_id"]
@@ -1784,7 +1779,6 @@ async def notify_whatsapp(
             # Fetch module content
             module_result = await get_module_content(processed_module_id)
             print(f"[NOTIFY-WHATSAPP DEBUG] Fetching content for module_id: {processed_module_id}")
-            print(module_result)
             if module_result["error"]:
                 print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching module: {module_result['error']}")
                 continue
@@ -1797,21 +1791,23 @@ async def notify_whatsapp(
             module_title = module.get("title", "Learning Module")
             original_module_id = module.get("original_module_id")
            
-
-
-            print("\n[NOTIFY-WHATSAPP DEBUG] Module content fetched successfully", module)
-            # Determine scheduled date based on offset
             from datetime import datetime, timedelta, date as dt_date
            
-            if request.schedule_type == "one_time":
+            if is_immediate:
+                message_date = dt_date.today().strftime("%Y-%m-%d")
+            elif request.schedule_type == "one_time":
                 schedule_date = datetime.strptime(request.scheduled_date, "%Y-%m-%d")
                 message_date = (schedule_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
             else:
                 # For recurring, use today + offset as first occurrence
                 message_date = None
            
-            # Build message content based on content type
-            if content_type == "flashcards":
+            # Build message content based on content type or custom message
+            if request.custom_message:
+                message_body = request.custom_message
+                media_url = None
+                media_type = None
+            elif content_type == "flashcards":
                 flashcard_data = module.get("flashcard_data", [])
                 message_body = formatter.format_flashcards(
                     "Flashcards",
@@ -1822,9 +1818,6 @@ async def notify_whatsapp(
                 media_type = None
            
             elif content_type == "audio":
-
-                print(f"[NOTIFY-WHATSAPP DEBUG] Preparing audio content for module: {module_title}")
-                print(f"[NOTIFY-WHATSAPP DEBUG] Audio URL from DB: {module.get('audio_url', 'NONE')}")
                 audio_url = module.get("audio_url", "")
                 message_body = formatter.format_audio_message(module_title, "Audio Lesson")
                 media_url = audio_url
@@ -1838,7 +1831,6 @@ async def notify_whatsapp(
            
             elif content_type == "mindmap":
                 mindmap_data = module.get("mindmap_data", {})
-                # Assume mindmap_data has an 'image_url' field or we convert it to image
                 mindmap_url = mindmap_data.get("image_url", "") if isinstance(mindmap_data, dict) else ""
                 message_body = formatter.format_mindmap_message(module_title, "Mind Map")
                 media_url = mindmap_url
@@ -1855,10 +1847,7 @@ async def notify_whatsapp(
                 print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
                 continue
            
-
-            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for content type '{content_type}' with media_url: {media_url}")
-            print(f"[NOTIFY-WHATSAPP DEBUG] Message body: {message_body}")
-            print("Request Body",request)
+            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for '{content_type}' with media_url: {media_url}")
             # Create scheduled_whatsapp record
             schedule_result = await create_scheduled_whatsapp(
                 company_id=request.company_id,
@@ -1906,6 +1895,42 @@ async def notify_whatsapp(
            
             dispatch_records = dispatch_result.get("data", [])
             print(f"[NOTIFY-WHATSAPP DEBUG] Created {len(dispatch_records)} dispatch records")
+
+            # If immediate send requested, dispatch right away via DoveSoft WhatsApp API
+            if is_immediate:
+                for user in users_data:
+                    u_phone = user.get("phone_number")
+                    u_name = user.get("name") or user.get("first_name") or "Learner"
+                    u_id = user.get("user_id")
+
+                    # Find matching dispatch record
+                    disp_rec = next((d for d in dispatch_records if d.get("user_id") == u_id), None)
+                    disp_id = disp_rec.get("whatsapp_dispatch_id") if disp_rec else None
+
+                    send_res = await whatsapp_service.send_template_message(
+                        recipient_phone=u_phone,
+                        user_name=u_name,
+                        message_body=message_body,
+                        media_url=media_url,
+                        media_type=media_type,
+                    )
+
+                    if send_res.get("success"):
+                        total_sent_count += 1
+                        if disp_id:
+                            await update_dispatch_status(
+                                disp_id,
+                                "sent",
+                                whatsapp_message_id=send_res.get("message_id")
+                            )
+                    else:
+                        total_failed_count += 1
+                        if disp_id:
+                            await update_dispatch_status(
+                                disp_id,
+                                "failed",
+                                error_message=send_res.get("error")
+                            )
            
             # Track affected users
             for user in users_data:
@@ -1922,12 +1947,15 @@ async def notify_whatsapp(
             })
        
         # ── Return Confirmation ──
+        status_label = "sent" if is_immediate else "scheduled"
         return {
-            "status": "scheduled",
-            "schedule_type": request.schedule_type,
+            "status": status_label,
+            "schedule_type": "immediate" if is_immediate else request.schedule_type,
             "scheduled_time": request.scheduled_time,
             "total_messages": len(created_schedules),
             "unique_recipients": len(all_users_affected),
+            "sent_count": total_sent_count if is_immediate else 0,
+            "failed_count": total_failed_count if is_immediate else 0,
             "messages": created_schedules,
         }
    

@@ -46,12 +46,18 @@ CLOUDCONVERT_API_KEY = os.getenv("CLOUDCONVERT_API_KEY")
 # Internal API configuration
 INTERNAL_API_BASE_URL = os.getenv("INTERNAL_API_BASE_URL")
 
-# WhatsApp Business API configuration (Meta)
+# WhatsApp Business API configuration (Meta & DoveSoft)
 WHATSAPP_BUSINESS_ACCOUNT_ID = os.getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
 WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_API_TOKEN = os.getenv("WHATSAPP_API_TOKEN")
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v18.0")
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "verify_token_12345")
+
+# DoveSoft WhatsApp API Configuration
+DOVESOFT_WHATSAPP_URL = os.getenv("DOVESOFT_WHATSAPP_URL", "https://api.dovesoft.io/REST/directApi/message")
+DOVESOFT_WABA_NUMBER = os.getenv("DOVESOFT_WABA_NUMBER", "918448555602")
+DOVESOFT_API_KEY = clean_env_value("DOVESOFT_API_KEY")
+DOVESOFT_WHATSAPP_DEFAULT_TEMPLATE = os.getenv("DOVESOFT_WHATSAPP_DEFAULT_TEMPLATE", "whatsapp_lucid")
 
 EMBEDDING_MODEL_NAME = "BAAI/bge-large-en-v1.5"
 DEVICE = "cuda" if os.getenv("USE_CUDA", "false").lower() == "true" else "cpu"

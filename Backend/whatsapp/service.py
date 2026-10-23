@@ -1,371 +1,255 @@
 import os
 import httpx
-import json
+import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 from config import (
-    WHATSAPP_BUSINESS_ACCOUNT_ID,
-    WHATSAPP_PHONE_NUMBER_ID,
-    WHATSAPP_API_TOKEN,
-    WHATSAPP_API_VERSION,
+    DOVESOFT_WHATSAPP_URL,
+    DOVESOFT_WABA_NUMBER,
+    DOVESOFT_API_KEY,
+    DOVESOFT_WHATSAPP_DEFAULT_TEMPLATE,
 )
+
+logger = logging.getLogger("lucid.whatsapp_service")
 
 
 class WhatsAppService:
     """
-    Service for interacting with Meta's WhatsApp Business API.
+    Service for sending WhatsApp messages via DoveSoft REST Direct API.
+    Uses approved Meta/DoveSoft templates (e.g. 'whatsapp_lucid').
     """
 
     def __init__(self):
-        self.api_version = WHATSAPP_API_VERSION
-        self.phone_number_id = WHATSAPP_PHONE_NUMBER_ID
-        self.api_token = WHATSAPP_API_TOKEN
-        self.base_url = f"https://graph.instagram.com/{self.api_version}"
+        self.api_url = DOVESOFT_WHATSAPP_URL or "https://api.dovesoft.io/REST/directApi/message"
+        self.waba_number = DOVESOFT_WABA_NUMBER or "918448555602"
+        self.api_key = DOVESOFT_API_KEY or ""
+        self.default_template = DOVESOFT_WHATSAPP_DEFAULT_TEMPLATE or "whatsapp_lucid"
+        self.fallback_media_url = "https://rest.dovesoft.io//tempMediaFiles/testVideo.mp4"
+
+    @staticmethod
+    def normalize_phone_number(raw_phone: str) -> str:
+        """
+        Normalizes phone number to format expected by DoveSoft (digits only, e.g. 91XXXXXXXXXX).
+        Strips '+', spaces, and dashes. Prepends 91 if 10-digit number.
+        """
+        digits = "".join(filter(str.isdigit, str(raw_phone or "")))
+        if len(digits) == 10:
+            return f"91{digits}"
+        return digits
+
+    async def send_template_message(
+        self,
+        recipient_phone: str,
+        user_name: str,
+        message_body: str,
+        media_url: Optional[str] = None,
+        media_type: Optional[str] = None,
+        template_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Send an approved WhatsApp template message via DoveSoft.
+        
+        Args:
+            recipient_phone: Target mobile number (e.g., 919876543210 or +91 98765 43210)
+            user_name: Recipient / Learner name (mapped to BODY parameter 1: value1)
+            message_body: Notification / Nudge content (mapped to BODY parameter 2: value2)
+            media_url: Direct URL to image/video/audio/document (mapped to HEADER parameter)
+            media_type: 'video', 'image', 'audio', 'document'
+            template_name: Approved template name (defaults to 'whatsapp_lucid')
+        """
+        to_phone = self.normalize_phone_number(recipient_phone)
+        if not to_phone:
+            return {
+                "success": False,
+                "message_id": None,
+                "error": "Recipient phone number is missing or invalid.",
+            }
+
+        tpl_name = template_name or self.default_template
+
+        # Normalize media parameters for HEADER
+        active_media_url = media_url or self.fallback_media_url
+        active_media_type = (media_type or "video").lower()
+        if active_media_type not in ["video", "image", "audio", "document"]:
+            active_media_type = "video"
+
+        components = [
+            {
+                "type": "HEADER",
+                "parameters": [
+                    {
+                        "type": active_media_type,
+                        active_media_type: {
+                            "link": active_media_url
+                        }
+                    }
+                ]
+            },
+            {
+                "type": "BODY",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": user_name or "Learner"
+                    },
+                    {
+                        "type": "text",
+                        "text": message_body or "You have a new training update."
+                    }
+                ]
+            }
+        ]
+
+        payload = {
+            "template": {
+                "components": components,
+                "name": tpl_name,
+                "language": {
+                    "code": "en",
+                    "policy": "deterministic"
+                }
+            },
+            "to": to_phone,
+            "type": "template",
+            "templateName": tpl_name
+        }
+
+        headers = {
+            "Key": self.api_key,
+            "wabaNumber": self.waba_number,
+            "content-type": "application/json"
+        }
+
+        try:
+            logger.info(f"[DoveSoft WhatsApp] Sending to {to_phone} using template '{tpl_name}'")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(self.api_url, json=payload, headers=headers)
+                
+                logger.info(f"[DoveSoft WhatsApp] HTTP {response.status_code} response: {response.text}")
+                
+                if response.status_code in [200, 201]:
+                    try:
+                        resp_data = response.json()
+                    except Exception:
+                        resp_data = {"raw": response.text}
+                    
+                    # Extract message id if available in response
+                    message_id = (
+                        resp_data.get("messages", [{}])[0].get("id")
+                        or resp_data.get("message_id")
+                        or resp_data.get("id")
+                        or "dovesoft_dispatched"
+                    )
+                    return {
+                        "success": True,
+                        "message_id": message_id,
+                        "response": resp_data,
+                        "error": None
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message_id": None,
+                        "error": f"DoveSoft API HTTP {response.status_code}: {response.text}"
+                    }
+        except Exception as e:
+            logger.error(f"[DoveSoft WhatsApp] Failed to send message to {to_phone}: {e}")
+            return {
+                "success": False,
+                "message_id": None,
+                "error": str(e)
+            }
+
+    # ── Backward-compatible helper methods ────────────────────────────
 
     async def send_text_message(
         self,
         recipient_phone: str,
         message_body: str,
+        user_name: str = "Learner",
         preview_url: bool = False,
     ) -> Dict[str, Any]:
         """
-        Send a text message via WhatsApp.
-        
-        Args:
-            recipient_phone: Phone number in E.164 format (e.g., "+1234567890")
-            message_body: Text content
-            preview_url: Whether to show link preview
-        
-        Returns:
-            {
-                "success": True/False,
-                "message_id": "...",
-                "error": None or error message
-            }
+        Sends message using the approved template with default media header.
         """
-        try:
-            endpoint = f"{self.base_url}/{self.phone_number_id}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json",
-            }
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient_phone,
-                "type": "text",
-                "text": {
-                    "preview_url": preview_url,
-                    "body": message_body,
-                },
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(endpoint, json=payload, headers=headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    message_id = data.get("messages", [{}])[0].get("id", "")
-                    return {
-                        "success": True,
-                        "message_id": message_id,
-                        "error": None,
-                    }
-                else:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", {}).get("message", response.text)
-                    return {
-                        "success": False,
-                        "message_id": None,
-                        "error": error_msg,
-                    }
-        except Exception as e:
-            return {
-                "success": False,
-                "message_id": None,
-                "error": str(e),
-            }
+        return await self.send_template_message(
+            recipient_phone=recipient_phone,
+            user_name=user_name,
+            message_body=message_body,
+            media_url=self.fallback_media_url,
+            media_type="video",
+        )
 
     async def send_image_message(
         self,
         recipient_phone: str,
         image_url: str,
         caption: Optional[str] = None,
+        user_name: str = "Learner",
     ) -> Dict[str, Any]:
         """
-        Send an image message via WhatsApp.
+        Sends message with image header.
         """
-        try:
-            endpoint = f"{self.base_url}/{self.phone_number_id}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json",
-            }
-            
-            image_payload = {"link": image_url}
-            if caption:
-                image_payload["caption"] = caption
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient_phone,
-                "type": "image",
-                "image": image_payload,
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(endpoint, json=payload, headers=headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    message_id = data.get("messages", [{}])[0].get("id", "")
-                    return {
-                        "success": True,
-                        "message_id": message_id,
-                        "error": None,
-                    }
-                else:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", {}).get("message", response.text)
-                    return {
-                        "success": False,
-                        "message_id": None,
-                        "error": error_msg,
-                    }
-        except Exception as e:
-            return {
-                "success": False,
-                "message_id": None,
-                "error": str(e),
-            }
+        return await self.send_template_message(
+            recipient_phone=recipient_phone,
+            user_name=user_name,
+            message_body=caption or "Visual Learning Summary",
+            media_url=image_url,
+            media_type="image",
+        )
 
     async def send_audio_message(
         self,
         recipient_phone: str,
         audio_url: str,
+        user_name: str = "Learner",
+        caption: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Send an audio message via WhatsApp.
+        Sends message with audio media.
         """
-        try:
-            endpoint = f"{self.base_url}/{self.phone_number_id}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json",
-            }
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient_phone,
-                "type": "audio",
-                "audio": {
-                    "link": audio_url,
-                },
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(endpoint, json=payload, headers=headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    message_id = data.get("messages", [{}])[0].get("id", "")
-                    return {
-                        "success": True,
-                        "message_id": message_id,
-                        "error": None,
-                    }
-                else:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", {}).get("message", response.text)
-                    return {
-                        "success": False,
-                        "message_id": None,
-                        "error": error_msg,
-                    }
-        except Exception as e:
-            return {
-                "success": False,
-                "message_id": None,
-                "error": str(e),
-            }
+        return await self.send_template_message(
+            recipient_phone=recipient_phone,
+            user_name=user_name,
+            message_body=caption or "Audio Lesson Attached",
+            media_url=audio_url,
+            media_type="audio",
+        )
 
     async def send_video_message(
         self,
         recipient_phone: str,
         video_url: str,
         caption: Optional[str] = None,
+        user_name: str = "Learner",
     ) -> Dict[str, Any]:
         """
-        Send a video message via WhatsApp.
+        Sends message with video media header.
         """
-        try:
-            endpoint = f"{self.base_url}/{self.phone_number_id}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json",
-            }
-            
-            video_payload = {"link": video_url}
-            if caption:
-                video_payload["caption"] = caption
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient_phone,
-                "type": "video",
-                "video": video_payload,
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(endpoint, json=payload, headers=headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    message_id = data.get("messages", [{}])[0].get("id", "")
-                    return {
-                        "success": True,
-                        "message_id": message_id,
-                        "error": None,
-                    }
-                else:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", {}).get("message", response.text)
-                    return {
-                        "success": False,
-                        "message_id": None,
-                        "error": error_msg,
-                    }
-        except Exception as e:
-            return {
-                "success": False,
-                "message_id": None,
-                "error": str(e),
-            }
+        return await self.send_template_message(
+            recipient_phone=recipient_phone,
+            user_name=user_name,
+            message_body=caption or "Video Lesson",
+            media_url=video_url,
+            media_type="video",
+        )
 
     async def send_document_message(
         self,
         recipient_phone: str,
         document_url: str,
         caption: Optional[str] = None,
+        user_name: str = "Learner",
     ) -> Dict[str, Any]:
         """
-        Send a document message via WhatsApp.
+        Sends message with document media header.
         """
-        try:
-            endpoint = f"{self.base_url}/{self.phone_number_id}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.api_token}",
-                "Content-Type": "application/json",
-            }
-            
-            doc_payload = {"link": document_url}
-            if caption:
-                doc_payload["caption"] = caption
-            
-            payload = {
-                "messaging_product": "whatsapp",
-                "to": recipient_phone,
-                "type": "document",
-                "document": doc_payload,
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(endpoint, json=payload, headers=headers)
-                
-                if response.status_code in [200, 201]:
-                    data = response.json()
-                    message_id = data.get("messages", [{}])[0].get("id", "")
-                    return {
-                        "success": True,
-                        "message_id": message_id,
-                        "error": None,
-                    }
-                else:
-                    error_data = response.json()
-                    error_msg = error_data.get("error", {}).get("message", response.text)
-                    return {
-                        "success": False,
-                        "message_id": None,
-                        "error": error_msg,
-                    }
-        except Exception as e:
-            return {
-                "success": False,
-                "message_id": None,
-                "error": str(e),
-            }
-
-    async def send_message_by_content_type(
-        self,
-        recipient_phone: str,
-        content_type: str,
-        content_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Send message based on content type.
-        
-        content_type: 'flashcards', 'audio', 'video', 'mindmap', 'infographic'
-        content_data: Dict with relevant fields
-        """
-        if content_type == "flashcards":
-            message_body = self._format_flashcards_message(content_data)
-            return await self.send_text_message(recipient_phone, message_body)
-        
-        elif content_type == "audio":
-            audio_url = content_data.get("audio_url", "")
-            if not audio_url:
-                return {"success": False, "message_id": None, "error": "No audio URL provided"}
-            return await self.send_audio_message(recipient_phone, audio_url)
-        
-        elif content_type == "video":
-            video_url = content_data.get("video_url", "")
-            if not video_url:
-                return {"success": False, "message_id": None, "error": "No video URL provided"}
-            caption = f"📹 {content_data.get('title', 'Video Lesson')}"
-            return await self.send_video_message(recipient_phone, video_url, caption)
-        
-        elif content_type == "mindmap":
-            mindmap_url = content_data.get("mindmap_image_url", "")
-            if not mindmap_url:
-                return {"success": False, "message_id": None, "error": "No mindmap URL provided"}
-            caption = f"🗺️ {content_data.get('title', 'Mind Map')}"
-            return await self.send_image_message(recipient_phone, mindmap_url, caption)
-        
-        elif content_type == "infographic":
-            infographic_url = content_data.get("infographic_image_url", "")
-            if not infographic_url:
-                return {"success": False, "message_id": None, "error": "No infographic URL provided"}
-            caption = f"📊 {content_data.get('title', 'Infographic')}"
-            return await self.send_image_message(recipient_phone, infographic_url, caption)
-        
-        else:
-            return {"success": False, "message_id": None, "error": f"Unknown content type: {content_type}"}
-
-    @staticmethod
-    def _format_flashcards_message(content_data: Dict[str, Any]) -> str:
-        """
-        Format flashcard data into a WhatsApp text message.
-        """
-        title = content_data.get("title", "Learning Module")
-        flashcards = content_data.get("flashcard_data", [])
-        
-        message = f"📚 {title}\n\n"
-        
-        if flashcards:
-            for i, card in enumerate(flashcards, 1):
-                heading = card.get("heading", f"Flashcard {i}")
-                points = card.get("points", [])
-                
-                message += f"*{heading}*\n"
-                for point in points:
-                    message += f"• {point}\n"
-                message += "\n"
-        else:
-            message += "No flashcards available.\n"
-        
-        message += f"\n✨ Visit the course to learn more!"
-        
-        return message
+        return await self.send_template_message(
+            recipient_phone=recipient_phone,
+            user_name=user_name,
+            message_body=caption or "Document Attached",
+            media_url=document_url,
+            media_type="document",
+        )
 
 
 # Singleton instance
