@@ -434,6 +434,20 @@ app.include_router(coach_upload_router)
 app.include_router(google_drive_router)
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
+    except Exception:
+        pass
+    try:
+        from utils.websocket_manager import manager as ws_manager
+        await ws_manager.stop()
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     import uvicorn
     from config import HOST, PORT

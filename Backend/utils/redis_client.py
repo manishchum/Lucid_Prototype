@@ -3,13 +3,16 @@ import os
 
 import redis
 
+redis_ssl = os.getenv("REDIS_SSL", "false").lower() in ("true", "1", "yes")
+
 redis_client = redis.Redis(
     host=os.getenv("REDIS_HOST"),
     port=int(os.getenv("REDIS_PORT")),
     username=os.getenv("REDIS_USERNAME"),
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
-    # ssl=True
+    ssl=redis_ssl,
+    ssl_cert_reqs=None if redis_ssl else None,
 )
 
 try:
