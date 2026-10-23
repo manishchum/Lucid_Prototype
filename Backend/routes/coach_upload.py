@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.supabase_client import supabase_admin
+from utils.db.permissions import check_user_permission
 from ingestion.coach_store import create_document_record
 from ingestion.coach_pipeline import run_coach_file_ingestion
 
@@ -25,6 +26,19 @@ router = APIRouter(
 ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "csv", "xlsx", "xls", "pptx", "ppt"}
 BUCKET_NAME = "coach-documents"
 TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
+
+
+async def _verify_coach_admin_permission(user_id: str) -> None:
+    """
+    Verifies that the requesting user has at least Admin role level (Admin, SuperAdmin, Developer).
+    Normal employees/learners and managers are not permitted.
+    """
+    has_perm = await check_user_permission(user_id, "admin")
+    if not has_perm:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Admin or Developer role required to access Performance Coach Ingestion."
+        )
 
 
 def _run_ingestion_background(
@@ -71,6 +85,9 @@ async def upload_performance_document(
 
     if not company_id or not user_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id and user_id are required.")
+
+    # Strictly check that the user is Admin, SuperAdmin, or Developer
+    await _verify_coach_admin_permission(user_id)
 
     if target_employee_id:
         target_employee_id = target_employee_id.strip()
@@ -164,6 +181,8 @@ async def list_coach_documents(
     if not company_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
+    await _verify_coach_admin_permission(auth.user_id)
+
     res = (
         supabase_admin.table("coach_uploaded_documents")
         .select("id, file_name, file_type, file_size_bytes, status, description, manual_description, document_period, error_message, parsed_metadata, created_at, target_employee_id, uploaded_by")
@@ -182,6 +201,8 @@ async def get_coach_document(
 ):
     """Get status and details of a specific coach document."""
     company_id = auth.company_id
+    await _verify_coach_admin_permission(auth.user_id)
+
     res = (
         supabase_admin.table("coach_uploaded_documents")
         .select("*")
@@ -207,6 +228,7 @@ async def delete_coach_document(
     Also removes the original file from Supabase Storage.
     """
     company_id = auth.company_id
+    await _verify_coach_admin_permission(auth.user_id)
     
     # 1. Fetch document storage path
     doc_res = (
