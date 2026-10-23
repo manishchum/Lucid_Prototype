@@ -63,6 +63,12 @@ export interface NotificationWorkflow {
   body_template: string;
   cooldown_seconds: number;
   priority: string;
+  recipient_routing?: 'LEARNER' | 'BOTH' | 'MANAGER';
+  audience_filter?: {
+    departments?: string[];
+    roles?: string[];
+    module_ids?: string[];
+  };
   is_active: boolean;
   execution_count: number;
   last_triggered_at?: string;
@@ -377,6 +383,7 @@ export const AVAILABLE_FIELDS: ConditionFieldDefinition[] = [
   { value: 'company_name', label: 'Company / Organization (company_name)', type: 'string', category: 'Learner Profile', placeholder: 'e.g. Acme Corp', description: 'Recipient company name' },
   { value: 'department', label: 'Department / Unit (department)', type: 'string', category: 'Learner Profile', placeholder: 'e.g. Enterprise Sales', description: 'Learner department unit' },
   { value: 'role', label: 'User Account Role (role)', type: 'enum', category: 'Learner Profile', options: ['employee', 'manager', 'admin'], description: 'User platform permission role' },
+  { value: 'login_count', label: 'Login Count / Times Logged In (login_count)', type: 'number', category: 'Learner Profile', placeholder: 'e.g. 1', description: 'Total number of sessions or logins recorded' },
   { value: 'manager_name', label: 'Reporting Manager Name (manager_name)', type: 'string', category: 'Learner Profile', placeholder: 'e.g. Sarah Connor', description: 'Direct reporting manager' },
   { value: 'email_unsubscribed', label: 'Email Unsubscribed Status (email_unsubscribed)', type: 'boolean', category: 'Learner Profile', description: 'True if learner opted out of marketing emails' },
 

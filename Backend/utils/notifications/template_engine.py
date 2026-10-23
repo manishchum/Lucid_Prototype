@@ -48,6 +48,13 @@ UNCLOSED_TOKEN_REGEX = re.compile(r"\{\{[^}]*(?:$|\n)")
 
 # Common shorthand alias mapping to standard namespaced keys
 KEY_ALIASES = {
+    # System & Announcements
+    "title": "system.title",
+    "message": "system.message",
+    "version": "system.version",
+    "timestamp": "system.timestamp",
+    "event_payload": "custom.event_payload",
+    # Subscriber Identity
     "first_name": "subscriber.first_name",
     "full_name": "subscriber.full_name",
     "company_name": "subscriber.company_name",

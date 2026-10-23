@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Header, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import google.generativeai as genai
+import html
 import os
 import re
 import json
@@ -172,11 +173,11 @@ def build_content_blocks(
         if flashcard_data:
             cards = ""
             for card in flashcard_data:
-                heading = card.get("heading", "")
+                heading = html.escape(str(card.get("heading", "")))
                 points = card.get("points") or []
                 items = "".join(
                     f'<li style="margin-top:0;margin-bottom:4px;font-size:14px;'
-                    f'color:#555555;font-family:Arial,sans-serif;">{p}</li>'
+                    f'color:#555555;font-family:Arial,sans-serif;">{html.escape(str(p))}</li>'
                     for p in points
                 )
                 cards += (
@@ -206,6 +207,7 @@ def build_content_blocks(
     if "audio" in selected_content:
         audio_url = custom_audio_url if custom_audio_url is not None else module.get("audio_url", "")
         if audio_url:
+            safe_audio_url = html.escape(str(audio_url), quote=True)
             audio_html = (
                 '<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%"'
                 ' style="border-collapse:collapse;margin-bottom:16px;">'
@@ -223,7 +225,7 @@ def build_content_blocks(
                 f'<td bgcolor="#E8824A"'
                 f' style="background-color:#E8824A;padding-top:10px;padding-bottom:10px;'
                 f'padding-left:20px;padding-right:20px;border-radius:6px;">'
-                f'<a href="{audio_url}"'
+                f'<a href="{safe_audio_url}"'
                 f' style="font-size:14px;font-weight:700;color:#ffffff;'
                 f'font-family:Arial,sans-serif;text-decoration:none;display:inline-block;">'
                 f'&#9654; Play Audio</a>'
@@ -248,7 +250,8 @@ def build_email_body(
     Build a fully Outlook/Gmail/Apple-Mail-compatible HTML email.
     Rules: tables only, inline styles, VML for rounded corners, no divs, no gradients.
     """
-    title = module.get("title", "Your Training Module")
+    raw_title = module.get("title", "Your Training Module")
+    title = html.escape(str(raw_title))
     content_blocks = build_content_blocks(module, selected_content, custom_flashcards, custom_audio_url)
 
     if not content_blocks:
@@ -257,7 +260,7 @@ def build_email_body(
             'text-align:center;font-family:Arial,sans-serif;">No additional content was selected.</p>'
         )
 
-    html = f"""<!DOCTYPE html>
+    html_content = f"""<!DOCTYPE html>
 <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="UTF-8"/>
@@ -425,7 +428,7 @@ def build_email_body(
 <!--[if mso | IE]></td></tr></table><![endif]-->
 </body>
 </html>"""
-    return html
+    return html_content
 
 @router.get("/sprints/{company_id}")
 async def list_sprints(
@@ -531,6 +534,14 @@ Engagement question: {request.engagement_question or "none"}
     body_text = snippets.get("body", "")
     engagement_text = snippets.get("engagement", "")
 
+    # HTML-escape all user-controlled and LLM-generated strings to prevent XSS / HTML injection
+    safe_subject = html.escape(str(subject))
+    safe_title = html.escape(str(request.sprint_title))
+    safe_tagline = html.escape(str(tagline))
+    safe_intro = html.escape(str(intro))
+    safe_body_text = html.escape(str(body_text))
+    safe_engagement_text = html.escape(str(engagement_text))
+
     engagement_block = ""
     if engagement_text:
         engagement_block = f"""
@@ -546,7 +557,7 @@ Engagement question: {request.engagement_question or "none"}
                                padding-left:20px;padding-right:20px;">
                       <p style="margin-top:0;margin-bottom:0;font-size:14px;color:#1E3A8A;
                                  font-style:italic;font-family:Arial,sans-serif;font-weight:700;">
-                        {engagement_text}
+                        {safe_engagement_text}
                       </p>
                     </td>
                   </tr>
@@ -556,9 +567,10 @@ Engagement question: {request.engagement_question or "none"}
 
     # Build hero image column (if provided)
     if request.sprint_image_url:
+        safe_image_url = html.escape(str(request.sprint_image_url), quote=True)
         hero_image_col = f"""
                   <td width="190" style="width:190px;vertical-align:bottom;text-align:right;padding:0;">
-                    <img src="{request.sprint_image_url}" alt="{request.sprint_title}"
+                    <img src="{safe_image_url}" alt="{safe_title}"
                          width="190" height="auto" border="0"
                          style="display:block;width:190px;max-width:190px;" />
                   </td>"""
@@ -569,8 +581,9 @@ Engagement question: {request.engagement_question or "none"}
 
     date_row = ""
     if event_date:
+        safe_event_date = html.escape(str(event_date))
         date_row = (f'<p style="margin-top:0;margin-bottom:20px;font-size:14px;color:#93C5FD;'
-                    f'font-weight:600;font-family:Arial,sans-serif;">&#128197; {event_date}</p>')
+                    f'font-weight:600;font-family:Arial,sans-serif;">&#128197; {safe_event_date}</p>')
 
     html_body = f"""<!DOCTYPE html>
 <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -581,7 +594,7 @@ Engagement question: {request.engagement_question or "none"}
   <!--[if mso]>
   <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
   <![endif]-->
-  <title>{subject}</title>
+  <title>{safe_subject}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#EEF2FF;">
 <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#EEF2FF"><tr><td><![endif]-->
@@ -668,12 +681,12 @@ Engagement question: {request.engagement_question or "none"}
                   <!-- Title -->
                   <p style="margin-top:0;margin-bottom:8px;font-size:26px;font-weight:800;
                              color:#ffffff;font-family:Arial,Helvetica,sans-serif;line-height:1.2;">
-                    {request.sprint_title}
+                    {safe_title}
                   </p>
                   <!-- Tagline -->
                   <p style="margin-top:0;margin-bottom:20px;font-size:14px;font-weight:500;
                              color:#C7D7FD;font-family:Arial,sans-serif;">
-                    {tagline}
+                    {safe_tagline}
                   </p>
                   {date_row}
                   <!-- CTA button -->
@@ -718,13 +731,13 @@ Engagement question: {request.engagement_question or "none"}
               <tr>
                 <td style="padding-bottom:16px;">
                   <p style="margin-top:0;margin-bottom:0;font-size:15px;color:#334155;
-                             font-family:Arial,sans-serif;line-height:1.75;">{intro}</p>
+                             font-family:Arial,sans-serif;line-height:1.75;">{safe_intro}</p>
                 </td>
               </tr>
               <tr>
                 <td style="padding-bottom:16px;">
                   <p style="margin-top:0;margin-bottom:0;font-size:15px;color:#334155;
-                             font-family:Arial,sans-serif;line-height:1.75;">{body_text}</p>
+                             font-family:Arial,sans-serif;line-height:1.75;">{safe_body_text}</p>
                 </td>
               </tr>
               {engagement_block}

@@ -363,6 +363,28 @@ async def create_learning_plan(
                     assignment_kind='sprint',
                 )
                 created_plan['notification'] = notification_result
+
+                # Trigger automated notification workflow MODULE_ASSIGNED
+                try:
+                    from utils.notifications.workflow_engine import WorkflowEngine
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="MODULE_ASSIGNED",
+                            user_id=user_row.get('user_id', user_id),
+                            payload={
+                                "module_id": module_id,
+                                "curriculum.module_id": module_id,
+                                "curriculum.module_name": module_row.get('title', 'New Sprint'),
+                                "module_name": module_row.get('title', 'New Sprint'),
+                                "curriculum.due_date": plan_data.get('due_date') or "",
+                                "due_date": plan_data.get('due_date') or "",
+                                "priority": plan_data.get('priority', 1),
+                            },
+                            company_id=user_company_id,
+                        )
+                    )
+                except Exception as wf_err:
+                    print(f"[LearningPlan] Warning: MODULE_ASSIGNED workflow trigger failed: {wf_err}")
         except Exception as notification_error:
             created_plan['notification_error'] = str(notification_error)
         
@@ -635,6 +657,28 @@ async def bulk_create_learning_plans(
                     assignment_kind="sprint"
 
                 )
+
+                # Trigger automated notification workflow MODULE_ASSIGNED
+                try:
+                    from utils.notifications.workflow_engine import WorkflowEngine
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="MODULE_ASSIGNED",
+                            user_id=user_id,
+                            payload={
+                                "module_id": module.get("module_id", ""),
+                                "curriculum.module_id": module.get("module_id", ""),
+                                "curriculum.module_name": module.get("title", "New Sprint"),
+                                "module_name": module.get("title", "New Sprint"),
+                                "curriculum.due_date": bulk_data.get("due_date") or "",
+                                "due_date": bulk_data.get("due_date") or "",
+                                "priority": bulk_data.get("priority", 1),
+                            },
+                            company_id=company_id,
+                        )
+                    )
+                except Exception as wf_bulk_err:
+                    print(f"[LearningPlan Bulk] Warning: MODULE_ASSIGNED trigger failed: {wf_bulk_err}")
 
             except Exception as e:
 

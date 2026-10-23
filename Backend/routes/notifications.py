@@ -21,6 +21,10 @@ from firebase_admin import messaging
 
 
 
+import logging
+
+logger = logging.getLogger("lucid.notifications")
+
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
@@ -49,6 +53,8 @@ async def register_token(
         if not resp.data:
             raise HTTPException(status_code=404, detail="User not found")
         return {"success": True, "message": "FCM token registered successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -189,6 +195,8 @@ async def mark_notification_read(
             raise HTTPException(status_code=404, detail="Notification not found or access denied")
         invalidate_redis_unread_count(user_id)
         return {"success": True, "notification": resp.data[0]}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -212,65 +220,6 @@ async def mark_all_notifications_read(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-class NotificationPreferencesUpdateRequest(BaseModel):
-    push_enabled: Optional[bool] = None
-    email_enabled: Optional[bool] = None
-    in_app_enabled: Optional[bool] = None
-    whatsapp_enabled: Optional[bool] = None
-    deadline_reminders_enabled: Optional[bool] = None
-    post_completion_enabled: Optional[bool] = None
-    streak_notifications_enabled: Optional[bool] = None
-
-
-@router.get("/preferences")
-async def get_notification_preferences(
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
-):
-    user_id = auth_ctx.user_id
-    try:
-        service_client = get_service_supabase_client()
-        res = service_client.table("notification_preferences").select("*").eq("user_id", user_id).maybe_single().execute()
-        prefs = getattr(res, "data", None)
-        if not prefs:
-            default_row = {
-                "user_id": user_id,
-                "push_enabled": True,
-                "email_enabled": True,
-                "in_app_enabled": True,
-                "whatsapp_enabled": True,
-                "deadline_reminders_enabled": True,
-                "post_completion_enabled": True,
-                "streak_notifications_enabled": True,
-            }
-            res = service_client.table("notification_preferences").insert(default_row).execute()
-            prefs = res.data[0] if res.data else default_row
-        return {"success": True, "preferences": prefs}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/preferences")
-async def update_notification_preferences(
-    request: NotificationPreferencesUpdateRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required)
-):
-    user_id = auth_ctx.user_id
-    try:
-        service_client = get_service_supabase_client()
-        update_data = {k: v for k, v in request.model_dump().items() if v is not None}
-        if not update_data:
-            return {"success": True, "message": "No preferences updated"}
-        from datetime import timezone
-        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-        
-        res = service_client.table("notification_preferences").upsert({
-            "user_id": user_id,
-            **update_data
-        }).execute()
-        return {"success": True, "message": "Preferences updated successfully", "preferences": res.data[0] if res.data else update_data}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.websocket("/ws")
@@ -605,9 +554,10 @@ SUPPORTED_DYNAMIC_VARIABLES = [
 
 
 async def require_developer_role(user_id: str) -> None:
-    """Verifies that the requesting user has the developer or super_admin role."""
+    """Verifies that the requesting user strictly has the developer role."""
     from utils.db.permissions import check_user_permission
     try:
+        # Strictly check for developer role (level 6)
         if await check_user_permission(user_id, "developer"):
             return
     except Exception:
@@ -615,16 +565,19 @@ async def require_developer_role(user_id: str) -> None:
 
     try:
         service_client = get_service_supabase_client()
-        role_res = service_client.table("user_roles").select("roles(name)").eq("user_id", user_id).execute()
-        roles = [r.get("roles", {}).get("name", "").lower() for r in (role_res.data or []) if r.get("roles")]
-        if "developer" in roles:
-            return
+        role_res = service_client.table("user_role_assignments").select("roles(name, level)").eq("user_id", user_id).execute()
+        for r in (role_res.data or []):
+            role_data = r.get("roles") or {}
+            role_name = (role_data.get("name") or "").lower()
+            role_lvl = role_data.get("level") or 0
+            if role_name == "developer" or role_lvl >= 6:
+                return
     except Exception:
         pass
 
     raise HTTPException(
         status_code=403,
-        detail="Forbidden: Developer role required to manage global notification templates."
+        detail="Forbidden: Developer role required to access and manage automated notification templates."
     )
 
 
@@ -698,10 +651,8 @@ async def update_global_notification_settings(
         from utils.notification_dispatcher import invalidate_global_notification_settings_cache
         invalidate_global_notification_settings_cache()
         try:
-            from utils.notifications.event_bus import get_redis_connection
-            _r = get_redis_connection()
-            if _r:
-                _r.delete("settings:disabled_events")
+            from utils.redis_client import redis_client
+            redis_client.delete("settings:disabled_events")
         except Exception:
             pass
         return {"success": True, "message": "Global notification settings saved successfully", "settings": updated}
@@ -752,7 +703,7 @@ class NotificationTemplateCreateRequest(BaseModel):
     template_name: Optional[str] = None
     category: Optional[str] = "GENERAL"
     channel: Literal["IN_APP", "PUSH", "EMAIL", "WHATSAPP", "ALL"] = "ALL"
-    variation_index: int = 0
+    variation_index: Optional[int] = None
     title_template: Optional[str] = None
     body_template: str
     cta_label: Optional[str] = None
@@ -802,9 +753,19 @@ class TestSendTemplateRequest(BaseModel):
     template_id: Optional[str] = None
     notification_type: Optional[str] = None
     title_template: Optional[str] = None
-    body_template: str
+    body_template: Optional[str] = None
     channel: Optional[str] = "ALL"
     custom_variables: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_string_if_needed(cls, data):
+        if isinstance(data, str):
+            try:
+                return json.loads(data)
+            except Exception:
+                pass
+        return data
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -901,6 +862,7 @@ async def validate_template_draft(
 
     # Check for exact duplicates in database
     try:
+        service_client = get_service_supabase_client()
         dup_query = (
             service_client.table("notification_templates")
             .select("id, notification_type, channel, variation_index")
@@ -920,7 +882,12 @@ async def validate_template_draft(
     except Exception as de:
         logger.debug(f"Duplicate template check warning: {de}")
 
-    return {"success": True, "lint": lint_result}
+    return {
+        "success": True,
+        "is_valid": lint_result["valid"],
+        "validation_errors": lint_result["hard_errors"],
+        "lint": lint_result,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -941,14 +908,16 @@ async def list_notification_templates(
     channel: Optional[str] = None,
     category: Optional[str] = None,
     is_active: Optional[bool] = None,
-    limit: int = Query(default=50, ge=1, le=200, description="Max records to return (1-200)"),
+    limit: int = Query(default=100, ge=1, le=500, description="Max records to return (1-500)"),
     offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Lists global notification templates with status and version."""
     try:
-        safe_limit = max(1, min(limit, 200))
-        safe_offset = max(0, offset)
+        actual_limit = limit.default if hasattr(limit, "default") else limit
+        actual_offset = offset.default if hasattr(offset, "default") else offset
+        safe_limit = max(1, min(int(actual_limit or 100), 500))
+        safe_offset = max(0, int(actual_offset or 0))
         service_client = get_service_supabase_client()
         query = service_client.table("notification_templates").select("*")
         if notification_type:
@@ -961,7 +930,8 @@ async def list_notification_templates(
             query = query.eq("is_active", is_active)
 
         query = (
-            query.order("notification_type", desc=False)
+            query.order("created_at", desc=True)
+            .order("notification_type", desc=False)
             .order("variation_index", desc=False)
             .range(safe_offset, safe_offset + safe_limit - 1)
         )
@@ -1040,12 +1010,28 @@ async def create_notification_template(
         logger.debug(f"Duplicate query check skipped: {ex}")
 
     try:
+        var_idx = request.variation_index
+        if var_idx is None:
+            existing_vars = (
+                service_client.table("notification_templates")
+                .select("variation_index")
+                .eq("notification_type", request.notification_type.strip().upper())
+                .eq("channel", request.channel or "ALL")
+                .order("variation_index", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if existing_vars.data and len(existing_vars.data) > 0:
+                var_idx = (existing_vars.data[0].get("variation_index") or 0) + 1
+            else:
+                var_idx = 0
+
         insert_data = {
             "notification_type": request.notification_type.strip().upper(),
             "template_name": request.template_name.strip() if request.template_name else None,
             "category": (request.category or "GENERAL").strip().upper(),
             "channel": request.channel or "ALL",
-            "variation_index": request.variation_index,
+            "variation_index": var_idx,
             "title_template": request.title_template.strip() if request.title_template else None,
             "body_template": request.body_template.strip(),
             "cta_label": request.cta_label.strip() if request.cta_label else None,
@@ -1094,7 +1080,7 @@ async def create_notification_template(
         if "unique" in err_msg.lower() or "duplicate" in err_msg.lower():
             raise HTTPException(
                 status_code=409,
-                detail=f"Template variation #{request.variation_index} for type '{request.notification_type}' and channel '{request.channel}' already exists.",
+                detail=f"Template variation #{var_idx if 'var_idx' in locals() else request.variation_index} for type '{request.notification_type}' and channel '{request.channel}' already exists.",
             )
         raise HTTPException(status_code=500, detail=err_msg)
 
@@ -1436,6 +1422,7 @@ async def send_test_notification_template(
         raise HTTPException(status_code=400, detail="Template body cannot be empty")
 
     # Safe render with filter support
+    reg_vars = SYSTEM_VARIABLE_MAP
     rendered_title, unres_title = TemplateCompiler.render(title_str, context, reg_vars, use_fallbacks=True)
     rendered_body, unres_body = TemplateCompiler.render(body_str, context, reg_vars, use_fallbacks=True)
 
@@ -1445,7 +1432,7 @@ async def send_test_notification_template(
     # Audit record tracking
     audit_record = {
         "correlation_id": correlation_id,
-        "template_id": request.template_id,
+        "template_id": request.template_id if request.template_id else None,
         "notification_type": notif_type,
         "channel": request.channel or "ALL",
         "recipient_user_id": user_id,

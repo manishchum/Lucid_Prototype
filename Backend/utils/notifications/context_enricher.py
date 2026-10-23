@@ -99,7 +99,7 @@ class NotificationContextEnricher:
         try:
             u_res = (
                 db.table("users")
-                .select("user_id,name,email,company_id,manager_id,role,department,email_unsubscribed")
+                .select("user_id,name,email,company_id,manager_id,position,email_unsubscribed,login_count,function(function_name)")
                 .eq("user_id", user_id)
                 .maybe_single()
                 .execute()
@@ -108,6 +108,9 @@ class NotificationContextEnricher:
             full_name = user_data.get("name") or "Learner"
             first_name = full_name.split()[0] if full_name else "there"
             email = user_data.get("email") or ""
+            login_cnt = int(user_data.get("login_count") or 0)
+            dept_name = (user_data.get("function") or {}).get("function_name") or user_data.get("position") or "General"
+            role_name = user_data.get("position") or "employee"
             if user_data.get("company_id"):
                 resolved_company_id = user_data["company_id"]
 
@@ -142,8 +145,10 @@ class NotificationContextEnricher:
             ctx["subscriber.email"] = email
             ctx["subscriber.company_name"] = company_name
             ctx["subscriber.manager_name"] = manager_name
-            ctx["subscriber.role"] = user_data.get("role") or "employee"
-            ctx["subscriber.department"] = user_data.get("department") or "General"
+            ctx["subscriber.role"] = role_name
+            ctx["subscriber.department"] = dept_name
+            ctx["subscriber.login_count"] = login_cnt
+            ctx["login_count"] = login_cnt
             ctx["subscriber.email_unsubscribed"] = bool(user_data.get("email_unsubscribed", False))
 
             # Delivery preferences

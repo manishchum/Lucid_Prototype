@@ -34,8 +34,14 @@ class NotificationConnectionManager:
         self._init_lock = asyncio.Lock()
 
     def _get_redis_config(self) -> dict:
+        raw_host = os.getenv("REDIS_HOST", "127.0.0.1")
+        try:
+            import socket
+            resolved_host = socket.gethostbyname(raw_host)
+        except Exception:
+            resolved_host = raw_host
         return {
-            "host": os.getenv("REDIS_HOST", "127.0.0.1"),
+            "host": resolved_host,
             "port": int(os.getenv("REDIS_PORT", 6379)),
             "username": os.getenv("REDIS_USERNAME"),
             "password": os.getenv("REDIS_PASSWORD"),

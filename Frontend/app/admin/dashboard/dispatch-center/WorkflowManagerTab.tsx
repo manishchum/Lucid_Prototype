@@ -31,9 +31,12 @@ import {
   Activity,
   Sparkles,
   X,
+  Send,
+  Megaphone,
+  AlertCircle,
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
-import WorkflowLinearBuilder from './WorkflowLinearBuilder';
+import WorkflowLinearBuilder, { formatApiError } from './WorkflowLinearBuilder';
 import { PREDEFINED_CATEGORIES } from './TemplateManagerTab';
 import { PREDEFINED_SYSTEM_TRIGGERS } from './WorkflowLinearBuilder';
 import InfoTooltip from './InfoTooltip';
@@ -61,6 +64,9 @@ export interface WorkflowItem {
   execution_count: number;
   last_triggered_at?: string;
   created_at: string;
+  schedule_type?: string;
+  schedule_config?: any;
+  audience_filter?: any;
 }
 
 export default function WorkflowManagerTab() {
@@ -73,6 +79,15 @@ export default function WorkflowManagerTab() {
   // Modal State
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<WorkflowItem | null>(null);
+
+  // Broadcast Confirmation Modal State
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+  const [selectedBroadcastWorkflow, setSelectedBroadcastWorkflow] = useState<WorkflowItem | null>(null);
+  const [audiencePreview, setAudiencePreview] = useState<{ count: number; sample: any[] } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [isBroadcasting, setIsBroadcasting] = useState(false);
+  const [broadcastSuccess, setBroadcastSuccess] = useState<string | null>(null);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
 
   // Fetch workflows
   const fetchWorkflows = async () => {
@@ -135,6 +150,60 @@ export default function WorkflowManagerTab() {
       }
     } catch (err) {
       console.error('Delete failed:', err);
+    }
+  };
+
+  // Open Broadcast Confirmation Modal
+  const handleOpenBroadcastModal = async (wf: WorkflowItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedBroadcastWorkflow(wf);
+    setIsBroadcastModalOpen(true);
+    setBroadcastSuccess(null);
+    setBroadcastError(null);
+    setAudiencePreview(null);
+    try {
+      setLoadingPreview(true);
+      const res = await fetchWithAuth(`${API_BASE}/api/notifications/workflows/${wf.id}/preview-audience`);
+      if (res.ok) {
+        const data = await res.json();
+        setAudiencePreview({
+          count: data.recipient_count || 0,
+          sample: data.sample_recipients || [],
+        });
+      }
+    } catch (err) {
+      console.error('Failed to preview audience:', err);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  // Execute Direct Broadcast
+  const handleConfirmBroadcast = async () => {
+    if (!selectedBroadcastWorkflow) return;
+    try {
+      setIsBroadcasting(true);
+      setBroadcastError(null);
+      const res = await fetchWithAuth(`${API_BASE}/api/notifications/workflows/${selectedBroadcastWorkflow.id}/broadcast`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(formatApiError(err.detail, 'Broadcast failed'));
+      }
+      const data = await res.json();
+      const count = data.dispatched_count ?? data.recipients_matched ?? data.count ?? 0;
+      setBroadcastSuccess(data.message || `Successfully broadcasted to ${count} active users via In-App Bell and Mobile Push!`);
+      fetchWorkflows();
+      setTimeout(() => {
+        setIsBroadcastModalOpen(false);
+        setSelectedBroadcastWorkflow(null);
+        setBroadcastSuccess(null);
+      }, 2000);
+    } catch (err: any) {
+      setBroadcastError(err.message || 'An error occurred during broadcast.');
+    } finally {
+      setIsBroadcasting(false);
     }
   };
 
@@ -521,6 +590,17 @@ export default function WorkflowManagerTab() {
                             </button>
                           </div>
 
+                          {/* Send Now / Broadcast Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenBroadcastModal(wf, e)}
+                            className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200/90 hover:bg-amber-100 transition-all flex items-center gap-1 cursor-pointer shadow-2xs shrink-0"
+                            title="Instant Broadcast to Audience"
+                          >
+                            <Zap size={12} className="text-amber-600" />
+                            <span>Send Now</span>
+                          </button>
+
                           {/* Edit Button */}
                           <button
                             type="button"
@@ -565,6 +645,190 @@ export default function WorkflowManagerTab() {
             fetchWorkflows();
           }}
         />
+      )}
+
+      {/* ─── BROADCAST CONFIRMATION MODAL ───────────────────────────── */}
+      {isBroadcastModalOpen && selectedBroadcastWorkflow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                  <Zap size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Broadcast Notification
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                      Live Push & Bell
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Targeted immediate dispatch to company learners
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isBroadcasting) {
+                    setIsBroadcastModalOpen(false);
+                    setSelectedBroadcastWorkflow(null);
+                  }
+                }}
+                disabled={isBroadcasting}
+                className="w-8 h-8 rounded-full border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              {/* Workflow Details */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">
+                    {selectedBroadcastWorkflow.title}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {selectedBroadcastWorkflow.trigger_lifecycle}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {selectedBroadcastWorkflow.description || 'Automated lifecycle event'}
+                </div>
+                <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2 text-[11px] text-slate-600">
+                  <span className="font-semibold text-slate-400">Channels:</span>
+                  {(selectedBroadcastWorkflow.channels || ['IN_APP', 'PUSH']).map((ch) => (
+                    <span key={ch} className="px-2 py-0.5 rounded bg-white border border-slate-200 font-bold text-[10px] text-slate-700">
+                      {ch === 'IN_APP' ? '🔔 In-App Bell' : ch === 'PUSH' ? '📱 Mobile Push' : ch}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Audience Preview Card */}
+              <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-100 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                    <Users size={14} className="text-indigo-600" />
+                    Target Audience Match
+                  </span>
+                  {loadingPreview ? (
+                    <RefreshCw size={13} className="text-indigo-600 animate-spin" />
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-600 text-white shadow-2xs">
+                      {audiencePreview?.count ?? 0} Learners
+                    </span>
+                  )}
+                </div>
+
+                {loadingPreview ? (
+                  <p className="text-xs text-indigo-700 font-medium animate-pulse">
+                    Calculating audience filters and company members...
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-indigo-800 leading-relaxed">
+                      {audiencePreview?.count
+                        ? `This broadcast will be sent to ${audiencePreview.count} active company members matching this workflow's audience scope.`
+                        : 'No company members match the current filter criteria (e.g., department or role filter).'}
+                    </p>
+                    {audiencePreview?.sample && audiencePreview.sample.length > 0 && (
+                      <div className="pt-2 border-t border-indigo-100/80">
+                        <span className="text-[10px] font-bold text-indigo-600 block mb-1">
+                          Sample Matching Recipients:
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {audiencePreview.sample.slice(0, 5).map((s: any, idx: number) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded-lg bg-white border border-indigo-200/80 text-[10px] font-semibold text-slate-700"
+                            >
+                              {s.name || s.email} {s.department ? `(${s.department})` : ''}
+                            </span>
+                          ))}
+                          {audiencePreview.sample.length > 5 && (
+                            <span className="text-[10px] text-indigo-600 font-bold">
+                              +{audiencePreview.sample.length - 5} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Message Preview */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 space-y-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Template Preview (Interpolated at Dispatch)
+                </span>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                  <div className="text-xs font-bold text-slate-800">
+                    {selectedBroadcastWorkflow.title_template || selectedBroadcastWorkflow.title}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {selectedBroadcastWorkflow.body_template || 'Automated announcement copy'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Error or Success feedback */}
+              {broadcastError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle size={15} className="text-rose-600 shrink-0" />
+                  <span>{broadcastError}</span>
+                </div>
+              )}
+              {broadcastSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                  <span>{broadcastSuccess}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBroadcastModalOpen(false);
+                  setSelectedBroadcastWorkflow(null);
+                }}
+                disabled={isBroadcasting}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmBroadcast}
+                disabled={isBroadcasting || (audiencePreview?.count ?? 0) === 0}
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isBroadcasting ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Zap size={13} className="fill-slate-950" />
+                )}
+                <span>
+                  {isBroadcasting
+                    ? 'Blasting Dispatches...'
+                    : `Confirm & Blast to ${audiencePreview?.count ?? 0} Users`}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

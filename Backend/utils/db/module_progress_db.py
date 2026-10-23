@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from ..auth_bridge import get_service_supabase_client
 
 logger = logging.getLogger("lucid.module_progress_db")
@@ -257,7 +257,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
             initial_payload = {
                 'user_id': user_id,
                 'processed_module_id': processed_module_id,
-                'started_at': progress_data.get('started_at', datetime.utcnow().isoformat()),
+                'started_at': progress_data.get('started_at', datetime.now(timezone.utc).isoformat()),
             }
             upsert_resp = (
                 supabase.table("module_progress")
@@ -314,7 +314,7 @@ async def create_or_update_progress(requesting_user_id: str, progress_data: Dict
         if 'completed_at' in progress_data:
             upsert_payload['completed_at'] = progress_data['completed_at']
         elif progress_data.get('quiz_score') is not None:
-            upsert_payload['completed_at'] = datetime.utcnow().isoformat()
+            upsert_payload['completed_at'] = datetime.now(timezone.utc).isoformat()
 
         # Handle pass_status calculation
         if 'pass_status' in progress_data:

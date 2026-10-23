@@ -392,7 +392,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const connectAuthSocket = async () => {
       try {
         const token = await getFirebaseIdToken()
-        if (!token || authSocketCurrentUserId === user.uid) return
+        if (!token) return
+
+        if (
+          authSocketSingleton &&
+          (authSocketSingleton.readyState === WebSocket.OPEN ||
+            authSocketSingleton.readyState === WebSocket.CONNECTING)
+        ) {
+          return
+        }
 
         const deviceId = localStorage.getItem("device_id") || (() => {
           const generatedId = crypto.randomUUID()
@@ -401,10 +409,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })()
 
         const wsBase = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws")
-        if (authSocketSingleton && authSocketSingleton.readyState === WebSocket.OPEN) {
-          if (authSocketCurrentUserId === user.uid) {
-            return
-          }
+        if (authSocketSingleton) {
           try {
             authSocketSingleton.close()
           } catch {
@@ -423,7 +428,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const payload = JSON.parse(event.data)
             if (payload?.type === "force_logout" || payload?.type === "session_replaced") {
-              window.dispatchEvent(new Event("lucid:auth:force-logout"))
+              window.dispatchEvent(
+                new CustomEvent("lucid:auth:force-logout", { detail: { reason: "session_replaced" } })
+              )
             }
           } catch {
             // ignore malformed payloads
@@ -431,11 +438,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         socket.onclose = () => {
-          if (auth.currentUser) {
-            reconnectTimer = setTimeout(connectAuthSocket, 3000)
-          } else if (authSocketSingleton === socket) {
+          if (authSocketSingleton === socket) {
             authSocketSingleton = null
             authSocketCurrentUserId = null
+          }
+          if (auth?.currentUser) {
+            reconnectTimer = setTimeout(connectAuthSocket, 3000)
           }
         }
       } catch (error) {
@@ -467,53 +475,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
-      if (effectiveUser?.email && !isAuthPage) {
-        setRolesLoaded(false)
-        try {
-          await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-            method: "POST",
-            registerSession: true as any,
-          } as any);
-        } catch (err) {
-          console.error("[auth-context] Failed to register session:", err);
-        } 
-        let profile = readCachedProfile();
+      if (effectiveUser?.email) {
+        if (!isAuthPage) {
+          setRolesLoaded(false)
+          try {
+            await fetchWithAuth(`${API_BASE}/api/auth/session`, {
+              method: "POST",
+              registerSession: true as any,
+            } as any);
+          } catch (err) {
+            console.error("[auth-context] Failed to register session:", err);
+          } 
+          let profile = readCachedProfile();
 
-        if (!profile) {
-            profile = await loadCachedFullProfile(effectiveUser);
+          if (!profile) {
+              profile = await loadCachedFullProfile(effectiveUser);
 
-            if (profile) {
-                writeCachedProfile(profile);
-            }
-        }
-
-        if (profile !== undefined) {
-          if (profile) {
-            writeCachedProfile(profile)
-            setEmployeeData(profile.employeeData)
-            setUserId(profile.userId)
-            setUserRoles(profile.userRoles)
-            setIsAdmin(profile.isAdmin)
-            setIsSuperAdmin(profile.isSuperAdmin)
-            setIsDeveloper(Boolean(profile.isDeveloper))
-            setIsManager(Boolean(profile.isManager))
-            setIsManagerofUsers(Boolean(profile.isManagerofUsers))
-            setRolesLoaded(true)
-          } else {
-            setEmployeeData(null)
-            setUserId(null)
-            setUserRoles([])
-            setIsAdmin(false)
-            setIsSuperAdmin(false)
-            setIsDeveloper(false)
-            setIsManager(false)
-            setIsManagerofUsers(false)
-            setRolesLoaded(false)
+              if (profile) {
+                  writeCachedProfile(profile);
+              }
           }
-        }
 
-        if (!firebaseUser) {
-          writeManualAuthUser(effectiveUser)
+          if (profile !== undefined) {
+            if (profile) {
+              writeCachedProfile(profile)
+              setEmployeeData(profile.employeeData)
+              setUserId(profile.userId)
+              setUserRoles(profile.userRoles)
+              setIsAdmin(profile.isAdmin)
+              setIsSuperAdmin(profile.isSuperAdmin)
+              setIsDeveloper(Boolean(profile.isDeveloper))
+              setIsManager(Boolean(profile.isManager))
+              setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+              setRolesLoaded(true)
+            } else {
+              setEmployeeData(null)
+              setUserId(null)
+              setUserRoles([])
+              setIsAdmin(false)
+              setIsSuperAdmin(false)
+              setIsDeveloper(false)
+              setIsManager(false)
+              setIsManagerofUsers(false)
+              setRolesLoaded(false)
+            }
+          }
+
+          if (!firebaseUser) {
+            writeManualAuthUser(effectiveUser)
+          }
+        } else {
+          // If on an auth page but already authenticated, restore cached profile
+          const profile = readCachedProfile();
+          if (profile) {
+            setEmployeeData(profile.employeeData);
+            setUserId(profile.userId);
+            setUserRoles(profile.userRoles);
+            setIsAdmin(profile.isAdmin);
+            setIsSuperAdmin(profile.isSuperAdmin);
+            setIsDeveloper(Boolean(profile.isDeveloper));
+            setIsManager(Boolean(profile.isManager));
+            setIsManagerofUsers(Boolean(profile.isManagerofUsers));
+            setRolesLoaded(true);
+          }
         }
       } else {
         // Reset all data on logout
@@ -533,8 +557,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
-    const forceLogoutListener = async () => {
-      console.warn("[auth-context] Handling lucid:auth:force-logout event");
+    const forceLogoutListener = async (event?: Event) => {
+      console.warn("[auth-context] Handling lucid:auth:force-logout event", event);
+      if (authSocketSingleton) {
+        try {
+          authSocketSingleton.close();
+        } catch {}
+        authSocketSingleton = null;
+        authSocketCurrentUserId = null;
+      }
       await logout();
       if (typeof window !== 'undefined') {
         window.location.href = '/login';

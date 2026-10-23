@@ -303,7 +303,7 @@ async def _trigger_quiz_completion_notifications(
             "result_message": "Outstanding work!" if pass_status else "Keep practicing!",
         }
 
-        # Module completed notification
+        # Module completed notification (Legacy static template)
         await schedule_notification_job(
             user_id=user_id,
             company_id=company_id,
@@ -311,7 +311,75 @@ async def _trigger_quiz_completion_notifications(
             metadata=meta
         )
 
-        # Quiz passed notification (if passed)
+        # Trigger Automated Notification Workflows via WorkflowEngine
+        try:
+            import asyncio
+            from utils.notifications.workflow_engine import WorkflowEngine
+
+            wf_payload = {
+                "module_id": target_mod_id,
+                "curriculum.module_id": target_mod_id,
+                "curriculum.module_name": module_title,
+                "module_name": module_title,
+                "curriculum.progress_percentage": 100,
+                "progress_percentage": 100,
+                "curriculum.minutes_remaining": 0,
+                "assessment.score": score_pct,
+                "score": score_pct,
+                "assessment.passed": bool(pass_status),
+                "gamification.xp_points": 50 if pass_status else 10,
+            }
+
+            # 1. Assessment Evaluation & Pacing Updates
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="ASSESSMENT_COMPLETED",
+                    user_id=user_id,
+                    payload=wf_payload,
+                    company_id=company_id,
+                )
+            )
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="MODULE_PROGRESS_UPDATED",
+                    user_id=user_id,
+                    payload=wf_payload,
+                    company_id=company_id,
+                )
+            )
+
+            # 2. Quiz Passed or Failed
+            if pass_status is True:
+                asyncio.create_task(
+                    WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="QUIZ_PASSED",
+                        user_id=user_id,
+                        payload=wf_payload,
+                        company_id=company_id,
+                    )
+                )
+                asyncio.create_task(
+                    WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="POST_COMPLETION_FEEDBACK",
+                        user_id=user_id,
+                        payload=wf_payload,
+                        company_id=company_id,
+                    )
+                )
+            elif pass_status is False:
+                asyncio.create_task(
+                    WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="QUIZ_FAILED",
+                        user_id=user_id,
+                        payload={**wf_payload, "assessment.weak_topic": "Foundational Principles"},
+                        company_id=company_id,
+                    )
+                )
+        except Exception as wf_err:
+            import logging
+            logging.getLogger("lucid.module_progress").warning(f"WorkflowEngine trigger failed in module_progress: {wf_err}")
+
+        # Quiz passed notification (if passed - legacy job)
         if pass_status is True:
             await schedule_notification_job(
                 user_id=user_id,

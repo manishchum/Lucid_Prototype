@@ -54,6 +54,62 @@ class ProvisionCompanyFunctionsRequest(BaseModel):
     custom_entries: List[CustomFunctionEntry] = []
 
 
+ALLOWED_TIERS = {"tier_1", "tier_2", "tier_3"}
+ALLOWED_ADDONS = {
+    "lucid_studio",
+    "lucid_studio_textual",
+    "lucid_studio_podcast",
+    "lucid_studio_video",
+    "lucid_studio_mindmap",
+    "lucid_studio_infographic",
+    "lucid_studio_flashcard",
+    "lucid_studio_flashcards",
+    "chat_in_studio",
+    "chat_in_studio_textual",
+    "chat_in_studio_speech",
+    "task_management",
+    "task_management_textual",
+    "task_management_image",
+    "task_management_evaluation",
+    "task_management_audio",
+    "task_management_video",
+    "baseline_assessment",
+    "kpi",
+    "role_play",
+    "role_play_openai",
+    "role_play_gemini",
+    "reports",
+    "sprintverse",
+    "gamification",
+    "platform_web",
+    "platform_mobile",
+    "platform_both",
+    "voice_agent",
+}
+ALLOWED_LANGUAGE_CODES = {
+    "en",
+    "hi",
+    "de",
+    "ru",
+    "fr",
+    "it",
+    "es",
+    "pl",
+    "uk",
+    "ro",
+    "nl",
+    "bn",
+    "ta",
+    "te",
+    "mr",
+    "kn",
+    "pa",
+    "gu",
+    "ur",
+    "or",
+}
+
+
 @router.get("/")
 async def list_companies(
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
@@ -310,60 +366,9 @@ async def update_company_route(
     """
     update_data = request.dict(exclude_none=True)
 
-    allowed_tiers = {"tier_1", "tier_2", "tier_3"}
-    allowed_addons = {
-        "lucid_studio",
-        "lucid_studio_textual",
-        "lucid_studio_podcast",
-        "lucid_studio_video",
-        "lucid_studio_mindmap",
-        "lucid_studio_infographic",
-        "lucid_studio_flashcard",
-        "lucid_studio_flashcards",
-        "chat_in_studio",
-        "chat_in_studio_textual",
-        "chat_in_studio_speech",
-        "task_management",
-        "task_management_textual",
-        "task_management_image",
-        "task_management_evaluation",
-        "task_management_audio",
-        "task_management_video",
-        "baseline_assessment",
-        "kpi",
-        "role_play",
-        "role_play_openai",
-        "role_play_gemini",
-        "reports",
-        "sprintverse",
-        "gamification",
-        "platform_web",
-        "platform_mobile",
-        "platform_both",
-        "voice_agent",
-    }
-    allowed_language_codes = {
-        "en",
-        "hi",
-        "de",
-        "ru",
-        "fr",
-        "it",
-        "es",
-        "pl",
-        "uk",
-        "ro",
-        "nl",
-        "bn",
-        "ta",
-        "te",
-        "mr",
-        "kn",
-        "pa",
-        "gu",
-        "ur",
-        "or",
-    }
+    allowed_tiers = ALLOWED_TIERS
+    allowed_addons = ALLOWED_ADDONS
+    allowed_language_codes = ALLOWED_LANGUAGE_CODES
 
     if "platform_type" in update_data:
         normalized_platform = str(update_data["platform_type"]).strip().lower()
@@ -449,6 +454,7 @@ async def update_company_route(
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
     redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
+    redis_client.delete(f"company:addons:{company_id}")  # Invalidate policy evaluator addon cache
     delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None

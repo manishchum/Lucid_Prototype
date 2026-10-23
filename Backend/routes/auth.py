@@ -1,12 +1,13 @@
 import asyncio
 import json
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect, BackgroundTasks
 
 from utils.auth import (
     RequestAuth,
     register_device_session,
+    resolve_platform,
     _verify_firebase_token,
     get_request_auth_jwt_required,
     _build_request_auth_from_verified_claims,
@@ -38,7 +39,7 @@ async def _unregister_auth_socket(user_id: str, device_id: str, websocket: WebSo
             AUTH_SOCKET_REGISTRY.pop(user_id, None)
 
 
-async def notify_session_replaced(user_id: str, keep_device_id: str) -> None:
+async def notify_session_replaced(user_id: str, keep_device_id: str, platform: str = "web") -> None:
     async with AUTH_SOCKET_LOCK:
         device_map = AUTH_SOCKET_REGISTRY.get(user_id, {})
         sockets_to_close = [
@@ -52,6 +53,7 @@ async def notify_session_replaced(user_id: str, keep_device_id: str) -> None:
             await socket.send_json({
                 "type": "force_logout",
                 "reason": "session_replaced",
+                "platform": platform,
             })
         except Exception:
             pass
@@ -62,6 +64,18 @@ async def notify_session_replaced(user_id: str, keep_device_id: str) -> None:
             pass
 
         await _unregister_auth_socket(user_id, device_id, socket)
+
+    # Multi-instance Cloud Run propagation via Redis Pub/Sub
+    try:
+        from utils.websocket_manager import manager as ws_manager
+        await ws_manager.send_personal_message(str(user_id), {
+            "type": "force_logout",
+            "reason": "session_replaced",
+            "platform": platform,
+            "keep_device_id": keep_device_id,
+        })
+    except Exception as e:
+        print(f"[notify_session_replaced] Redis pubsub broadcast failed: {e}")
 
 
 @router.websocket("/ws")
@@ -116,6 +130,7 @@ from utils.otp_service import (
     generate_and_store_otp,
     verify_otp_code,
     send_dovesoft_sms,
+    dispatch_sms_otp,
 )
 from utils.auth_bridge import BridgeUserContext, mint_supabase_access_token, get_service_supabase_client
 
@@ -127,6 +142,8 @@ class SendOTPRequest(BaseModel):
 class VerifyOTPRequest(BaseModel):
     phone: str = Field(..., description="Mobile number")
     otp: str = Field(..., min_length=6, max_length=6, description="6-digit numeric OTP")
+    device_id: Optional[str] = Field(None, description="Device UUID")
+    platform: Optional[str] = Field(None, description="Client platform: 'mobile' or 'web'")
 
 
 @router.post("/send-otp")
@@ -198,8 +215,8 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
     except Exception as cache_err:
         print(f"[send-otp] Failed to cache user in Redis: {cache_err}")
 
-    # Dispatch SMS via DoveSoft asynchronously in background (Fast <80ms response)
-    background_tasks.add_task(send_dovesoft_sms, normalized_phone, otp_code)
+    # Dispatch SMS via DoveSoft with retry logic, invalidation guard, and audit logging
+    await dispatch_sms_otp(normalized_phone, otp_code, background_tasks)
 
     return {
         "success": True,
@@ -321,11 +338,21 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
         print(f"[verify-otp] Custom token generation failed: {token_err}")
         raise HTTPException(status_code=500, detail="Failed to generate custom authentication token")
 
+    # Extract device_id and platform to authoritatively re-bind session on 2FA success
+    device_id = body.device_id or request.headers.get("X-Device-ID")
+    raw_platform = body.platform or request.headers.get("X-Platform")
+    platform = resolve_platform(raw_platform or "mobile", request.headers.get("User-Agent"))
+
     company_data = user_data.get("company")
     if not company_data and user_data.get("company_id"):
         cached_comp = get_cache(f"company_static:{user_data['company_id']}")
         if cached_comp:
             company_data = cached_comp.get("company")
+
+    if device_id and user_data.get("user_id"):
+        user_id_str = str(user_data["user_id"])
+        register_device_session(user_id_str, device_id, platform=platform)
+        await notify_session_replaced(user_id_str, device_id, platform=platform)
 
     return {
         "success": True,
@@ -337,13 +364,16 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
 
 @router.post("/session")
 async def register_session(
+    request: Request,
     auth: RequestAuth = Depends(get_request_auth_jwt_required),
     x_device_id: str | None = Header(None, alias="X-Device-ID"),
+    x_platform: str | None = Header(None, alias="X-Platform"),
     x_register_session: str | None = Header(None, alias="X-Register-Session"),
 ):
     if auth.user_id and x_device_id and x_register_session == "true":
-        register_device_session(auth.user_id, x_device_id)
-        await notify_session_replaced(auth.user_id, x_device_id)
+        platform = resolve_platform(x_platform, request.headers.get("User-Agent"))
+        register_device_session(auth.user_id, x_device_id, platform=platform)
+        await notify_session_replaced(auth.user_id, x_device_id, platform=platform)
 
     return {"success": True}
 

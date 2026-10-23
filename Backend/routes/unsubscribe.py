@@ -201,6 +201,8 @@ async def unsubscribe_get(token: str = Query(..., description="Unsubscribe token
         success_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/unsubscribe-success?email={email}"
         raise HTTPException(status_code=302, detail=success_url, headers={"Location": success_url})
         
+    except HTTPException:
+        raise
     except (InvalidTokenError, ExpiredTokenError) as e:
         logger.warning(f"Token verification failed: {e}")
         error_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/unsubscribe-error?reason=invalid_token"
@@ -404,6 +406,7 @@ async def resubscribe(request: ResubscribeRequest):
 # Fallback for when token is invalid/expired
 
 
+@router.post("-manual")
 @router.post("/unsubscribe-manual")
 async def unsubscribe_manual(request: UnsubscribeManualRequest):
     """
