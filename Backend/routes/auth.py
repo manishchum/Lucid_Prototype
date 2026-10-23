@@ -130,6 +130,7 @@ from utils.otp_service import (
     generate_and_store_otp,
     verify_otp_code,
     send_dovesoft_sms,
+    dispatch_sms_otp,
 )
 from utils.auth_bridge import BridgeUserContext, mint_supabase_access_token, get_service_supabase_client
 
@@ -214,8 +215,8 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
     except Exception as cache_err:
         print(f"[send-otp] Failed to cache user in Redis: {cache_err}")
 
-    # Dispatch SMS via DoveSoft asynchronously in background (Fast <80ms response)
-    background_tasks.add_task(send_dovesoft_sms, normalized_phone, otp_code)
+    # Dispatch SMS via DoveSoft with retry logic, invalidation guard, and audit logging
+    await dispatch_sms_otp(normalized_phone, otp_code, background_tasks)
 
     return {
         "success": True,

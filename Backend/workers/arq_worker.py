@@ -760,6 +760,7 @@ async def arq_shutdown(ctx: dict) -> None:
 # -----------------------------------------------------------------------------
 from utils.email_cron import run_email_cron, send_email_task
 from whatsapp.cron import run_whatsapp_cron
+from utils.otp_service import send_sms_otp_task
 
 
 class WorkerSettings:
@@ -790,6 +791,7 @@ class WorkerSettings:
     # Callable task functions that can be dynamically enqueued via arq_client.enqueue_job()
     functions = [
         send_email_task,
+        send_sms_otp_task,
         poll_notification_jobs,
         run_email_cron,
         run_whatsapp_cron,
