@@ -45,7 +45,7 @@ async def _verify_current_password_with_firebase(email: str, current_password: s
     if firebase_message in {"INVALID_LOGIN_CREDENTIALS", "INVALID_PASSWORD", "EMAIL_NOT_FOUND", "USER_DISABLED"}:
         return False
 
-    print(f"[Firebase Auth Error] status={response.status_code}, response={response.text}")
+    print(f"[Firebase Auth Error] status={response.status_code}, message={firebase_message or 'UNKNOWN'}")
     raise RuntimeError(f"Firebase credential verification failed: status={response.status_code}")
 
 

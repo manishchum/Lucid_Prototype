@@ -2177,11 +2177,13 @@ async def reassign_task_assignment(
 
 from typing import Optional
 
+import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 from utils.exceptions import ApiException
 
+logger = logging.getLogger("lucid.task_manager")
 router = APIRouter(dependencies=[Depends(require_addon("task_management"))])
 
 
@@ -2197,14 +2199,10 @@ async def list_tasks(
     except ApiException:
         raise
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
-        try:
-            headers = {k: v for k, v in request.headers.items()}
-        except Exception:
-            headers = {}
-        print("[task-manager] list_tasks exception:\n", tb)
-        print("[task-manager] request headers:", headers)
+        logger.error(
+            f"[task-manager] list_tasks failed for user={auth_ctx.user_id} company={company_id}: {exc}",
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail="Internal Server Error") from exc
 
 

@@ -72,27 +72,11 @@ from routes.ingest_processed_module import router as ingest_processed_module_rou
 from routes import functions
 from config import IS_PRODUCTION
 
-class SensitiveTokenMaskingFilter(logging.Filter):
-    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
+from utils.logging import setup_logging_sanitizer
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.args:
-            new_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
-                new_args.append(arg)
-            record.args = tuple(new_args)
+# Initialize enterprise-grade logging sanitizer across root, uvicorn, and stdout/stderr
+setup_logging_sanitizer()
 
-        if isinstance(record.msg, str):
-            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
-
-        return True
-
-
-_token_mask_filter = SensitiveTokenMaskingFilter()
-for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
 
 
 # Create FastAPI app

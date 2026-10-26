@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from utils.audit_logger import log_audit_event
+from utils.logging import mask_email
 
 from utils.db.users_db import (
     get_user_by_email,
@@ -87,7 +88,7 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
         if isinstance(updated_data, list) and updated_data:
             return updated_data
     except Exception as exc:
-        print(f"[users] Failed to persist firebase_uid for {email}: {exc}")
+        print(f"[users] Failed to persist firebase_uid for {mask_email(email)}: {exc}")
         created_user["firebase_uid"] = firebase_uid
         return [created_user]
 
@@ -124,7 +125,9 @@ async def _send_welcome_email(created_payload, custom_password: Optional[str] = 
             default_password=custom_password or DEFAULT_PASSWORD,
         )
         if not send_result.get("success"):
-            print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")
+            print(f"[users] Welcome email failed for {mask_email(email)}: {send_result.get('error')}")
+        else:
+            print(f"[users] Welcome email sent successfully to {mask_email(email)}")
     except Exception as exc:
         print(f"[users] Exception while sending welcome email: {exc}")
 

@@ -340,10 +340,13 @@ async def update_content_generation_route(
         else None
     )
 
-    print(f"Received request to update content generation data for processed_module_id: {processed_module_id} by user: {user_id}")
-    print(f"Mindmap data: {request.mindmap_data}")
-    print(f"Flashcard data: {request.flashcard_data}")
-    print(f"Infographic data: {request.infographic_data}")
+    mindmap_len = len(request.mindmap_data) if isinstance(request.mindmap_data, (list, dict)) else 0
+    flashcards_len = len(request.flashcard_data) if isinstance(request.flashcard_data, list) else 0
+    infographics_len = len(request.infographic_data) if isinstance(request.infographic_data, (list, dict)) else 0
+    print(
+        f"Updating content generation data for processed_module_id={processed_module_id} user={user_id} "
+        f"(mindmap_entries={mindmap_len}, flashcards={flashcards_len}, infographics={infographics_len})"
+    )
     result = await update_content_generation_data(
         user_id,
         processed_module_id,
