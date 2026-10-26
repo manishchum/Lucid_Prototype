@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from utils.auth import RequestAuth, _ensure_firebase_admin_initialized, get_request_auth_jwt_required
 from utils.auth_bridge import get_service_supabase_client
+from utils.audit_logger import log_audit_event
 
 router = APIRouter()
 
@@ -110,6 +111,18 @@ async def POST(
                 req_referer = req.headers.get("referer") or req.headers.get("origin")
                 is_valid = await _verify_current_password_with_firebase(email, current_password, referer=req_referer)
                 if not is_valid:
+                    await log_audit_event(
+                        action="USER_PASSWORD_CHANGE_FAILED",
+                        action_category="SECURITY",
+                        target_type="auth",
+                        target_id=user_id,
+                        target_name=email,
+                        request=req,
+                        auth_ctx=auth_ctx,
+                        status="FAILED",
+                        error_message="Current password is incorrect",
+                        details={"email": email},
+                    )
                     return JSONResponse(
                         {"error": "Current password is incorrect"},
                         status_code=401
@@ -154,6 +167,19 @@ async def POST(
                 {"error": "Failed to update password"},
                 status_code=500
             )
+
+        # Audit log successful password change
+        await log_audit_event(
+            action="USER_PASSWORD_CHANGED",
+            action_category="SECURITY",
+            target_type="auth",
+            target_id=user_id,
+            target_name=email,
+            request=req,
+            auth_ctx=auth_ctx,
+            status="SUCCESS",
+            details={"email": email},
+        )
 
         return JSONResponse({
             "message": "Password changed successfully",

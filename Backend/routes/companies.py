@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Header, Query, HTTPException, Depends, File, UploadFile, Form
+from fastapi import APIRouter, Header, Query, HTTPException, Depends, File, UploadFile, Form, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from utils.auth_bridge import get_service_supabase_client
+from utils.audit_logger import log_audit_event
 import time
 
 
@@ -265,6 +266,7 @@ async def create_company_with_logo_route(
     logo: UploadFile = File(...),
     learning_style: bool = Form(False),
     platform_type: str = Form("web"),
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -298,6 +300,22 @@ async def create_company_with_logo_route(
     
     result = await create_company(user_id, company_data)
     company = result.get("data") or None
+    created_company_id = company.get("company_id") if isinstance(company, dict) else None
+
+    # Audit log company creation
+    await log_audit_event(
+        action="COMPANY_CREATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=str(created_company_id) if created_company_id else None,
+        target_name=name,
+        company_id=str(created_company_id) if created_company_id else None,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=company_data,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -308,6 +326,7 @@ async def create_company_with_logo_route(
 @router.post("/")
 async def create_company_route(
     request: CreateCompanyRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -320,6 +339,22 @@ async def create_company_route(
     
     # Unwrap service layer response
     company = result.get("data") or None
+    created_company_id = company.get("company_id") if isinstance(company, dict) else None
+
+    # Audit log company creation
+    await log_audit_event(
+        action="COMPANY_CREATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=str(created_company_id) if created_company_id else None,
+        target_name=request.name,
+        company_id=str(created_company_id) if created_company_id else None,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=company_data,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -357,6 +392,7 @@ async def provision_company_functions_route(
 async def update_company_route(
     company_id: str,
     request: UpdateCompanyRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -458,6 +494,21 @@ async def update_company_route(
     delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None
+
+    # Audit log company modification
+    await log_audit_event(
+        action="COMPANY_UPDATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=company_id,
+        target_name=company.get("name") if isinstance(company, dict) else None,
+        company_id=company_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes={"updated_fields": update_data},
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -469,6 +520,7 @@ async def update_company_route(
 @router.delete("/{company_id}")
 async def delete_company_route(
     company_id: str,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -481,6 +533,19 @@ async def delete_company_route(
     redis_client.delete(f"company_addons:{company_id}")
     # Unwrap service layer response
     deleted = result.get("data") or None
+
+    # Audit log company deletion
+    await log_audit_event(
+        action="COMPANY_DELETED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=company_id,
+        company_id=company_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,

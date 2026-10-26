@@ -1,7 +1,8 @@
 from utils.auth import RequestAuth, get_request_auth_required
-from fastapi import APIRouter, HTTPException, Header, Query, Depends
+from fastapi import APIRouter, HTTPException, Header, Query, Depends, Request
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
+from utils.audit_logger import log_audit_event
 import google.generativeai as genai
 import html
 import os
@@ -868,6 +869,7 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/send-email")
 async def send_email(
     request: SendEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -979,6 +981,25 @@ async def send_email(
             "unsubscribed_users": len(users) - len(subscribed_users),
             "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
         }
+
+        # Audit log bulk email dispatch
+        await log_audit_event(
+            action="BULK_EMAIL_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=request.module_id,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "module_id": request.module_id,
+                "sent_count": sent_count,
+                "failed_count": len(failed),
+                "total_recipients": len(recipient_emails),
+                "scheduled_date": request.scheduled_date,
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception:
@@ -1017,6 +1038,7 @@ def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
 @router.post("/schedule-email")
 async def schedule_email(
     request: ScheduleEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1136,6 +1158,24 @@ async def schedule_email(
             "recipient_count": len(recipient_emails),
             "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
         }
+
+        # Audit log email dispatch scheduling
+        await log_audit_event(
+            action="EMAIL_DISPATCH_SCHEDULED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(scheduled_email_id) if scheduled_email_id else request.module_id,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "scheduled_email_id": scheduled_email_id,
+                "module_id": request.module_id,
+                "scheduled_at": run_dt.isoformat(),
+                "recipient_count": len(recipient_emails),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception:
@@ -1149,6 +1189,7 @@ async def schedule_email(
 @router.post("/notify-email")
 async def notify_email(
     request: NotifyEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1433,6 +1474,25 @@ async def notify_email(
             "failed": failed,
             "selected_content": request.selected_content,
         }
+
+        # Audit log notify-email dispatch
+        await log_audit_event(
+            action="BULK_NOTIFY_EMAIL_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(first_module_id),
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "module_ids": target_module_ids,
+                "selected_content": request.selected_content,
+                "sent_count": sent_count,
+                "failed_count": len(failed),
+                "total_recipients": len(recipient_emails),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception as e:
@@ -1544,6 +1604,7 @@ class ScheduleMultiModuleRequest(BaseModel):
 @router.post("/schedule-multi-module")
 async def schedule_multi_module(
     request: ScheduleMultiModuleRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1814,12 +1875,23 @@ async def schedule_multi_module(
             "total_items": len(request.schedule_items),
             "jobs": scheduled_jobs,
         }
-        result = {
-            "status": "multi_module_scheduled",
-            "scheduled_time": request.scheduled_time,
-            "total_items": len(request.schedule_items),
-            "jobs": scheduled_jobs,
-        }
+
+        # Audit log multi-module dispatch scheduling
+        await log_audit_event(
+            action="MULTI_MODULE_DISPATCH_SCHEDULED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=request.schedule_items[0].module_id if request.schedule_items else None,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "total_items": len(request.schedule_items),
+                "scheduled_time": request.scheduled_time,
+                "job_count": len(scheduled_jobs),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
 
@@ -1854,8 +1926,10 @@ async def dispatch_bootstrap(
 
 
 # ── WhatsApp Notification Endpoint ──────────────────────────────
+@router.post("/notify-whatsapp")
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -2113,6 +2187,25 @@ async def notify_whatsapp(
             "unique_recipients": len(all_users_affected),
             "messages": created_schedules,
         }
+
+        # Audit log bulk WhatsApp dispatch
+        await log_audit_event(
+            action="BULK_WHATSAPP_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(request.company_id),
+            company_id=str(request.company_id),
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "schedule_type": request.schedule_type,
+                "scheduled_time": request.scheduled_time,
+                "total_messages": len(created_schedules),
+                "unique_recipients": len(all_users_affected),
+                "module_ids": request.module_ids,
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
    
