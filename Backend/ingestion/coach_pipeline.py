@@ -9,6 +9,7 @@ import traceback
 from typing import Dict, Any, Optional
 
 from ingestion.coach_parser import parse_manual_upload
+from ingestion.coach_summarizer import generate_document_summary_and_category
 from ingestion.coach_store import (
     fetch_company_employees,
     update_document_status,
@@ -53,17 +54,46 @@ def run_coach_file_ingestion(
         if not chunks and not spreadsheet_rows:
             raise ValueError(f"No extractable text or data found in {file_name}")
 
+        # Step 3.5: Auto-generate Document Summary & Category Classification using lightweight model
+        target_employee_name = None
+        if target_employee_id and employee_roster:
+            matched_emp = next((e for e in employee_roster if str(e.get("user_id")) == str(target_employee_id)), None)
+            if matched_emp:
+                target_employee_name = matched_emp.get("name")
+
+        print(f"[COACH INGESTION] Auto-generating summary and category classification for '{file_name}'...")
+        summary_res = generate_document_summary_and_category(
+            file_name=file_name,
+            file_type=file_type,
+            chunks=chunks,
+            spreadsheet_rows=spreadsheet_rows,
+            parsed_metadata=parsed_metadata,
+            target_employee_name=target_employee_name
+        )
+        doc_summary = summary_res.get("summary")
+        category_tag = summary_res.get("category")
+        detected_period = summary_res.get("document_period") or parsed_metadata.get("document_period")
+        key_topics = summary_res.get("key_topics", [])
+
+        parsed_metadata["category"] = category_tag
+        parsed_metadata["key_topics"] = key_topics
+        if detected_period:
+            parsed_metadata["document_period"] = detected_period
+
         # Step 4: Update metadata immediately and change status to embedding
         parsed_metadata["chunks_count"] = len(chunks)
         parsed_metadata["spreadsheet_rows_count"] = len(spreadsheet_rows)
+        
         update_document_status(
             document_id=document_id,
             status="embedding",
+            description=doc_summary,
+            document_period=detected_period,
             parsed_metadata=parsed_metadata
         )
         
         text_contents = [c["content"] for c in chunks]
-        print(f"[COACH INGESTION] Generating embeddings for {len(text_contents)} chunks...")
+        print(f"[COACH INGESTION] Generating embeddings for {len(text_contents)} chunks with contextual headers...")
         embeddings = embed_chunks(text_contents)
         
         # Step 5: Store Chunks & Proof Citations in Supabase
@@ -92,13 +122,18 @@ def run_coach_file_ingestion(
         update_document_status(
             document_id=document_id,
             status="completed",
+            description=doc_summary,
+            document_period=detected_period,
             parsed_metadata=parsed_metadata
         )
         
-        print(f"[COACH INGESTION] [OK] Successfully ingested doc={document_id}")
+        print(f"[COACH INGESTION] [OK] Successfully ingested doc={document_id} (Category: {category_tag}, period: {detected_period})")
         return {
             "document_id": document_id,
             "status": "completed",
+            "category": category_tag,
+            "description": doc_summary,
+            "document_period": detected_period,
             "chunks_count": chunks_inserted,
             "spreadsheet_rows_count": rows_inserted
         }

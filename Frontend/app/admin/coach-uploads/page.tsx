@@ -26,10 +26,7 @@ import {
   UserCheck,
   FolderSync,
   HardDrive,
-  FolderOpen,
-  Radio,
-  Check,
-  ShieldCheck
+  FolderOpen
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -477,6 +474,8 @@ export default function CoachUploadsPage() {
         </div>
       </div>
     )
+  }
+
   // Format Google Drive sync date as dd - month (in alphabet) - yyyy, hh:mm AM/PM
   const formatGDriveSyncDate = (isoString?: string | null) => {
     if (!isoString) return "Pending initial scan"
@@ -931,11 +930,22 @@ export default function CoachUploadsPage() {
                               {getFileIcon(doc.file_type)}
                             </div>
                             <div>
-                              <div className="font-semibold text-slate-900 flex items-center gap-2">
+                              <div className="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
                                 {doc.file_name}
                                 <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                                   {doc.file_type}
                                 </span>
+                                {meta.category && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200">
+                                    <Sparkles className="w-2.5 h-2.5 text-violet-500" />
+                                    {meta.category}
+                                  </span>
+                                )}
+                                {doc.document_period && (
+                                  <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                    {doc.document_period}
+                                  </span>
+                                )}
                                 {doc.manual_description?.toLowerCase().includes("google drive") && (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
                                     <FolderSync className="w-3 h-3 text-sky-600" />
@@ -947,8 +957,15 @@ export default function CoachUploadsPage() {
                                 {formatBytes(doc.file_size_bytes)}
                               </div>
                               {(doc.manual_description || doc.description) && (
-                                <div className="text-xs text-slate-600 italic line-clamp-1 mt-1 max-w-sm">
-                                  {doc.manual_description || doc.description}
+                                <div className="text-xs text-slate-600 mt-1 max-w-md line-clamp-2">
+                                  {doc.description ? (
+                                    <span className="flex items-start gap-1">
+                                      <span className="shrink-0 text-[9px] font-bold tracking-wider text-violet-600 uppercase bg-violet-50 px-1 py-0.5 rounded border border-violet-100">AI</span>
+                                      <span>{doc.description}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="italic">{doc.manual_description}</span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1055,16 +1072,39 @@ export default function CoachUploadsPage() {
                 {getStatusBadge(inspectDoc.status)}
               </div>
 
-              {/* Description & Summary Section */}
-              {(inspectDoc.manual_description || inspectDoc.description) && (
-                <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs space-y-1">
-                  <div className="font-semibold text-indigo-900 flex items-center gap-1.5">
-                    <Info className="w-4 h-4 text-indigo-600" />
-                    Document Description & Summary
+              {/* Description, Summary & Category Section */}
+              {(inspectDoc.manual_description || inspectDoc.description || inspectDoc.parsed_metadata?.category) && (
+                <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-indigo-900 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      Document Summary & Classification
+                    </div>
+                    {inspectDoc.parsed_metadata?.category && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-800 border border-violet-200">
+                        {inspectDoc.parsed_metadata.category}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-slate-700 leading-relaxed text-xs pt-1">
-                    {inspectDoc.manual_description || inspectDoc.description}
-                  </p>
+                  {inspectDoc.description && (
+                    <p className="text-slate-700 leading-relaxed text-xs">
+                      {inspectDoc.description}
+                    </p>
+                  )}
+                  {inspectDoc.manual_description && (
+                    <p className="text-slate-500 italic text-[11px] border-t border-indigo-100 pt-1">
+                      Notes: {inspectDoc.manual_description}
+                    </p>
+                  )}
+                  {inspectDoc.parsed_metadata?.key_topics && inspectDoc.parsed_metadata.key_topics.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1.5 border-t border-indigo-100">
+                      {inspectDoc.parsed_metadata.key_topics.map((topic: string, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-white/80 border border-indigo-200/60 rounded text-[10px] font-medium text-indigo-700">
+                          #{topic}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
