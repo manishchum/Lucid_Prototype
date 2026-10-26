@@ -23,6 +23,7 @@ from config import FRONTEND_URL
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.db.permissions import check_user_permission
 from utils.supabase_client import supabase_admin
+from utils.logging import mask_email
 from services.google_drive_service import (
     generate_auth_url,
     exchange_code_for_tokens,
@@ -375,7 +376,7 @@ async def google_drive_oauth_callback(
             "p_token_expires_at": token_expires_at
         }).execute()
 
-        print(f"[GOOGLE DRIVE] Organization {company_id} connected Google Drive successfully (Account: {user_email}, stored in Supabase Vault)")
+        print(f"[GOOGLE DRIVE] Organization {company_id} connected Google Drive successfully (Account: {mask_email(user_email)}, stored in Supabase Vault)")
 
         # 9. Trigger immediate initial sync in background
         background_tasks.add_task(sync_company_drive_files, company_id=company_id)

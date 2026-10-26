@@ -12,6 +12,7 @@ from utils.db.whatsapp_db import (
 )
 from whatsapp.service import whatsapp_service
 from whatsapp.formatter import formatter
+from utils.logging import mask_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +160,10 @@ class WhatsAppCronWorker:
         dispatch_id = dispatch.get("whatsapp_dispatch_id")
         user_id = dispatch.get("user_id")
         phone_number = dispatch.get("phone_number")
+        masked_phone = mask_phone_number(phone_number)
         
         try:
-            logger.info(f"📞 Sending to {phone_number} (user: {user_id})")
+            logger.info(f"📞 Sending to {masked_phone} (user: {user_id})")
             
             # Build message content
             message_body = scheduled_msg.get("message_body", "")
@@ -195,7 +197,7 @@ class WhatsAppCronWorker:
                     "sent",
                     whatsapp_message_id=result.get("message_id"),
                 )
-                logger.info(f"✅ Message sent to {phone_number}")
+                logger.info(f"✅ Message sent to {masked_phone}")
             else:
                 error_msg = result.get("error", "Unknown error")
                 retry_count = dispatch.get("retry_count", 0)
@@ -213,7 +215,7 @@ class WhatsAppCronWorker:
                     logger.error(f"❌ Failed permanently: {error_msg}")
         
         except Exception as e:
-            logger.error(f"❌ Exception sending to {phone_number}: {str(e)}")
+            logger.error(f"❌ Exception sending to {masked_phone}: {str(e)}")
             await update_dispatch_status(
                 dispatch_id, "failed", error_message=str(e)
             )

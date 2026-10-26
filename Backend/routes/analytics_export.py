@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from utils.audit_logger import log_audit_event
 
 from utils.auth import RequestAuth, get_request_auth_required, get_request_auth_optional
 from utils.db.permissions import check_company_access, check_user_permission
@@ -57,6 +58,7 @@ def _format_conversation(conversation: Any) -> Optional[str]:
 @router.get("/export/users/{company_id}")
 async def export_company_user_analytics(
     company_id: str,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     if not auth_ctx.user_id:
@@ -376,6 +378,23 @@ async def export_company_user_analytics(
     ]
 
     rows = list(rows_by_key.values())
+
+    # Audit log bulk data export (SOC 2 / GDPR compliance)
+    await log_audit_event(
+        action="DATA_EXPORTED",
+        action_category="EXPORT",
+        target_type="analytics_export",
+        target_id=company_id,
+        company_id=company_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details={
+            "rows_count": len(rows),
+            "columns_count": len(columns),
+            "company_id": company_id,
+        },
+    )
+
     return {
         "success": True,
         "data": {"columns": columns, "rows": rows, "count": len(rows)},
@@ -404,7 +423,7 @@ async def get_leaderboard(
     # print(f"[leaderboard] Request received; company_id={company_id}; auth_source={auth_ctx.source}; user_id={auth_ctx.user_id}; email={auth_ctx.email}")
     
     if not auth_ctx.user_id:
-        print(f"[leaderboard] ERROR: Missing user_id; auth_source={auth_ctx.source}; auth_ctx={vars(auth_ctx)}")
+        print(f"[leaderboard] ERROR: Missing user_id; auth_source={auth_ctx.source}")
         raise HTTPException(status_code=401, detail="Missing authentication context")
     
     # Check if user belongs to the company

@@ -1,7 +1,8 @@
 from utils.auth import RequestAuth, get_request_auth_required
-from fastapi import APIRouter, HTTPException, Header, Query, Depends
+from fastapi import APIRouter, HTTPException, Header, Query, Depends, Request
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
+from utils.audit_logger import log_audit_event
 import google.generativeai as genai
 import html
 import os
@@ -868,6 +869,7 @@ Engagement question: {request.engagement_question or "none"}
 @router.post("/send-email")
 async def send_email(
     request: SendEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -979,6 +981,25 @@ async def send_email(
             "unsubscribed_users": len(users) - len(subscribed_users),
             "note": "All emails include unsubscribe links for GDPR/CAN-SPAM compliance"
         }
+
+        # Audit log bulk email dispatch
+        await log_audit_event(
+            action="BULK_EMAIL_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=request.module_id,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "module_id": request.module_id,
+                "sent_count": sent_count,
+                "failed_count": len(failed),
+                "total_recipients": len(recipient_emails),
+                "scheduled_date": request.scheduled_date,
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception:
@@ -1017,6 +1038,7 @@ def send_smtp_job(recipient_emails: List[str], subject: str, body: str) -> None:
 @router.post("/schedule-email")
 async def schedule_email(
     request: ScheduleEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1136,6 +1158,24 @@ async def schedule_email(
             "recipient_count": len(recipient_emails),
             "message": "Email scheduled successfully. Will be sent via cron job at the scheduled time.",
         }
+
+        # Audit log email dispatch scheduling
+        await log_audit_event(
+            action="EMAIL_DISPATCH_SCHEDULED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(scheduled_email_id) if scheduled_email_id else request.module_id,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "scheduled_email_id": scheduled_email_id,
+                "module_id": request.module_id,
+                "scheduled_at": run_dt.isoformat(),
+                "recipient_count": len(recipient_emails),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception:
@@ -1149,6 +1189,7 @@ async def schedule_email(
 @router.post("/notify-email")
 async def notify_email(
     request: NotifyEmailRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1167,16 +1208,16 @@ async def notify_email(
     When module_ids is None, use module_id (backward compatibility - aggregates all modules).
     """
 
-    print(f"\n[NOTIFY-EMAIL DEBUG] Received request: {request}")
     # Determine which module IDs to fetch content for
     target_module_ids = request.module_ids if request.module_ids else [request.module_id] if request.module_id else []
    
     if not target_module_ids:
         raise HTTPException(status_code=400, detail="Either module_id or module_ids must be provided")
 
+    print(f"[NOTIFY-EMAIL] Request received for target_module_ids={target_module_ids}")
+
     # 1a. Fetch sprint title from training_modules
     first_module_id = target_module_ids[0]
-    print(f"\n[NOTIFY-EMAIL DEBUG] Fetching sprint title for module: {first_module_id}")
     sprint_result = supabase_admin.table("processed_modules") \
         .select("title") \
         .eq("processed_module_id", first_module_id) \
@@ -1192,49 +1233,33 @@ async def notify_email(
     audio_url_from_db = ""
    
     for target_id in target_module_ids:
-        print(f"\n[NOTIFY-EMAIL DEBUG] Fetching content for module: {target_id}")
-       
         # If module_ids provided, fetch by processed_module_id; otherwise use original_module_id
         if request.module_ids:
-            # Fetching specific processed modules
-            print(f"[NOTIFY-EMAIL DEBUG] Using module_ids approach (specific module ID)")
             fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("processed_module_id", target_id) \
                 .maybe_single() \
                 .execute()
-            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
         else:
-            # Backward compatibility: fetch all processed modules for original module
-            print(f"[NOTIFY-EMAIL DEBUG] Using backward compatibility approach (original module ID)")
             fc_result = supabase_admin.table("processed_modules") \
                 .select("flashcard_data, audio_url, title") \
                 .eq("original_module_id", target_id) \
                 .execute()
-            print(f"[NOTIFY-EMAIL DEBUG] Query result: {fc_result.data}")
        
         # Aggregate flashcard_data and pick first audio_url
         if fc_result.data:
-            print(f"[NOTIFY-EMAIL DEBUG] Data found for {target_id}")
             if isinstance(fc_result.data, list):
                 # Multiple rows
-                print(f"[NOTIFY-EMAIL DEBUG] Multiple rows returned: {len(fc_result.data)}")
                 for row in fc_result.data:
-                    print(f"[NOTIFY-EMAIL DEBUG] Row: {row.get('title')} - flashcards: {len(row.get('flashcard_data') or [])}")
                     if row.get("flashcard_data"):
                         combined_flashcards.extend(row["flashcard_data"])
                     if not audio_url_from_db and row.get("audio_url"):
                         audio_url_from_db = row["audio_url"]
             else:
                 # Single row
-                print(f"[NOTIFY-EMAIL DEBUG] Single row returned: {fc_result.data.get('title')}")
-                print(f"[NOTIFY-EMAIL DEBUG] Flashcard data: {fc_result.data.get('flashcard_data')}")
                 if fc_result.data.get("flashcard_data"):
                     fc_list = fc_result.data["flashcard_data"]
-                    print(f"[NOTIFY-EMAIL DEBUG] Adding {len(fc_list)} flashcards")
                     combined_flashcards.extend(fc_list)
-                else:
-                    print(f"[NOTIFY-EMAIL DEBUG] No flashcard_data found in row")
                 if not audio_url_from_db and fc_result.data.get("audio_url"):
                     audio_url_from_db = fc_result.data["audio_url"]
                 print(f"[NOTIFY-EMAIL DEBUG] Current audio_url_from_db: {audio_url_from_db or 'NONE'}")
@@ -1433,6 +1458,25 @@ async def notify_email(
             "failed": failed,
             "selected_content": request.selected_content,
         }
+
+        # Audit log notify-email dispatch
+        await log_audit_event(
+            action="BULK_NOTIFY_EMAIL_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(first_module_id),
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "module_ids": target_module_ids,
+                "selected_content": request.selected_content,
+                "sent_count": sent_count,
+                "failed_count": len(failed),
+                "total_recipients": len(recipient_emails),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
     except Exception as e:
@@ -1544,6 +1588,7 @@ class ScheduleMultiModuleRequest(BaseModel):
 @router.post("/schedule-multi-module")
 async def schedule_multi_module(
     request: ScheduleMultiModuleRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1814,12 +1859,23 @@ async def schedule_multi_module(
             "total_items": len(request.schedule_items),
             "jobs": scheduled_jobs,
         }
-        result = {
-            "status": "multi_module_scheduled",
-            "scheduled_time": request.scheduled_time,
-            "total_items": len(request.schedule_items),
-            "jobs": scheduled_jobs,
-        }
+
+        # Audit log multi-module dispatch scheduling
+        await log_audit_event(
+            action="MULTI_MODULE_DISPATCH_SCHEDULED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=request.schedule_items[0].module_id if request.schedule_items else None,
+            company_id=company_id,
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "total_items": len(request.schedule_items),
+                "scheduled_time": request.scheduled_time,
+                "job_count": len(scheduled_jobs),
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
 
@@ -1854,8 +1910,10 @@ async def dispatch_bootstrap(
 
 
 # ── WhatsApp Notification Endpoint ──────────────────────────────
+@router.post("/notify-whatsapp")
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
@@ -1944,7 +2002,7 @@ async def notify_whatsapp(
         return replay
    
     try:
-        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
+        print(f"[NOTIFY-WHATSAPP] Received request for company_id={request.company_id} modules={request.module_ids}")
        
         # ── Create Scheduled Messages and Dispatch Records ──
         created_schedules = []
@@ -2113,6 +2171,25 @@ async def notify_whatsapp(
             "unique_recipients": len(all_users_affected),
             "messages": created_schedules,
         }
+
+        # Audit log bulk WhatsApp dispatch
+        await log_audit_event(
+            action="BULK_WHATSAPP_DISPATCHED",
+            action_category="DISPATCH",
+            target_type="dispatch",
+            target_id=str(request.company_id),
+            company_id=str(request.company_id),
+            request=http_request,
+            auth_ctx=auth_ctx,
+            details={
+                "schedule_type": request.schedule_type,
+                "scheduled_time": request.scheduled_time,
+                "total_messages": len(created_schedules),
+                "unique_recipients": len(all_users_affected),
+                "module_ids": request.module_ids,
+            },
+        )
+
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
    
