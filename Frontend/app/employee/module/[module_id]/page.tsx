@@ -2980,14 +2980,41 @@ function GenerateVideoButton({
         body: JSON.stringify({ processed_module_id: moduleId }),
       });
       const data = await res.json();
-      if (res.ok && data.videoUrl) {
-        onVideoGenerated({
-          videoUrl: data.videoUrl,
-          videoUrlHinglish: data.videoUrlHinglish,
-          videoUrlGerman: data.videoUrlGerman,
-          videoUrlSpanish: data.videoUrlSpanish,
-          videoUrlFrench: data.videoUrlFrench,
-        });
+      if (res.ok) {
+        let videoResult = data;
+
+        // If returned an asynchronous job ID, poll until completed
+        if (!data.videoUrl && data.job_id) {
+          const jobId = data.job_id;
+          const pollStart = Date.now();
+          const maxWaitMs = 15 * 60 * 1000; // 15 mins max for rendering video
+
+          while (Date.now() - pollStart < maxWaitMs) {
+            await new Promise((r) => setTimeout(r, 3000));
+            const statusRes = await fetchWithAuth(`${API_BASE}/api/jobs/${jobId}`);
+            if (statusRes.ok) {
+              const jobStatus = await statusRes.json();
+              if (jobStatus.status === 'completed' && jobStatus.result) {
+                videoResult = jobStatus.result;
+                break;
+              } else if (jobStatus.status === 'failed') {
+                throw new Error(jobStatus.error || 'Video rendering failed');
+              }
+            }
+          }
+        }
+
+        if (videoResult?.videoUrl) {
+          onVideoGenerated({
+            videoUrl: videoResult.videoUrl,
+            videoUrlHinglish: videoResult.videoUrlHinglish,
+            videoUrlGerman: videoResult.videoUrlGerman,
+            videoUrlSpanish: videoResult.videoUrlSpanish,
+            videoUrlFrench: videoResult.videoUrlFrench,
+          });
+        } else {
+          setError(videoResult?.error || 'Failed to generate video');
+        }
       } else {
         setError(data.error || 'Failed to generate video');
       }

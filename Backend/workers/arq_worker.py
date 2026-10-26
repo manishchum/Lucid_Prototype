@@ -768,6 +768,111 @@ async def arq_shutdown(ctx: dict) -> None:
 
 
 # -----------------------------------------------------------------------------
+# AI Background Worker Tasks (Long-running AI jobs offloaded from HTTP threads)
+# -----------------------------------------------------------------------------
+async def run_ai_content_generation_task(
+    ctx: dict,
+    job_id: str,
+    user_id: Optional[str],
+    module_id: str,
+) -> dict:
+    """
+    ARQ Task: Asynchronously performs RAG ingestion and enqueues downstream content jobs.
+    Runs inside the background worker to eliminate HTTP request timeouts.
+    """
+    from utils.ai_job_manager import update_ai_job
+    from ingestion.ingest_from_upload import ingest_by_module_id
+    from utils.auth_bridge import get_service_supabase_client
+
+    logger.info(f"[ARQ Content Gen] Starting content generation for job {job_id}, module {module_id}")
+    await update_ai_job(job_id, status="processing", progress=15, user_id=user_id)
+
+    try:
+        # Run CPU/network intensive PDF ingestion in thread pool
+        await asyncio.to_thread(ingest_by_module_id, module_id)
+        logger.info(f"[ARQ Content Gen] RAG ingestion completed for module {module_id}")
+        await update_ai_job(job_id, progress=60)
+
+        # Enqueue downstream content generation job in content_jobs table
+        db = get_service_supabase_client()
+        db.table("content_jobs").insert({"module_id": module_id, "status": "pending"}).execute()
+
+        result = {
+            "module_id": module_id,
+            "ingested": True,
+            "content_jobs_queued": True,
+        }
+        await update_ai_job(job_id, status="completed", progress=100, result=result)
+        logger.info(f"[ARQ Content Gen] Job {job_id} successfully completed.")
+        return result
+    except Exception as e:
+        logger.error(f"[ARQ Content Gen] Job {job_id} failed: {e}", exc_info=True)
+        await update_ai_job(job_id, status="failed", error=str(e))
+        raise
+
+
+async def run_ai_email_generation_task(
+    ctx: dict,
+    job_id: str,
+    user_id: Optional[str],
+    email_params: dict,
+) -> dict:
+    """
+    ARQ Task: Calls Gemini to draft corporate learning email content & compiles responsive HTML.
+    """
+    from utils.ai_job_manager import update_ai_job
+    from routes.dispatch import build_email_draft_content, GenerateEmailRequest
+
+    logger.info(f"[ARQ Email Gen] Starting email generation for job {job_id}")
+    await update_ai_job(job_id, status="processing", progress=25, user_id=user_id)
+
+    try:
+        req_obj = GenerateEmailRequest(**email_params)
+        email_data = await asyncio.to_thread(build_email_draft_content, req_obj)
+
+        result = {"email": email_data}
+        await update_ai_job(job_id, status="completed", progress=100, result=result)
+        logger.info(f"[ARQ Email Gen] Job {job_id} successfully completed.")
+        return result
+    except Exception as e:
+        logger.error(f"[ARQ Email Gen] Job {job_id} failed: {e}", exc_info=True)
+        await update_ai_job(job_id, status="failed", error=str(e))
+        raise
+
+
+async def run_ai_video_generation_task(
+    ctx: dict,
+    job_id: str,
+    user_id: Optional[str],
+    module_id: str,
+) -> dict:
+    """
+    ARQ Task: Executes full video generation pipeline (OpenAI script + TTS + Playwright + FFmpeg).
+    Eliminates Cloud Run / HTTP proxy 504 timeouts.
+    """
+    from utils.ai_job_manager import update_ai_job
+    from gpt_video_generation.route import generateVideo
+
+    logger.info(f"[ARQ Video Gen] Starting video generation pipeline for job {job_id}, module {module_id}")
+    await update_ai_job(job_id, status="processing", progress=20, user_id=user_id)
+
+    try:
+        urls = await generateVideo(module_id)
+        result = {
+            "videoUrl": urls.get("videoUrl"),
+            "videoUrls": urls.get("videoUrls", {}),
+            "videoUrlHinglish": urls.get("videoUrls", {}).get("hinglish"),
+        }
+        await update_ai_job(job_id, status="completed", progress=100, result=result)
+        logger.info(f"[ARQ Video Gen] Job {job_id} successfully completed.")
+        return result
+    except Exception as e:
+        logger.error(f"[ARQ Video Gen] Job {job_id} failed: {e}", exc_info=True)
+        await update_ai_job(job_id, status="failed", error=str(e))
+        raise
+
+
+# -----------------------------------------------------------------------------
 # Worker Settings
 # -----------------------------------------------------------------------------
 from utils.email_cron import run_email_cron, send_email_task
@@ -781,6 +886,8 @@ class WorkerSettings:
     Run via CLI: `python -m arq workers.arq_worker.WorkerSettings`
     """
     redis_settings = redis_settings
+    job_timeout = 900  # 15 minutes max for heavy video and model rendering
+    max_jobs = 10
 
     # Periodic background cron schedules
     cron_jobs = [
@@ -812,9 +919,13 @@ class WorkerSettings:
         run_whatsapp_cron,
         run_leaderboard_refresh,
         run_gdrive_webhook_renewal,
+        run_ai_content_generation_task,
+        run_ai_email_generation_task,
+        run_ai_video_generation_task,
     ]
 
     on_startup = arq_startup
     on_shutdown = arq_shutdown
+
 
 

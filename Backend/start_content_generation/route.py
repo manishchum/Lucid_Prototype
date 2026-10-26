@@ -58,63 +58,56 @@ async def POST(req: Request):
                 "job_status": existing[0].get("status"),
             })
 
-        try:
-            print("inside try")
-            
-            print("imported ingest_by_module_id")
-            
-            ingest_by_module_id(module_id)
-            print("[RAG] Ingestion completed successfully")
-             
-        except Exception as ingest_error:
-            print(f"[RAG ERROR] Error during ingestion: {type(ingest_error).__name__}")
-            print(f"[RAG ERROR] Error message: {str(ingest_error)}")
-            import traceback
-            print(f"[RAG ERROR] Traceback:\n{traceback.format_exc()}") 
+        # Check if caller explicitly requested synchronous execution
+        is_sync = req.query_params.get("sync", "").lower() in ("true", "1") or body.get("sync") is True
+        user_id = req.headers.get("X-User-ID") or body.get("user_id")
 
-        # Enqueue new job
-        inserted_resp = (
-            db
-            .table("content_jobs")
-            .insert({"module_id": module_id, "status": "pending"}, returning="representation")
-            .execute()
-        )
+        if is_sync:
+            try:
+                ingest_by_module_id(module_id)
+            except Exception as ingest_error:
+                print(f"[RAG ERROR] Synchronous ingestion error: {ingest_error}")
 
-        inserted_data = getattr(inserted_resp, "data", None)
-        insertError = getattr(inserted_resp, "error", None)
-
-        if insertError:
-            print("Failed to enqueue job:", insertError)
-            msg = insertError.get("message") if isinstance(insertError, dict) else getattr(insertError, "message", None)
-            return JSONResponse(content={"error": msg or str(insertError)}, status_code=500)
-
-        inserted = None
-        if isinstance(inserted_data, list) and len(inserted_data) > 0:
-            inserted = inserted_data[0]
-        elif isinstance(inserted_data, dict):
-            inserted = inserted_data
-
-        # Some PostgREST setups may not return representation; fallback to lookup
-        if not inserted:
-            requery_resp = (
-                db
-                .table("content_jobs")
-                .select("id, status")
-                .eq("module_id", module_id)
-                .order("id", desc=True)
-                .limit(1)
+            inserted_resp = (
+                db.table("content_jobs")
+                .insert({"module_id": module_id, "status": "pending"})
                 .execute()
             )
-            requery_data = getattr(requery_resp, "data", None)
-            if isinstance(requery_data, list) and len(requery_data) > 0:
-                inserted = requery_data[0]
+            inserted_data = getattr(inserted_resp, "data", None)
+            inserted_id = inserted_data[0].get("id") if (isinstance(inserted_data, list) and inserted_data) else None
+
+            return JSONResponse(content={
+                "started": True,
+                "module_id": module_id,
+                "job_id": inserted_id,
+                "job_status": "pending",
+                "sync": True,
+            })
+
+        # Offload RAG ingestion and content job trigger to distributed ARQ queue
+        from utils.ai_job_manager import create_ai_job
+        from utils.arq_client import enqueue_job
+
+        job_id = await create_ai_job(
+            job_type="content_generation",
+            user_id=user_id,
+            params={"moduleId": module_id},
+        )
+
+        await enqueue_job(
+            "run_ai_content_generation_task",
+            job_id,
+            user_id,
+            module_id,
+        )
 
         return JSONResponse(content={
             "started": True,
             "module_id": module_id,
-            "job_id": (inserted.get("id") if inserted else None),
-            "job_status": (inserted.get("status") if inserted and inserted.get("status") else "pending"),
-        })
+            "job_id": job_id,
+            "job_status": "pending",
+            "message": "Content generation and RAG ingestion queued in background worker",
+        }, status_code=202)
 
     except Exception as error:
         print("start-content-generation error:", error)

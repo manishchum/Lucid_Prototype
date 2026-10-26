@@ -1597,24 +1597,52 @@ async def POST(req: Request):
             )
 
         print(
-            "[GPT-VIDEO] Starting generation for:",
+            "[GPT-VIDEO] Received video request for:",
             moduleId
         )
 
-        urls = await generateVideo(moduleId)
+        # Allow synchronous execution if explicitly requested (e.g., debug or script fallback)
+        is_sync = req.query_params.get("sync", "").lower() in ("true", "1") or body.get("sync") is True
+        if is_sync:
+            urls = await generateVideo(moduleId)
+            return JSONResponse({
+                "videoUrl": urls.get("videoUrl"),
+                "videoUrls": urls.get("videoUrls", {}),
+                "videoUrlHinglish": urls.get(
+                    "videoUrls",
+                    {}
+                ).get("hinglish")
+            })
+
+        user_id = req.headers.get("X-User-ID") or body.get("user_id")
+
+        # Offload heavy video rendering pipeline to ARQ background worker
+        from utils.ai_job_manager import create_ai_job
+        from utils.arq_client import enqueue_job
+
+        job_id = await create_ai_job(
+            job_type="video_generation",
+            user_id=user_id,
+            params={"processed_module_id": moduleId},
+        )
+
+        await enqueue_job(
+            "run_ai_video_generation_task",
+            job_id,
+            user_id,
+            moduleId,
+        )
 
         return JSONResponse({
-            "videoUrl": urls.get("videoUrl"),
-            "videoUrls": urls.get("videoUrls", {}),
-            "videoUrlHinglish": urls.get(
-                "videoUrls",
-                {}
-            ).get("hinglish")
-        })
+            "job_id": job_id,
+            "module_id": moduleId,
+            "status": "pending",
+            "message": "Video generation queued in background worker",
+        }, status_code=202)
 
     except Exception as e:
         print(
-            "[GPT-VIDEO] Video generation failed:",
+            "[GPT-VIDEO] Video generation request failed:",
             e
         )
 
@@ -1625,3 +1653,14 @@ async def POST(req: Request):
             },
             status_code=500
         )
+
+
+@router.get("/gpt-video/status/{job_id}")
+async def get_video_generation_status(job_id: str):
+    """Poll video generation status and download URLs."""
+    from utils.ai_job_manager import get_ai_job
+    job = await get_ai_job(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    return JSONResponse(job)
+

@@ -1,5 +1,6 @@
 from utils.auth import RequestAuth, get_request_auth_required
 from fastapi import APIRouter, HTTPException, Header, Query, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import google.generativeai as genai
@@ -479,13 +480,8 @@ async def get_sprint_image_url(
     return {"image_url": result["data"]}
 
 
-@router.post("/generate-email")
-async def generate_email(
-    request: GenerateEmailRequest,
-    auth_ctx: RequestAuth = Depends(get_request_auth_required),
-):
-    user_id = auth_ctx.user_id
-    """Use Gemini to draft a nudge / encouragement email."""
+def build_email_draft_content(request: GenerateEmailRequest) -> Dict[str, str]:
+    """Helper that invokes Gemini to draft email content and renders responsive HTML."""
     sub_modules_text = "\n".join(f"  - {t}" for t in request.sub_module_titles)
     event_date = (
         f"{request.scheduled_date} at {request.scheduled_time}"
@@ -803,7 +799,56 @@ Engagement question: {request.engagement_question or "none"}
 </body>
 </html>"""
 
-    return {"email": {"subject": subject, "body": html_body}}
+    return {"subject": subject, "body": html_body}
+
+
+@router.post("/generate-email")
+async def generate_email(
+    request: GenerateEmailRequest,
+    sync: bool = Query(False, description="Whether to execute synchronously (default: false via ARQ queue)"),
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    user_id = auth_ctx.user_id
+    """Draft a nudge / encouragement email (queued in ARQ by default to prevent HTTP timeouts)."""
+    if sync:
+        email_data = build_email_draft_content(request)
+        return {"email": email_data}
+
+    from utils.ai_job_manager import create_ai_job
+    from utils.arq_client import enqueue_job
+
+    job_params = request.dict() if hasattr(request, "dict") else request.model_dump()
+    job_id = await create_ai_job(
+        job_type="email_generation",
+        user_id=user_id,
+        params=job_params,
+    )
+
+    await enqueue_job(
+        "run_ai_email_generation_task",
+        job_id,
+        user_id,
+        job_params,
+    )
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job_id,
+            "status": "pending",
+            "message": "Email generation queued in background worker",
+        }
+    )
+
+
+@router.get("/generate-email/status/{job_id}")
+async def get_email_generation_status(job_id: str):
+    """Convenience endpoint to poll email generation status."""
+    from utils.ai_job_manager import get_ai_job
+    job = await get_ai_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @router.post("/generate-whatsapp")
@@ -1029,6 +1074,7 @@ async def schedule_email(
     and send emails when the scheduled time arrives.
     
     This ensures:
+    
     - No data loss on server restart
     - Multi-worker support (different instances can process emails)
     - Easier monitoring and management of scheduled emails

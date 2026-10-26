@@ -598,7 +598,33 @@ export default function AdminDispatchCenterPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        const geminiEmail = data.email;
+        let geminiEmail = data.email;
+
+        // If returned an asynchronous job ID, poll until completed
+        if (!geminiEmail && data.job_id) {
+          const jobId = data.job_id;
+          const pollStart = Date.now();
+          const maxWaitMs = 90000; // 90 seconds max
+
+          while (Date.now() - pollStart < maxWaitMs) {
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            const statusRes = await fetchWithAuth(`${API_BASE}/api/jobs/${jobId}`, {
+              headers: { 'X-User-ID': currentUser.user_id },
+            });
+            if (statusRes.ok) {
+              const jobStatus = await statusRes.json();
+              if (jobStatus.status === 'completed' && jobStatus.result?.email) {
+                geminiEmail = jobStatus.result.email;
+                break;
+              } else if (jobStatus.status === 'failed') {
+                throw new Error(jobStatus.error || 'Email generation failed in worker');
+              }
+            }
+          }
+          if (!geminiEmail) {
+            throw new Error('Email generation timed out while processing in background');
+          }
+        }
 
         // If content blocks are selected, fetch the raw flashcard/audio HTML and
         // inject it into the Gemini email — so the final email has BOTH the
