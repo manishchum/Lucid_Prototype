@@ -142,13 +142,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code = 500
 
     # Ensure CORS headers strictly match allowed origins (prevents reflecting arbitrary untrusted origins)
+    headers = {}
     origin = request.headers.get("origin", "")
     norm_origin = origin.rstrip("/") if origin else ""
-    cors_origin = origin if norm_origin in CORS_ALLOWED_ORIGINS else FRONTEND_URL
-    headers = {
-        "Access-Control-Allow-Origin": cors_origin,
-        "Access-Control-Allow-Credentials": "true",
-    }
+    if norm_origin and norm_origin in CORS_ALLOWED_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
 
     return JSONResponse(status_code=status_code, content=content, headers=headers)
 
@@ -283,6 +285,12 @@ async def shutdown_event():
     try:
         from scheduler import scheduler
         await scheduler.shutdown()
+    except Exception:
+        pass
+
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
     except Exception:
         pass
 
