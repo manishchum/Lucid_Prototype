@@ -36,6 +36,9 @@ type AddonKey =
   | "lucid_studio_textual"
   | "lucid_studio_podcast"
   | "lucid_studio_video"
+  | "lucid_studio_video_slides"
+  | "lucid_studio_video_interactive"
+  | "interactive_video"
   | "lucid_studio_mindmap"
   | "lucid_studio_infographic"
   | "lucid_studio_flashcard"
@@ -104,6 +107,27 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     description: "Enable Lucid Studio video generation.",
     category: "core",
     parentId: "lucid_studio",
+  },
+  {
+    id: "lucid_studio_video_slides",
+    label: "Presentation Video",
+    description: "Standard slide-based presentation video.",
+    category: "core",
+    parentId: "lucid_studio_video",
+  },
+  {
+    id: "lucid_studio_video_interactive",
+    label: "Interactive Video",
+    description: "Interactive video with structured segments, quizzes, and simulations.",
+    category: "core",
+    parentId: "lucid_studio_video",
+  },
+  {
+    id: "interactive_video",
+    label: "Interactive Video (Tag)",
+    description: "Tag alias for interactive video generation.",
+    category: "core",
+    parentId: "lucid_studio_video",
   },
   {
     id: "lucid_studio_mindmap",
@@ -261,6 +285,12 @@ const LUCID_STUDIO_CHILDREN: AddonKey[] = [
   "lucid_studio_flashcard",
 ]
 
+const LUCID_STUDIO_VIDEO_CHILDREN: AddonKey[] = [
+  "lucid_studio_video_slides",
+  "lucid_studio_video_interactive",
+  "interactive_video",
+]
+
 const CHAT_IN_STUDIO_CHILDREN: AddonKey[] = [
   "chat_in_studio_textual",
   "chat_in_studio_speech",
@@ -375,9 +405,14 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
 
   const hasTaskChild = TASK_MANAGEMENT_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
   const hasRolePlayChild = ROLE_PLAY_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
+  const hasVideoChild = LUCID_STUDIO_VIDEO_CHILDREN.some((child) => effectiveAddons.has(child as AddonKey))
 
-  if (hasLucidChild) {
+  if (hasLucidChild || hasVideoChild) {
     effectiveAddons.add("lucid_studio")
+  }
+
+  if (hasVideoChild) {
+    effectiveAddons.add("lucid_studio_video")
   }
 
   if (hasChatChild) {
@@ -394,6 +429,17 @@ function getEffectiveAddons(company?: CompanyRecord | null): AddonKey[] {
 
   if (effectiveAddons.has("role_play") && !effectiveAddons.has("role_play_openai") && !effectiveAddons.has("role_play_gemini")) {
     effectiveAddons.add("role_play_openai")
+  }
+
+  if (effectiveAddons.has("lucid_studio_video") && !effectiveAddons.has("lucid_studio_video_slides") && !effectiveAddons.has("lucid_studio_video_interactive") && !effectiveAddons.has("interactive_video")) {
+    effectiveAddons.add("lucid_studio_video_slides")
+  }
+
+  // Keep interactive_video and lucid_studio_video_interactive in sync
+  if (effectiveAddons.has("interactive_video") && !effectiveAddons.has("lucid_studio_video_interactive")) {
+    effectiveAddons.add("lucid_studio_video_interactive")
+  } else if (effectiveAddons.has("lucid_studio_video_interactive") && !effectiveAddons.has("interactive_video")) {
+    effectiveAddons.add("interactive_video")
   }
 
   return Array.from(effectiveAddons)
@@ -448,7 +494,7 @@ export default function CompanyAccessPage() {
   const [success, setSuccess] = useState("")
 
   useEffect(() => {
-    if (!authLoading && (!user || !isDeveloper)) {
+    if (!authLoading && (!user || !isSDeveloper)) {
       router.replace("/admin/dashboard/analytics")
     }
   }, [authLoading, user, isDeveloper, router])
@@ -519,6 +565,10 @@ export default function CompanyAccessPage() {
         if (LUCID_STUDIO_CHILDREN.includes(addon)) {
           next.add("lucid_studio")
         }
+        if (LUCID_STUDIO_VIDEO_CHILDREN.includes(addon)) {
+          next.add("lucid_studio_video")
+          next.add("lucid_studio")
+        }
         if (CHAT_IN_STUDIO_CHILDREN.includes(addon)) {
           next.add("chat_in_studio")
         }
@@ -537,10 +587,28 @@ export default function CompanyAccessPage() {
           next.delete("role_play_openai")
         }
 
+        // Mutually exclusive: lucid_studio_video_slides vs lucid_studio_video_interactive / interactive_video
+        if (addon === "lucid_studio_video_slides") {
+          next.delete("lucid_studio_video_interactive")
+          next.delete("interactive_video")
+        }
+        if (addon === "lucid_studio_video_interactive" || addon === "interactive_video") {
+          next.delete("lucid_studio_video_slides")
+          next.add("lucid_studio_video_interactive")
+          next.add("interactive_video")
+        }
+
         // Auto-enable default engine variant if parent role_play is toggled on
         if (addon === "role_play") {
           if (!next.has("role_play_openai") && !next.has("role_play_gemini")) {
             next.add("role_play_openai")
+          }
+        }
+
+        // Auto-enable default video mode variant if parent lucid_studio_video is toggled on
+        if (addon === "lucid_studio_video") {
+          if (!next.has("lucid_studio_video_slides") && !next.has("lucid_studio_video_interactive") && !next.has("interactive_video")) {
+            next.add("lucid_studio_video_slides")
           }
         }
 
@@ -555,6 +623,16 @@ export default function CompanyAccessPage() {
         next.delete(addon)
         if (addon === "lucid_studio") {
           LUCID_STUDIO_CHILDREN.forEach((child) => next.delete(child))
+          LUCID_STUDIO_VIDEO_CHILDREN.forEach((child) => next.delete(child))
+        }
+        if (addon === "lucid_studio_video") {
+          LUCID_STUDIO_VIDEO_CHILDREN.forEach((child) => next.delete(child))
+        }
+        if (addon === "lucid_studio_video_interactive") {
+          next.delete("interactive_video")
+        }
+        if (addon === "interactive_video") {
+          next.delete("lucid_studio_video_interactive")
         }
         if (addon === "chat_in_studio") {
           CHAT_IN_STUDIO_CHILDREN.forEach((child) => next.delete(child))
@@ -918,7 +996,7 @@ export default function CompanyAccessPage() {
                       feature.id === "lucid_studio" ||
                       feature.id === "lucid_studio_textual";
 
-                    if (feature.parentId === "task_management" || feature.parentId === "chat_in_studio" || feature.parentId === "role_play") return null
+                    if (feature.parentId === "task_management" || feature.parentId === "chat_in_studio" || feature.parentId === "role_play" || feature.parentId === "lucid_studio_video") return null
 
                     return (
                       <div
@@ -1041,6 +1119,64 @@ export default function CompanyAccessPage() {
                                 </label>
                               )
                             })}
+                          </div>
+                        )}
+
+                        {/* Inline sub-toggles for Video Generation Mode */}
+                        {feature.id === "lucid_studio_video" && checked && (
+                          <div className="mt-4 pt-4 border-t border-slate-800/80 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                                Video Generation Mode
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="border-cyan-500/30 bg-cyan-950/40 text-[10px] text-cyan-300 font-normal py-0"
+                              >
+                                Mutually Exclusive
+                              </Badge>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {FEATURE_DEFINITIONS.filter(f => f.parentId === "lucid_studio_video" && f.id !== "interactive_video").map(childFeature => {
+                                const childChecked = draftAddons.includes(childFeature.id)
+
+                                return (
+                                  <label
+                                    key={childFeature.id}
+                                    className={`relative flex items-start gap-2.5 p-3 rounded-2xl border text-xs cursor-pointer transition-all ${
+                                      childChecked
+                                        ? "bg-cyan-500/15 border-cyan-400/60 text-white shadow-sm ring-1 ring-cyan-400/40"
+                                        : "bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:border-slate-700"
+                                    }`}
+                                  >
+                                    <input
+                                      type="radio"
+                                      name="video_mode_toggle"
+                                      className="sr-only"
+                                      checked={childChecked}
+                                      onChange={() => {
+                                        handleToggleAddon(childFeature.id, true)
+                                      }}
+                                    />
+                                    <div className={`mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
+                                      childChecked
+                                        ? "border-cyan-400 bg-cyan-400/20"
+                                        : "border-slate-600 bg-slate-800/50"
+                                    }`}>
+                                      {childChecked && (
+                                        <div className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-semibold leading-tight text-slate-100">{childFeature.label}</p>
+                                      <p className="mt-1 text-[11px] text-slate-400 leading-snug">
+                                        {childFeature.description}
+                                      </p>
+                                    </div>
+                                  </label>
+                                )
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>

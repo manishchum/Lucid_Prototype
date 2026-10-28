@@ -313,6 +313,9 @@ async def update_company_route(
         "lucid_studio_textual",
         "lucid_studio_podcast",
         "lucid_studio_video",
+        "lucid_studio_video_slides",
+        "lucid_studio_video_interactive",
+        "interactive_video",
         "lucid_studio_mindmap",
         "lucid_studio_infographic",
         "lucid_studio_flashcard",
@@ -388,11 +391,22 @@ async def update_company_route(
             if (normalized in allowed_addons or normalized in allowed_language_codes) and normalized not in normalized_addons:
                 normalized_addons.append(normalized)
 
+        # Ensure the parent lucid_studio_video addon is present when any child video feature is enabled.
+        if any(child in normalized_addons for child in (
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
+        )) and "lucid_studio_video" not in normalized_addons:
+            normalized_addons.insert(0, "lucid_studio_video")
+
         # Ensure the parent lucid_studio addon is present when any child Lucid Studio feature is enabled.
         if any(child in normalized_addons for child in (
             "lucid_studio_textual",
             "lucid_studio_podcast",
             "lucid_studio_video",
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
             "lucid_studio_mindmap",
             "lucid_studio_infographic",
             "lucid_studio_flashcard",
@@ -431,6 +445,29 @@ async def update_company_route(
                 detail="Only one of 'role_play_openai' or 'role_play_gemini' can be enabled at a time."
             )
 
+        # Ensure mutually exclusive selection between lucid_studio_video_slides and lucid_studio_video_interactive.
+        has_interactive = "lucid_studio_video_interactive" in normalized_addons or "interactive_video" in normalized_addons
+        has_slides = "lucid_studio_video_slides" in normalized_addons
+        if has_slides and has_interactive:
+            raise HTTPException(
+                status_code=400,
+                detail="Only one video generation mode ('lucid_studio_video_slides' or 'lucid_studio_video_interactive') can be enabled at a time."
+            )
+
+        # If lucid_studio_video is enabled without a child mode, default to lucid_studio_video_slides
+        if "lucid_studio_video" in normalized_addons and not any(child in normalized_addons for child in (
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
+        )):
+            normalized_addons.append("lucid_studio_video_slides")
+
+        # Keep interactive_video and lucid_studio_video_interactive in sync
+        if "interactive_video" in normalized_addons and "lucid_studio_video_interactive" not in normalized_addons:
+            normalized_addons.append("lucid_studio_video_interactive")
+        elif "lucid_studio_video_interactive" in normalized_addons and "interactive_video" not in normalized_addons:
+            normalized_addons.append("interactive_video")
+
         update_data["subscription_addons"] = normalized_addons
 
     if "subscription_tier" in update_data or "subscription_addons" in update_data or "platform_type" in update_data:
@@ -443,10 +480,14 @@ async def update_company_route(
 
     result = await update_company(user_id, company_id, update_data)
     
-    redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
-    redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
-    redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
-    delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
+    try:
+        redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
+        redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
+        redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
+        delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
+    except Exception as e:
+        print(f"[Redis] Cache invalidation warning for company {company_id}: {e}")
+
     # Unwrap service layer response
     company = result.get("data") or None
     
