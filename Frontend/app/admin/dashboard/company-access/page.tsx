@@ -494,7 +494,7 @@ export default function CompanyAccessPage() {
   const [success, setSuccess] = useState("")
 
   useEffect(() => {
-    if (!authLoading && (!user || !isSDeveloper)) {
+    if (!authLoading && (!user || !isDeveloper)) {
       router.replace("/admin/dashboard/analytics")
     }
   }, [authLoading, user, isDeveloper, router])
@@ -864,8 +864,8 @@ export default function CompanyAccessPage() {
                             setSelectedCompanyId(company.company_id)
                           }}
                           className={`w-full rounded-2xl border px-4 py-4 text-left transition-all ${selected
-                              ? "border-slate-950 bg-slate-950 text-white shadow-lg"
-                              : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
+                            ? "border-slate-950 bg-slate-950 text-white shadow-lg"
+                            : "border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50"
                             }`}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -942,33 +942,30 @@ export default function CompanyAccessPage() {
                     <button
                       type="button"
                       onClick={() => setDraftPlatformType("web")}
-                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
-                        draftPlatformType === "web"
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${draftPlatformType === "web"
                           ? "border-slate-950 bg-slate-950 text-white shadow-sm"
                           : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                        }`}
                     >
                       Web
                     </button>
                     <button
                       type="button"
                       onClick={() => setDraftPlatformType("mobile")}
-                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
-                        draftPlatformType === "mobile"
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${draftPlatformType === "mobile"
                           ? "border-slate-950 bg-slate-950 text-white shadow-sm"
                           : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                        }`}
                     >
                       Mobile
                     </button>
                     <button
                       type="button"
                       onClick={() => setDraftPlatformType("both")}
-                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${
-                        draftPlatformType === "both"
+                      className={`h-10 rounded-xl text-xs font-semibold transition-all border ${draftPlatformType === "both"
                           ? "border-slate-950 bg-slate-950 text-white shadow-sm"
                           : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
+                        }`}
                     >
                       Both
                     </button>
@@ -1001,9 +998,8 @@ export default function CompanyAccessPage() {
                     return (
                       <div
                         key={feature.id}
-                        className={`rounded-3xl border p-5 transition-all ${
-                          checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
-                        } ${isLucidChild ? "md:ml-8" : ""}`}
+                        className={`rounded-3xl border p-5 transition-all ${checked ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white"
+                          } ${isLucidChild ? "md:ml-8" : ""}`}
                       >
                         <div className="flex items-start sm:items-center justify-between gap-4">
                           <div className="min-w-0 flex-1">
@@ -1022,17 +1018,17 @@ export default function CompanyAccessPage() {
                               {feature.description}
                             </p>
                           </div>
-                            <Switch
-                              checked={checked}
-                              onCheckedChange={(value) => {
-                                if (!isMandatory) {
-                                  handleToggleAddon(feature.id, Boolean(value))
-                                }
-                              }}
-                              disabled={isMandatory || (isLucidChild && !parentEnabled)}
-                              className="shrink-0"
-                            />
-                          </div>
+                          <Switch
+                            checked={checked}
+                            onCheckedChange={(value) => {
+                              if (!isMandatory) {
+                                handleToggleAddon(feature.id, Boolean(value))
+                              }
+                            }}
+                            disabled={isMandatory || (isLucidChild && !parentEnabled)}
+                            className="shrink-0"
+                          />
+                        </div>
                         {isLucidChild && !parentEnabled && (
                           <p className="mt-2 text-xs text-slate-500">Enable Lucid Studio to unlock this feature.</p>
                         )}
@@ -1100,11 +1096,10 @@ export default function CompanyAccessPage() {
                               return (
                                 <label
                                   key={childFeature.id}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${
-                                    childChecked
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium cursor-pointer transition-colors ${childChecked
                                       ? "bg-cyan-500/20 border-cyan-400/50 text-cyan-200"
                                       : "bg-white/10 border-white/20 text-slate-300 hover:bg-white/20"
-                                  }`}
+                                    }`}
                                 >
                                   <input
                                     type="radio"
@@ -1143,11 +1138,10 @@ export default function CompanyAccessPage() {
                                 return (
                                   <label
                                     key={childFeature.id}
-                                    className={`relative flex items-start gap-2.5 p-3 rounded-2xl border text-xs cursor-pointer transition-all ${
-                                      childChecked
+                                    className={`relative flex items-start gap-2.5 p-3 rounded-2xl border text-xs cursor-pointer transition-all ${childChecked
                                         ? "bg-cyan-500/15 border-cyan-400/60 text-white shadow-sm ring-1 ring-cyan-400/40"
                                         : "bg-slate-900/60 border-slate-800 text-slate-300 hover:bg-slate-900 hover:border-slate-700"
-                                    }`}
+                                      }`}
                                   >
                                     <input
                                       type="radio"
@@ -1158,11 +1152,10 @@ export default function CompanyAccessPage() {
                                         handleToggleAddon(childFeature.id, true)
                                       }}
                                     />
-                                    <div className={`mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
-                                      childChecked
+                                    <div className={`mt-0.5 h-4 w-4 rounded-full border flex items-center justify-center shrink-0 transition-colors ${childChecked
                                         ? "border-cyan-400 bg-cyan-400/20"
                                         : "border-slate-600 bg-slate-800/50"
-                                    }`}>
+                                      }`}>
                                       {childChecked && (
                                         <div className="h-1.5 w-1.5 rounded-full bg-cyan-300" />
                                       )}
@@ -1320,11 +1313,10 @@ export default function CompanyAccessPage() {
               <button
                 type="button"
                 onClick={() => setPreviewModalPlatform("web")}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
-                  previewModalPlatform === "web"
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${previewModalPlatform === "web"
                     ? "bg-white text-slate-950 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 <Globe className="h-3.5 w-3.5 text-blue-600" />
                 <span>Web Based</span>
@@ -1332,11 +1324,10 @@ export default function CompanyAccessPage() {
               <button
                 type="button"
                 onClick={() => setPreviewModalPlatform("mobile")}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
-                  previewModalPlatform === "mobile"
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${previewModalPlatform === "mobile"
                     ? "bg-white text-slate-950 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 <Smartphone className="h-3.5 w-3.5 text-emerald-600" />
                 <span>Mobile Based</span>
@@ -1344,11 +1335,10 @@ export default function CompanyAccessPage() {
               <button
                 type="button"
                 onClick={() => setPreviewModalPlatform("both")}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
-                  previewModalPlatform === "both"
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${previewModalPlatform === "both"
                     ? "bg-white text-slate-950 shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 <Layers className="h-3.5 w-3.5 text-purple-600" />
                 <span>Both (Web & App)</span>
