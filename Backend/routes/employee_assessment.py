@@ -188,12 +188,31 @@ async def create_assessment(
     target_user = request.user_id or auth_ctx.user_id
     if target_user:
         invalidate_dashboard_cache(target_user)
-    
+        try:
+            from utils.notifications.workflow_engine import WorkflowEngine
+            import asyncio
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="ASSESSMENT_COMPLETED",
+                    user_id=target_user,
+                    payload={
+                        "assessment_id": request.assessment_id,
+                        "score": request.score or 0,
+                        "max_score": request.max_score or 100,
+                        "feedback": request.feedback,
+                        "target_screen": "Reports",
+                    },
+                    company_id=auth_ctx.company_id,
+                )
+            )
+        except Exception:
+            pass
+
     # Unwrap service layer response
     assessment = result.get("data") or None
     if assessment and isinstance(assessment, list):
         assessment = assessment[0]
-    
+
     return {
         "success": True,
         "data": assessment,

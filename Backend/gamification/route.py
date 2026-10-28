@@ -238,7 +238,59 @@ async def record_progress(
     new_badges = []
     if request.completed:
         new_badges = check_and_award_badges(user_id=auth.user_id, company_id=auth.company_id)
-        
+        try:
+            from utils.notifications.workflow_engine import WorkflowEngine
+            import asyncio
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="DRILL_COMPLETED",
+                    user_id=auth.user_id,
+                    payload={
+                        "sprint_id": request.sprint_id,
+                        "drill_id": request.drill_id,
+                        "earned_xp": earned_xp,
+                        "streak_multiplier": multiplier,
+                        "target_screen": "Sprint",
+                    },
+                    company_id=auth.company_id,
+                )
+            )
+
+            # Trigger BADGE_UNLOCKED for any newly awarded badges
+            if new_badges:
+                for b in new_badges:
+                    b_name = b.get("name") if isinstance(b, dict) else str(b)
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="BADGE_UNLOCKED",
+                            user_id=auth.user_id,
+                            payload={
+                                "badge_name": b_name,
+                                "earned_xp": earned_xp,
+                                "target_screen": "Profile",
+                            },
+                            company_id=auth.company_id,
+                        )
+                    )
+
+            # Trigger STREAK_MILESTONE if learner reaches milestones (3, 7, 14, 30, etc.)
+            curr_streak = (res or {}).get("current_streak") or 0
+            if curr_streak in [3, 7, 14, 30, 50, 100]:
+                asyncio.create_task(
+                    WorkflowEngine.trigger_lifecycle(
+                        trigger_lifecycle="STREAK_MILESTONE",
+                        user_id=auth.user_id,
+                        payload={
+                            "streak_days": curr_streak,
+                            "earned_xp": earned_xp,
+                            "target_screen": "Home",
+                        },
+                        company_id=auth.company_id,
+                    )
+                )
+        except Exception:
+            pass
+
     return {
         "status": "success", 
         "data": {

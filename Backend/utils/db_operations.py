@@ -561,6 +561,12 @@ async def assign_user_role(requesting_user_id: str, target_user_id: str, role_da
         }
 
         resp = supabase.table('user_role_assignments').insert(assignment).execute()
+        try:
+            from utils.redis_client import invalidate_user_caches, redis_client
+            invalidate_user_caches(target_user_id)
+            redis_client.delete(f"user_max_role_level:{target_user_id}")
+        except Exception as cache_err:
+            print(f"[assign_user_role] Cache invalidation warning: {cache_err}")
         return {"data": resp.data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}

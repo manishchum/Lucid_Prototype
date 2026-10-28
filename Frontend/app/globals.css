@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500;1,600;1,700&family=Instrument+Serif:ital@1&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Playfair+Display:ital,wght@1,400;1,500;1,600;1,700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -164,11 +166,15 @@
 }
 
 /* Hide scrollbar but keep scrolling */
-.custom-scrollbar {
+.custom-scrollbar,
+.scrollbar-none,
+.no-scrollbar {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE and Edge */
 }
 
-.custom-scrollbar::-webkit-scrollbar {
+.custom-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari */
 }

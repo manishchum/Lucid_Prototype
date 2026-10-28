@@ -1,10 +1,12 @@
+import asyncio
 import os
 import secrets
 import hmac
 import logging
 import httpx
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 from utils.redis_client import redis_client
+from utils.logging import mask_phone_number, sanitize_text
 
 logger = logging.getLogger("lucid.otp_service")
 
@@ -35,13 +37,14 @@ def check_resend_cooldown(phone: str) -> Tuple[bool, int]:
     Returns (is_cooldown_active, remaining_seconds).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     cooldown_key = f"otp_cooldown:{normalized_phone}"
     try:
         ttl = redis_client.ttl(cooldown_key)
         if ttl > 0:
             return True, ttl
     except Exception as e:
-        logger.warning(f"Error checking OTP cooldown for {normalized_phone}: {e}")
+        logger.warning(f"Error checking OTP cooldown for {masked_phone}: {e}")
     return False, 0
 
 
@@ -51,6 +54,7 @@ def check_hourly_limit(phone: str) -> Tuple[bool, int]:
     Returns (is_limit_exceeded, remaining_seconds_until_reset).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     hourly_key = f"otp_hourly:{normalized_phone}"
     try:
         current_count = redis_client.get(hourly_key)
@@ -58,7 +62,7 @@ def check_hourly_limit(phone: str) -> Tuple[bool, int]:
             ttl = redis_client.ttl(hourly_key)
             return True, max(ttl, 1)
     except Exception as e:
-        logger.warning(f"Error checking OTP hourly limit for {normalized_phone}: {e}")
+        logger.warning(f"Error checking OTP hourly limit for {masked_phone}: {e}")
     return False, 0
 
 
@@ -68,6 +72,7 @@ def generate_and_store_otp(phone: str) -> str:
     Also tracks 30s resend cooldown, 1-hr rate limit, and resets attempt counter.
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     
     # Cryptographically secure random 6-digit generation (secrets module)
     otp_code = str(secrets.randbelow(900000) + 100000)
@@ -88,9 +93,9 @@ def generate_and_store_otp(phone: str) -> str:
         else:
             redis_client.incr(hourly_key)
 
-        logger.info(f"Generated secure OTP for {normalized_phone}")
+        logger.info(f"Generated secure OTP for {masked_phone}")
     except Exception as e:
-        logger.error(f"Failed to store OTP in Redis for {normalized_phone}: {e}")
+        logger.error(f"Failed to store OTP in Redis for {masked_phone}: {e}")
         raise RuntimeError("Failed to store OTP in cache")
 
     return otp_code
@@ -103,6 +108,7 @@ def verify_otp_code(phone: str, code: str) -> Tuple[bool, str]:
     Returns (is_valid, reason_code).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     otp_key = f"otp:{normalized_phone}"
     attempts_key = f"otp_attempts:{normalized_phone}"
 
@@ -141,7 +147,7 @@ def verify_otp_code(phone: str, code: str) -> Tuple[bool, str]:
             return False, f"INVALID_CODE_{MAX_VERIFY_ATTEMPTS - new_attempts}_REMAINING"
 
     except Exception as e:
-        logger.error(f"Error verifying OTP in Redis for {normalized_phone}: {e}")
+        logger.error(f"Error verifying OTP in Redis for {masked_phone}: {e}")
         return False, "VERIFICATION_ERROR"
 
 
@@ -157,9 +163,77 @@ def get_dovesoft_client() -> httpx.AsyncClient:
     return _DOVESOFT_CLIENT
 
 
-async def send_dovesoft_sms(phone: str, otp_code: str) -> Tuple[bool, str]:
+class SMSDeliveryResult:
+    """Encapsulates the result of an SMS delivery attempt with dual unpacking support."""
+    def __init__(
+        self,
+        success: bool,
+        message: str,
+        status_code: Optional[int] = None,
+        response_text: Optional[str] = None
+    ):
+        self.success = success
+        self.message = message
+        self.status_code = status_code
+        self.response_text = response_text
+
+    def __iter__(self):
+        # Backwards-compatibility: allows unpacking as `success, message = await send_dovesoft_sms(...)`
+        yield self.success
+        yield self.message
+
+    def __repr__(self) -> str:
+        return f"SMSDeliveryResult(success={self.success}, status_code={self.status_code}, message={self.message!r})"
+
+
+def mask_phone_number(phone: str) -> str:
+    """Masks phone number for privacy and audit logs (e.g., +91 98765 ****10)."""
+    digits = "".join(filter(str.isdigit, phone))
+    if len(digits) >= 10:
+        return f"+{digits[:-10]} {digits[-10:-6]}****{digits[-2:]}" if len(digits) > 10 else f"{digits[:4]}****{digits[-2:]}"
+    return "****"
+
+
+async def record_sms_delivery_log(
+    phone: str,
+    status: str,
+    status_code: Optional[int] = None,
+    response_body: Optional[str] = None,
+    error_message: Optional[str] = None,
+    attempt_number: int = 1,
+    max_attempts: int = 2,
+    provider: str = "dovesoft",
+) -> None:
+    """
+    Persists an SMS delivery attempt / failure log to Supabase for auditing and support visibility.
+    Executes in a threadpool to ensure non-blocking, asynchronous execution.
+    """
+    try:
+        from utils.supabase_client import get_supabase_admin
+        supabase_admin = get_supabase_admin()
+        masked = mask_phone_number(phone)
+        payload = {
+            "phone": phone,
+            "phone_masked": masked,
+            "provider": provider,
+            "status": status,
+            "status_code": status_code,
+            "response_body": response_body[:1000] if response_body else None,
+            "error_message": error_message[:1000] if error_message else None,
+            "attempt_number": attempt_number,
+            "max_attempts": max_attempts,
+        }
+        await asyncio.to_thread(
+            lambda: supabase_admin.table("sms_delivery_logs").insert(payload).execute()
+        )
+    except Exception as exc:
+        logger.error(f"[SMS Audit] Failed to record delivery log to Supabase: {exc}")
+
+
+async def send_dovesoft_sms(phone: str, otp_code: str) -> SMSDeliveryResult:
     """
     Sends OTP via DoveSoft SMS API using connection pooling.
+    Returns SMSDeliveryResult supporting both tuple unpacking and attribute access.
     """
     api_url = os.getenv("DOVESOFT_API_URL", "https://api.dovesoft.io/api/json/sendsms/")
     sender_id = os.getenv("DOVESOFT_SENDER_ID", "")
@@ -190,12 +264,133 @@ async def send_dovesoft_sms(phone: str, otp_code: str) -> Tuple[bool, str]:
     try:
         client = get_dovesoft_client()
         response = await client.post(api_url, json=payload, headers=headers)
-        logger.info(f"DoveSoft API response status={response.status_code} body={response.text}")
+        logger.info(f"DoveSoft API response status={response.status_code}")
         if response.status_code == 200:
-            return True, f"SMS status {response.status_code}: {response.text}"
+            return SMSDeliveryResult(
+                True,
+                f"SMS status {response.status_code}: {response.text}",
+                response.status_code,
+                response.text
+            )
         else:
-            return False, f"DoveSoft API returned status code {response.status_code}: {response.text}"
+            return SMSDeliveryResult(
+                False,
+                f"DoveSoft API returned status code {response.status_code}: {response.text}",
+                response.status_code,
+                response.text
+            )
     except Exception as e:
         print(f"[DOVESOFT ERROR] Exception: {e}")
         logger.error(f"Exception sending SMS via DoveSoft: {e}")
-        return False, str(e)
+        return SMSDeliveryResult(False, str(e), None, None)
+
+
+async def send_sms_otp_task(
+    ctx: Optional[dict],
+    phone: str,
+    otp_code: str,
+    max_attempts: int = 2,
+) -> bool:
+    """
+    ARQ & Background worker task to send SMS OTP via DoveSoft with:
+    1. Invalidation Guard: Prevents out-of-order OTP poisoning by checking if Redis still has this exact OTP.
+    2. Fast retry (1 retry after 3s) if DoveSoft fails or times out.
+    3. Comprehensive audit logging to sms_delivery_logs table for support visibility.
+    """
+    normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
+
+    for attempt in range(1, max_attempts + 1):
+        # 1. Invalidation Guard: Ensure this OTP is still the active code in Redis
+        try:
+            current_otp = redis_client.get(f"otp:{normalized_phone}")
+            if not current_otp or current_otp != otp_code:
+                logger.info(
+                    f"[SMS OTP] Aborting attempt {attempt}/{max_attempts} for {masked_phone}: "
+                    f"OTP in Redis is no longer active (user requested newer code or already verified)."
+                )
+                await record_sms_delivery_log(
+                    phone=normalized_phone,
+                    status="ABORTED",
+                    error_message="Superseded: User requested a newer OTP or already verified",
+                    attempt_number=attempt,
+                    max_attempts=max_attempts,
+                )
+                return False
+        except Exception as redis_err:
+            logger.warning(f"[SMS OTP] Redis check error during attempt {attempt}: {redis_err}")
+
+        # 2. Execute DoveSoft send
+        res = await send_dovesoft_sms(normalized_phone, otp_code)
+
+        if res.success:
+            logger.info(f"[SMS OTP] Successfully delivered OTP on attempt {attempt}/{max_attempts} to {masked_phone}")
+            await record_sms_delivery_log(
+                phone=normalized_phone,
+                status="SUCCESS",
+                status_code=res.status_code,
+                response_body=res.response_text,
+                attempt_number=attempt,
+                max_attempts=max_attempts,
+            )
+            return True
+
+        # 3. Handle attempt failure
+        logger.warning(
+            f"[SMS OTP] Delivery attempt {attempt}/{max_attempts} failed for {masked_phone}: {res.message}"
+        )
+
+        if attempt < max_attempts:
+            await record_sms_delivery_log(
+                phone=normalized_phone,
+                status="RETRYING",
+                status_code=res.status_code,
+                response_body=res.response_text,
+                error_message=res.message,
+                attempt_number=attempt,
+                max_attempts=max_attempts,
+            )
+            # Tight delay (3s) to prevent race condition with user resending
+            await asyncio.sleep(3)
+        else:
+            logger.error(f"[SMS OTP] Final failure delivering OTP to {masked_phone} after {max_attempts} attempts.")
+            await record_sms_delivery_log(
+                phone=normalized_phone,
+                status="FAILED",
+                status_code=res.status_code,
+                response_body=res.response_text,
+                error_message=res.message,
+                attempt_number=attempt,
+                max_attempts=max_attempts,
+            )
+
+    return False
+
+
+async def dispatch_sms_otp(
+    phone: str,
+    otp_code: str,
+    background_tasks: Optional[Any] = None,
+) -> None:
+    """
+    Dispatches SMS OTP asynchronously:
+    1. First attempts to enqueue into Redis ARQ queue for distributed durable execution.
+    2. If ARQ is unavailable or pool connection fails, seamlessly falls back to FastAPI BackgroundTasks.
+    """
+    normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
+
+    try:
+        from utils.arq_client import enqueue_job
+        job = await enqueue_job("send_sms_otp_task", normalized_phone, otp_code)
+        if job:
+            logger.info(f"[SMS Dispatch] Enqueued ARQ job {job.job_id} for {masked_phone}")
+            return
+    except Exception as arq_err:
+        logger.warning(f"[SMS Dispatch] ARQ enqueue failed or unavailable ({arq_err}); falling back to background_tasks")
+
+    if background_tasks:
+        background_tasks.add_task(send_sms_otp_task, None, normalized_phone, otp_code)
+    else:
+        asyncio.create_task(send_sms_otp_task(None, normalized_phone, otp_code))
+

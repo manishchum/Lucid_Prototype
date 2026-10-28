@@ -49,6 +49,72 @@ def invalidate_redis_unread_count(user_id: str) -> None:
         pass
 
 
+def get_global_notification_settings() -> Dict[str, Any]:
+    """
+    Retrieves global notification policies configured by the Developer role.
+    Caches in Redis for 60 seconds for fast throughput.
+    """
+    cache_key = "settings:global_notifications"
+    try:
+        import json
+        cached = redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
+    try:
+        _db = get_service_supabase_client()
+        res = _db.table("global_notification_settings").select("*").eq("id", "global_default").maybe_single().execute()
+        data = getattr(res, "data", None)
+        if data:
+            try:
+                import json
+                redis_client.setex(cache_key, 60, json.dumps(data))
+            except Exception:
+                pass
+            return data
+    except Exception as e:
+        logger.warning(f"Failed to fetch global notification settings: {e}")
+
+    return {
+        "in_app_enabled": True,
+        "push_enabled": True,
+        "email_enabled": True,
+        "whatsapp_enabled": False,
+        "deadline_reminders_enabled": True,
+        "post_completion_enabled": True,
+        "streak_notifications_enabled": True,
+        "quiet_hours_enabled": False,
+        "quiet_hours_start": "22:00",
+        "quiet_hours_end": "08:00",
+        "max_daily_per_user": 10,
+    }
+
+
+def invalidate_global_notification_settings_cache() -> None:
+    try:
+        redis_client.delete("settings:global_notifications")
+    except Exception:
+        pass
+
+
+def is_in_quiet_hours(start_str: str, end_str: str) -> bool:
+    try:
+        from datetime import datetime, time
+        now = datetime.utcnow().time()
+        s_h, s_m = map(int, (start_str or "22:00").split(":"))
+        e_h, e_m = map(int, (end_str or "08:00").split(":"))
+        start_time = time(s_h, s_m)
+        end_time = time(e_h, e_m)
+        if start_time <= end_time:
+            return start_time <= now <= end_time
+        else:
+            return now >= start_time or now <= end_time
+    except Exception:
+        return False
+
+
 async def dispatch_hybrid_notification(
     user_id: str,
     title: str,
@@ -60,12 +126,42 @@ async def dispatch_hybrid_notification(
 ) -> Dict[str, Any]:
     """
     Unified Hybrid Notification Dispatcher:
+    Enforces Developer Global Policies:
+    - Channel kills (in_app_enabled, push_enabled)
+    - System trigger kills (deadline, streak, feedback)
+    - Quiet hours suppression for Push
     1. Inserts notification row into Supabase DB ('notifications' table).
     2. Invalidates/increments unread notification count in Redis cache.
     3. Emits live WebSocket payload for in-app banner & badge updates.
     4. Sends high-priority FCM Push Notification to Android/iOS System Status Tray.
     """
     metadata = metadata or {}
+    global_settings = get_global_notification_settings()
+
+    # Enforce Global Event Suppressions
+    upper_type = (notif_type or "").upper()
+    if "DEADLINE" in upper_type and global_settings.get("deadline_reminders_enabled") is False:
+        logger.info(f"[Dispatcher] Suppressed deadline reminder globally for user {user_id}")
+        return {"success": False, "suppressed": True, "reason": "global_deadline_reminders_disabled"}
+    if ("FEEDBACK" in upper_type or "POST_COMPLETION" in upper_type) and global_settings.get("post_completion_enabled") is False:
+        logger.info(f"[Dispatcher] Suppressed post-completion feedback globally for user {user_id}")
+        return {"success": False, "suppressed": True, "reason": "global_post_completion_disabled"}
+    if "STREAK" in upper_type and global_settings.get("streak_notifications_enabled") is False:
+        logger.info(f"[Dispatcher] Suppressed streak notification globally for user {user_id}")
+        return {"success": False, "suppressed": True, "reason": "global_streak_notifications_disabled"}
+
+    # Enforce Global Channel Toggles
+    if global_settings.get("in_app_enabled") is False:
+        send_in_app = False
+    if global_settings.get("push_enabled") is False:
+        send_push = False
+
+    # Check Quiet Hours for Push
+    if send_push and global_settings.get("quiet_hours_enabled") is True:
+        if is_in_quiet_hours(global_settings.get("quiet_hours_start", "22:00"), global_settings.get("quiet_hours_end", "08:00")):
+            logger.info(f"[Dispatcher] Push suppressed during quiet hours for user {user_id}")
+            send_push = False
+
     notification_data = None
 
     # Step 1: Save to Supabase DB (Persistence / History Log)
@@ -267,10 +363,41 @@ async def schedule_bulk_notification_jobs(
 ) -> int:
     """
     Schedules notifications in bulk to a list of user IDs.
-    Returns the count of notifications successfully scheduled.
+    Uses atomic batch RPC `schedule_bulk_notification_jobs_rpc` for high performance (1 SQL round-trip).
+    Falls back to sequential scheduling if the batch RPC fails.
     """
+    if not user_ids:
+        return 0
+
+    unique_uids = list(set(user_ids))
+    try:
+        _db = get_service_supabase_client()
+        import datetime
+        sched_iso = None
+        if isinstance(scheduled_at, datetime.datetime):
+            sched_iso = scheduled_at.isoformat()
+        elif isinstance(scheduled_at, str):
+            sched_iso = scheduled_at
+        else:
+            sched_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        res = _db.rpc("schedule_bulk_notification_jobs_rpc", {
+            "p_user_ids": unique_uids,
+            "p_notification_type": notification_type,
+            "p_metadata": metadata or {},
+            "p_assignment_id": assignment_id,
+            "p_scheduled_at": sched_iso
+        }).execute()
+        
+        if res.data is not None:
+            logger.info(f"[Dispatcher] Batch scheduled {res.data} notification jobs via RPC for {len(unique_uids)} users")
+            return int(res.data)
+    except Exception as batch_err:
+        logger.warning(f"[Dispatcher] Batch RPC scheduling encountered error, falling back to sequential: {batch_err}")
+
+    # Fallback to sequential
     count = 0
-    for uid in user_ids:
+    for uid in unique_uids:
         success = await schedule_notification_job(
             user_id=uid,
             notification_type=notification_type,
@@ -282,6 +409,7 @@ async def schedule_bulk_notification_jobs(
         if success:
             count += 1
     return count
+
 
 
 async def dispatch_task_assignment_notification(

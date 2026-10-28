@@ -3,13 +3,16 @@ import os
 
 import redis
 
+redis_ssl = os.getenv("REDIS_SSL", "false").lower() in ("true", "1", "yes")
+
 redis_client = redis.Redis(
     host=os.getenv("REDIS_HOST"),
     port=int(os.getenv("REDIS_PORT")),
     username=os.getenv("REDIS_USERNAME"),
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
-    # ssl=True
+    ssl=redis_ssl,
+    ssl_cert_reqs=None if redis_ssl else None,
 )
 
 try:
@@ -82,6 +85,8 @@ def invalidate_user_caches(user_id: str):
         return
     try:
         redis_client.delete(f"dashboard_summary:{user_id}")
+        redis_client.delete(f"user_max_role_level:{user_id}")
+        delete_cache_pattern(f"user_company_access:{user_id}:*")
         delete_cache_pattern(f"dashboard_summary:{user_id}*")
         delete_cache_pattern(f"module_progress:{user_id}*")
         delete_cache_pattern(f"user_module_progress:{user_id}*")

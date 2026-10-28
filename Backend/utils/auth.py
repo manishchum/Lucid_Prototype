@@ -214,29 +214,60 @@ def _build_request_auth_from_verified_claims(claims: Dict[str, Any], device_id: 
 
 	return auth_result
 
+def resolve_platform(x_platform: Optional[str] = None, user_agent: Optional[str] = None) -> str:
+	if x_platform and isinstance(x_platform, str):
+		plat = x_platform.strip().lower()
+		if "mobile" in plat:
+			return "mobile"
+		if "web" in plat or "desktop" in plat:
+			return "web"
+
+	if user_agent and isinstance(user_agent, str):
+		ua = user_agent.lower()
+		mobile_indicators = ("okhttp", "expo", "cfnetwork", "darwin", "mobile", "android", "iphone", "ipad")
+		if any(ind in ua for ind in mobile_indicators):
+			return "mobile"
+
+	return "web"
+
+
 def validate_device_session(
     user_id: str,
     device_id: str,
+    platform: str = "web",
 ):
     if not user_id or not device_id:
         return
 
     user_id_str = str(user_id)
     device_id_str = str(device_id)
+    norm_platform = "mobile" if platform and platform.lower() == "mobile" else "web"
+    session_key = f"session:{user_id_str}:{norm_platform}"
 
     try:
-        existing_device = redis_client.get(
-            f"session:{user_id_str}"
-        )
+        existing_device = redis_client.get(session_key)
     except Exception as e:
         print("REDIS VALIDATION WARNING:", e)
         return
+
+    # Check for legacy unpartitioned session if not yet migrated
+    if existing_device is None:
+        try:
+            legacy_key = f"session:{user_id_str}"
+            legacy_device = redis_client.get(legacy_key)
+            if legacy_device:
+                existing_device = legacy_device
+                # Migrate to partitioned key and clean up legacy
+                redis_client.set(session_key, existing_device, ex=60 * 60 * 24 * 30)
+                redis_client.delete(legacy_key)
+        except Exception as e:
+            print("REDIS MIGRATION WARNING:", e)
 
     # First login or uninitialized session
     if existing_device is None:
         try:
             redis_client.set(
-                f"session:{user_id_str}",
+                session_key,
                 device_id_str,
                 ex=60 * 60 * 24 * 30,
             )
@@ -250,7 +281,7 @@ def validate_device_session(
     if existing_device_str == device_id_str:
         try:
             redis_client.expire(
-                f"session:{user_id_str}",
+                session_key,
                 60 * 60 * 24 * 30,
             )
         except Exception:
@@ -268,12 +299,18 @@ def get_request_auth_optional(
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
+	x_platform: Optional[str] = Header(None, alias="X-Platform"),
+	user_agent: Optional[str] = Header(None, alias="User-Agent"),
 ) -> RequestAuth:
+	platform = resolve_platform(
+		x_platform or (request.headers.get("X-Platform") if request else None),
+		user_agent or (request.headers.get("User-Agent") if request else None),
+	)
 	# 1. Fast path: reuse already-verified auth context from middleware
 	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
 		cached_auth: RequestAuth = request.state.auth_ctx
 		if x_device_id and isinstance(x_device_id, str):
-			validate_device_session(cached_auth.user_id, x_device_id)
+			validate_device_session(cached_auth.user_id, x_device_id, platform=platform)
 		return cached_auth
 
 	token = _extract_bearer_token(authorization)
@@ -288,7 +325,7 @@ def get_request_auth_optional(
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
 			if x_device_id and isinstance(x_device_id, str):
-				validate_device_session(auth_ctx.user_id, x_device_id)
+				validate_device_session(auth_ctx.user_id, x_device_id, platform=platform)
 			return auth_ctx
 		except HTTPException as exc:
 			if exc.detail == "Session_Replaced":
@@ -373,10 +410,16 @@ def get_request_auth_required(
 	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
  	x_device_id=Header(None, alias="X-Device-ID"),
+	x_platform: Optional[str] = Header(None, alias="X-Platform"),
+	user_agent: Optional[str] = Header(None, alias="User-Agent"),
 	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
 ) -> RequestAuth:
+	platform = resolve_platform(
+		x_platform or (request.headers.get("X-Platform") if request else None),
+		user_agent or (request.headers.get("User-Agent") if request else None),
+	)
 	if x_worker_token and isinstance(x_worker_token, str):
 		expected_worker_token = os.getenv("AI_GATEWAY_INTERNAL_TOKEN")
 		if expected_worker_token and x_worker_token == expected_worker_token:
@@ -403,7 +446,7 @@ def get_request_auth_required(
 	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
 		cached_auth: RequestAuth = request.state.auth_ctx
 		if x_device_id and isinstance(x_device_id, str):
-			validate_device_session(cached_auth.user_id, x_device_id)
+			validate_device_session(cached_auth.user_id, x_device_id, platform=platform)
 		return cached_auth
 
 	token = _extract_bearer_token(authorization)
@@ -413,7 +456,7 @@ def get_request_auth_required(
 	claims = _verify_token(token)
 	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
 	if x_device_id and isinstance(x_device_id, str):
-		validate_device_session(auth_ctx.user_id, x_device_id)
+		validate_device_session(auth_ctx.user_id, x_device_id, platform=platform)
 
 	return auth_ctx
      
@@ -422,13 +465,19 @@ def get_request_auth_jwt_required(
 	request: Request = None,
 	authorization: Optional[str] = Header(None, alias="Authorization"),
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
+	x_platform: Optional[str] = Header(None, alias="X-Platform"),
+	user_agent: Optional[str] = Header(None, alias="User-Agent"),
 	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
+	platform = resolve_platform(
+		x_platform or (request.headers.get("X-Platform") if request else None),
+		user_agent or (request.headers.get("User-Agent") if request else None),
+	)
 	# 1. Fast path: reuse already-verified auth context from middleware
 	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
 		cached_auth: RequestAuth = request.state.auth_ctx
 		if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
-			validate_device_session(str(cached_auth.user_id), str(x_device_id))
+			validate_device_session(str(cached_auth.user_id), str(x_device_id), platform=platform)
 		return cached_auth
 
 	token = _extract_bearer_token(authorization)
@@ -456,7 +505,7 @@ def get_request_auth_jwt_required(
 	)
 
 	if (x_device_id and x_register_session != "true"):
-		validate_device_session(str(user_id), str(x_device_id))
+		validate_device_session(str(user_id), str(x_device_id), platform=platform)
 
 	auth_result = RequestAuth(
 		user_id=str(user_id),
@@ -479,13 +528,29 @@ def get_request_auth_jwt_required(
 def get_request_auth_jwt_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
 	x_device_id = request.headers.get("X-Device-ID")
-	return get_request_auth_jwt_required(authorization=authorization, x_device_id=x_device_id)
+	x_platform = request.headers.get("X-Platform")
+	user_agent = request.headers.get("User-Agent")
+	return get_request_auth_jwt_required(
+		request=request,
+		authorization=authorization,
+		x_device_id=x_device_id,
+		x_platform=x_platform,
+		user_agent=user_agent,
+	)
 
 
 def get_request_auth_required_from_request(request: Request) -> RequestAuth:
 	authorization = request.headers.get("Authorization")
 	x_device_id = request.headers.get("X-Device-ID")
-	return get_request_auth_required(authorization=authorization, x_device_id=x_device_id)
+	x_platform = request.headers.get("X-Platform")
+	user_agent = request.headers.get("User-Agent")
+	return get_request_auth_required(
+		request=request,
+		authorization=authorization,
+		x_device_id=x_device_id,
+		x_platform=x_platform,
+		user_agent=user_agent,
+	)
 
 async def get_effective_company_id(
 	request: Request,
@@ -622,14 +687,23 @@ async def get_roleplay_context(
 	)
 def register_device_session(
     user_id: str,
-    device_id: str
+    device_id: str,
+    platform: str = "web",
 ):
+    if not user_id or not device_id:
+        return
+    norm_platform = "mobile" if platform and platform.lower() == "mobile" else "web"
     try:
         redis_client.set(
-            f"session:{user_id}",
-            device_id,
+            f"session:{user_id}:{norm_platform}",
+            str(device_id),
             ex=60 * 60 * 24 * 30,   # 30 days
         )
+        # Clean up legacy unpartitioned key if present
+        try:
+            redis_client.delete(f"session:{user_id}")
+        except Exception:
+            pass
     except Exception as e:
         print("REDIS REGISTER FAILED:", e)
         raise HTTPException(

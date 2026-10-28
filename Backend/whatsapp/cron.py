@@ -12,6 +12,7 @@ from utils.db.whatsapp_db import (
 )
 from whatsapp.service import whatsapp_service
 from whatsapp.formatter import formatter
+from utils.logging import mask_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -57,17 +58,27 @@ class WhatsAppCronWorker:
 
     def is_time_due(self, scheduled_time: str) -> bool:
         """
-        Check if it's time to send (scheduled_time is in HH:MM format).
-        Returns True if current time >= scheduled_time.
+        Check if it's time to send (scheduled_time is in HH:MM or HH:MM:SS format).
+        Returns True if current UTC time >= scheduled_time.
         """
         try:
-            sched_time = datetime.strptime(scheduled_time, "%H:%M").time()
-            current_time = datetime.utcnow().time()
-            # Send if current time is within 5 minutes before or after scheduled time
-            # (to account for cron job frequency)
+            time_str = str(scheduled_time).strip()
+            sched_time = None
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    sched_time = datetime.strptime(time_str, fmt).time()
+                    break
+                except ValueError:
+                    pass
+            if sched_time is None:
+                logger.error(f"Invalid time format: {scheduled_time}")
+                return False
+
+            from datetime import timezone
+            current_time = datetime.now(timezone.utc).time()
             return current_time >= sched_time
-        except ValueError:
-            logger.error(f"Invalid time format: {scheduled_time}")
+        except Exception as e:
+            logger.error(f"Error checking time due for '{scheduled_time}': {e}")
             return False
 
     async def process_pending_messages(self):
@@ -126,6 +137,14 @@ class WhatsAppCronWorker:
             # Process each dispatch record
             for dispatch in dispatch_records:
                 await self.send_to_user(dispatch, scheduled_msg)
+
+            # If one_time message finished, deactivate schedule so it won't be re-polled
+            if scheduled_msg.get("schedule_type") == "one_time":
+                try:
+                    from utils.db.whatsapp_db import deactivate_scheduled_whatsapp
+                    await deactivate_scheduled_whatsapp(scheduled_whatsapp_id)
+                except Exception as deact_err:
+                    logger.warning(f"[WhatsAppCron] Failed to deactivate completed schedule {scheduled_whatsapp_id}: {deact_err}")
         
         except Exception as e:
             logger.error(f"❌ Error sending scheduled message: {str(e)}")
@@ -141,9 +160,10 @@ class WhatsAppCronWorker:
         dispatch_id = dispatch.get("whatsapp_dispatch_id")
         user_id = dispatch.get("user_id")
         phone_number = dispatch.get("phone_number")
+        masked_phone = mask_phone_number(phone_number)
         
         try:
-            logger.info(f"📞 Sending to {phone_number} (user: {user_id})")
+            logger.info(f"📞 Sending to {masked_phone} (user: {user_id})")
             
             # Build message content
             message_body = scheduled_msg.get("message_body", "")
@@ -177,7 +197,7 @@ class WhatsAppCronWorker:
                     "sent",
                     whatsapp_message_id=result.get("message_id"),
                 )
-                logger.info(f"✅ Message sent to {phone_number}")
+                logger.info(f"✅ Message sent to {masked_phone}")
             else:
                 error_msg = result.get("error", "Unknown error")
                 retry_count = dispatch.get("retry_count", 0)
@@ -195,7 +215,7 @@ class WhatsAppCronWorker:
                     logger.error(f"❌ Failed permanently: {error_msg}")
         
         except Exception as e:
-            logger.error(f"❌ Exception sending to {phone_number}: {str(e)}")
+            logger.error(f"❌ Exception sending to {masked_phone}: {str(e)}")
             await update_dispatch_status(
                 dispatch_id, "failed", error_message=str(e)
             )
@@ -205,10 +225,10 @@ class WhatsAppCronWorker:
 whatsapp_cron_worker = WhatsAppCronWorker()
 
 
-async def run_whatsapp_cron():
+async def run_whatsapp_cron(ctx: Optional[dict] = None):
     """
     Entry point for the WhatsApp cron job.
-    This should be called every 5-10 minutes.
+    Called periodically by the distributed ARQ worker.
     """
     await whatsapp_cron_worker.process_pending_messages()
 

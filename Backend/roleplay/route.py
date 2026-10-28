@@ -1254,6 +1254,31 @@ async def generate_assessment(
 
         roleplay_db.save_roleplay_assessment(insert_data)
 
+        # Trigger automated notification workflow: ROLEPLAY_REPORT_READY
+        try:
+            from utils.notifications.workflow_engine import WorkflowEngine
+            cutoff = int(scenario.get("cutoffScore") or 60)
+            passed = assessment["overallScore"] >= cutoff
+            asyncio.create_task(
+                WorkflowEngine.trigger_lifecycle(
+                    trigger_lifecycle="ROLEPLAY_REPORT_READY",
+                    user_id=session["employee_id"],
+                    payload={
+                        "session_id": session_id,
+                        "scenario_id": session.get("scenario_id", ""),
+                        "scenario_title": scenario_title,
+                        "assessment.score": assessment["overallScore"],
+                        "score": assessment["overallScore"],
+                        "assessment.feedback_summary": str(assessment.get("summary", ""))[:200],
+                        "assessment.passed": passed,
+                        "assessment.confidence_score": "85%",
+                    },
+                    company_id=ctx.company_id,
+                )
+            )
+        except Exception as roleplay_wf_err:
+            logging.warning("Failed to trigger ROLEPLAY_REPORT_READY workflow: %s", roleplay_wf_err)
+
         return {
             "success": True,
             "data": assessment,

@@ -9,6 +9,9 @@ import ErrorReporterInit from '@/components/ErrorReporterInit'
 // import LucidAssistant from '@/components/LucidAssistant'
 import LayoutWithNavigation from '@/components/layout-with-navigation'
 
+import { NotificationProvider } from "@/contexts/notification-context"
+import { NotificationDrawer } from "@/components/notifications/NotificationDrawer"
+
 const dmSans = DM_Sans({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800", "900"] })
 
 export const metadata: Metadata = {
@@ -28,14 +31,17 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${dmSans.className} antialiased bg-[#f8f9ff] text-slate-900`}>
         <AuthProvider>
-          <TenantProvider>
-            <ErrorReporterInit />
-            {/* <LucidAssistant /> */}
-            <ShadcnToaster />
-            <LayoutWithNavigation>
-              {children}
-            </LayoutWithNavigation>
-          </TenantProvider>
+          <NotificationProvider>
+            <TenantProvider>
+              <ErrorReporterInit />
+              {/* <LucidAssistant /> */}
+              <ShadcnToaster />
+              <NotificationDrawer />
+              <LayoutWithNavigation>
+                {children}
+              </LayoutWithNavigation>
+            </TenantProvider>
+          </NotificationProvider>
         </AuthProvider>
       </body>
     </html>
