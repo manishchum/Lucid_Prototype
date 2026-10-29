@@ -1,7 +1,10 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
+import { LoadingProgress } from "@/components/LoadingProgress";
 import { 
   BookOpen, 
   Puzzle, 
@@ -12,6 +15,39 @@ import {
 import Footer from "@/components/Footer";
 
 export default function LandingPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+    if (isDisplaced) return;
+
+    // Immediate active session detection for root navigation & new tabs
+    const stored = typeof window !== "undefined"
+      ? (window.localStorage.getItem("lucid:manual-auth-user") || window.sessionStorage.getItem("lucid:manual-auth-user"))
+      : null;
+
+    if (user || stored) {
+      setIsRedirecting(true);
+      router.replace('/employee/welcome');
+    }
+  }, [user, router]);
+
+  const isDisplaced = mounted && typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+  // Check storage only after mounting on the client to eliminate SSR hydration mismatch
+  const hasStoredSession = mounted && !isDisplaced && Boolean(
+    window.localStorage.getItem("lucid:manual-auth-user") || 
+    window.sessionStorage.getItem("lucid:manual-auth-user") ||
+    window.localStorage.getItem("lucid:manual-auth-profile")
+  );
+
+  if (mounted && !isDisplaced && (user || isRedirecting || (loading && hasStoredSession))) {
+    return <LoadingProgress label="Loading your dashboard" />;
+  }
   const rowOneFeatures = [
     {
       title: 'Living Knowledge Base',

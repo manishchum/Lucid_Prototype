@@ -17,6 +17,7 @@ import {
 import { auth, googleProvider } from "@/lib/firebase"
 import { useAuth } from "@/contexts/auth-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { LoadingProgress } from "@/components/LoadingProgress"
 
 function LoginContent() {
   const [email, setEmail] = useState("")
@@ -26,15 +27,30 @@ function LoginContent() {
   const [resetMessage, setResetMessage] = useState("")
   const [resetLoading, setResetLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, loading: authLoading, login } = useAuth()
 
   useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+    if (isDisplaced) {
+      setError("You were signed out because your account was logged into from another browser or device.");
+      try {
+        window.sessionStorage.removeItem("lucid:displaced-session");
+      } catch {}
+      return;
+    }
+
     if (!authLoading && user) {
       router.replace('/employee/welcome')
     }
-  }, [user, authLoading, router])
+  }, [user, authLoading, router, searchParams])
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -54,6 +70,19 @@ function LoginContent() {
       }
     }
   }, [searchParams])
+
+  const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+  // Client-only storage verification guarded by mounted to prevent hydration mismatches
+  const hasStoredSession = mounted && !isDisplaced && typeof window !== "undefined" && Boolean(
+    window.localStorage.getItem("lucid:manual-auth-user") ||
+    window.sessionStorage.getItem("lucid:manual-auth-user") ||
+    window.localStorage.getItem("lucid:manual-auth-profile")
+  );
+
+  if (mounted && !isDisplaced && (user || (authLoading && hasStoredSession))) {
+    return <LoadingProgress label="Loading your dashboard" />;
+  }
 
   const mapLoginErrorMessage = (err: any): string => {
     const code = err?.code || ""
@@ -186,15 +215,8 @@ function LoginContent() {
     }
   }
 
-  if (authLoading || user) {
-    return (
-      <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
-          <p className="mt-4 text-sm text-slate-500 font-medium">Checking session...</p>
-        </div>
-      </div>
-    )
+  if (user) {
+    return null;
   }
 
   return (
@@ -459,16 +481,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
-            <p className="mt-4 text-sm text-slate-500 font-medium">Loading...</p>
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<LoadingProgress label="Loading your dashboard" />}>
       <LoginContent />
     </Suspense>
   )
