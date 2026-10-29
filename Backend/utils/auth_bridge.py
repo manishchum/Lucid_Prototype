@@ -399,23 +399,34 @@ def _resolve_user_context_by_identity(
     return None
 
 
+_USER_CONTEXT_L1_CACHE: Dict[str, Tuple[float, BridgeUserContext]] = {}
+
 def resolve_user_context_from_claims(
     claims: Dict[str, Any],
     *,
     fail_fast: bool = True,
 ) -> Optional[BridgeUserContext]:
     email, firebase_uid, phone_number, token_exp = _extract_firebase_identity(claims)
-    cache_key = (f"auth:{firebase_uid}")
+    cache_key = f"auth:{firebase_uid}"
+
+    # Fast Tier-0: Memory L1 Cache (< 0.001ms)
+    import time
+    now_ts = time.time()
+    l1_entry = _USER_CONTEXT_L1_CACHE.get(cache_key)
+    if l1_entry and (now_ts - l1_entry[0] < 60.0):
+        return l1_entry[1]
+
     cached = get_cache(cache_key)
     if cached:
-        # print("Cache Hit",{"cache_key": cache_key, "cached": cached})
-        return BridgeUserContext(
+        resolved_ctx = BridgeUserContext(
             user_id = cached["user_id"],
             email = cached["email"],
             company_id = cached["company_id"],
             firebase_uid = cached["firebase_uid"],
             claims = claims,
         )
+        _USER_CONTEXT_L1_CACHE[cache_key] = (now_ts, resolved_ctx)
+        return resolved_ctx
 
     
     
@@ -445,7 +456,7 @@ def resolve_user_context_from_claims(
     )
 
     if context:
-        # print("Redis Miss:", cache_key)
+        _USER_CONTEXT_L1_CACHE[cache_key] = (now_ts, context)
         set_cache(
             cache_key,{
                 "user_id": context.user_id,

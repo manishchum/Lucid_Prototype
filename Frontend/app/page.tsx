@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/auth-context";
+import { LoadingProgress } from "@/components/LoadingProgress";
 import { 
   BookOpen, 
   Puzzle, 
@@ -11,38 +13,59 @@ import {
   UserCheck 
 } from "lucide-react";
 import Footer from "@/components/Footer";
-import { useAuth, hasActiveSession } from "@/contexts/auth-context";
-import { auth } from "@/lib/firebase";
 
 export default function LandingPage() {
+  const { user, loading } = useAuth();
   const router = useRouter();
-  const { user } = useAuth();
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (user || hasActiveSession()) {
-      router.replace('/employee/welcome');
-    }
-  }, [user, router]);
+    setMounted(true);
+    const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+    if (isDisplaced) return;
 
-  useEffect(() => {
-    const handleFocusCheck = () => {
-      if (document.visibilityState === "visible") {
-        if (hasActiveSession() || auth?.currentUser) {
+    // Immediate active session detection for root navigation & new tabs
+    const checkActiveSession = () => {
+      const stored = typeof window !== "undefined"
+        ? (window.localStorage.getItem("lucid:manual-auth-user") || window.sessionStorage.getItem("lucid:manual-auth-user"))
+        : null;
+
+      if (user || stored) {
+        setIsRedirecting(true);
+        router.replace('/employee/welcome');
+      }
+    };
+
+    checkActiveSession();
+
+    // Option 1: Storage-only cross-tab sync — transitions idle tab immediately when another tab logs in
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "lucid:manual-auth-user" && e.newValue) {
+        const displaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+        if (!displaced) {
+          setIsRedirecting(true);
           router.replace('/employee/welcome');
         }
       }
     };
 
-    window.addEventListener("focus", handleFocusCheck);
-    document.addEventListener("visibilitychange", handleFocusCheck);
-    window.addEventListener("storage", handleFocusCheck);
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [user, router]);
 
-    return () => {
-      window.removeEventListener("focus", handleFocusCheck);
-      document.removeEventListener("visibilitychange", handleFocusCheck);
-      window.removeEventListener("storage", handleFocusCheck);
-    };
-  }, [router]);
+  const isDisplaced = mounted && typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+  // Check storage only after mounting on the client to eliminate SSR hydration mismatch
+  const hasStoredSession = mounted && !isDisplaced && Boolean(
+    window.localStorage.getItem("lucid:manual-auth-user") || 
+    window.sessionStorage.getItem("lucid:manual-auth-user") ||
+    window.localStorage.getItem("lucid:manual-auth-profile")
+  );
+
+  if (mounted && !isDisplaced && (user || isRedirecting || (loading && hasStoredSession))) {
+    return <LoadingProgress label="Loading your dashboard" />;
+  }
   const rowOneFeatures = [
     {
       title: 'Living Knowledge Base',

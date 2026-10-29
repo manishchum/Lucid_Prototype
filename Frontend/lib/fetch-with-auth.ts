@@ -1,5 +1,6 @@
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import { getDeviceId } from "@/lib/device";
 
 /**
  * Normalizes HeadersInit into a mutable Headers instance.
@@ -8,96 +9,98 @@ function toHeaders(headers?: HeadersInit): Headers {
   return new Headers(headers || {});
 }
 
-function getDeviceId(): string {
-  let deviceId = localStorage.getItem("device_id");
+let inFlightAuthReady: Promise<User | null> | null = null;
+let inFlightTokenPromise: Promise<string> | null = null;
+let cachedIdToken: { token: string; expiresAt: number } | null = null;
 
-  if (!deviceId) {
-    deviceId = crypto.randomUUID();
-    localStorage.setItem("device_id", deviceId);
-  }
-
-  return deviceId;
+export function invalidateCachedIdToken(): void {
+  cachedIdToken = null;
 }
 
-/**
- * Helper to resolve the authenticated Firebase user, waiting for hydration if a stored session exists.
- */
-async function resolveCurrentUser(): Promise<User | null> {
+export async function resolveCurrentUser(): Promise<User | null> {
   if (!auth) return null;
   if (auth.currentUser) return auth.currentUser;
 
-  const hasStoredSession =
-    typeof window !== "undefined" &&
-    Boolean(
-      window.localStorage.getItem("lucid:manual-auth-user") ||
-      window.localStorage.getItem("lucid:auth:session-active") ||
-      window.sessionStorage.getItem("lucid:manual-auth-user")
-    );
+  // Singleflight deduplication: all concurrent requests across the page share the same hydration promise
+  if (inFlightAuthReady) return inFlightAuthReady;
 
-  // If there is no stored session, do not stall requests on hydration timeouts
-  if (!hasStoredSession) {
-    return null;
-  }
-
-  // Modern Firebase Auth has authStateReady() which resolves when initial IndexedDB state is hydrated
-  if (typeof (auth as any).authStateReady === "function") {
+  inFlightAuthReady = (async () => {
     try {
-      await Promise.race([
-        (auth as any).authStateReady(),
-        new Promise((res) => setTimeout(res, 2500)),
-      ]);
-      if (auth.currentUser) return auth.currentUser;
-    } catch {
-      // ignore and fallback to onAuthStateChanged
-    }
-  }
-
-  // On initial page load Firebase can still be hydrating auth state.
-  // Wait for onAuthStateChanged to emit a valid user or timeout.
-  return await new Promise<User | null>((resolve) => {
-    let settled = false;
-
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      unsubscribe();
-      resolve(auth.currentUser ?? null);
-    }, 2500);
-
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (settled) return;
-      if (user) {
-        settled = true;
-        clearTimeout(timeout);
-        unsubscribe();
-        resolve(user);
+      if (typeof (auth as any).authStateReady === "function") {
+        try {
+          await (auth as any).authStateReady();
+          if (auth.currentUser) return auth.currentUser;
+        } catch {}
       }
-    });
-  });
+
+      return await new Promise<User | null>((resolve) => {
+        let settled = false;
+        const timeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          unsubscribe();
+          resolve(auth.currentUser ?? null);
+        }, 1200);
+
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          unsubscribe();
+          resolve(user ?? null);
+        });
+      });
+    } finally {
+      inFlightAuthReady = null;
+    }
+  })();
+
+  return inFlightAuthReady;
 }
 
 /**
  * Returns an Authorization bearer token from Firebase auth when available.
+ * Deduplicates in-flight calls and caches valid tokens in memory for 5 minutes.
  */
 export async function getFirebaseIdToken(): Promise<string> {
-  const user = await resolveCurrentUser();
-  if (!user) {
-    return "";
+  const now = Date.now();
+  if (cachedIdToken && cachedIdToken.expiresAt > now) {
+    return cachedIdToken.token;
   }
 
-  try {
-    // getIdToken() auto-refreshes when the token is expired.
-    return await user.getIdToken();
-  } catch (error) {
-    console.warn("[fetch-with-auth] Initial getIdToken failed, retrying forced refresh", error);
-    try {
-      // Force refresh once to handle stale in-memory token edge cases.
-      return await user.getIdToken(true);
-    } catch (refreshError) {
-      console.error("[fetch-with-auth] Failed to retrieve Firebase ID token", refreshError);
-      return "";
-    }
+  if (inFlightTokenPromise) {
+    return inFlightTokenPromise;
   }
+
+  inFlightTokenPromise = (async () => {
+    try {
+      const user = await resolveCurrentUser();
+      if (!user) {
+        console.warn("[fetch-with-auth] No authenticated user found when attempting to get Firebase ID token");
+        return "";
+      }
+
+      try {
+        const token = await user.getIdToken();
+        cachedIdToken = { token, expiresAt: Date.now() + 5 * 60 * 1000 };
+        return token;
+      } catch (error) {
+        console.warn("[fetch-with-auth] Initial getIdToken failed, retrying forced refresh", error);
+        try {
+          const refreshedToken = await user.getIdToken(true);
+          cachedIdToken = { token: refreshedToken, expiresAt: Date.now() + 5 * 60 * 1000 };
+          return refreshedToken;
+        } catch (refreshError) {
+          console.error("[fetch-with-auth] Failed to retrieve Firebase ID token", refreshError);
+          return "";
+        }
+      }
+    } finally {
+      inFlightTokenPromise = null;
+    }
+  })();
+
+  return inFlightTokenPromise;
 }
 
 /**
@@ -113,6 +116,13 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   if (shouldRegisterSession) {
     headers.set("X-Register-Session", "true");
   }
+  // console.log(
+  //   "[AUTH CHECK]",
+  //   {
+  //     currentUser: !!auth?.currentUser,
+  //     tokenExists: !!token
+  //   }
+  // );
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -132,6 +142,32 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers,
   });
 
+  // console.log(
+  //   "[FETCH]",
+  //   options.method || "GET",
+  //   url,
+  //   response.status
+  // );
+
+  // Handle 401 Session_Replaced silently without dumping noisy red errors in console
+  if (response.status === 401) {
+    try {
+      const errClone = response.clone();
+      const errText = await errClone.text();
+      if (errText.includes("Session_Replaced")) {
+        console.info("[fetch-with-auth] Active session replaced by another login; revoking local session cleanly.", { url });
+        window.dispatchEvent(
+          new CustomEvent("lucid:auth:force-logout", {
+            detail: { reason: "session_replaced" }
+          })
+        );
+        return response;
+      }
+    } catch {
+      // ignore clone read error
+    }
+  }
+
   if (!response.ok) {
     console.error(
       "[FETCH FAILED]",
@@ -144,46 +180,39 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
   // If the backend says the token is invalid (401), force a refresh once
   if (response.status === 401) {
+
+    invalidateCachedIdToken();
+    console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
     try {
-      const errClone = response.clone();
-      const errText = await errClone.text();
-      if (errText.includes("Session_Replaced")) {
-        console.warn("[fetch-with-auth] Session_Replaced detected on 401, logging out silently without retry", { url });
+      const currentUser = auth?.currentUser;
+
+      if (!currentUser) {
+        console.error(
+          "[fetch-with-auth] Cannot refresh token because currentUser is null"
+        );
+
         window.dispatchEvent(
-          new CustomEvent("lucid:auth:force-logout", {
-            detail: { reason: "session_replaced" }
-          })
+          new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
         );
-        return response;
-      }
-    } catch {
-      // ignore clone read error
-    }
 
-    console.warn("[fetch-with-auth] Received 401, attempting token refresh and retry", { url });
-    try {
-      let currentUser = auth?.currentUser;
-      if (!currentUser) {
-        currentUser = await resolveCurrentUser();
-      }
-
-      if (!currentUser) {
-        console.warn(
-          "[fetch-with-auth] Cannot refresh token because currentUser is null; preserving session",
-          { url }
-        );
         return response;
       }
 
-      const refreshedToken = await currentUser.getIdToken(true);
+      const refreshedToken =
+        await currentUser.getIdToken(true);
       
-      const retryHeaders = toHeaders(options.headers);
+      const retryHeaders =
+        toHeaders(options.headers);
+
       retryHeaders.set("X-Device-ID", getDeviceId());
       retryHeaders.set("X-Platform", "web");
       if (shouldRegisterSession) {
         retryHeaders.set("X-Register-Session", "true");
       }
-      retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+      retryHeaders.set(
+        "Authorization",
+        `Bearer ${refreshedToken}`
+      );
 
       if (options.body && typeof options.body === "string" && !retryHeaders.has("Content-Type")) {
         retryHeaders.set("Content-Type", "application/json");
@@ -196,32 +225,62 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         headers: retryHeaders,
       });
 
+      console.log(
+        "[FETCH RETRY]",
+        options.method || "GET",
+        url,
+        response.status
+      );
+
+      let retryErrText = "";
       if (!response.ok) {
-        console.warn(
-          "[FETCH RETRY FAILED]",
-          options.method || "GET",
-          url,
-          response.status
-        );
+        try {
+          retryErrText = await response.clone().text();
+        } catch {}
+        if (!retryErrText.includes("Session_Replaced")) {
+          console.error(
+            "[FETCH RETRY FAILED]",
+            options.method || "GET",
+            url,
+            response.status,
+            retryErrText
+          );
+        }
       }
 
       if (response.status === 401) {
         try {
           const errText = await response.clone().text();
-          if (errText.includes("Session_Replaced")) {
-            console.warn("[fetch-with-auth] Session_Replaced detected on retry 401, dispatching force-logout", { url });
+          const isSessionReplaced = errText.includes("Session_Replaced");
+          if (!auth?.currentUser || isSessionReplaced) {
+            console.warn("[fetch-with-auth] Unrecoverable 401 detected, dispatching force-logout", { url, errText });
             window.dispatchEvent(
               new CustomEvent("lucid:auth:force-logout", {
-                detail: { reason: "session_replaced" }
+                detail: { reason: isSessionReplaced ? "session_replaced" : "unauthorized" }
               })
             );
+          } else {
+            console.warn("[fetch-with-auth] Retry returned 401, preserving user session", { url, errText });
           }
         } catch {
-          // ignore clone read error
+          if (!auth?.currentUser) {
+            window.dispatchEvent(
+              new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
+            );
+          }
         }
       }
-    } catch (refreshErr) {
-      console.warn("[fetch-with-auth] Retry token refresh failed", refreshErr);
+    }
+    catch (refreshErr) {
+      console.error(
+        "[fetch-with-auth] Retry token refresh failed",
+        refreshErr
+      );
+      if (!auth?.currentUser) {
+        window.dispatchEvent(
+          new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
+        );
+      }
     }
   }
 

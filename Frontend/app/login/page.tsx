@@ -15,8 +15,9 @@ import {
   CheckCircle2 
 } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
-import { useAuth, hasActiveSession } from "@/contexts/auth-context"
+import { useAuth } from "@/contexts/auth-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { LoadingProgress } from "@/components/LoadingProgress"
 
 function LoginContent() {
   const [email, setEmail] = useState("")
@@ -26,42 +27,43 @@ function LoginContent() {
   const [resetMessage, setResetMessage] = useState("")
   const [resetLoading, setResetLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, login } = useAuth()
-  const [isRedirecting, setIsRedirecting] = useState(() => {
-    return hasActiveSession() || Boolean(user)
-  })
+  const { user, loading: authLoading, login } = useAuth()
 
-  // Synchronous and immediate redirect if session exists
   useEffect(() => {
-    if (user || hasActiveSession()) {
-      setIsRedirecting(true)
-      router.replace('/employee/welcome')
-    }
-  }, [user, router])
+    setMounted(true)
 
-  // Instant response to tab switching, window focus, and cross-tab storage updates
-  useEffect(() => {
-    const handleTabFocusOrSwitch = () => {
-      if (document.visibilityState === "visible") {
-        if (hasActiveSession() || auth?.currentUser) {
-          setIsRedirecting(true)
-          router.replace('/employee/welcome')
+    // Option 1: Storage-only cross-tab sync — transitions idle login tab immediately when another tab logs in
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "lucid:manual-auth-user" && e.newValue) {
+        const displaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+        if (!displaced) {
+          router.replace('/employee/welcome');
         }
       }
-    }
+    };
 
-    window.addEventListener("focus", handleTabFocusOrSwitch)
-    document.addEventListener("visibilitychange", handleTabFocusOrSwitch)
-    window.addEventListener("storage", handleTabFocusOrSwitch)
-
-    return () => {
-      window.removeEventListener("focus", handleTabFocusOrSwitch)
-      document.removeEventListener("visibilitychange", handleTabFocusOrSwitch)
-      window.removeEventListener("storage", handleTabFocusOrSwitch)
-    }
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, [router])
+
+  useEffect(() => {
+    const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+    if (isDisplaced) {
+      setError("You were signed out because your account was logged into from another browser or device.");
+      try {
+        window.sessionStorage.removeItem("lucid:displaced-session");
+      } catch {}
+      return;
+    }
+
+    if (!authLoading && user) {
+      router.replace('/employee/welcome')
+    }
+  }, [user, authLoading, router, searchParams])
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -81,6 +83,19 @@ function LoginContent() {
       }
     }
   }, [searchParams])
+
+  const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
+
+  // Client-only storage verification guarded by mounted to prevent hydration mismatches
+  const hasStoredSession = mounted && !isDisplaced && typeof window !== "undefined" && Boolean(
+    window.localStorage.getItem("lucid:manual-auth-user") ||
+    window.sessionStorage.getItem("lucid:manual-auth-user") ||
+    window.localStorage.getItem("lucid:manual-auth-profile")
+  );
+
+  if (mounted && !isDisplaced && (user || (authLoading && hasStoredSession))) {
+    return <LoadingProgress label="Loading your dashboard" />;
+  }
 
   const mapLoginErrorMessage = (err: any): string => {
     const code = err?.code || ""
@@ -213,8 +228,8 @@ function LoginContent() {
     }
   }
 
-  if (isRedirecting) {
-    return <div className="h-screen w-screen bg-[#F6F7FD]" />
+  if (user) {
+    return null;
   }
 
   return (
@@ -479,7 +494,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="h-screen w-screen bg-[#F6F7FD]" />}>
+    <Suspense fallback={<LoadingProgress label="Loading your dashboard" />}>
       <LoginContent />
     </Suspense>
   )

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth, getFirebaseIdToken } from '@/lib/fetch-with-auth';
+import { getDeviceId } from '@/lib/device';
 import { useToast } from '@/hooks/use-toast';
 
 export interface NotificationItem {
@@ -201,12 +202,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             raw.type === 'force_logout' ||
             raw.reason === 'session_replaced'
           ) {
-            const currentDeviceId = typeof window !== 'undefined' ? localStorage.getItem('device_id') : null;
-            const targetPlatform = data.platform || raw.platform || 'web';
-            const keepDeviceId = data.keep_device_id || raw.keep_device_id;
+            const currentDeviceId = getDeviceId();
+            const targetPlatform = String(data.platform || raw.platform || 'web').toLowerCase();
+            const keepDeviceId = data.keep_device_id || raw.keep_device_id || (raw.payload && raw.payload.keep_device_id);
 
-            if (targetPlatform === 'web' && (!keepDeviceId || keepDeviceId !== currentDeviceId)) {
-              console.warn('[NotificationContext] Received force_logout via WebSocket for this device. Logging out silently.');
+            // Platform check: Web clients only react to web displacement events
+            if (targetPlatform !== 'web') {
+              return;
+            }
+
+            // Kept device immunity: The newly logged-in browser device MUST NEVER logout itself
+            if (keepDeviceId && currentDeviceId && keepDeviceId === currentDeviceId) {
+              console.log("[NotificationContext] Ignored displacement: this is the newly kept device", { currentDeviceId });
+              return;
+            }
+
+            // Only displace if keep_device_id is provided and strictly different from this device
+            if (keepDeviceId && currentDeviceId && keepDeviceId !== currentDeviceId) {
+              console.warn(`[NotificationContext] Displacing old session. Current: ${currentDeviceId}, Kept: ${keepDeviceId}`);
               try {
                 ws.close();
               } catch {}

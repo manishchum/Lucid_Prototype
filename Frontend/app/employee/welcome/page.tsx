@@ -1101,7 +1101,11 @@ export default function EmployeeWelcome() {
         data?.userRank?.top_percentile ?? 10,
         completedCount
       );
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes("Session_Replaced") || String(e).includes("Session_Replaced")) {
+        // Displaced session — silent redirect to login is already handled cleanly
+        return;
+      }
       console.error("[Welcome] loadDashboard failed:", e);
     } finally {
       setLoading(false);
