@@ -83,6 +83,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   const shouldRegisterSession = Boolean((options as any).registerSession);
   const headers = toHeaders(options.headers);
   headers.set("X-Device-ID", getDeviceId());
+  headers.set("X-Platform", "web");
   if (shouldRegisterSession) {
     headers.set("X-Register-Session", "true");
   }
@@ -98,6 +99,11 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     headers.set("Authorization", `Bearer ${token}`);
   } else if (headers.has("X-User-ID")) {
     console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
+  }
+
+  // Ensure JSON content type is set by default when sending a serialized string body
+  if (options.body && typeof options.body === "string" && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
   }
 
   delete (options as any).registerSession;
@@ -126,6 +132,22 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
   // If the backend says the token is invalid (401), force a refresh once
   if (response.status === 401) {
+    try {
+      const errClone = response.clone();
+      const errText = await errClone.text();
+      if (errText.includes("Session_Replaced")) {
+        console.warn("[fetch-with-auth] Session_Replaced detected on 401, logging out silently without retry", { url });
+        window.dispatchEvent(
+          new CustomEvent("lucid:auth:force-logout", {
+            detail: { reason: "session_replaced" }
+          })
+        );
+        return response;
+      }
+    } catch {
+      // ignore clone read error
+    }
+
     console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
     try {
       const currentUser = auth?.currentUser;
@@ -136,7 +158,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         );
 
         window.dispatchEvent(
-          new Event("lucid:auth:force-logout")
+          new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
         );
 
         return response;
@@ -149,6 +171,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         toHeaders(options.headers);
 
       retryHeaders.set("X-Device-ID", getDeviceId());
+      retryHeaders.set("X-Platform", "web");
       if (shouldRegisterSession) {
         retryHeaders.set("X-Register-Session", "true");
       }
@@ -156,6 +179,10 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         "Authorization",
         `Bearer ${refreshedToken}`
       );
+
+      if (options.body && typeof options.body === "string" && !retryHeaders.has("Content-Type")) {
+        retryHeaders.set("Content-Type", "application/json");
+      }
 
       delete (options as any).registerSession;
 
@@ -184,10 +211,13 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
       if (response.status === 401) {
         try {
           const errText = await response.clone().text();
-          if (!auth?.currentUser || errText.includes("Session_Replaced")) {
+          const isSessionReplaced = errText.includes("Session_Replaced");
+          if (!auth?.currentUser || isSessionReplaced) {
             console.warn("[fetch-with-auth] Unrecoverable 401 detected, dispatching force-logout", { url, errText });
             window.dispatchEvent(
-              new Event("lucid:auth:force-logout")
+              new CustomEvent("lucid:auth:force-logout", {
+                detail: { reason: isSessionReplaced ? "session_replaced" : "unauthorized" }
+              })
             );
           } else {
             console.warn("[fetch-with-auth] Retry returned 401, preserving user session", { url, errText });
@@ -195,7 +225,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         } catch {
           if (!auth?.currentUser) {
             window.dispatchEvent(
-              new Event("lucid:auth:force-logout")
+              new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
             );
           }
         }
@@ -208,7 +238,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
       );
       if (!auth?.currentUser) {
         window.dispatchEvent(
-          new Event("lucid:auth:force-logout")
+          new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
         );
       }
     }

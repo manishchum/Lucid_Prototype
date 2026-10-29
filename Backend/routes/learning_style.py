@@ -201,6 +201,30 @@ async def upsert_learning_style_record(
     
     target_user_id = request.user_id
     redis_client.delete(f"learning_style:{target_user_id}")
+
+    # Trigger automated notification workflow: LEARNING_STYLE_DISCOVERED
+    try:
+        import asyncio
+        from utils.notifications.workflow_engine import WorkflowEngine
+        style_str = str(request.learning_style or "Auditory")
+        asyncio.create_task(
+            WorkflowEngine.trigger_lifecycle(
+                trigger_lifecycle="LEARNING_STYLE_DISCOVERED",
+                user_id=target_user_id,
+                payload={
+                    "vark.primary_style": style_str,
+                    "primary_style": style_str,
+                    "vark.is_visual": "visual" in style_str.lower(),
+                    "vark.is_auditory": "auditory" in style_str.lower(),
+                    "vark.is_kinesthetic": "kinesthetic" in style_str.lower(),
+                    "vark.is_reading_writing": "read" in style_str.lower() or "write" in style_str.lower(),
+                },
+                company_id=getattr(auth_ctx, "company_id", None),
+            )
+        )
+    except Exception as wf_ls_err:
+        pass
+
     return {"learning_style": result["data"]}
 
 

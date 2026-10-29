@@ -1218,6 +1218,31 @@ async def create_task_and_assignment(payload: TaskCreate, company_id: str, reque
                     title=payload.title,
                 )
             )
+
+            # Trigger automated notification workflow TASK_ASSIGNED
+            try:
+                from utils.notifications.workflow_engine import WorkflowEngine
+                for uid in assigned_uids:
+                    asyncio.create_task(
+                        WorkflowEngine.trigger_lifecycle(
+                            trigger_lifecycle="TASK_ASSIGNED",
+                            user_id=uid,
+                            payload={
+                                "task_id": task_id,
+                                "assignment_id": assignment_id,
+                                "task.task_title": payload.title,
+                                "task_title": payload.title,
+                                "task.due_date": str(payload.due_date),
+                                "due_date": str(payload.due_date),
+                                "task.task_type": str(db_submission_format),
+                                "task.task_status": "assigned",
+                            },
+                            company_id=company_id,
+                        )
+                    )
+            except Exception as task_wf_err:
+                print(f"[task-manager] Warning: TASK_ASSIGNED workflow trigger failed: {task_wf_err}")
+
             # Invalidate dashboard summary and task caches for every assigned user immediately
             for uid in assigned_uids:
                 try:
@@ -1532,6 +1557,32 @@ async def submit_task_response(payload: SubmissionCreate, company_id: str, backg
         invalidate_dashboard_l1_cache(str(payload.user_id))
     except Exception:
         pass
+
+    # Trigger automated notification workflow: TASK_SUBMITTED
+    try:
+        from utils.notifications.workflow_engine import WorkflowEngine
+        # Fetch task title
+        task_info = db.table("tasks").select("title").eq("task_id", resolved_task_id).maybe_single().execute()
+        task_title = (task_info.data or {}).get("title", "Workplace Task") if task_info else "Workplace Task"
+
+        asyncio.create_task(
+            WorkflowEngine.trigger_lifecycle(
+                trigger_lifecycle="TASK_SUBMITTED",
+                user_id=payload.user_id,
+                payload={
+                    "task_id": resolved_task_id,
+                    "submission_id": submission_id,
+                    "task.task_title": task_title,
+                    "task_title": task_title,
+                    "task.task_status": "submitted",
+                    "task.task_type": submission_type,
+                },
+                company_id=company_id,
+            )
+        )
+    except Exception as sub_wf_err:
+        print(f"[task-manager] Warning: TASK_SUBMITTED workflow trigger failed: {sub_wf_err}")
+
     return {
         "status": "success",
         "message": "Task submitted successfully",
@@ -2126,11 +2177,13 @@ async def reassign_task_assignment(
 
 from typing import Optional
 
+import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 from utils.exceptions import ApiException
 
+logger = logging.getLogger("lucid.task_manager")
 router = APIRouter(dependencies=[Depends(require_addon("task_management"))])
 
 
@@ -2146,14 +2199,10 @@ async def list_tasks(
     except ApiException:
         raise
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
-        try:
-            headers = {k: v for k, v in request.headers.items()}
-        except Exception:
-            headers = {}
-        print("[task-manager] list_tasks exception:\n", tb)
-        print("[task-manager] request headers:", headers)
+        logger.error(
+            f"[task-manager] list_tasks failed for user={auth_ctx.user_id} company={company_id}: {exc}",
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail="Internal Server Error") from exc
 
 

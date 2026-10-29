@@ -43,7 +43,7 @@ from module_chat.route import router as module_chat
 from change_password.route import router as change_password_router
 from task_manager.route import router as task_manager_router
 from stt.route import router as stt_router
-from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library, auth
+from routes import users, roles, assessments, companies, content_jobs, learning_plan, learning_style, training_modules, dispatch, processed_modules, module_progress, content_generation_history, employee_assessment, notifications, employees, reports, content_library, auth, unsubscribe
 from routes.analytics_export import router as analytics_export_router
 from routes.career_journeys import router as career_journeys_router
 from routes.employee_dashboard import router as employee_dashboard_router
@@ -53,6 +53,10 @@ from voice_document.route import router as voice_document_router
 from voice_document.transcripts import router as voice_transcripts_router
 from routes.uploads import router as uploads_router
 from routes.logs import router as logs_router
+from routes.notification_workflows import router as workflows_router
+from routes.coach_upload import router as coach_upload_router
+from routes.google_drive import router as google_drive_router
+from routes.audit_logs import router as audit_logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -68,27 +72,11 @@ from routes.ingest_processed_module import router as ingest_processed_module_rou
 from routes import functions
 from config import IS_PRODUCTION
 
-class SensitiveTokenMaskingFilter(logging.Filter):
-    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
+from utils.logging import setup_logging_sanitizer
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.args:
-            new_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
-                new_args.append(arg)
-            record.args = tuple(new_args)
+# Initialize enterprise-grade logging sanitizer across root, uvicorn, and stdout/stderr
+setup_logging_sanitizer()
 
-        if isinstance(record.msg, str):
-            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
-
-        return True
-
-
-_token_mask_filter = SensitiveTokenMaskingFilter()
-for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
 
 
 # Create FastAPI app
@@ -101,6 +89,19 @@ app = FastAPI(
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json"
 )
+
+
+CORS_ALLOWED_ORIGINS = {
+    o.rstrip("/")
+    for o in [
+        FRONTEND_URL,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "localhost:3000",
+        "127.0.0.1:3000",
+    ]
+    if o
+}
 
 
 @app.exception_handler(Exception)
@@ -140,25 +141,23 @@ async def global_exception_handler(request: Request, exc: Exception):
         content = {"detail": "Internal Server Error"}
         status_code = 500
 
-    # Ensure we return CORS headers matching configured frontend origin or request Origin
-    origin = request.headers.get("origin") or FRONTEND_URL
-    headers = {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Credentials": "true",
-    }
+    # Ensure CORS headers strictly match allowed origins (prevents reflecting arbitrary untrusted origins)
+    headers = {}
+    origin = request.headers.get("origin", "")
+    norm_origin = origin.rstrip("/") if origin else ""
+    if norm_origin and norm_origin in CORS_ALLOWED_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
 
     return JSONResponse(status_code=status_code, content=content, headers=headers)
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "localhost:3000",
-        "127.0.0.1:3000",
-    ],
+    allow_origins=list(CORS_ALLOWED_ORIGINS),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -166,6 +165,9 @@ app.add_middleware(
 
 # Enable GZip response compression for payloads >= 1KB
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+logger = logging.getLogger("lucid.backend")
 
 
 @app.middleware("http")
@@ -186,6 +188,7 @@ async def supabase_auth_context_middleware(request: Request, call_next):
     try:
         set_current_request_info(str(request.url.path), request.method)
 
+        token_verification_failed = False
         if token:
             try:
                 from utils.auth import _verify_token, _resolve_internal_user_context, RequestAuth
@@ -210,10 +213,15 @@ async def supabase_auth_context_middleware(request: Request, call_next):
                         company_id=str(resolved_company) if resolved_company else None,
                     )
                     request.state.claims = claims
-            except Exception:
-                pass
+            except Exception as exc:
+                token_verification_failed = True
+                logger.warning(
+                    f"[auth middleware] Token verification failed for {request.method} {request.url.path}: {exc}"
+                )
 
-        if x_user_id and not getattr(request.state, "auth_ctx", None):
+        # Only allow fallback to X-User-ID if NO Bearer token was provided.
+        # If a Bearer token was supplied but failed verification, do NOT degrade to an untrusted header.
+        if x_user_id and not token_verification_failed and not getattr(request.state, "auth_ctx", None):
             set_current_user_context(
                 user_id=x_user_id,
                 company_id=x_company_id,
@@ -249,7 +257,42 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    # Pre-warm distributed WebSocket Redis Pub/Sub listener
+    try:
+        from utils.websocket_manager import manager
+        await manager.start()
+    except Exception as e:
+        print(f"[Startup] WebSocket manager Redis Pub/Sub initialization notice: {e}")
+
+    # Pre-warm distributed ARQ Redis scheduler pool
+    try:
+        from scheduler import scheduler
+        await scheduler.start()
+    except Exception as e:
+        print(f"[Startup] ARQ Redis scheduler initialization notice: {e}")
+
     # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from utils.websocket_manager import manager
+        await manager.stop()
+    except Exception:
+        pass
+
+    try:
+        from scheduler import scheduler
+        await scheduler.shutdown()
+    except Exception:
+        pass
+
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
+    except Exception:
+        pass
 
 @app.post("/api/cron/refresh_leaderboards", tags=["cron"])
 async def trigger_refresh_leaderboards():
@@ -372,12 +415,31 @@ app.include_router(module_progress.router)  # module progress router
 app.include_router(employee_assessment.router)  # employee assessment router
 app.include_router(analytics_export_router)  # analytics export router
 app.include_router(notifications.router)
+app.include_router(workflows_router)
 app.include_router(reports.router)  # notifications router
 app.include_router(content_library.router)  # content library router
 app.include_router(uploads_router, prefix="/api")
 app.include_router(auth.router)
+app.include_router(unsubscribe.router)
 
 app.include_router(logs_router)
+app.include_router(coach_upload_router)
+app.include_router(google_drive_router)
+app.include_router(audit_logs_router)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
+    except Exception:
+        pass
+    try:
+        from utils.websocket_manager import manager as ws_manager
+        await ws_manager.stop()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

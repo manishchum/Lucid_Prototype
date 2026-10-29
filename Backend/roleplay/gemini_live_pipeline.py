@@ -461,7 +461,7 @@ async def run_gemini_live_loop(
                             if input_transcription and "text" in input_transcription:
                                 u_text = input_transcription["text"]
                                 current_turn_user_text.append(u_text)
-                                log_event("👤", f"USER Speech Recognized: \"{u_text}\"")
+                                log_event("👤", f"USER Speech Recognized ({len(u_text)} chars)")
                                 await websocket.send_json({
                                     "type": "user_transcription",
                                     "text": "".join(current_turn_user_text)
@@ -474,7 +474,6 @@ async def run_gemini_live_loop(
                                 clean_chunk = re.sub(r"<no\s*speech.*?>|\{pause\}|<pause>", "", text_chunk, flags=re.IGNORECASE)
                                 if clean_chunk:
                                     current_turn_bot_text.append(clean_chunk)
-                                    log_event("💬", f"AI speech transcript: \"{clean_chunk}\"")
                                     await websocket.send_json({
                                         "type": "transcript_chunk",
                                         "text": clean_chunk,
@@ -523,7 +522,7 @@ async def run_gemini_live_loop(
                                 raw_bot_text = "".join(current_turn_bot_text).strip()
                                 final_bot_text = re.sub(r"<no\s*speech>|\{pause\}|<pause>", "", raw_bot_text, flags=re.IGNORECASE).strip()
                                 if final_bot_text:
-                                    log_event("💬", f"AI TURN FINISHED: \"{final_bot_text}\"")
+                                    log_event("💬", f"AI TURN FINISHED ({len(final_bot_text)} chars generated)")
                                     conversation_transcript.append({
                                         "role": "avatar",
                                         "text": final_bot_text,

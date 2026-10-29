@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye, Bell } from 'lucide-react';
 import NotificationTemplatesManager from './NotificationTemplatesManager';
 import EmployeeNavigation from '@/components/employee-navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import { fetchWithAuth } from '@/lib/fetch-with-auth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -100,10 +100,21 @@ const fetchUserByEmail = async (email: string | null) => {
   }
 };
 
-export default function AdminDispatchCenterPage() {
+function DispatchCenterContent() {
   const { user, loading: authLoading, isDeveloper } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dispatches' | 'templates'>('dispatches');
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams?.get('tab') === 'templates' && isDeveloper) ? 'templates' : 'dispatches';
+  const [activeTab, setActiveTab] = useState<'dispatches' | 'templates'>(initialTab);
   const router = useRouter();
+
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab');
+    if (tabParam === 'templates' && isDeveloper) {
+      setActiveTab('templates');
+    } else {
+      setActiveTab('dispatches');
+    }
+  }, [searchParams, isDeveloper]);
 
   // Auth state
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -984,7 +995,10 @@ export default function AdminDispatchCenterPage() {
               <div className="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200/80 shrink-0 self-start sm:self-auto">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('dispatches')}
+                  onClick={() => {
+                    setActiveTab('dispatches');
+                    router.replace('/admin/dashboard/dispatch-center?tab=dispatches', { scroll: false });
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === 'dispatches'
                       ? 'bg-white text-slate-900 shadow-2xs'
@@ -996,7 +1010,10 @@ export default function AdminDispatchCenterPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('templates')}
+                  onClick={() => {
+                    setActiveTab('templates');
+                    router.replace('/admin/dashboard/dispatch-center?tab=templates', { scroll: false });
+                  }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                     activeTab === 'templates'
                       ? 'bg-white text-indigo-700 shadow-2xs'
@@ -2259,3 +2276,20 @@ export default function AdminDispatchCenterPage() {
     </div>
   );
 }
+
+export default function AdminDispatchCenterPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            <p className="text-sm font-medium text-slate-600">Loading dispatch center...</p>
+          </div>
+        </div>
+      }
+    >
+      <DispatchCenterContent />
+    </Suspense>
+  );
+}

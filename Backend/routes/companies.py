@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Header, Query, HTTPException, Depends, File, UploadFile, Form
+from fastapi import APIRouter, Header, Query, HTTPException, Depends, File, UploadFile, Form, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from utils.auth_bridge import get_service_supabase_client
+from utils.audit_logger import log_audit_event
 import time
 
 
@@ -52,6 +53,62 @@ class CustomFunctionEntry(BaseModel):
 class ProvisionCompanyFunctionsRequest(BaseModel):
     selected_function_ids: List[str] = []
     custom_entries: List[CustomFunctionEntry] = []
+
+
+ALLOWED_TIERS = {"tier_1", "tier_2", "tier_3"}
+ALLOWED_ADDONS = {
+    "lucid_studio",
+    "lucid_studio_textual",
+    "lucid_studio_podcast",
+    "lucid_studio_video",
+    "lucid_studio_mindmap",
+    "lucid_studio_infographic",
+    "lucid_studio_flashcard",
+    "lucid_studio_flashcards",
+    "chat_in_studio",
+    "chat_in_studio_textual",
+    "chat_in_studio_speech",
+    "task_management",
+    "task_management_textual",
+    "task_management_image",
+    "task_management_evaluation",
+    "task_management_audio",
+    "task_management_video",
+    "baseline_assessment",
+    "kpi",
+    "role_play",
+    "role_play_openai",
+    "role_play_gemini",
+    "reports",
+    "sprintverse",
+    "gamification",
+    "platform_web",
+    "platform_mobile",
+    "platform_both",
+    "voice_agent",
+}
+ALLOWED_LANGUAGE_CODES = {
+    "en",
+    "hi",
+    "de",
+    "ru",
+    "fr",
+    "it",
+    "es",
+    "pl",
+    "uk",
+    "ro",
+    "nl",
+    "bn",
+    "ta",
+    "te",
+    "mr",
+    "kn",
+    "pa",
+    "gu",
+    "ur",
+    "or",
+}
 
 
 @router.get("/")
@@ -129,7 +186,7 @@ async def get_company(
 
     cached = get_cache(cache_key)
 
-    if cached:
+    if cached and isinstance(cached, dict) and cached.get("data"):
         print(f"COMPANY CACHE HIT {cache_key}")
         return cached
 
@@ -145,11 +202,14 @@ async def get_company(
         "error": result.get("error")
     }
 
-    set_cache(
-        cache_key,
-        response_payload,
-        ttl=3600
-    )
+    if company:
+        set_cache(
+            cache_key,
+            response_payload,
+            ttl=3600
+        )
+    else:
+        delete_cache_pattern(cache_key)
 
     return response_payload
 
@@ -206,6 +266,7 @@ async def create_company_with_logo_route(
     logo: UploadFile = File(...),
     learning_style: bool = Form(False),
     platform_type: str = Form("web"),
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -239,6 +300,22 @@ async def create_company_with_logo_route(
     
     result = await create_company(user_id, company_data)
     company = result.get("data") or None
+    created_company_id = company.get("company_id") if isinstance(company, dict) else None
+
+    # Audit log company creation
+    await log_audit_event(
+        action="COMPANY_CREATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=str(created_company_id) if created_company_id else None,
+        target_name=name,
+        company_id=str(created_company_id) if created_company_id else None,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=company_data,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -249,6 +326,7 @@ async def create_company_with_logo_route(
 @router.post("/")
 async def create_company_route(
     request: CreateCompanyRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -261,6 +339,22 @@ async def create_company_route(
     
     # Unwrap service layer response
     company = result.get("data") or None
+    created_company_id = company.get("company_id") if isinstance(company, dict) else None
+
+    # Audit log company creation
+    await log_audit_event(
+        action="COMPANY_CREATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=str(created_company_id) if created_company_id else None,
+        target_name=request.name,
+        company_id=str(created_company_id) if created_company_id else None,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=company_data,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -298,6 +392,7 @@ async def provision_company_functions_route(
 async def update_company_route(
     company_id: str,
     request: UpdateCompanyRequest,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -307,60 +402,9 @@ async def update_company_route(
     """
     update_data = request.dict(exclude_none=True)
 
-    allowed_tiers = {"tier_1", "tier_2", "tier_3"}
-    allowed_addons = {
-        "lucid_studio",
-        "lucid_studio_textual",
-        "lucid_studio_podcast",
-        "lucid_studio_video",
-        "lucid_studio_mindmap",
-        "lucid_studio_infographic",
-        "lucid_studio_flashcard",
-        "lucid_studio_flashcards",
-        "chat_in_studio",
-        "chat_in_studio_textual",
-        "chat_in_studio_speech",
-        "task_management",
-        "task_management_textual",
-        "task_management_image",
-        "task_management_evaluation",
-        "task_management_audio",
-        "task_management_video",
-        "baseline_assessment",
-        "kpi",
-        "role_play",
-        "role_play_openai",
-        "role_play_gemini",
-        "reports",
-        "sprintverse",
-        "gamification",
-        "platform_web",
-        "platform_mobile",
-        "platform_both",
-        "voice_agent",
-    }
-    allowed_language_codes = {
-        "en",
-        "hi",
-        "de",
-        "ru",
-        "fr",
-        "it",
-        "es",
-        "pl",
-        "uk",
-        "ro",
-        "nl",
-        "bn",
-        "ta",
-        "te",
-        "mr",
-        "kn",
-        "pa",
-        "gu",
-        "ur",
-        "or",
-    }
+    allowed_tiers = ALLOWED_TIERS
+    allowed_addons = ALLOWED_ADDONS
+    allowed_language_codes = ALLOWED_LANGUAGE_CODES
 
     if "platform_type" in update_data:
         normalized_platform = str(update_data["platform_type"]).strip().lower()
@@ -388,11 +432,22 @@ async def update_company_route(
             if (normalized in allowed_addons or normalized in allowed_language_codes) and normalized not in normalized_addons:
                 normalized_addons.append(normalized)
 
+        # Ensure the parent lucid_studio_video addon is present when any child video feature is enabled.
+        if any(child in normalized_addons for child in (
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
+        )) and "lucid_studio_video" not in normalized_addons:
+            normalized_addons.insert(0, "lucid_studio_video")
+
         # Ensure the parent lucid_studio addon is present when any child Lucid Studio feature is enabled.
         if any(child in normalized_addons for child in (
             "lucid_studio_textual",
             "lucid_studio_podcast",
             "lucid_studio_video",
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
             "lucid_studio_mindmap",
             "lucid_studio_infographic",
             "lucid_studio_flashcard",
@@ -431,6 +486,29 @@ async def update_company_route(
                 detail="Only one of 'role_play_openai' or 'role_play_gemini' can be enabled at a time."
             )
 
+        # Ensure mutually exclusive selection between lucid_studio_video_slides and lucid_studio_video_interactive.
+        has_interactive = "lucid_studio_video_interactive" in normalized_addons or "interactive_video" in normalized_addons
+        has_slides = "lucid_studio_video_slides" in normalized_addons
+        if has_slides and has_interactive:
+            raise HTTPException(
+                status_code=400,
+                detail="Only one video generation mode ('lucid_studio_video_slides' or 'lucid_studio_video_interactive') can be enabled at a time."
+            )
+
+        # If lucid_studio_video is enabled without a child mode, default to lucid_studio_video_slides
+        if "lucid_studio_video" in normalized_addons and not any(child in normalized_addons for child in (
+            "lucid_studio_video_slides",
+            "lucid_studio_video_interactive",
+            "interactive_video",
+        )):
+            normalized_addons.append("lucid_studio_video_slides")
+
+        # Keep interactive_video and lucid_studio_video_interactive in sync
+        if "interactive_video" in normalized_addons and "lucid_studio_video_interactive" not in normalized_addons:
+            normalized_addons.append("lucid_studio_video_interactive")
+        elif "lucid_studio_video_interactive" in normalized_addons and "interactive_video" not in normalized_addons:
+            normalized_addons.append("interactive_video")
+
         update_data["subscription_addons"] = normalized_addons
 
     if "subscription_tier" in update_data or "subscription_addons" in update_data or "platform_type" in update_data:
@@ -446,9 +524,25 @@ async def update_company_route(
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
     redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
+    redis_client.delete(f"company:addons:{company_id}")  # Invalidate policy evaluator addon cache
     delete_cache_pattern("dashboard_summary:*")  # Invalidate all user dashboard summary caches to apply new feature gating
     # Unwrap service layer response
     company = result.get("data") or None
+
+    # Audit log company modification
+    await log_audit_event(
+        action="COMPANY_UPDATED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=company_id,
+        target_name=company.get("name") if isinstance(company, dict) else None,
+        company_id=company_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes={"updated_fields": update_data},
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,
@@ -460,6 +554,7 @@ async def update_company_route(
 @router.delete("/{company_id}")
 async def delete_company_route(
     company_id: str,
+    http_request: Request = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     user_id = auth_ctx.user_id
@@ -472,6 +567,19 @@ async def delete_company_route(
     redis_client.delete(f"company_addons:{company_id}")
     # Unwrap service layer response
     deleted = result.get("data") or None
+
+    # Audit log company deletion
+    await log_audit_event(
+        action="COMPANY_DELETED",
+        action_category="TENANT",
+        target_type="company",
+        target_id=company_id,
+        company_id=company_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        status="SUCCESS" if not result.get("error") else "FAILED",
+        error_message=result.get("error"),
+    )
     
     return {
         "success": True,

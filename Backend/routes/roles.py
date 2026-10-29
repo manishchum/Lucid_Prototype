@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List
+from utils.audit_logger import log_audit_event
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 
 from utils.db.roles_db import (
@@ -12,6 +13,7 @@ from utils.db.roles_db import (
     revoke_role_assignment
 )
 
+from utils.redis_client import redis_client
 from utils.exceptions import ValidationError
 
 router = APIRouter(prefix="/api/roles", tags=["roles"])
@@ -110,6 +112,7 @@ async def get_user_role_assignments(
 @router.post("/assignments")
 async def create_role_assignment(
     request: AssignRoleRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
@@ -132,6 +135,25 @@ async def create_role_assignment(
     
     data = await assign_user_role(auth_ctx.user_id, request.user_id, role_data)
     
+    # Audit log role assignment
+    await log_audit_event(
+        action="ROLE_ASSIGNED",
+        action_category="IAM",
+        target_type="role_assignment",
+        target_id=request.user_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=role_data,
+        status="SUCCESS" if not data.get("error") else "FAILED",
+        error_message=data.get("error"),
+    )
+
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        redis_client.delete(f"user_max_role_level:{request.user_id}")
+    except Exception as e:
+        print(f"[create_role_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,
@@ -143,6 +165,7 @@ async def create_role_assignment(
 async def update_assignment(
     assignment_id: str,
     request: UpdateRoleAssignmentRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
@@ -159,6 +182,32 @@ async def update_assignment(
     
     data = await update_role_assignment(auth_ctx.user_id, assignment_id, updates)
     
+    # Audit log role assignment update
+    await log_audit_event(
+        action="ROLE_ASSIGNMENT_UPDATED",
+        action_category="IAM",
+        target_type="role_assignment",
+        target_id=assignment_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes=updates,
+        status="SUCCESS" if not data.get("error") else "FAILED",
+        error_message=data.get("error"),
+    )
+
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        target_uid = None
+        resp_data = data.get("data") if data else None
+        if isinstance(resp_data, list) and len(resp_data) > 0 and isinstance(resp_data[0], dict):
+            target_uid = resp_data[0].get("user_id")
+        elif isinstance(resp_data, dict):
+            target_uid = resp_data.get("user_id")
+        if target_uid:
+            redis_client.delete(f"user_max_role_level:{target_uid}")
+    except Exception as e:
+        print(f"[update_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,
@@ -169,6 +218,7 @@ async def update_assignment(
 @router.delete("/assignments/{assignment_id}")
 async def revoke_assignment(
     assignment_id: str,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required)
 ):
     """
@@ -177,6 +227,32 @@ async def revoke_assignment(
     """
     data = await revoke_role_assignment(auth_ctx.user_id, assignment_id)
     
+    # Audit log role assignment revocation
+    await log_audit_event(
+        action="ROLE_ASSIGNMENT_REVOKED",
+        action_category="IAM",
+        target_type="role_assignment",
+        target_id=assignment_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes={"is_active": {"old": True, "new": False}},
+        status="SUCCESS" if not data.get("error") else "FAILED",
+        error_message=data.get("error"),
+    )
+
+    # Immediately invalidate user's cached permission level across instances
+    try:
+        target_uid = None
+        resp_data = data.get("data") if data else None
+        if isinstance(resp_data, list) and len(resp_data) > 0 and isinstance(resp_data[0], dict):
+            target_uid = resp_data[0].get("user_id")
+        elif isinstance(resp_data, dict):
+            target_uid = resp_data.get("user_id")
+        if target_uid:
+            redis_client.delete(f"user_max_role_level:{target_uid}")
+    except Exception as e:
+        print(f"[revoke_assignment] Redis invalidation warning: {e}")
+
     return {
         "success": True,
         "data": data,
