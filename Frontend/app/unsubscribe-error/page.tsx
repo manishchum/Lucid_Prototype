@@ -6,7 +6,7 @@ import { AlertCircle, ArrowLeft, Mail, CheckCircle2, RefreshCw } from 'lucide-re
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
-export default function UnsubscribeErrorPage() {
+function UnsubscribeErrorContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const reason = searchParams.get('reason') || 'invalid_token';
@@ -144,5 +144,13 @@ export default function UnsubscribeErrorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function UnsubscribeErrorPage() {
+  return (
+    <React.Suspense fallback={<div className="min-h-screen bg-slate-50 flex items-center justify-center">Loading...</div>}>
+      <UnsubscribeErrorContent />
+    </React.Suspense>
   );
 }

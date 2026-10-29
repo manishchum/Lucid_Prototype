@@ -15,7 +15,7 @@ import {
   CheckCircle2 
 } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
-import { useAuth } from "@/contexts/auth-context"
+import { useAuth, hasActiveSession } from "@/contexts/auth-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 
 function LoginContent() {
@@ -28,13 +28,40 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, loading: authLoading, login } = useAuth()
+  const { user, login } = useAuth()
+  const [isRedirecting, setIsRedirecting] = useState(() => {
+    return hasActiveSession() || Boolean(user)
+  })
 
+  // Synchronous and immediate redirect if session exists
   useEffect(() => {
-    if (!authLoading && user) {
+    if (user || hasActiveSession()) {
+      setIsRedirecting(true)
       router.replace('/employee/welcome')
     }
-  }, [user, authLoading, router])
+  }, [user, router])
+
+  // Instant response to tab switching, window focus, and cross-tab storage updates
+  useEffect(() => {
+    const handleTabFocusOrSwitch = () => {
+      if (document.visibilityState === "visible") {
+        if (hasActiveSession() || auth?.currentUser) {
+          setIsRedirecting(true)
+          router.replace('/employee/welcome')
+        }
+      }
+    }
+
+    window.addEventListener("focus", handleTabFocusOrSwitch)
+    document.addEventListener("visibilitychange", handleTabFocusOrSwitch)
+    window.addEventListener("storage", handleTabFocusOrSwitch)
+
+    return () => {
+      window.removeEventListener("focus", handleTabFocusOrSwitch)
+      document.removeEventListener("visibilitychange", handleTabFocusOrSwitch)
+      window.removeEventListener("storage", handleTabFocusOrSwitch)
+    }
+  }, [router])
 
   useEffect(() => {
     const urlError = searchParams.get("error")
@@ -186,15 +213,8 @@ function LoginContent() {
     }
   }
 
-  if (authLoading || user) {
-    return (
-      <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
-          <p className="mt-4 text-sm text-slate-500 font-medium">Checking session...</p>
-        </div>
-      </div>
-    )
+  if (isRedirecting) {
+    return <div className="h-screen w-screen bg-[#F6F7FD]" />
   }
 
   return (
@@ -459,16 +479,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="h-screen w-screen bg-[#F6F7FD] flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#4F46E5] mx-auto"></div>
-            <p className="mt-4 text-sm text-slate-500 font-medium">Loading...</p>
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="h-screen w-screen bg-[#F6F7FD]" />}>
       <LoginContent />
     </Suspense>
   )

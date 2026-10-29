@@ -759,6 +759,19 @@ async def run_gdrive_webhook_renewal(ctx: Optional[dict] = None) -> None:
         logger.error(f"[ARQ Worker] Error renewing Google Drive webhooks: {e}")
 
 
+async def run_connector_sync_task(ctx: Optional[dict], company_id: str, provider: str = "google_drive") -> dict:
+    """Background ARQ worker task to sync cloud connector files asynchronously."""
+    logger.info(f"[ARQ Worker] Starting async file sync for company {company_id} (provider: {provider})...")
+    try:
+        from services.connectors import ConnectorManager
+        result = await ConnectorManager.sync_company_files(company_id=company_id, provider=provider)
+        logger.info(f"[ARQ Worker] Completed sync for company {company_id}: {result.synced_count} new, {result.updated_count} updated.")
+        return result.model_dump()
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Connector sync failed for company {company_id}: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 async def arq_startup(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker started with Redis job bus.")
 
@@ -812,9 +825,11 @@ class WorkerSettings:
         run_whatsapp_cron,
         run_leaderboard_refresh,
         run_gdrive_webhook_renewal,
+        run_connector_sync_task,
     ]
 
     on_startup = arq_startup
     on_shutdown = arq_shutdown
+
 
 

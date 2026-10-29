@@ -8,8 +8,6 @@ import { createCacheKey, sharedDataClient } from "@/lib/data-client"
 import { fetchWithAuth, getFirebaseIdToken } from "@/lib/fetch-with-auth"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
-const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
-const MANUAL_PROFILE_STORAGE_KEY = "lucid:manual-auth-profile"
 
 type AuthUserLike = {
   uid: string
@@ -286,10 +284,15 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
   }
 }
 
-const readManualAuthUser = (): AuthUserLike | null => {
+const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
+const MANUAL_PROFILE_STORAGE_KEY = "lucid:manual-auth-profile"
+const SESSION_ACTIVE_KEY = "lucid:auth:session-active"
+const AUTH_SYNC_CHANNEL = "lucid_auth_channel"
+
+export const readManualAuthUser = (): AuthUserLike | null => {
   if (typeof window === "undefined") return null
   try {
-    const raw = window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
+    const raw = window.localStorage.getItem(MANUAL_AUTH_STORAGE_KEY) || window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as AuthUserLike
     if (!parsed?.uid || !parsed?.email) return null
@@ -299,38 +302,48 @@ const readManualAuthUser = (): AuthUserLike | null => {
   }
 }
 
-const writeManualAuthUser = (user: AuthUserLike): void => {
+export const writeManualAuthUser = (user: AuthUserLike): void => {
   if (typeof window === "undefined") return
   try {
-    window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, JSON.stringify(user))
+    const serialized = JSON.stringify(user)
+    window.localStorage.setItem(MANUAL_AUTH_STORAGE_KEY, serialized)
+    window.localStorage.setItem(SESSION_ACTIVE_KEY, "1")
+    window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, serialized)
+    broadcastAuthMessage({ type: "LOGIN", user })
   } catch {
     // no-op
   }
 }
 
-const clearManualAuthUser = (): void => {
+export const clearManualAuthUser = (): void => {
   if (typeof window === "undefined") return
   try {
+    window.localStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
+    window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.localStorage.removeItem(SESSION_ACTIVE_KEY)
     window.sessionStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    broadcastAuthMessage({ type: "LOGOUT" })
   } catch {
     // no-op
   }
 }
 
-const writeCachedProfile = (profile: any): void => {
+export const writeCachedProfile = (profile: any): void => {
   if (typeof window === "undefined") return
   try {
-    window.sessionStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, JSON.stringify(profile))
+    const serialized = JSON.stringify(profile)
+    window.localStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, serialized)
+    window.sessionStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, serialized)
   } catch {
     // no-op
   }
 }
 
-const readCachedProfile = (): any | null => {
+export const readCachedProfile = (): any | null => {
   if (typeof window === "undefined") return null
   try {
-    const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
+    const raw = window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) || window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
@@ -338,18 +351,45 @@ const readCachedProfile = (): any | null => {
   }
 }
 
+export const hasActiveSession = (): boolean => {
+  if (typeof window === "undefined") return false
+  try {
+    if (window.localStorage.getItem(SESSION_ACTIVE_KEY) === "1") return true
+    const user = readManualAuthUser()
+    return Boolean(user?.uid && user?.email)
+  } catch {
+    return false
+  }
+}
+
+export const broadcastAuthMessage = (msg: { type: string; [key: string]: any }) => {
+  if (typeof window === "undefined") return
+  try {
+    if ("BroadcastChannel" in window) {
+      const channel = new BroadcastChannel(AUTH_SYNC_CHANNEL)
+      channel.postMessage({ ...msg, time: Date.now() })
+      channel.close()
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [rolesLoaded, setRolesLoaded] = useState(false)
-  const [userRoles, setUserRoles] = useState<string[]>([])
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
-  const [isDeveloper, setIsDeveloper] = useState(false)
-  const [isManager, setIsManager] = useState(false)
-  const [isManagerofUsers, setIsManagerofUsers] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const initialManualUser = typeof window !== "undefined" ? readManualAuthUser() : null
+  const initialCachedProfile = typeof window !== "undefined" ? readCachedProfile() : null
+
+  const [user, setUser] = useState<User | null>(() => (initialManualUser as User) || null)
+  const [loading, setLoading] = useState<boolean>(() => !initialManualUser)
+  const [rolesLoaded, setRolesLoaded] = useState<boolean>(() => Boolean(initialCachedProfile?.userId))
+  const [userRoles, setUserRoles] = useState<string[]>(() => initialCachedProfile?.userRoles || [])
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => Boolean(initialCachedProfile?.isAdmin))
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => Boolean(initialCachedProfile?.isSuperAdmin))
+  const [isDeveloper, setIsDeveloper] = useState<boolean>(() => Boolean(initialCachedProfile?.isDeveloper))
+  const [isManager, setIsManager] = useState<boolean>(() => Boolean(initialCachedProfile?.isManager))
+  const [isManagerofUsers, setIsManagerofUsers] = useState<boolean>(() => Boolean(initialCachedProfile?.isManagerofUsers))
+  const [userId, setUserId] = useState<string | null>(() => initialCachedProfile?.userId || null)
+  const [employeeData, setEmployeeData] = useState<any | null>(() => initialCachedProfile?.employeeData || null)
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -477,15 +517,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (effectiveUser?.email) {
         if (!isAuthPage) {
-          setRolesLoaded(false)
-          try {
-            await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-              method: "POST",
-              registerSession: true as any,
-            } as any);
-          } catch (err) {
+          // Register device session in background without blocking profile hydration
+          fetchWithAuth(`${API_BASE}/api/auth/session`, {
+            method: "POST",
+            registerSession: true as any,
+          } as any).catch((err) => {
             console.error("[auth-context] Failed to register session:", err);
-          } 
+          });
+
           let profile = readCachedProfile();
 
           if (!profile) {
@@ -557,6 +596,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
+    const handleCrossTabLogout = () => {
+      setUser(null);
+      setEmployeeData(null);
+      setUserId(null);
+      setUserRoles([]);
+      setIsAdmin(false);
+      setIsSuperAdmin(false);
+      setIsDeveloper(false);
+      setIsManager(false);
+      setIsManagerofUsers(false);
+      setRolesLoaded(false);
+      setLoading(false);
+      if (typeof window !== "undefined") {
+        const path = window.location.pathname;
+        if (path !== "/login" && path !== "/" && path !== "/signup") {
+          window.location.href = "/login";
+        }
+      }
+    };
+
+    const handleCrossTabLogin = () => {
+      const manual = readManualAuthUser();
+      if (manual) {
+        setUser(manual as User);
+        const profile = readCachedProfile();
+        if (profile) {
+          setEmployeeData(profile.employeeData);
+          setUserId(profile.userId);
+          setUserRoles(profile.userRoles);
+          setIsAdmin(profile.isAdmin);
+          setIsSuperAdmin(profile.isSuperAdmin);
+          setIsDeveloper(Boolean(profile.isDeveloper));
+          setIsManager(Boolean(profile.isManager));
+          setIsManagerofUsers(Boolean(profile.isManagerofUsers));
+          setRolesLoaded(true);
+        }
+        setLoading(false);
+        if (typeof window !== "undefined" && window.location.pathname === "/login") {
+          window.location.href = "/employee/welcome";
+        }
+      }
+    };
+
+    let authChannel: BroadcastChannel | null = null;
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        authChannel = new BroadcastChannel(AUTH_SYNC_CHANNEL);
+        authChannel.onmessage = (event) => {
+          if (event.data?.type === "LOGOUT") {
+            handleCrossTabLogout();
+          } else if (event.data?.type === "LOGIN") {
+            handleCrossTabLogin();
+          }
+        };
+      } catch {
+        // BroadcastChannel unsupported or restricted
+      }
+    }
+
+    const storageListener = (event: StorageEvent) => {
+      if (event.key === MANUAL_AUTH_STORAGE_KEY || event.key === SESSION_ACTIVE_KEY) {
+        if (!event.newValue) {
+          handleCrossTabLogout();
+        } else {
+          handleCrossTabLogin();
+        }
+      }
+    };
+
     const forceLogoutListener = async (event?: Event) => {
       console.warn("[auth-context] Handling lucid:auth:force-logout event", event);
       if (authSocketSingleton) {
@@ -574,12 +682,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     if (typeof window !== 'undefined') {
       window.addEventListener('lucid:auth:force-logout', forceLogoutListener);
+      window.addEventListener('storage', storageListener);
     }
 
     return () => {
       unsubscribe();
       if (typeof window !== 'undefined') {
         window.removeEventListener('lucid:auth:force-logout', forceLogoutListener);
+        window.removeEventListener('storage', storageListener);
+      }
+      if (authChannel) {
+        try {
+          authChannel.close();
+        } catch {}
       }
     };
   }, [])
@@ -614,6 +729,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+          window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
         const profile = await loadCachedFullProfile(authUserObj)

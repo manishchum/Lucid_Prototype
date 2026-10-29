@@ -1,7 +1,8 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { 
   BookOpen, 
   Puzzle, 
@@ -10,8 +11,38 @@ import {
   UserCheck 
 } from "lucide-react";
 import Footer from "@/components/Footer";
+import { useAuth, hasActiveSession } from "@/contexts/auth-context";
+import { auth } from "@/lib/firebase";
 
 export default function LandingPage() {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user || hasActiveSession()) {
+      router.replace('/employee/welcome');
+    }
+  }, [user, router]);
+
+  useEffect(() => {
+    const handleFocusCheck = () => {
+      if (document.visibilityState === "visible") {
+        if (hasActiveSession() || auth?.currentUser) {
+          router.replace('/employee/welcome');
+        }
+      }
+    };
+
+    window.addEventListener("focus", handleFocusCheck);
+    document.addEventListener("visibilitychange", handleFocusCheck);
+    window.addEventListener("storage", handleFocusCheck);
+
+    return () => {
+      window.removeEventListener("focus", handleFocusCheck);
+      document.removeEventListener("visibilitychange", handleFocusCheck);
+      window.removeEventListener("storage", handleFocusCheck);
+    };
+  }, [router]);
   const rowOneFeatures = [
     {
       title: 'Living Knowledge Base',
