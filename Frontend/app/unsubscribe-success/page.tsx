@@ -1,12 +1,12 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { CheckCircle2, ArrowLeft, RefreshCw, MailCheck } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
-export default function UnsubscribeSuccessPage() {
+function UnsubscribeSuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const email = searchParams.get('email') || '';
@@ -115,3 +115,21 @@ export default function UnsubscribeSuccessPage() {
     </div>
   );
 }
+
+export default function UnsubscribeSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/40 flex items-center justify-center p-4">
+          <div className="flex flex-col items-center gap-3">
+            <RefreshCw className="w-8 h-8 animate-spin text-slate-400" />
+            <p className="text-sm font-medium text-slate-500">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <UnsubscribeSuccessContent />
+    </Suspense>
+  );
+}
+
