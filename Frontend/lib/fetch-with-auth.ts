@@ -180,6 +180,21 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
   // If the backend says the token is invalid (401), force a refresh once
   if (response.status === 401) {
+    try {
+      const errClone = response.clone();
+      const errText = await errClone.text();
+      if (errText.includes("Session_Replaced")) {
+        console.warn("[fetch-with-auth] Session_Replaced detected on 401, logging out silently without retry", { url });
+        window.dispatchEvent(
+          new CustomEvent("lucid:auth:force-logout", {
+            detail: { reason: "session_replaced" }
+          })
+        );
+        return response;
+      }
+    } catch {
+      // ignore clone read error
+    }
 
     invalidateCachedIdToken();
     console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
