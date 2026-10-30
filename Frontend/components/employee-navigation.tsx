@@ -165,7 +165,7 @@ const EmployeeNavigation = ({
     </div>
   );
 
-  if (loading || !rolesLoaded) {
+  if (!mounted || loading || !rolesLoaded) {
     return null
   }
 

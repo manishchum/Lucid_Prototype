@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from utils.supabase_client import supabase
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.auth_bridge import get_service_supabase_client
+from utils.redis_client import get_cache, set_cache
 
 # import google.generativeai as genai
 
@@ -262,27 +263,38 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
         processedModuleId: Optional[str] = None
         existingProcessed: Any = None
 
+        # Try Redis cache for processed_module_id resolution and existing quiz
+        pm_cache_key = f"module:pm_id:{moduleId}"
+        cached_pm_id = get_cache(pm_cache_key)
+        if cached_pm_id:
+            processedModuleId = str(cached_pm_id)
+            quiz_cache_key = f"quiz:module:{processedModuleId}:{learningStyle}"
+            cached_quiz = get_cache(quiz_cache_key)
+            if cached_quiz and isinstance(cached_quiz, dict) and cached_quiz.get("quiz"):
+                return JSONResponse(content=cached_quiz)
+
         # lookup processed_modules by processed_module_id first
-        try:
-            pmRes = (
-                query_client
-                .table("processed_modules")
-                .select("processed_module_id, title, content, original_module_id, learning_style")
-                .eq("processed_module_id", moduleId)
-                .execute()
-            )
-            pmById = getattr(pmRes, "data", None)
-            pmIdErr = getattr(pmRes, "error", None)
-            if pmIdErr:
-                print("[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:", pmIdErr)
+        if not processedModuleId:
+            try:
+                pmRes = (
+                    query_client
+                    .table("processed_modules")
+                    .select("processed_module_id, title, content, original_module_id, learning_style")
+                    .eq("processed_module_id", moduleId)
+                    .execute()
+                )
+                pmById = getattr(pmRes, "data", None)
+                pmIdErr = getattr(pmRes, "error", None)
+                if pmIdErr:
+                    print("[gpt-mcq-quiz] lookup processed_modules by processed_module_id warning:", pmIdErr)
 
-            # ✅ TS logic intends a single object, but supabase-py returns list for .execute()
-            if pmById and isinstance(pmById, list) and len(pmById) > 0 and pmById[0].get("processed_module_id"):
-                existingProcessed = pmById[0]
-                processedModuleId = pmById[0].get("processed_module_id")
+                # ✅ TS logic intends a single object, but supabase-py returns list for .execute()
+                if pmById and isinstance(pmById, list) and len(pmById) > 0 and pmById[0].get("processed_module_id"):
+                    existingProcessed = pmById[0]
+                    processedModuleId = pmById[0].get("processed_module_id")
 
-        except Exception as e:
-            print("[gpt-mcq-quiz] Error querying processed_modules by id:", e)
+            except Exception as e:
+                print("[gpt-mcq-quiz] Error querying processed_modules by id:", e)
 
         # fallback lookup by original_module_id
         if not processedModuleId:
@@ -401,10 +413,19 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
                 status_code=404
             )
 
+        # Cache resolved processed_module_id
+        set_cache(pm_cache_key, processedModuleId, ttl=86400)
+        set_cache(f"module:pm_id:{processedModuleId}", processedModuleId, ttl=86400)
+
         moduleTitle = (existingProcessed.get("title") if isinstance(existingProcessed, dict) else "") or ""
         moduleContent = (existingProcessed.get("content") if isinstance(existingProcessed, dict) else "") or ""
 
-        # Existing quiz check
+        # Existing quiz check with Redis cache
+        quiz_cache_key = f"quiz:module:{processedModuleId}:{learningStyle}"
+        cached_quiz = get_cache(quiz_cache_key)
+        if cached_quiz and isinstance(cached_quiz, dict) and cached_quiz.get("quiz"):
+            return JSONResponse(content=cached_quiz)
+
         assessmentsRes = (
             query_client
                 .table("assessments")
@@ -424,9 +445,13 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
             try:
                 quizExisting = existing.get("questions")
                 quizExisting = quizExisting if isinstance(quizExisting, list) else json.loads(quizExisting)
-                return JSONResponse(content={"quiz": quizExisting, "assessmentId": existing.get("assessment_id")})
+                payload = {"quiz": quizExisting, "assessmentId": existing.get("assessment_id")}
+                set_cache(quiz_cache_key, payload, ttl=86400)
+                return JSONResponse(content=payload)
             except Exception:
-                return JSONResponse(content={"quiz": existing.get("questions"), "assessmentId": existing.get("assessment_id")})
+                payload = {"quiz": existing.get("questions"), "assessmentId": existing.get("assessment_id")}
+                set_cache(quiz_cache_key, payload, ttl=86400)
+                return JSONResponse(content=payload)
 
         # ✅ TS PER-MODULE PROMPT (preserved EXACT structure/content)
         # prompt = f"""You are an expert instructional designer. Your task is to generate multiple-choice questions (MCQs) from the provided learning content using Bloom's Taxonomy.
@@ -591,87 +616,97 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
                 f"{hash_hex[12:16]}-{hash_hex[16:20]}-{hash_hex[20:32]}"
             )
 
-            insertAssessmentRes = (
-                query_client
-                .table("assessments")
-                .insert({
-                    "assessment_id": stableId,
-                    "type": "module",
-                    "processed_module_id": processedModuleId,
-                    "questions": json.dumps(quiz),
-                    "learning_style": learningStyle,
-                    "company_id": body.get("companyId") or None
-                })
-                .execute()
-            )
+            is_conflict = False
+            try:
+                insertAssessmentRes = (
+                    query_client
+                    .table("assessments")
+                    .insert({
+                        "assessment_id": stableId,
+                        "type": "module",
+                        "processed_module_id": processedModuleId,
+                        "questions": json.dumps(quiz),
+                        "learning_style": learningStyle,
+                        "company_id": body.get("companyId") or None
+                    })
+                    .execute()
+                )
+                insertError = getattr(insertAssessmentRes, "error", None)
+                if insertError:
+                    insert_code = (
+                        insertError.get("code")
+                        if isinstance(insertError, dict)
+                        else getattr(insertError, "code", None)
+                    )
+                    if insert_code in ["23505", "409"]:
+                        is_conflict = True
+                    else:
+                        return JSONResponse(
+                            content={"error": "Failed to save assessment"},
+                            status_code=500
+                        )
+            except Exception as insert_exc:
+                exc_str = str(insert_exc)
+                if "23505" in exc_str or "duplicate key" in exc_str or "already exists" in exc_str or "409" in exc_str:
+                    is_conflict = True
+                else:
+                    raise insert_exc
 
-            insertError = getattr(insertAssessmentRes, "error", None)
-
-            if insertError:
-                insert_code = (
-                    insertError.get("code")
-                    if isinstance(insertError, dict)
-                    else getattr(insertError, "code", None)
+            if is_conflict:
+                existingListAfterRes = (
+                    query_client
+                    .table("assessments")
+                    .select("assessment_id, questions")
+                    .eq("type", "module")
+                    .eq("processed_module_id", processedModuleId)
+                    .eq("learning_style", learningStyle)
+                    .order("assessment_id", desc=True)
+                    .limit(1)
+                    .execute()
                 )
 
-                if insert_code in ["23505", "409"]:
-                    existingListAfterRes = (
-                        query_client
-                        .table("assessments")
-                        .select("assessment_id, questions")
-                        .eq("type", "module")
-                        .eq("processed_module_id", processedModuleId)
-                        .eq("learning_style", learningStyle)
-                        .order("assessment_id", desc=True)
-                        .limit(1)
-                        .execute()
-                    )
-
-                    existingListAfter = getattr(
-                        existingListAfterRes, "data", None
-                    )
-
-                    existingAfter = (
-                        existingListAfter[0]
-                        if isinstance(existingListAfter, list)
-                        and len(existingListAfter) > 0
-                        else None
-                    )
-
-                    if existingAfter:
-                        try:
-                            quizExisting = existingAfter.get("questions")
-                            quizExisting = (
-                                quizExisting
-                                if isinstance(quizExisting, list)
-                                else json.loads(quizExisting)
-                            )
-
-                            return JSONResponse(
-                                content={
-                                    "quiz": quizExisting,
-                                    "assessmentId": existingAfter.get("assessment_id")
-                                }
-                            )
-                        except Exception:
-                            return JSONResponse(
-                                content={
-                                    "quiz": existingAfter.get("questions"),
-                                    "assessmentId": existingAfter.get("assessment_id")
-                                }
-                            )
-
-                return JSONResponse(
-                    content={"error": "Failed to save assessment"},
-                    status_code=500
+                existingListAfter = getattr(
+                    existingListAfterRes, "data", None
                 )
 
-            return JSONResponse(
-                content={
-                    "quiz": quiz,
-                    "assessmentId": stableId
-                }
-            )
+                existingAfter = (
+                    existingListAfter[0]
+                    if isinstance(existingListAfter, list)
+                    and len(existingListAfter) > 0
+                    else None
+                )
+
+                if existingAfter:
+                    try:
+                        quizExisting = existingAfter.get("questions")
+                        quizExisting = (
+                            quizExisting
+                            if isinstance(quizExisting, list)
+                            else json.loads(quizExisting)
+                        )
+                    except Exception:
+                        quizExisting = existingAfter.get("questions")
+
+                    conflict_payload = {
+                        "quiz": quizExisting,
+                        "assessmentId": existingAfter.get("assessment_id")
+                    }
+                    set_cache(quiz_cache_key, conflict_payload, ttl=86400)
+                    return JSONResponse(content=conflict_payload)
+                else:
+                    conflict_payload = {
+                        "quiz": quiz,
+                        "assessmentId": stableId
+                    }
+                    set_cache(quiz_cache_key, conflict_payload, ttl=86400)
+                    return JSONResponse(content=conflict_payload)
+
+            new_quiz_payload = {
+                "quiz": quiz,
+                "assessmentId": stableId
+            }
+            set_cache(quiz_cache_key, new_quiz_payload, ttl=86400)
+            return JSONResponse(content=new_quiz_payload)
         except Exception as error:
             print("[gpt-mcq-quiz]Error generating quiz:", error)
             return JSONResponse(content={"error": "Failed to generate quiz"}, status_code=500)
@@ -690,6 +725,13 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
 
     if not companyId:
         return JSONResponse(content={"error": "companyId required"}, status_code=400)
+
+    # Check baseline quiz in Redis cache first
+    sorted_mod_str = ",".join(sorted(str(m) for m in moduleIds))
+    baseline_cache_key = f"quiz:baseline:{companyId}:{sorted_mod_str}"
+    cached_baseline = get_cache(baseline_cache_key)
+    if cached_baseline and isinstance(cached_baseline, dict) and (cached_baseline.get("quiz") or cached_baseline.get("quizMapping")):
+        return JSONResponse(content=cached_baseline)
 
     # 1) training_modules for company
     tmRes = (
@@ -803,64 +845,35 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
     processedIds = [processedMap.get(str(mId)) for mId in moduleIds]
     processedIds = [x for x in processedIds if x]
 
-    # 3) Baseline template check using employee_assessments join assessments
-    existingEmployeeAssessmentsRes = (
+    for orig_id, proc_id in processedMap.items():
+        if orig_id and proc_id:
+            set_cache(f"module:pm_id:{orig_id}", str(proc_id), ttl=86400)
+            set_cache(f"module:pm_id:{proc_id}", str(proc_id), ttl=86400)
+
+    # 3) Direct baseline assessment check in assessments table (fast, indexed)
+    existingAssessmentsRes = (
         query_client
-                .table("employee_assessments")
-        .select("assessment_id, assessments(assessment_id, processed_module_id, company_id, type)")
+        .table("assessments")
+        .select("assessment_id, questions, processed_module_id, company_id, modules_snapshot")
+        .eq("type", "baseline")
+        .eq("company_id", companyId)
+        .in_("processed_module_id", processedIds)
+        .order("created_at", desc=True)
         .execute()
     )
-    existingEmployeeAssessments = getattr(existingEmployeeAssessmentsRes, "data", None)
-    existingBaselinesError = getattr(existingEmployeeAssessmentsRes, "error", None)
+    existingAssessments = getattr(existingAssessmentsRes, "data", None) or []
 
-    if existingBaselinesError:
-        print("[gpt-mcq-quiz] lookup employee_assessments warning:", existingBaselinesError)
-
-    matched = []
-    if isinstance(existingEmployeeAssessments, list):
-        for r in existingEmployeeAssessments:
-            rel = r.get("assessments") if isinstance(r, dict) else None
-            if isinstance(rel, list) and len(rel) > 0:
-                rel = rel[0]
-            if isinstance(rel, dict):
-                if rel.get("type") == "baseline" and str(rel.get("processed_module_id")) in set(map(str, processedIds)):
-                    matched.append(r)
-
-    if len(matched) > 0:
-        templateMap: Dict[str, Optional[str]] = {}
-        for r in matched:
-            rel = r.get("assessments") if isinstance(r, dict) else None
-            if isinstance(rel, list) and len(rel) > 0:
-                rel = rel[0]
-            aid = rel.get("assessment_id") if isinstance(rel, dict) else None
-            pmid = rel.get("processed_module_id") if isinstance(rel, dict) else None
-            if aid:
-                templateMap[str(aid)] = str(pmid) if pmid else None
-
-        templateIds = list(templateMap.keys())
-
-        assessmentsRowsRes = (
-            query_client
-                .table("assessments")
-            .select("assessment_id, questions, processed_module_id")
-            .in_("assessment_id", templateIds)
-            .execute()
-        )
-        assessmentsRows = getattr(assessmentsRowsRes, "data", None)
-        assessmentsErr = getattr(assessmentsRowsRes, "error", None)
-        if assessmentsErr:
-            print("[gpt-mcq-quiz] fetch assessments for existing templates warning:", assessmentsErr)
-
+    if len(existingAssessments) > 0:
         resultMap = []
-        for a in (assessmentsRows or []):
-            questions = a.get("questions") if isinstance(a, dict) else None
-            try:
-                if isinstance(questions, str):
+        for a in existingAssessments:
+            questions = a.get("questions")
+            if isinstance(questions, str):
+                try:
                     questions = json.loads(questions)
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-            procId = (a.get("processed_module_id") if isinstance(a, dict) else None) or templateMap.get(str(a.get("assessment_id")))
+            procId = a.get("processed_module_id")
             moduleIdFound = None
             for k, v in processedMap.items():
                 if str(v) == str(procId):
@@ -874,91 +887,14 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
                 "questions": questions
             })
 
-        # assign to requesting user
-        if reqUserId:
-            rowsToUpsert = []
-            for a in (assessmentsRows or []):
-                if not isinstance(a, dict):
-                    continue
-                rowsToUpsert.append({
-                    "user_id": reqUserId,
-                    "assessment_id": a.get("assessment_id"),
-                    "score": None,
-                    "max_score": None,
-                    "answers": None,
-                    "feedback": None,
-                    "question_feedback": None
-                })
-
-            if len(rowsToUpsert) > 0:
-                upsertEARes = (
-                    query_client
-                .table("employee_assessments")
-                    .upsert(rowsToUpsert, on_conflict="user_id,assessment_id")
-                    .execute()
-                )
-                upsertErr = getattr(upsertEARes, "error", None)
-                if upsertErr:
-                    print("[gpt-mcq-quiz] upsert employee_assessments warning:", upsertErr)
-
-            if len(resultMap) == 1:
-                return JSONResponse(content={
-                    "quizMapping": resultMap,
-                    "quiz": resultMap[0].get("questions"),
-                    "source": "db",
-                    "assignedTo": reqUserId
-                })
-            return JSONResponse(content={"quizMapping": resultMap, "source": "db", "assignedTo": reqUserId})
-
-        # bulk assign
-        try:
-            plansRes = (
-                query_client
-                .table("learning_plan")
-                .select("user_id")
-                .eq("company_id", companyId)
-                .execute()
-            )
-            plans = getattr(plansRes, "data", None) or []
-            users = [p.get("user_id") for p in plans if isinstance(p, dict) and p.get("user_id")]
-
-            bulkRows = []
-            for u in users:
-                for a in (assessmentsRows or []):
-                    if not isinstance(a, dict):
-                        continue
-                    bulkRows.append({
-                        "user_id": u,
-                        "assessment_id": a.get("assessment_id"),
-                        "score": None,
-                        "max_score": None,
-                        "answers": None,
-                        "feedback": None,
-                        "question_feedback": None
-                    })
-
-            if len(bulkRows) > 0:
-                bulkRes = (
-                    query_client
-                .table("employee_assessments")
-                    .upsert(bulkRows, on_conflict="user_id,assessment_id")
-                    .execute()
-                )
-                bulkErr = getattr(bulkRes, "error", None)
-                if bulkErr:
-                    print("[gpt-mcq-quiz] bulk upsert employee_assessments warning:", bulkErr)
-
-        except Exception as e:
-            print("[gpt-mcq-quiz] bulk-assign warning:", e)
-
-        if len(resultMap) == 1:
-            return JSONResponse(content={
-                "quizMapping": resultMap,
-                "quiz": resultMap[0].get("questions"),
-                "source": "db",
-                "assignedTo": "bulk"
-            })
-        return JSONResponse(content={"quizMapping": resultMap, "source": "db", "assignedTo": "bulk"})
+        response_payload = {
+            "quizMapping": resultMap,
+            "quiz": resultMap[0].get("questions"),
+            "assessmentId": resultMap[0].get("assessment_id"),
+            "source": "db"
+        }
+        set_cache(baseline_cache_key, response_payload, ttl=86400)
+        return JSONResponse(content=response_payload)
 
     # 4) Prepare normalized snapshot
     currentModules = []
@@ -971,36 +907,7 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
                 pass
 
     normalizedSnapshot = json.dumps(normalizeModules(currentModules))
-
-    # 5) Check existing assessment with snapshot for ANY of processedIds
-    existingAssessmentRes = (
-        query_client
-                .table("assessments")
-        .select("assessment_id, questions, company_id, modules_snapshot, processed_module_id")
-        .eq("type", "baseline")
-        .eq("company_id", companyId)
-        .in_("processed_module_id", processedIds)
-        .order("created_at", desc=True)
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-
-    existingAssessment = getattr(existingAssessmentRes, "data", None)
-    assessmentError = getattr(existingAssessmentRes, "error", None)
-
-    if assessmentError and (not (isinstance(assessmentError, dict) and assessmentError.get("code") == "PGRST116")):
-        print("[gpt-mcq-quiz] existing baseline lookup warning:", assessmentError)
-
-    if existingAssessment and isinstance(existingAssessment, dict) and existingAssessment.get("modules_snapshot"):
-        if existingAssessment.get("modules_snapshot") == normalizedSnapshot:
-            try:
-                quizData = existingAssessment.get("questions")
-                if isinstance(quizData, str):
-                    quizData = json.loads(quizData)
-                return JSONResponse(content={"quiz": quizData, "source": "db", "assessmentId": existingAssessment.get("assessment_id")})
-            except Exception:
-                pass
+    existingAssessment = None
 
     combinedSummary = "\n".join([mod.get("gpt_summary") for mod in data if isinstance(mod, dict) and mod.get("gpt_summary")])
     combinedObjectives = []
@@ -1057,7 +964,9 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
             print("[gpt-mcq-quiz] Failed to update baseline assessment:", updateError)
             return JSONResponse(content={"error": "Failed to save baseline assessment (update)."}, status_code=500)
 
-        return JSONResponse(content={"quiz": quiz, "source": "generated", "assessmentId": existingAssessment.get("assessment_id")})
+        payload = {"quiz": quiz, "source": "generated", "assessmentId": existingAssessment.get("assessment_id")}
+        set_cache(baseline_cache_key, payload, ttl=86400)
+        return JSONResponse(content=payload)
 
     # Insert baseline rows: 1 per module
     rowsToInsert = []
@@ -1085,35 +994,72 @@ async def POST(request: Request, auth_ctx: RequestAuth = Depends(get_request_aut
         return JSONResponse(content={"error": "Failed to map moduleIds to processed_modules."}, status_code=500)
 
     # supabase-py/postgrest does not support chaining `.select()` after `.insert()` in this environment
-    insertAssessmentRes = (
-        query_client
-                .table("assessments")
-        .insert(rowsToInsert)
-        .execute()
-    )
+    is_baseline_conflict = False
+    insertData = None
+    try:
+        insertAssessmentRes = (
+            query_client
+            .table("assessments")
+            .insert(rowsToInsert)
+            .execute()
+        )
+        insertData = getattr(insertAssessmentRes, "data", None)
+        insertError = getattr(insertAssessmentRes, "error", None)
+        if insertError:
+            insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
+            if insert_code in ["23505", "409"]:
+                is_baseline_conflict = True
+            else:
+                print("[gpt-mcq-quiz] Failed to insert baseline assessment(s):", insertError)
+                return JSONResponse(content={"error": "Failed to save baseline assessment (insert)."}, status_code=500)
+    except Exception as insert_exc:
+        exc_str = str(insert_exc)
+        if "23505" in exc_str or "duplicate key" in exc_str or "already exists" in exc_str or "409" in exc_str:
+            is_baseline_conflict = True
+        else:
+            print("[gpt-mcq-quiz] Exception inserting baseline assessment(s):", insert_exc)
+            return JSONResponse(content={"error": "Failed to save baseline assessment (insert)."}, status_code=500)
 
-    insertData = getattr(insertAssessmentRes, "data", None)
-    insertError = getattr(insertAssessmentRes, "error", None)
+    if is_baseline_conflict:
+        stableIds = [r.get("assessment_id") for r in rowsToInsert if isinstance(r, dict) and r.get("assessment_id")]
+        reRes = (
+            query_client
+            .table("assessments")
+            .select("assessment_id, processed_module_id, questions")
+            .in_("assessment_id", stableIds)
+            .execute()
+        )
+        reData = getattr(reRes, "data", None)
+        reErr = getattr(reRes, "error", None)
+        if not reErr and reData and len(reData) > 0:
+            q = reData[0].get("questions")
+            try:
+                q_parsed = q if isinstance(q, list) else json.loads(q)
+            except Exception:
+                q_parsed = q or quiz
+            response_payload = {
+                "quiz": q_parsed,
+                "source": "generated",
+                "inserted": reData,
+                "assessmentId": stableIds[0] if len(stableIds) > 0 else None
+            }
+            set_cache(baseline_cache_key, response_payload, ttl=86400)
+            return JSONResponse(content=response_payload)
+        else:
+            response_payload = {
+                "quiz": quiz,
+                "source": "generated",
+                "inserted": rowsToInsert,
+                "assessmentId": stableIds[0] if len(stableIds) > 0 else None
+            }
+            set_cache(baseline_cache_key, response_payload, ttl=86400)
+            return JSONResponse(content=response_payload)
 
-    if insertError:
-        insert_code = insertError.get("code") if isinstance(insertError, dict) else getattr(insertError, "code", None)
-
-        # If the deterministic IDs already exist, fetch and return them
-        if insert_code in ["23505", "409"]:
-            stableIds = [r.get("assessment_id") for r in rowsToInsert if isinstance(r, dict) and r.get("assessment_id")]
-            reRes = (
-                query_client
-                .table("assessments")
-                .select("assessment_id, processed_module_id")
-                .in_("assessment_id", stableIds)
-                .execute()
-            )
-            reData = getattr(reRes, "data", None)
-            reErr = getattr(reRes, "error", None)
-            if not reErr:
-                return JSONResponse(content={"quiz": quiz, "source": "generated", "inserted": reData})
-
-        print("[gpt-mcq-quiz] Failed to insert baseline assessment(s):", insertError)
-        return JSONResponse(content={"error": "Failed to save baseline assessment (insert)."}, status_code=500)
-
-    return JSONResponse(content={"quiz": quiz, "source": "generated", "inserted": insertData})
+    response_payload = {
+        "quiz": quiz,
+        "source": "generated",
+        "inserted": insertData,
+        "assessmentId": rowsToInsert[0].get("assessment_id") if len(rowsToInsert) > 0 else None
+    }
+    set_cache(baseline_cache_key, response_payload, ttl=86400)
+    return JSONResponse(content=response_payload)
