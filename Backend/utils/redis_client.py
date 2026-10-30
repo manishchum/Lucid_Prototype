@@ -16,7 +16,9 @@ redis_client = redis.Redis(
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
     ssl=redis_ssl,
-    ssl_cert_reqs=None if redis_ssl else None,
+    max_connections=10,
+    socket_timeout=5.0,
+    socket_connect_timeout=3.0,
 )
 
 try:
@@ -46,7 +48,7 @@ def get_cache(key: str):
 
 def set_cache(key: str, value, ttl: int = 300) -> None:
     try:
-        redis_client.setex(key, ttl, json.dumps(value))
+        redis_client.setex(key, ttl, json.dumps(value, default=str))
         print(f"[Redis] Successfully set cache for {key} (TTL: {ttl})")
     except Exception as e:
         print(f"[Redis] set_cache error for {key}: {e}")

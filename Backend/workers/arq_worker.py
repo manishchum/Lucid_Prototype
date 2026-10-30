@@ -771,9 +771,89 @@ async def run_connector_sync_task(ctx: Optional[dict], company_id: str, provider
         logger.error(f"[ARQ Worker] Connector sync failed for company {company_id}: {e}")
         return {"status": "error", "message": str(e)}
 
+def publish_coach_ingestion_progress(company_id: str, document_id: str, stage: str, percent: int, details: dict = None) -> None:
+    """Publishes real-time coach ingestion progress to Redis Pub/Sub."""
+    try:
+        import json
+        from datetime import datetime, timezone
+        from utils.redis_client import redis_client
+        msg = json.dumps({
+            "event": "DOCUMENT_PROGRESS",
+            "document_id": document_id,
+            "company_id": company_id,
+            "stage": stage,
+            "percent": percent,
+            "details": details or {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        redis_client.publish(f"coach_ingestion:{company_id}", msg)
+    except Exception as err:
+        logger.warning(f"[ARQ Worker] Redis publish progress note: {err}")
+
+
+async def run_coach_document_ingestion_task(
+    ctx: dict = None,
+    document_id: str = "",
+    company_id: str = "",
+    file_path: str = "",
+    file_name: str = "",
+    file_type: str = "",
+    target_employee_id: str = None
+) -> dict:
+    """Distributed ARQ worker task for heavy text extraction and vector embedding."""
+    logger.info(f"[ARQ Worker] Starting async document ingestion: doc={document_id}, file={file_name} ({file_type})")
+    try:
+        from ingestion.coach_pipeline import run_coach_file_ingestion
+        
+        publish_coach_ingestion_progress(
+            company_id=company_id,
+            document_id=document_id,
+            stage="queued",
+            percent=5,
+            details={"stage_text": "Queued in distributed worker", "file_name": file_name}
+        )
+
+        def _on_progress(stage: str, percent: int, details: dict):
+            publish_coach_ingestion_progress(company_id, document_id, stage, percent, details)
+
+        result = await asyncio.to_thread(
+            run_coach_file_ingestion,
+            file_path=file_path,
+            document_id=document_id,
+            company_id=company_id,
+            file_name=file_name,
+            file_type=file_type,
+            target_employee_id=target_employee_id,
+            progress_callback=_on_progress
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Ingestion task failed for doc {document_id}: {e}")
+        publish_coach_ingestion_progress(
+            company_id=company_id,
+            document_id=document_id,
+            stage="failed",
+            percent=0,
+            details={"stage_text": f"Worker error: {str(e)}", "error": str(e)}
+        )
+        return {"status": "failed", "error": str(e)}
+    finally:
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+
 
 async def arq_startup(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker started with Redis job bus.")
+    try:
+        from ingestion.embedder import get_model
+        await asyncio.to_thread(get_model)
+        logger.info("[ARQ Worker] Ingestion embedding model pre-warmed successfully.")
+    except Exception as e:
+        logger.warning(f"[ARQ Worker] Model pre-warm notice: {e}")
 
 
 async def arq_shutdown(ctx: dict) -> None:
@@ -826,6 +906,7 @@ class WorkerSettings:
         run_leaderboard_refresh,
         run_gdrive_webhook_renewal,
         run_connector_sync_task,
+        run_coach_document_ingestion_task,
     ]
 
     on_startup = arq_startup

@@ -33,6 +33,20 @@ TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
 
 
 class ConnectorManager:
+    @staticmethod
+    def get_webhook_url_for_provider(provider: str) -> str:
+        env_key = f"{provider.upper()}_WEBHOOK_URL"
+        custom_url = os.getenv(env_key, "").strip()
+        if custom_url:
+            return custom_url
+        if provider == "google_drive":
+            gd_url = os.getenv("GOOGLE_DRIVE_WEBHOOK_URL", "").strip()
+            if gd_url:
+                return gd_url
+        api_base = os.getenv("API_BASE_URL", "").rstrip("/")
+        if not api_base:
+            api_base = os.getenv("FRONTEND_URL", "https://api.lucid.work").rstrip("/")
+        return f"{api_base}/api/connectors/{provider}/webhook"
     """Enterprise Manager orchestrating cloud integrations."""
 
     @staticmethod
@@ -222,7 +236,7 @@ class ConnectorManager:
                 print(f"[{provider.upper()}] Note: Could not stop old watch: {e}")
 
         # Register new webhook watch
-        _, _, _, webhook_url = get_oauth_credentials()
+        webhook_url = ConnectorManager.get_webhook_url_for_provider(provider)
         watch_info = await connector.register_watch(access_token, container_id, webhook_url)
 
         # Update config
@@ -638,7 +652,7 @@ class ConnectorManager:
         integrations = res.data if (res and getattr(res, "data", None)) else []
         renewed_count = 0
         connector = ConnectorRegistry.get(provider)
-        _, _, _, webhook_url = get_oauth_credentials()
+        webhook_url = ConnectorManager.get_webhook_url_for_provider(provider)
 
         for item in integrations:
             config = dict(item.get("config") or {})
@@ -731,4 +745,4 @@ class ConnectorManager:
         return True
 
 
-from services.connectors.providers.google_drive.client import get_oauth_credentials
+
