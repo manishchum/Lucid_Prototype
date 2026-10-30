@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from "react"
+import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { 
@@ -23,13 +24,23 @@ import {
   Info, 
   X,
   ChevronRight,
+  ChevronLeft,
+  ArrowRight,
+  ArrowLeft,
   UserCheck,
   FolderSync,
   HardDrive,
   FolderOpen,
+  Folder,
+  FolderTree,
   Radio,
   Check,
-  ShieldCheck
+  ShieldCheck,
+  Users,
+  File as FileIcon,
+  Image as ImageIcon,
+  Eye,
+  Ban
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -73,6 +84,8 @@ interface GoogleDriveIntegration {
   google_account_email: string
   folder_id: string
   folder_name: string
+  folder_path?: string
+  is_recursive?: boolean
   sync_status: string
   webhook_active: boolean
   webhook_expiration?: string | null
@@ -80,6 +93,34 @@ interface GoogleDriveIntegration {
   total_synced_files: number
   error_message?: string | null
   connected_at?: string | null
+}
+
+interface DriveFolderItem {
+  id: string
+  name: string
+  container_type: "folder" | "shared_drive"
+  parent_id?: string | null
+  path: string
+  drive_id?: string | null
+  drive_name?: string | null
+  has_children?: boolean
+  can_select?: boolean
+  metadata?: any
+}
+
+interface DriveFileItem {
+  id: string
+  name: string
+  mime_type: string
+  extension?: string
+  size_bytes?: number
+  modified_time?: string
+  icon_link?: string
+  web_view_link?: string
+  is_google_doc?: boolean
+  is_supported?: boolean
+  export_format?: string | null
+  category?: "document" | "spreadsheet" | "presentation" | "image" | "video" | "archive" | "other"
 }
 
 export default function CoachUploadsPage() {
@@ -243,6 +284,148 @@ export default function CoachUploadsPage() {
       setErrorToast(err.message || "Failed to disconnect.")
     } finally {
       setDisconnectingGDrive(false)
+    }
+  }
+
+  // Folder Picker Modal State
+  const [folderModalOpen, setFolderModalOpen] = useState(false)
+  const [folderLoading, setFolderLoading] = useState(false)
+  const [folderItems, setFolderItems] = useState<DriveFolderItem[]>([])
+  const [folderFiles, setFolderFiles] = useState<DriveFileItem[]>([])
+  const [selectedFolder, setSelectedFolder] = useState<DriveFolderItem | null>(null)
+  const [selectedFolderFiles, setSelectedFolderFiles] = useState<DriveFileItem[]>([])
+  const [loadingSelectedFiles, setLoadingSelectedFiles] = useState(false)
+  const [folderFilterTab, setFolderFilterTab] = useState<"all" | "folders" | "files">("all")
+  const [modalSearchQuery, setModalSearchQuery] = useState("")
+  const [inspectorTab, setInspectorTab] = useState<"all" | "eligible" | "excluded">("all")
+  const [folderBreadcrumbs, setFolderBreadcrumbs] = useState<Array<{ id: string | null; name: string; drive_id?: string | null }>>([
+    { id: null, name: "Google Drive" }
+  ])
+  const [savingFolder, setSavingFolder] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState<"all" | "gdrive" | "manual">("all")
+
+  const fetchDriveFolders = async (parentId: string | null = null, driveId: string | null = null) => {
+    try {
+      setFolderLoading(true)
+      let url = `${API_BASE}/api/integrations/google-drive/folders`
+      const params = new URLSearchParams()
+      if (parentId) params.append("parent_id", parentId)
+      if (driveId) params.append("drive_id", driveId)
+      if (params.toString()) url += `?${params.toString()}`
+
+      const res = await fetchWithAuth(url)
+      if (res.ok) {
+        const data = await res.json()
+        setFolderItems(data.folders || [])
+        setFolderFiles(data.files || [])
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to load folders from Google Drive.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to load folders.")
+    } finally {
+      setFolderLoading(false)
+    }
+  }
+
+  const handleOpenFolderPicker = () => {
+    setFolderModalOpen(true)
+    setSelectedFolder(null)
+    setFolderFiles([])
+    setSelectedFolderFiles([])
+    setFolderFilterTab("all")
+    setModalSearchQuery("")
+    setInspectorTab("all")
+    setFolderBreadcrumbs([{ id: null, name: "Google Drive" }])
+    fetchDriveFolders(null, null)
+  }
+
+  const handleSelectFolder = async (item: DriveFolderItem) => {
+    if (item.can_select === false) {
+      handleEnterFolder(item)
+      return
+    }
+    setSelectedFolder(item)
+
+    // Preview files inside this selected folder
+    try {
+      setLoadingSelectedFiles(true)
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/integrations/google-drive/folder-files?folder_id=${item.id}${item.drive_id ? `&drive_id=${item.drive_id}` : ""}`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setSelectedFolderFiles(data.files || [])
+      }
+    } catch (err) {
+      console.warn("Could not preview selected folder files:", err)
+    } finally {
+      setLoadingSelectedFiles(false)
+    }
+  }
+
+  const handleEnterFolder = (item: DriveFolderItem) => {
+    const isSharedDrive = item.container_type === "shared_drive"
+    const nextDriveId = isSharedDrive ? item.id : (item.drive_id || null)
+    setFolderBreadcrumbs(prev => [...prev, { id: item.id, name: item.name, drive_id: nextDriveId }])
+    setSelectedFolder(item.can_select !== false ? item : null)
+    setSelectedFolderFiles([])
+    setFolderFilterTab("all")
+    setModalSearchQuery("")
+    setInspectorTab("all")
+    fetchDriveFolders(item.id, nextDriveId)
+  }
+
+  const handleNavigateBreadcrumb = (index: number) => {
+    const target = folderBreadcrumbs[index]
+    const newCrumbs = folderBreadcrumbs.slice(0, index + 1)
+    setFolderBreadcrumbs(newCrumbs)
+    setSelectedFolder(null)
+    setSelectedFolderFiles([])
+    setFolderFilterTab("all")
+    setModalSearchQuery("")
+    setInspectorTab("all")
+    fetchDriveFolders(target.id, target.drive_id || null)
+  }
+
+  const handleConfirmFolderSelection = async () => {
+    if (!selectedFolder || selectedFolder.can_select === false) return
+    try {
+      setSavingFolder(true)
+      const pathParts = folderBreadcrumbs
+        .filter(b => b.id !== null)
+        .map(b => b.name)
+      if (!pathParts.includes(selectedFolder.name)) {
+        pathParts.push(selectedFolder.name)
+      }
+      const fullPath = `/${pathParts.join("/")}`
+
+      const res = await fetchWithAuth(`${API_BASE}/api/integrations/google-drive/select-folder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          folder_id: selectedFolder.id,
+          folder_name: selectedFolder.name,
+          folder_path: fullPath,
+          drive_id: selectedFolder.drive_id || (selectedFolder.container_type === "shared_drive" ? selectedFolder.id : null)
+        })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setSuccessToast(data.message || `Monitored folder set to "${selectedFolder.name}". Ingestion started!`)
+        setFolderModalOpen(false)
+        await fetchGDriveStatus()
+        await fetchDocuments()
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to update monitored folder.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to save monitored folder.")
+    } finally {
+      setSavingFolder(false)
     }
   }
 
@@ -413,6 +596,52 @@ export default function CoachUploadsPage() {
     return <FileCheck className="w-5 h-5 text-blue-500" />
   }
 
+  const getDriveItemFileIcon = (mimeType: string = "", extension: string = "") => {
+    const ext = (extension || "").toLowerCase()
+    const mime = (mimeType || "").toLowerCase()
+
+    if (ext === "pdf" || mime.includes("pdf")) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center flex-shrink-0">
+          <FileText className="w-4 h-4" />
+        </div>
+      )
+    }
+    if (ext.includes("xls") || ext === "csv" || ext === "gsheet" || mime.includes("spreadsheet") || mime.includes("csv")) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center flex-shrink-0">
+          <FileSpreadsheet className="w-4 h-4" />
+        </div>
+      )
+    }
+    if (ext.includes("ppt") || ext === "gslides" || mime.includes("presentation")) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center flex-shrink-0">
+          <Presentation className="w-4 h-4" />
+        </div>
+      )
+    }
+    if (["png", "jpg", "jpeg", "svg", "webp", "gif"].includes(ext) || mime.includes("image")) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center flex-shrink-0">
+          <ImageIcon className="w-4 h-4" />
+        </div>
+      )
+    }
+    if (ext.includes("doc") || ext === "gdoc" || mime.includes("word") || mime.includes("document")) {
+      return (
+        <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center flex-shrink-0">
+          <FileText className="w-4 h-4" />
+        </div>
+      )
+    }
+    return (
+      <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 flex items-center justify-center flex-shrink-0">
+        <FileIcon className="w-4 h-4" />
+      </div>
+    )
+  }
+
   const getStatusBadge = (status: CoachDocument["status"]) => {
     switch (status) {
       case "completed":
@@ -478,22 +707,69 @@ export default function CoachUploadsPage() {
   const filteredDocs = documents.filter(doc => {
     const matchesSearch = doc.file_name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter
-    return matchesSearch && matchesStatus
+    const isGDriveDoc = Boolean(doc.manual_description?.toLowerCase().includes("google drive"))
+    const matchesSource = sourceFilter === "all" || (sourceFilter === "gdrive" ? isGDriveDoc : !isGDriveDoc)
+    return matchesSearch && matchesStatus && matchesSource
+  })
+
+  // Filtered Modal Items
+  const filteredModalFolders = folderItems.filter(f =>
+    !modalSearchQuery.trim() || f.name.toLowerCase().includes(modalSearchQuery.toLowerCase())
+  )
+
+  // Active Inspector Folder & Files Calculation
+  const currentBreadcrumb = folderBreadcrumbs[folderBreadcrumbs.length - 1]
+  const isInspectingSelectedSubfolder = Boolean(
+    selectedFolder &&
+    selectedFolder.id !== currentBreadcrumb?.id
+  )
+
+  const activeInspectorFolder = isInspectingSelectedSubfolder && selectedFolder
+    ? selectedFolder
+    : {
+        id: currentBreadcrumb?.id || "root",
+        name: currentBreadcrumb?.name || "Google Drive",
+        path: "/" + folderBreadcrumbs.filter(b => b.id !== null).map(b => b.name).join("/"),
+        container_type: "folder" as const,
+        can_select: currentBreadcrumb?.id !== "shared_with_me" && currentBreadcrumb?.id !== null
+      }
+
+  const rawInspectorFiles = isInspectingSelectedSubfolder
+    ? selectedFolderFiles
+    : folderFiles
+
+  const eligibleFilesCount = rawInspectorFiles.filter(f => f.is_supported).length
+  const excludedFilesCount = rawInspectorFiles.filter(f => !f.is_supported).length
+  const totalInspectorBytes = rawInspectorFiles.reduce((acc, f) => acc + (f.size_bytes || 0), 0)
+
+  const filteredInspectorFiles = rawInspectorFiles.filter(f => {
+    const matchesSearch = !modalSearchQuery.trim() || f.name.toLowerCase().includes(modalSearchQuery.toLowerCase())
+    const matchesTab = inspectorTab === "all" || (inspectorTab === "eligible" ? f.is_supported : !f.is_supported)
+    return matchesSearch && matchesTab
   })
 
   return (
     <div className="min-h-screen bg-slate-50/60 p-6 md:p-10 font-sans">
       <div className="max-w-6xl mx-auto space-y-8">
         
+        {/* Top Back Navigation Bar */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/employee/welcome"
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200 rounded-lg transition shadow-2xs group"
+          >
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to Lucid</span>
+          </Link>
+
+          <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
+            Admin Console • Coach Knowledge Hub
+          </span>
+        </div>
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            {/* <div className="flex items-center gap-2">
-              <span className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full">
-                AI Knowledge Ingestion
-              </span>
-              <span className="text-xs text-slate-500">Multi-Tenant Scoped</span>
-            </div> */}
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-2">
               Performance Coach — Document Ingestion Hub
             </h1>
@@ -503,14 +779,24 @@ export default function CoachUploadsPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => { setLoading(true); fetchDocuments(); }}
-            disabled={loading}
-            className="self-start md:self-auto inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
-            Refresh Status
-          </button>
+          <div className="flex items-center gap-2.5 self-start md:self-auto">
+            <Link
+              href="/employee/welcome"
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition shadow-sm group"
+            >
+              <ArrowLeft className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
+              <span>Back to Lucid</span>
+            </Link>
+
+            <button
+              onClick={() => { setLoading(true); fetchDocuments(); }}
+              disabled={loading}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
+              Refresh Status
+            </button>
+          </div>
         </div>
 
         {/* Toast Alerts */}
@@ -597,7 +883,7 @@ export default function CoachUploadsPage() {
             </div>
 
             {/* Actions / Status Controls */}
-            <div className="flex items-center gap-2.5 self-start md:self-auto flex-shrink-0">
+            <div className="flex items-center gap-2.5 self-start md:self-auto flex-shrink-0 flex-wrap">
               {gdriveLoading ? (
                 <div className="text-xs text-slate-400 flex items-center gap-2">
                   <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
@@ -605,6 +891,14 @@ export default function CoachUploadsPage() {
                 </div>
               ) : gdriveStatus?.connected ? (
                 <>
+                  <button
+                    onClick={handleOpenFolderPicker}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-sm"
+                  >
+                    <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
+                    Select Folder
+                  </button>
+
                   <a
                     href={gdriveStatus.integration?.folder_id ? `https://drive.google.com/drive/folders/${gdriveStatus.integration.folder_id}` : "https://drive.google.com"}
                     target="_blank"
@@ -612,7 +906,7 @@ export default function CoachUploadsPage() {
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-sm"
                   >
                     <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-                    Open Folder in Drive
+                    Open in Drive
                   </a>
 
                   <button
@@ -652,31 +946,54 @@ export default function CoachUploadsPage() {
                 <span className="text-slate-800 font-semibold truncate block mt-0.5">
                   {gdriveStatus.integration.google_account_email}
                 </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  OAuth Vault Encrypted
+                </span>
               </div>
               <div>
-                <span className="text-slate-400 font-medium block">Monitored Folder</span>
-                <a
-                  href={gdriveStatus.integration.folder_id ? `https://drive.google.com/drive/folders/${gdriveStatus.integration.folder_id}` : "https://drive.google.com"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold inline-flex items-center gap-1 mt-0.5 group"
-                  title="Open folder in Google Drive"
-                >
-                  <FolderOpen className="w-3.5 h-3.5" />
-                  <span>{gdriveStatus.integration.folder_name}</span>
-                  <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                </a>
+                <span className="text-slate-400 font-medium block">Monitored Root</span>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <a
+                    href={gdriveStatus.integration.folder_id ? `https://drive.google.com/drive/folders/${gdriveStatus.integration.folder_id}` : "https://drive.google.com"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold inline-flex items-center gap-1 group truncate"
+                    title="Open folder in Google Drive"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="truncate">{gdriveStatus.integration.folder_name}</span>
+                    <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100 flex-shrink-0" />
+                  </a>
+                  <button
+                    onClick={handleOpenFolderPicker}
+                    className="ml-auto text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50/80 px-2 py-0.5 rounded border border-indigo-200/60"
+                  >
+                    Change
+                  </button>
+                </div>
+                <span className="text-[11px] text-slate-500 font-mono block mt-0.5 truncate">
+                  {gdriveStatus.integration.folder_path || `/${gdriveStatus.integration.folder_name}`}
+                </span>
               </div>
               <div>
-                <span className="text-slate-400 font-medium block">Auto-Ingested Files</span>
-                <span className="text-slate-800 font-semibold block mt-0.5">
-                  {gdriveStatus.integration.total_synced_files} file(s) processed
+                <span className="text-slate-400 font-medium block">Ingestion Scope</span>
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Full Subtree (Recursive)
+                  </span>
+                </div>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  {gdriveStatus.integration.total_synced_files} file(s) ingested
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 font-medium block">Last Synced</span>
-                <span className="text-slate-700 block mt-0.5">
+                <span className="text-slate-700 font-semibold block mt-0.5">
                   {formatGDriveSyncDate(gdriveStatus.integration.last_synced_at)}
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  {gdriveStatus.integration.webhook_active ? "Push Webhook Active" : "Polling Active"}
                 </span>
               </div>
             </div>
@@ -847,6 +1164,16 @@ export default function CoachUploadsPage() {
                   className="pl-9 pr-3.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-48"
                 />
               </div>
+
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value as "all" | "gdrive" | "manual")}
+                className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none"
+              >
+                <option value="all">All Sources</option>
+                <option value="gdrive">Google Drive</option>
+                <option value="manual">Manual Uploads</option>
+              </select>
 
               <select
                 value={statusFilter}
@@ -1093,6 +1420,442 @@ export default function CoachUploadsPage() {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Google Drive Folder Picker Modal - Two-Pane Workspace Explorer */}
+        {folderModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xl max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4 bg-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner flex-shrink-0">
+                    <FolderTree className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Google Drive Workspace Explorer</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Choose any folder in My Drive, Shared with me, or Shared Drives. All supported documents inside this folder and any nested subfolders will be auto-ingested.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setFolderModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+                  title="Close Explorer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Navigation Strip & Search Bar */}
+              <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                {/* Breadcrumbs */}
+                <div className="flex items-center gap-1.5 text-slate-600 overflow-x-auto">
+                  {folderBreadcrumbs.map((crumb, idx) => {
+                    const isLast = idx === folderBreadcrumbs.length - 1
+                    return (
+                      <React.Fragment key={idx}>
+                        {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                        <button
+                          onClick={() => handleNavigateBreadcrumb(idx)}
+                          disabled={isLast || folderLoading}
+                          className={`hover:underline flex items-center gap-1 flex-shrink-0 font-medium ${
+                            isLast ? "text-indigo-600 font-semibold" : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          {idx === 0 ? (
+                            <HardDrive className="w-3.5 h-3.5 text-slate-500" />
+                          ) : crumb.id === "shared_with_me" ? (
+                            <Users className="w-3.5 h-3.5 text-sky-500" />
+                          ) : (
+                            <Folder className="w-3.5 h-3.5 text-indigo-500" />
+                          )}
+                          <span>{crumb.name}</span>
+                        </button>
+                      </React.Fragment>
+                    )
+                  })}
+                </div>
+
+                {/* Instant Search */}
+                <div className="relative flex-shrink-0">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search folders & files..."
+                    value={modalSearchQuery}
+                    onChange={(e) => setModalSearchQuery(e.target.value)}
+                    className="pl-8 pr-3 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full sm:w-48 shadow-2xs"
+                  />
+                </div>
+              </div>
+
+              {/* Active Monitored Folder Banner if connected */}
+              {gdriveStatus?.integration?.folder_name && (
+                <div className="px-6 py-2 bg-indigo-50/40 border-b border-indigo-100/60 flex items-center justify-between text-xs text-indigo-900">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-slate-500 font-medium flex-shrink-0">Currently Monitored:</span>
+                    <span className="font-semibold text-indigo-700 flex items-center gap-1 truncate">
+                      <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                      {gdriveStatus.integration.folder_name}
+                    </span>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded flex-shrink-0">
+                      Recursive Subtree
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500 hidden md:inline flex-shrink-0">
+                    Switching folders preserves historical documents as detached
+                  </span>
+                </div>
+              )}
+
+              {/* Main Two-Pane Explorer Body */}
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden min-h-[460px]">
+                {/* Left Pane: Folders & Subtrees (Col 5) */}
+                <div className="md:col-span-5 border-r border-slate-200 flex flex-col bg-slate-50/50 overflow-hidden">
+                  <div className="p-3.5 border-b border-slate-200/80 bg-slate-100/70 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Folder className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        Folders & Drives ({filteredModalFolders.length})
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      Click to inspect
+                    </span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {folderLoading ? (
+                      <div className="flex flex-col items-center justify-center h-48 gap-3 text-slate-400 text-xs">
+                        <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+                        <span>Browsing Google Drive folders...</span>
+                      </div>
+                    ) : filteredModalFolders.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-48 text-center p-6 bg-white rounded-2xl border border-dashed border-slate-200">
+                        <Folder className="w-8 h-8 text-slate-300 mb-2" />
+                        <p className="text-xs font-semibold text-slate-700">No subfolders in this location</p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          You can select this folder as your root for automated ingestion.
+                        </p>
+                      </div>
+                    ) : (
+                      filteredModalFolders.map(item => {
+                        const isSelected = selectedFolder?.id === item.id
+                        const isSharedDrive = item.container_type === "shared_drive"
+                        const isSharedWithMeRoot = item.id === "shared_with_me"
+                        const isSharedFolder = item.parent_id === "shared_with_me" || item.metadata?.is_shared_with_me === true
+                        const canSelect = item.can_select !== false
+
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => handleSelectFolder(item)}
+                            className={`p-3 rounded-xl border transition cursor-pointer group ${
+                              isSelected
+                                ? "bg-indigo-50/80 border-indigo-400 shadow-sm ring-1 ring-indigo-300"
+                                : isSharedWithMeRoot
+                                  ? "bg-sky-50/40 hover:bg-sky-50/80 border-sky-200"
+                                  : "bg-white hover:bg-slate-100/70 border-slate-200"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                  isSharedDrive 
+                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-200" 
+                                    : isSharedWithMeRoot
+                                      ? "bg-sky-100 text-sky-700 border border-sky-200"
+                                      : isSharedFolder
+                                        ? "bg-blue-50 text-blue-600 border border-blue-200"
+                                        : "bg-indigo-50 text-indigo-600 border border-indigo-100"
+                                }`}>
+                                  {isSharedDrive ? (
+                                    <HardDrive className="w-4 h-4" />
+                                  ) : isSharedWithMeRoot ? (
+                                    <Users className="w-4 h-4" />
+                                  ) : isSharedFolder ? (
+                                    <FolderSync className="w-4 h-4" />
+                                  ) : (
+                                    <Folder className="w-4 h-4" />
+                                  )}
+                                </div>
+                                <div className="truncate">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-xs font-semibold truncate ${
+                                      isSelected ? "text-indigo-900 font-bold" : "text-slate-800"
+                                    }`}>
+                                      {item.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                    {item.path}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {canSelect ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleEnterFolder(item)
+                                      }}
+                                      className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg border border-slate-200 transition flex items-center gap-0.5 shadow-2xs"
+                                      title="Open subfolder"
+                                    >
+                                      <span>Open</span>
+                                      <ChevronRight className="w-3 h-3" />
+                                    </button>
+
+                                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                                      isSelected
+                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
+                                        : "border-slate-300 group-hover:border-slate-400 bg-white"
+                                    }`}>
+                                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleEnterFolder(item)
+                                    }}
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition flex items-center gap-1"
+                                  >
+                                    <span>Browse</span>
+                                    <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Pane: Folder Inspector & Files Preview (Col 7) */}
+                <div className="md:col-span-7 flex flex-col bg-white overflow-hidden">
+                  {/* Inspector Subheader */}
+                  <div className="p-3.5 border-b border-slate-200 bg-white flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FolderOpen className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                        <span className="text-xs font-bold text-slate-900 truncate">
+                          {activeInspectorFolder.name}
+                        </span>
+                        {isInspectingSelectedSubfolder && (
+                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded flex-shrink-0">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Metrics Pills */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          {eligibleFilesCount} Eligible
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                          <Ban className="w-2.5 h-2.5 text-slate-400" />
+                          {excludedFilesCount} Excluded
+                        </span>
+                        {totalInspectorBytes > 0 && (
+                          <span className="text-[10px] text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                            {formatBytes(totalInspectorBytes)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filter Tabs for Inspector */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("all")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition ${
+                          inspectorTab === "all"
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                        }`}
+                      >
+                        All Files ({rawInspectorFiles.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("eligible")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+                          inspectorTab === "eligible"
+                            ? "bg-emerald-600 text-white"
+                            : "text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        Eligible Only ({eligibleFilesCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("excluded")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+                          inspectorTab === "excluded"
+                            ? "bg-slate-700 text-white"
+                            : "text-slate-500 hover:bg-slate-100"
+                        }`}
+                      >
+                        <Ban className="w-2.5 h-2.5" />
+                        Excluded ({excludedFilesCount})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Inspector File Items */}
+                  <div className="flex-1 overflow-y-auto p-3.5 space-y-2 bg-slate-50/20">
+                    {loadingSelectedFiles ? (
+                      <div className="flex flex-col items-center justify-center h-48 gap-2.5 text-slate-400 text-xs">
+                        <RefreshCw className="w-5 h-5 animate-spin text-indigo-600" />
+                        <span>Inspecting folder contents...</span>
+                      </div>
+                    ) : filteredInspectorFiles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-48 text-center p-6 bg-white rounded-2xl border border-dashed border-slate-200">
+                        <FileIcon className="w-8 h-8 text-slate-300 mb-2" />
+                        <p className="text-xs font-semibold text-slate-700">No files found</p>
+                        <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                          {modalSearchQuery.trim()
+                            ? "No files match your current search query."
+                            : "No files directly in this folder. Any nested subfolders will still be auto-scanned recursively."}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredInspectorFiles.map(file => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition shadow-2xs"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {getDriveItemFileIcon(file.mime_type, file.extension)}
+                            <div className="truncate">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-slate-800 truncate" title={file.name}>
+                                  {file.name}
+                                </span>
+                                {file.extension && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                    {file.extension}
+                                  </span>
+                                )}
+                                {file.is_google_doc && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    Workspace
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                <span>{file.size_bytes ? formatBytes(file.size_bytes) : "Auto-converted"}</span>
+                                {file.modified_time && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Updated {new Date(file.modified_time).toLocaleDateString()}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                            {file.is_supported ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Ready for AI
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                <Ban className="w-2.5 h-2.5 text-slate-400" />
+                                Excluded
+                              </span>
+                            )}
+
+                            {file.web_view_link && (
+                              <a
+                                href={file.web_view_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 text-slate-400 hover:text-indigo-600 rounded transition"
+                                title="Open in Google Drive"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Selection Summary & Action Footer */}
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="truncate max-w-md">
+                  <span className="text-slate-400 block font-medium">Selected Target Folder:</span>
+                  {selectedFolder && selectedFolder.can_select !== false ? (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-indigo-700 font-semibold truncate mt-0.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-600" />
+                        <span className="truncate">{selectedFolder.name}</span>
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex-shrink-0">
+                          Recursive Subtree
+                        </span>
+                        <span className="text-[10px] text-slate-600 bg-slate-200/80 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          {selectedFolder.path}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-emerald-700 font-medium block mt-0.5">
+                        {eligibleFilesCount} eligible document(s) ready • Historical documents preserved as detached
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-slate-500 italic mt-0.5 block">
+                      Click any folder in the left pane to select it for AI ingestion
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2.5 self-end sm:self-auto flex-shrink-0">
+                  <button
+                    onClick={() => setFolderModalOpen(false)}
+                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200 transition shadow-2xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmFolderSelection}
+                    disabled={!selectedFolder || selectedFolder.can_select === false || savingFolder}
+                    className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-sm disabled:opacity-50"
+                  >
+                    {savingFolder ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Saving & Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Confirm & Monitor Folder
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
