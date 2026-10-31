@@ -19,6 +19,7 @@ import time
 from typing import Any, Tuple
 from utils.redis_client import redis_client, set_cache, get_cache
 from utils.auth_socket_manager import auth_socket_manager
+from utils.redis_limiter import check_rate_limit, get_client_ip
 
 # Backwards-compatibility alias for local registry inspection
 AUTH_SOCKET_REGISTRY = auth_socket_manager.active_sockets
@@ -308,7 +309,7 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
     if device_id and user_data.get("user_id"):
         user_id_str = str(user_data["user_id"])
         register_device_session(user_id_str, device_id, platform=platform)
-        await notify_session_replaced(user_id_str, device_id, platform=platform)
+        await auth_socket_manager.notify_session_replaced(user_id_str, device_id, platform=platform)
 
     return {
         "success": True,
@@ -329,7 +330,7 @@ async def register_session(
     if auth.user_id and x_device_id and x_register_session == "true":
         platform = resolve_platform(x_platform, request.headers.get("User-Agent"))
         register_device_session(auth.user_id, x_device_id, platform=platform)
-        await notify_session_replaced(auth.user_id, x_device_id, platform=platform)
+        await auth_socket_manager.notify_session_replaced(auth.user_id, x_device_id, platform=platform)
 
     return {"success": True}
 
@@ -426,7 +427,7 @@ async def get_current_user_profile(
     # Registration path: atomic session establishment on login bootstrap
     if x_dev_str and x_register_session == "true":
         register_device_session(user_id, x_dev_str, platform=norm_platform)
-        await notify_session_replaced(user_id, x_dev_str, platform=norm_platform)
+        await auth_socket_manager.notify_session_replaced(user_id, x_dev_str, platform=norm_platform)
 
     cache_key = f"auth_me:{user_id}"
     now_ts = time.time()

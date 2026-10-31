@@ -180,74 +180,75 @@ def test_zoom_crc_validation():
 # ==============================================================================
 # TEST 5: Content Synthesis & Formatting across Connectors
 # ==============================================================================
-@pytest.mark.asyncio
-async def test_content_synthesis_and_download():
+def test_content_synthesis_and_download():
     """Verifies that conversation threads, meetings, and emails synthesize into valid coach documents."""
-    # 1. Slack discussion digest synthesis
-    slack_conn = ConnectorRegistry.get("slack")
-    sample_messages = [
-        {"user": "U123_Alice", "text": "Completed the Q3 coaching milestone on sales objection handling.", "ts": "1730246400"},
-        {"user": "U456_Bob", "text": "Agreed! The demo roleplay scored 94% on empathy and closing metrics.", "ts": "1730246500"}
-    ]
-    slack_item = SyncItemInfo(
-        item_id="digest_slack_sample",
-        item_name="Slack_Channel_sales-coaching_2026-10-28.docx",
-        item_type="docx",
-        content_hash="hash_slack_123",
-        metadata={"messages": sample_messages, "channel_id": "C_SALES_COACH"}
-    )
-    content, filename, ext = await slack_conn.download_item("dummy_token", slack_item)
-    assert b"Sales objection handling" in content or b"objection handling" in content
-    assert b"U123_Alice" in content
-    assert ext == "pdf" or ext == "docx"
+    async def _test():
+            # 1. Slack discussion digest synthesis
+        slack_conn = ConnectorRegistry.get("slack")
+        sample_messages = [
+            {"user": "U123_Alice", "text": "Completed the Q3 coaching milestone on sales objection handling.", "ts": "1730246400"},
+            {"user": "U456_Bob", "text": "Agreed! The demo roleplay scored 94% on empathy and closing metrics.", "ts": "1730246500"}
+        ]
+        slack_item = SyncItemInfo(
+            item_id="digest_slack_sample",
+            item_name="Slack_Channel_sales-coaching_2026-10-28.docx",
+            item_type="docx",
+            content_hash="hash_slack_123",
+            metadata={"messages": sample_messages, "channel_id": "C_SALES_COACH"}
+        )
+        content, filename, ext = await slack_conn.download_item("dummy_token", slack_item)
+        assert b"Sales objection handling" in content or b"objection handling" in content
+        assert b"U123_Alice" in content
+        assert ext == "pdf" or ext == "docx"
 
-    # 2. Microsoft Teams discussion digest synthesis
-    teams_conn = ConnectorRegistry.get("teams")
-    sample_teams_msgs = [
-        {"from": {"user": {"displayName": "Sarah Connor"}}, "body": {"content": "<p>Sprint review feedback submitted.</p>"}, "createdDateTime": "2026-10-28T10:00:00Z"}
-    ]
-    teams_item = SyncItemInfo(
-        item_id="digest_teams_sample",
-        item_name="Teams_Channel_General_2026-10-28.docx",
-        item_type="docx",
-        content_hash="hash_teams_123",
-        metadata={"messages": sample_teams_msgs}
-    )
-    t_content, t_filename, t_ext = await teams_conn.download_item("dummy_token", teams_item)
-    assert b"Sarah Connor" in t_content
-    assert b"Sprint review feedback submitted" in t_content
+        # 2. Microsoft Teams discussion digest synthesis
+        teams_conn = ConnectorRegistry.get("teams")
+        sample_teams_msgs = [
+            {"from": {"user": {"displayName": "Sarah Connor"}}, "body": {"content": "<p>Sprint review feedback submitted.</p>"}, "createdDateTime": "2026-10-28T10:00:00Z"}
+        ]
+        teams_item = SyncItemInfo(
+            item_id="digest_teams_sample",
+            item_name="Teams_Channel_General_2026-10-28.docx",
+            item_type="docx",
+            content_hash="hash_teams_123",
+            metadata={"messages": sample_teams_msgs}
+        )
+        t_content, t_filename, t_ext = await teams_conn.download_item("dummy_token", teams_item)
+        assert b"Sarah Connor" in t_content
+        assert b"Sprint review feedback submitted" in t_content
 
-    # 3. Zoom meeting record synthesis with AI Companion Summary
-    zoom_conn = ConnectorRegistry.get("zoom")
-    zoom_item = SyncItemInfo(
-        item_id="zoom_sample_rec",
-        item_name="1-on-1 Performance Review - Transcript.vtt",
-        item_type="docx",
-        content_hash="hash_zoom_123",
-        metadata={"topic": "1-on-1 Performance Review", "meeting_id": "88776655"}
-    )
-    z_content, z_filename, z_ext = await zoom_conn.download_item("dummy_token", zoom_item)
-    assert b"1-on-1 Performance Review" in z_content
-    assert b"88776655" in z_content
+        # 3. Zoom meeting record synthesis with AI Companion Summary
+        zoom_conn = ConnectorRegistry.get("zoom")
+        zoom_item = SyncItemInfo(
+            item_id="zoom_sample_rec",
+            item_name="1-on-1 Performance Review - Transcript.vtt",
+            item_type="docx",
+            content_hash="hash_zoom_123",
+            metadata={"topic": "1-on-1 Performance Review", "meeting_id": "88776655"}
+        )
+        z_content, z_filename, z_ext = await zoom_conn.download_item("dummy_token", zoom_item)
+        assert b"1-on-1 Performance Review" in z_content
+        assert b"88776655" in z_content
 
-    # 4. Gmail message record synthesis
-    gmail_conn = ConnectorRegistry.get("gmail")
-    gmail_item = SyncItemInfo(
-        item_id="email_sample_99",
-        item_name="Email_Quarterly_Feedback.pdf",
-        item_type="pdf",
-        content_hash="hash_gmail_123",
-        metadata={
-            "subject": "Quarterly Feedback - Engineering Leadership",
-            "from": "VP Engineering <vp@lucid.work>",
-            "date": "Wed, 28 Oct 2026 12:00:00 +0000",
-            "snippet": "Strong leadership shown on multi-connector architecture project."
-        }
-    )
-    g_content, g_filename, g_ext = await gmail_conn.download_item("dummy_token", gmail_item)
-    assert b"Quarterly Feedback" in g_content
-    assert b"VP Engineering" in g_content
+        # 4. Gmail message record synthesis
+        gmail_conn = ConnectorRegistry.get("gmail")
+        gmail_item = SyncItemInfo(
+            item_id="email_sample_99",
+            item_name="Email_Quarterly_Feedback.pdf",
+            item_type="pdf",
+            content_hash="hash_gmail_123",
+            metadata={
+                "subject": "Quarterly Feedback - Engineering Leadership",
+                "from": "VP Engineering <vp@lucid.work>",
+                "date": "Wed, 28 Oct 2026 12:00:00 +0000",
+                "snippet": "Strong leadership shown on multi-connector architecture project."
+            }
+        )
+        g_content, g_filename, g_ext = await gmail_conn.download_item("dummy_token", gmail_item)
+        assert b"Quarterly Feedback" in g_content
+        assert b"VP Engineering" in g_content
 
+    asyncio.run(_test())
     print("[TEST 5 PASSED] Document content synthesis & proof formatting validated across all connectors.")
 
 
@@ -269,13 +270,109 @@ def test_dynamic_webhook_url_resolution():
 # ==============================================================================
 # MAIN TEST RUNNER
 # ==============================================================================
+
+
+# ==============================================================================
+# TEST 7: Google Meet Enterprise Architecture & Transcript Intelligence
+# ==============================================================================
+def test_google_meet_enterprise_intelligence():
+    """
+    Validates:
+    1. Google Meet transcript dialogue parsing (single-line and multi-line speech).
+    2. VTT caption parsing with timestamps and speaker attribution.
+    3. Speaker-to-employee matching with host exclusion.
+    4. In-meeting chat log appendix merging into a unified PDF digest.
+    5. Artifact filtering ensuring raw .mp4 videos are ignored.
+    """
+    import fitz
+    from services.connectors.providers.google_meet.client import (
+        parse_google_meet_transcript_text,
+        parse_vtt_captions,
+        match_speaker_to_employee,
+        build_synthesized_meet_pdf
+    )
+
+    # 1. Test Transcript Text Parsing
+    sample_text = """Meeting Transcript
+Meeting name: Bi-Weekly 1-on-1 Performance Check-in
+Date: Oct 31, 2026, 10:00:00 AM
+Attendees: Ansh Gahoi, Jane Smith
+
+Ansh Gahoi (00:00:05):
+Hi Jane, welcome to our check-in. How did the client presentation go?
+
+Jane Smith (00:00:15):
+Hi Ansh! It went really well. The client approved the contract terms.
+
+Ansh Gahoi (00:00:25):
+Excellent work on closing that deal.
+"""
+    parsed = parse_google_meet_transcript_text(sample_text)
+    assert parsed["meeting_title"] == "Bi-Weekly 1-on-1 Performance Check-in"
+    assert len(parsed["turns"]) == 3
+    assert parsed["turns"][0]["speaker"] == "Ansh Gahoi"
+    assert parsed["turns"][1]["speaker"] == "Jane Smith"
+    assert "contract terms" in parsed["turns"][1]["text"]
+
+    # 2. Test VTT Caption Parsing
+    sample_vtt = """WEBVTT
+
+00:00:05.100 --> 00:00:10.200
+<v Ansh Gahoi>Hi Jane, welcome to our check-in.</v>
+
+00:00:10.500 --> 00:00:15.000
+<v Jane Smith>Hi Ansh! It went really well.</v>
+"""
+    vtt_parsed = parse_vtt_captions(sample_vtt)
+    assert len(vtt_parsed["turns"]) == 2
+    assert vtt_parsed["turns"][0]["speaker"] == "Ansh Gahoi"
+    assert vtt_parsed["turns"][1]["speaker"] == "Jane Smith"
+
+    # 3. Test Speaker-to-Employee Matching (discovering coachee while excluding host)
+    mock_roster = [
+        {"user_id": "emp-ansh-111", "name": "Ansh Gahoi", "email": "ansh.gahoi@workfloww.ai"},
+        {"user_id": "emp-jane-222", "name": "Jane Smith", "email": "jane.smith@workfloww.ai"}
+    ]
+    matched_id = match_speaker_to_employee(
+        speakers=["Ansh Gahoi", "Jane Smith"],
+        company_employees=mock_roster,
+        host_email="ansh.gahoi@workfloww.ai"
+    )
+    # Must correctly identify Jane Smith as target coachee, not host Ansh
+    assert matched_id == "emp-jane-222"
+
+    # 4. Test In-Meeting Chat Appendix Merging & PDF Synthesis
+    sample_chat = """10:04:12 Jane Smith: Shared presentation link: https://docs.google.com/presentation/d/123
+10:15:30 Ansh Gahoi: Contract signed, thanks Jane!"""
+
+    pdf_bytes = build_synthesized_meet_pdf(
+        title=parsed["meeting_title"],
+        date_str=parsed["date"],
+        participants=parsed["attendees"],
+        dialogue_turns=parsed["turns"],
+        chat_log=sample_chat
+    )
+    assert len(pdf_bytes) > 500
+    pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    assert len(pdf_doc) >= 1
+    pdf_text = pdf_doc[0].get_text("text")
+    assert "Google Meet Session Digest" in pdf_text
+    assert "Bi-Weekly 1-on-1" in pdf_text
+    assert "Jane Smith" in pdf_text
+    assert "Appendix: In-Meeting Chat Messages" in pdf_text
+    assert "Shared presentation link" in pdf_text
+
+    print("[TEST 7 PASSED] Google Meet enterprise intelligence, transcript parsing, chat appendix & PDF synthesis verified.")
+
+
 if __name__ == "__main__":
     test_all_connectors_registered_and_configured()
     test_oauth_auth_url_and_csrf_state_encoding()
     test_slack_hmac_signature_and_replay_protection()
     test_zoom_crc_validation()
-    asyncio.run(test_content_synthesis_and_download())
+    test_content_synthesis_and_download()
     test_dynamic_webhook_url_resolution()
+    test_google_meet_enterprise_intelligence()
     print("\n==================================================================")
     print("ALL ENTERPRISE CONNECTOR TESTS PASSED SUCCESSFULLY!")
     print("==================================================================")

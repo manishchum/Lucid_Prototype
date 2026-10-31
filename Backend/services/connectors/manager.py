@@ -334,6 +334,7 @@ class ConnectorManager:
 
         integration_id = integration["id"]
         connected_user_id = integration.get("connected_by")
+        account_identifier = integration.get("account_identifier")
         config = integration.get("config") or {}
 
         # 2. Fetch monitored sources
@@ -487,6 +488,23 @@ class ConnectorManager:
                             }).eq("id", existing_doc_id).execute()
                             doc_record_id = existing_doc_id
                         else:
+                            # Disambiguate and link target employee if detected from meeting participants or metadata
+                            resolved_emp_id = (item.metadata or {}).get("target_employee_id")
+                            if not resolved_emp_id and (item.metadata or {}).get("detected_participants"):
+                                try:
+                                    from services.connectors.providers.google_meet.client import match_speaker_to_employee
+                                    from ingestion.coach_store import fetch_company_employees
+                                    roster = fetch_company_employees(company_id)
+                                    resolved_emp_id = match_speaker_to_employee(
+                                        item.metadata["detected_participants"],
+                                        roster,
+                                        host_email=account_identifier
+                                    )
+                                    if resolved_emp_id:
+                                        print(f"[{provider.upper()} SYNC] Resolved speaker to employee_id={resolved_emp_id}")
+                                except Exception as match_err:
+                                    print(f"[{provider.upper()} SYNC] Employee match note: {match_err}")
+
                             doc_record = create_document_record(
                                 company_id=company_id,
                                 uploaded_by=connected_user_id,
@@ -495,7 +513,7 @@ class ConnectorManager:
                                 file_size_bytes=file_size,
                                 storage_path=storage_path,
                                 file_hash=file_sha,
-                                target_employee_id=None,
+                                target_employee_id=resolved_emp_id,
                                 manual_description=f"Auto-imported from {connector.display_name}: {src.get('source_name', 'Folder')}"
                             )
                             doc_record_id = doc_record["id"]
@@ -515,7 +533,7 @@ class ConnectorManager:
                                 company_id=company_id,
                                 file_name=clean_filename,
                                 file_type=ext,
-                                target_employee_id=None
+                                target_employee_id=resolved_emp_id if not is_update else None
                             )
                         finally:
                             if os.path.exists(temp_file_path):
