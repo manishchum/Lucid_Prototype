@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -153,7 +153,7 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
   
   const [originalModuleId, setOriginalModuleId] = useState<string>(unwrappedParams.module_id);
 
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, employeeData, userId: authUserId } = useAuth();
 
   const refreshScoreHistoryCache = async (employeeId: string) => {
     const assessmentsCacheKey = createCacheKey({
@@ -237,14 +237,14 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
 
     // console.log('[QUIZ] Raw answers:', answers);
     // console.log('[QUIZ] Converted userAnswers:', userAnswers);
-    // Always fetch user info before API call
-    let employeeId: string | null = null;
-    let employeeName: string | null = null;
-    if (!authLoading && user?.email) {
+    // Always ensure user info before API call
+    let employeeId: string | null = authUserId || employeeData?.user_id || null;
+    let employeeName: string | null = (user as any)?.displayName || employeeData?.name || user?.email || null;
+    if (!employeeId && !authLoading && user?.email) {
       try {
         const emp = await fetchUserByEmail(user.email);
         employeeId = emp?.user_id || null;
-        employeeName = (user as any)?.displayName || user.email || null;
+        employeeName = employeeName || (emp as any)?.name || null;
       } catch (err) {
         // console.log('[QUIZ] Error fetching employee record:', err);
       }
@@ -342,6 +342,7 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
   const [resolvedModuleId, setResolvedModuleId] = useState<string | null>(null);
   const [isReviewMode, setIsReviewMode] = useState(false);
   const router = useRouter();
+  const fetchingModuleRef = useRef<string | null>(null);
   let  userId:any = null;
   let companyId:any = null;
   const questionsPerPage = 10;
@@ -446,6 +447,9 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
       return;
     }
     const fetchOrGenerateQuiz = async () => {
+      if (fetchingModuleRef.current === moduleId) return;
+      fetchingModuleRef.current = moduleId;
+
       setLoading(true);
       setError(null);
       setSubmitted(false);
@@ -455,188 +459,125 @@ export default function ModuleQuizPage({ params }: { params: Promise<{ module_id
       setFeedback(null);
       setQuestionFeedback([]);
 
-      // Fetch employee data first to get userId for API calls
-      let learningStyle: string | null = null;
-      let canonicalProcessedModuleId: string | null = null;
-      if (!authLoading && user?.email) {
-        // console.log("Inside the quiz tab")
-        // console.log(user.email)
+      // 1. Resolve employee and company IDs directly from auth context, with fallback to API
+      let currentUserId = authUserId || employeeData?.user_id || null;
+      let currentCompanyId = employeeData?.company_id || null;
+
+      if ((!currentUserId || !currentCompanyId) && !authLoading && user?.email) {
         try {
           const emp = await fetchUserByEmail(user.email);
-          userId = emp?.user_id || null;
-          companyId = emp?.company_id || null;
-          if (emp?.user_id) {
-            try {
-              const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${emp.user_id}`, {
-                headers: { 'X-User-ID': emp.user_id }
-              });
-              if (styleRes.ok) {
-                const styleJson = await styleRes.json();
-                const styleData = styleJson?.data || styleJson;
-                if (styleData?.learning_style) {
-                  learningStyle = styleData.learning_style;
+          currentUserId = currentUserId || emp?.user_id || null;
+          currentCompanyId = currentCompanyId || emp?.company_id || null;
+        } catch (e) {
+          console.error('[quiz] employee fetch error', e);
+        }
+      }
+
+      userId = currentUserId;
+      companyId = currentCompanyId;
+
+      let canonicalProcessedModuleId: string | null = null;
+
+      // 2. Concurrently fetch module metadata and learning style
+      const [moduleData, styleData] = await Promise.all([
+        currentUserId
+          ? fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
+              headers: { 'X-User-ID': currentUserId },
+            })
+              .then(async (res) => {
+                if (res.ok) {
+                  const payload = await res.json();
+                  return payload?.data || payload;
                 }
-                // console.log("Style Data:- ", styleData);
-              }
-            } catch (styleErr) {
-              console.error('[quiz] error fetching learning style', styleErr);
-            }
-          }
-        } catch (e) {
-          // console.log('[quiz] employee fetch error', e);
-        }
-      }
-      
-      // Fetch module metadata and resolve canonical processed_module_id
-      if (userId) {
-        try {
-          let moduleData: any = null;
-          
-          // First try: fetch by processed_module_id
-          try {
-            const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/${moduleId}`, {
-              headers: {
-                'X-User-ID': userId
-              }
-            });
-
-            if (res.ok) {
-              const payload = await res.json();
-              moduleData = payload?.data || payload;
-            }
-          } catch (error) {
-            console.error('[quiz] Error fetching by processed_module_id:', error);
-          }
-
-          // Second try: if not found, fetch by original_module_id
-          if (!moduleData) {
-            try {
-              const res = await fetchWithAuth(`${API_BASE}/api/processed-modules/original-module/${moduleId}`, {
-                headers: {
-                  'X-User-ID': userId
+                const fallbackRes = await fetchWithAuth(
+                  `${API_BASE}/api/processed-modules/original-module/${moduleId}`,
+                  { headers: { 'X-User-ID': currentUserId } }
+                );
+                if (fallbackRes.ok) {
+                  const payload = await fallbackRes.json();
+                  const modules = payload?.data || payload || [];
+                  return modules[0] || null;
                 }
-              });
+                return null;
+              })
+              .catch((err) => {
+                console.error('[quiz] Error fetching module metadata:', err);
+                return null;
+              })
+          : Promise.resolve(null),
 
-              if (res.ok) {
-                const payload = await res.json();
-                const modules = payload?.data || payload || [];
-                // Take the first match
-                moduleData = modules[0] || null;
-              }
-            } catch (error) {
-              console.error('[quiz] Error fetching by original_module_id:', error);
-            }
-          }
+        currentUserId
+          ? fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${currentUserId}`, {
+              headers: { 'X-User-ID': currentUserId },
+            })
+              .then(async (res) => {
+                if (res.ok) {
+                  const styleJson = await res.json();
+                  return styleJson?.data || styleJson;
+                }
+                return null;
+              })
+              .catch((err) => {
+                console.error('[quiz] error fetching learning style', err);
+                return null;
+              })
+          : Promise.resolve(null),
+      ]);
 
-          if (moduleData) {
-            if (moduleData.title) setModuleName(moduleData.title);
-            if(moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
-            if (moduleData.processed_module_id) {
-              canonicalProcessedModuleId = String(moduleData.processed_module_id);
-              setResolvedModuleId(canonicalProcessedModuleId);
-            }
-            // console.log('Value of originalModuleId:', originalModuleId);
-          }
-        } catch (e) {
-          // console.log('[quiz] module metadata fetch error', e);
+      if (moduleData) {
+        if (moduleData.title) setModuleName(moduleData.title);
+        if (moduleData.original_module_id) setOriginalModuleId(String(moduleData.original_module_id));
+        if (moduleData.processed_module_id) {
+          canonicalProcessedModuleId = String(moduleData.processed_module_id);
+          setResolvedModuleId(canonicalProcessedModuleId);
         }
       }
-      if (!learningStyle) {
-        learningStyle = 'General';
-      }
-      // 1. Try to fetch existing quiz for this module and Performance Sprint
-      let assessment = null;
-      try {
-        const res = await fetchWithAuth(
-          `${API_BASE}/api/assessments/filter/search?type=module&original_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}&user_id_filter=${userId}`,
-          {
-            headers: { 'X-User-ID': userId }
-          }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          const assessmentList = data?.data?.assessments ?? data?.assessments ?? [];
-          assessment = assessmentList.length > 0 ? assessmentList[0] : null;
-        }
-      } catch (e) {
-        console.error('[QUIZ] Error fetching assessment:', e);
-      }
-      // console.log('[QUIZ DEBUG] Assessment fetch result:', assessment);
-      // console.log(moduleId, learningStyle);
-      if (assessment && assessment.questions) {
-        try {
-          const quizData = Array.isArray(assessment.questions) ? assessment.questions : JSON.parse(assessment.questions);
-          // console.log('[QUIZ DEBUG] Parsed quizData from assessment:', quizData);
-          setQuiz(quizData);
-          setAnswers(new Array(quizData.length).fill(-1));
-          setAssessmentId(assessment.assessment_id);
-          if (userId) {
-            await loadExistingAttempt(String(assessment.assessment_id), quizData, String(userId), canonicalProcessedModuleId || resolvedModuleId || moduleId);
-          }
-        } catch (e) {
-          // console.log('[QUIZ DEBUG] Failed to parse quiz data:', e, assessment.questions);
-          setQuiz(null);
-          setError("Failed to parse quiz data.");
-        }
-        setLoading(false);
-        return;
-      }
+
+      const learningStyle = styleData?.learning_style || 'default';
+
+      // 3. Directly request or generate quiz via /api/gpt-mcq-quiz (which handles DB lookup & generation)
       try {
         const res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ moduleId, learningStyle, userId,companyId }),
+          body: JSON.stringify({
+            moduleId,
+            learningStyle,
+            userId: currentUserId,
+            companyId: currentCompanyId,
+          }),
         });
         const result = await res.json();
-        // console.log('[QUIZ DEBUG] /api/gpt-mcq-quiz result:', result);
-        if (result.quiz) {
+        if (result.quiz && Array.isArray(result.quiz) && result.quiz.length > 0) {
           setQuiz(result.quiz);
           setAnswers(new Array(result.quiz.length).fill(-1));
-                    if (result.assessmentId) {
-             setAssessmentId(result.assessmentId);
+          const effectiveAssessmentId = result.assessmentId || result.assessment_id;
+          if (effectiveAssessmentId) {
+            setAssessmentId(effectiveAssessmentId);
           }
-          // Fetch the newly created assessment from backend
-          try {
-            const assessmentRes = await fetchWithAuth(
-              `${API_BASE}/api/assessments/filter/search?type=module&processed_module_id=${moduleId}&learning_style=${encodeURIComponent(learningStyle)}`,
-              {
-                headers: { 'X-User-ID': userId }
-              }
+          if (currentUserId && effectiveAssessmentId) {
+            await loadExistingAttempt(
+              String(effectiveAssessmentId),
+              result.quiz,
+              String(currentUserId),
+              canonicalProcessedModuleId || resolvedModuleId || moduleId
             );
-            if (assessmentRes.ok) {
-              const assessmentData = await assessmentRes.json();
-              const newAssessmentList = assessmentData?.data?.assessments ?? assessmentData?.assessments ?? [];
-              const newAssessment = newAssessmentList.length > 0 ? newAssessmentList[0] : null;
-              // console.log("This is the module id:", moduleId)
-              // console.log('[QUIZ DEBUG] New assessment after quiz generation:', newAssessment);
-              if (newAssessment && newAssessment.assessment_id) {
-                setAssessmentId(newAssessment.assessment_id);
-              }
-            }
-          } catch (e) {
-            console.error('[QUIZ] Error fetching new assessment:', e);
           }
-       
-       
-       
         } else {
-          // console.log("Inside the else statment of result.quiz")
           setQuiz(null);
           setError(result.error || "Quiz generation failed.");
+          fetchingModuleRef.current = null;
         }
-
-
-
-        
       } catch (err) {
-        // console.log('[QUIZ DEBUG] Error during quiz generation:', err);
+        console.error('[QUIZ DEBUG] Error during quiz fetch/generation:', err);
         setQuiz(null);
         setError("Quiz generation failed.");
+        fetchingModuleRef.current = null;
       }
       setLoading(false);
     };
-  if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
-  }, [user, authLoading, moduleId]);
+    if (!authLoading && user?.email && moduleId && moduleId !== 'undefined' && moduleId !== 'null') fetchOrGenerateQuiz();
+  }, [user, authLoading, employeeData, authUserId, moduleId]);
 
 
 
