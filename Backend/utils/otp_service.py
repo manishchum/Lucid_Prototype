@@ -6,6 +6,7 @@ import logging
 import httpx
 from typing import Tuple, Optional, Any
 from utils.redis_client import redis_client
+from utils.logging import mask_phone_number, sanitize_text
 
 logger = logging.getLogger("lucid.otp_service")
 
@@ -36,13 +37,14 @@ def check_resend_cooldown(phone: str) -> Tuple[bool, int]:
     Returns (is_cooldown_active, remaining_seconds).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     cooldown_key = f"otp_cooldown:{normalized_phone}"
     try:
         ttl = redis_client.ttl(cooldown_key)
         if ttl > 0:
             return True, ttl
     except Exception as e:
-        logger.warning(f"Error checking OTP cooldown for {normalized_phone}: {e}")
+        logger.warning(f"Error checking OTP cooldown for {masked_phone}: {e}")
     return False, 0
 
 
@@ -52,6 +54,7 @@ def check_hourly_limit(phone: str) -> Tuple[bool, int]:
     Returns (is_limit_exceeded, remaining_seconds_until_reset).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     hourly_key = f"otp_hourly:{normalized_phone}"
     try:
         current_count = redis_client.get(hourly_key)
@@ -59,7 +62,7 @@ def check_hourly_limit(phone: str) -> Tuple[bool, int]:
             ttl = redis_client.ttl(hourly_key)
             return True, max(ttl, 1)
     except Exception as e:
-        logger.warning(f"Error checking OTP hourly limit for {normalized_phone}: {e}")
+        logger.warning(f"Error checking OTP hourly limit for {masked_phone}: {e}")
     return False, 0
 
 
@@ -69,6 +72,7 @@ def generate_and_store_otp(phone: str) -> str:
     Also tracks 30s resend cooldown, 1-hr rate limit, and resets attempt counter.
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     
     # Cryptographically secure random 6-digit generation (secrets module)
     otp_code = str(secrets.randbelow(900000) + 100000)
@@ -89,9 +93,9 @@ def generate_and_store_otp(phone: str) -> str:
         else:
             redis_client.incr(hourly_key)
 
-        logger.info(f"Generated secure OTP for {normalized_phone}")
+        logger.info(f"Generated secure OTP for {masked_phone}")
     except Exception as e:
-        logger.error(f"Failed to store OTP in Redis for {normalized_phone}: {e}")
+        logger.error(f"Failed to store OTP in Redis for {masked_phone}: {e}")
         raise RuntimeError("Failed to store OTP in cache")
 
     return otp_code
@@ -104,6 +108,7 @@ def verify_otp_code(phone: str, code: str) -> Tuple[bool, str]:
     Returns (is_valid, reason_code).
     """
     normalized_phone = normalize_phone_number(phone)
+    masked_phone = mask_phone_number(normalized_phone)
     otp_key = f"otp:{normalized_phone}"
     attempts_key = f"otp_attempts:{normalized_phone}"
 
@@ -142,7 +147,7 @@ def verify_otp_code(phone: str, code: str) -> Tuple[bool, str]:
             return False, f"INVALID_CODE_{MAX_VERIFY_ATTEMPTS - new_attempts}_REMAINING"
 
     except Exception as e:
-        logger.error(f"Error verifying OTP in Redis for {normalized_phone}: {e}")
+        logger.error(f"Error verifying OTP in Redis for {masked_phone}: {e}")
         return False, "VERIFICATION_ERROR"
 
 
@@ -259,7 +264,7 @@ async def send_dovesoft_sms(phone: str, otp_code: str) -> SMSDeliveryResult:
     try:
         client = get_dovesoft_client()
         response = await client.post(api_url, json=payload, headers=headers)
-        logger.info(f"DoveSoft API response status={response.status_code} body={response.text}")
+        logger.info(f"DoveSoft API response status={response.status_code}")
         if response.status_code == 200:
             return SMSDeliveryResult(
                 True,

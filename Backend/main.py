@@ -56,6 +56,8 @@ from routes.logs import router as logs_router
 from routes.notification_workflows import router as workflows_router
 from routes.coach_upload import router as coach_upload_router
 from routes.google_drive import router as google_drive_router
+from routes.connectors import router as connectors_router
+from routes.audit_logs import router as audit_logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
 # Import user routes
@@ -71,27 +73,11 @@ from routes.ingest_processed_module import router as ingest_processed_module_rou
 from routes import functions
 from config import IS_PRODUCTION
 
-class SensitiveTokenMaskingFilter(logging.Filter):
-    """Mask sensitive query parameters (e.g., token=...) in Uvicorn access logs."""
+from utils.logging import setup_logging_sanitizer
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.args:
-            new_args = []
-            for arg in record.args:
-                if isinstance(arg, str):
-                    arg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', arg)
-                new_args.append(arg)
-            record.args = tuple(new_args)
+# Initialize enterprise-grade logging sanitizer across root, uvicorn, and stdout/stderr
+setup_logging_sanitizer()
 
-        if isinstance(record.msg, str):
-            record.msg = re.sub(r'((?:token|access_token|auth_token)=)[^&\s"\']+', r'\1***MASKED***', record.msg)
-
-        return True
-
-
-_token_mask_filter = SensitiveTokenMaskingFilter()
-for _logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-    logging.getLogger(_logger_name).addFilter(_token_mask_filter)
 
 
 # Create FastAPI app
@@ -157,13 +143,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code = 500
 
     # Ensure CORS headers strictly match allowed origins (prevents reflecting arbitrary untrusted origins)
+    headers = {}
     origin = request.headers.get("origin", "")
     norm_origin = origin.rstrip("/") if origin else ""
-    cors_origin = origin if norm_origin in CORS_ALLOWED_ORIGINS else FRONTEND_URL
-    headers = {
-        "Access-Control-Allow-Origin": cors_origin,
-        "Access-Control-Allow-Credentials": "true",
-    }
+    if norm_origin and norm_origin in CORS_ALLOWED_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
 
     return JSONResponse(status_code=status_code, content=content, headers=headers)
 
@@ -323,6 +311,12 @@ async def shutdown_event():
     except Exception:
         pass
 
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
+    except Exception:
+        pass
+
 @app.post("/api/cron/refresh_leaderboards", tags=["cron"])
 async def trigger_refresh_leaderboards():
     """Trigger manual or Cloud Scheduler refresh of precomputed company leaderboards into Redis."""
@@ -454,6 +448,22 @@ app.include_router(unsubscribe.router)
 app.include_router(logs_router)
 app.include_router(coach_upload_router)
 app.include_router(google_drive_router)
+app.include_router(connectors_router)
+app.include_router(audit_logs_router)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
+    except Exception:
+        pass
+    try:
+        from utils.websocket_manager import manager as ws_manager
+        await ws_manager.stop()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

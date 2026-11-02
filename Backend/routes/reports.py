@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from google import genai
 from utils.auth import RequestAuth, get_request_auth_required
 from utils.supabase_client import supabase
+from utils.logging import mask_email
 
 # ReportLab imports
 from reportlab.lib.pagesizes import letter
@@ -407,10 +408,10 @@ def send_email_with_pdf(to_email: str, subject: str, body_html: str, pdf_bytes: 
         server.login(smtp_user, smtp_pass)
         server.sendmail(from_email, to_email, msg.as_string())
         server.quit()
-        print(f"[Reports SMTP] Emailed report successfully to {to_email}")
+        print(f"[Reports SMTP] Emailed report successfully to {mask_email(to_email)}")
         return True
     except Exception as e:
-        print(f"[Reports SMTP Error] Failed to send email to {to_email}:", e)
+        print(f"[Reports SMTP Error] Failed to send email to {mask_email(to_email)}: {e}")
         return False
 
 from utils.auth import RequestAuth, get_request_auth_required, require_addon
@@ -741,27 +742,11 @@ Employee Submission Data:
 {submissions_json}
 """
 
-        # PHASE 10 — REPORT QUALITY DATA DEBUG
-        print("\n========== REPORT QUALITY DATA DEBUG ==========")
-        print(f"REPORT MODE: {report_mode.upper()}")
-        print(f"EMPLOYEE COUNT: {employee_count}")
-        print(f"DETAILED PROFILE LIMIT: {detailed_profile_limit}")
-        print(f"EMPLOYEES SELECTED FOR DETAILED ANALYSIS: Dynamic (up to {detailed_profile_limit})")
-        
-        # Log brief info for up to 10 employees
-        for sub_log in submissions_summary[:10]:
-            print(f"\nEmployee: {sub_log.get('employee')}")
-            print(f"Score: {sub_log.get('score')}")
-            print(f"Strengths: {len(sub_log.get('strengths') or [])}")
-            print(f"Actions Taken: {len(sub_log.get('task_insights', {}).get('actions_taken') or [])}")
-            print(f"Weaknesses: {len(sub_log.get('weaknesses') or [])}")
-            print(f"Detected Issues: {len(sub_log.get('detected_issues') or [])}")
-            print(f"Improvement Points: {len(sub_log.get('improvement_points') or [])}")
-            print(f"Missing Information: {len(sub_log.get('task_insights', {}).get('missing_information') or [])}")
-        
-        if employee_count > 10:
-            print(f"\n... and {employee_count - 10} more employees omitted from debug log ...")
-        print("===============================================\n")
+        # PHASE 10 — REPORT QUALITY DATA SUMMARY
+        print(
+            f"[Reports] Synthesizing report: mode={report_mode.upper()} "
+            f"employee_count={employee_count} detailed_profiles={detailed_profile_limit}"
+        )
 
         try:
             # Query Gemini Flash to synthesize the report

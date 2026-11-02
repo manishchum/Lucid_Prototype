@@ -100,8 +100,9 @@ async def get_user_progress(
         raise HTTPException(status_code=403, detail=result["error"])
     
     response_payload = {
-        "progress": result["data"],
+        "progress": result["data"] or [],
         "count": len(result["data"] or []),
+        "total": result.get("total") if result.get("total") is not None else len(result["data"] or []),
         "limit": safe_limit,
         "offset": safe_offset,
     }
@@ -140,8 +141,9 @@ async def get_module_progress(
         raise HTTPException(status_code=403, detail=result["error"])
     
     return {
-        "progress": result["data"],
+        "progress": result["data"] or [],
         "count": len(result["data"] or []),
+        "total": result.get("total") if result.get("total") is not None else len(result["data"] or []),
         "limit": safe_limit,
         "offset": safe_offset,
     }
@@ -221,8 +223,9 @@ async def get_company_progress(
         raise HTTPException(status_code=403, detail=result["error"])
     
     return {
-        "progress": result["data"],
+        "progress": result["data"] or [],
         "count": len(result["data"] or []),
+        "total": result.get("total") if result.get("total") is not None else len(result["data"] or []),
         "limit": safe_limit,
         "offset": safe_offset,
     }

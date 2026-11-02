@@ -3,13 +3,22 @@ import os
 
 import redis
 
+redis_ssl = os.getenv("REDIS_SSL", "false").lower() in ("true", "1", "yes")
+
+from dotenv import load_dotenv
+load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
 redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST"),
-    port=int(os.getenv("REDIS_PORT")),
+    host=os.getenv("REDIS_HOST", "127.0.0.1"),
+    port=int(os.getenv("REDIS_PORT") or 6379),
     username=os.getenv("REDIS_USERNAME"),
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
-    # ssl=True
+    ssl=redis_ssl,
+    max_connections=10,
+    socket_timeout=5.0,
+    socket_connect_timeout=3.0,
 )
 
 try:
@@ -39,7 +48,7 @@ def get_cache(key: str):
 
 def set_cache(key: str, value, ttl: int = 300) -> None:
     try:
-        redis_client.setex(key, ttl, json.dumps(value))
+        redis_client.setex(key, ttl, json.dumps(value, default=str))
         print(f"[Redis] Successfully set cache for {key} (TTL: {ttl})")
     except Exception as e:
         print(f"[Redis] set_cache error for {key}: {e}")
@@ -95,6 +104,11 @@ def invalidate_user_caches(user_id: str):
         try:
             from routes.employee_dashboard import invalidate_dashboard_l1_cache
             invalidate_dashboard_l1_cache(user_id)
+        except Exception:
+            pass
+        try:
+            from routes.auth import invalidate_auth_me_l1_cache
+            invalidate_auth_me_l1_cache(user_id)
         except Exception:
             pass
         # Invalidate company leaderboard ZSET if company_id is known

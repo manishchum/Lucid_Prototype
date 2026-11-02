@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
+from utils.audit_logger import log_audit_event
+from utils.logging import mask_email
 
 from utils.db.users_db import (
     get_user_by_email,
@@ -86,7 +88,7 @@ def _ensure_firebase_and_persist_uid(created_payload, request_password: Optional
         if isinstance(updated_data, list) and updated_data:
             return updated_data
     except Exception as exc:
-        print(f"[users] Failed to persist firebase_uid for {email}: {exc}")
+        print(f"[users] Failed to persist firebase_uid for {mask_email(email)}: {exc}")
         created_user["firebase_uid"] = firebase_uid
         return [created_user]
 
@@ -123,7 +125,9 @@ async def _send_welcome_email(created_payload, custom_password: Optional[str] = 
             default_password=custom_password or DEFAULT_PASSWORD,
         )
         if not send_result.get("success"):
-            print(f"[users] Welcome email failed for {email}: {send_result.get('error')}")
+            print(f"[users] Welcome email failed for {mask_email(email)}: {send_result.get('error')}")
+        else:
+            print(f"[users] Welcome email sent successfully to {mask_email(email)}")
     except Exception as exc:
         print(f"[users] Exception while sending welcome email: {exc}")
 
@@ -266,6 +270,7 @@ async def get_user(
 @router.post("/")
 async def create_user_endpoint(
     request: CreateUserRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Create a new user (requires authentication and authorization)."""
@@ -286,6 +291,25 @@ async def create_user_endpoint(
         raise HTTPException(status_code=400, detail=err_msg)
     result["data"] = _ensure_firebase_and_persist_uid(result.get("data"), request.password)
     reactivated = result.get("reactivated", False)
+    created_user_row = _extract_created_user_row(result.get("data"))
+    created_id = created_user_row.get("user_id") if created_user_row else None
+    
+    # Audit log user creation / reactivation
+    await log_audit_event(
+        action="USER_REACTIVATED" if reactivated else "USER_CREATED",
+        action_category="IAM",
+        target_type="user",
+        target_id=str(created_id) if created_id else None,
+        target_name=created_user_row.get("name") if created_user_row else None,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details={
+            "email": created_user_row.get("email") if created_user_row else None,
+            "position": created_user_row.get("position") if created_user_row else None,
+            "reactivated": reactivated,
+        },
+    )
+
     if not reactivated:
         try:
             await _send_welcome_email(result.get("data"), request.password)
@@ -294,7 +318,6 @@ async def create_user_endpoint(
 
         # Trigger Automated Notification Workflow Engine for USER_WELCOME
         try:
-            created_user_row = _extract_created_user_row(result.get("data"))
             if created_user_row and created_user_row.get("user_id"):
                 from utils.notifications.workflow_engine import WorkflowEngine
                 await WorkflowEngine.trigger_lifecycle(
@@ -327,6 +350,7 @@ async def create_user_endpoint(
 async def update_user_endpoint(
     target_user_id: str,
     request: UpdateUserRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     """Update user details."""
@@ -346,18 +370,46 @@ async def update_user_endpoint(
         if "permission" in err_msg.lower():
             raise HTTPException(status_code=403, detail=err_msg)
         raise HTTPException(status_code=400, detail=err_msg)
+
+    # Audit log user update
+    await log_audit_event(
+        action="USER_UPDATED",
+        action_category="IAM",
+        target_type="user",
+        target_id=target_user_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes={"updated_fields": updates},
+    )
+
     return {"user": result["data"], "message": "User updated successfully"}
 
 
 @router.delete("/{target_user_id}")
 async def delete_user_endpoint(
     target_user_id: str,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     hard_delete: bool = Query(False)
 ):
     result = await delete_user(auth_ctx.user_id, target_user_id)
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
+
+    # Audit log user soft-deletion
+    await log_audit_event(
+        action="USER_SOFT_DELETED",
+        action_category="IAM",
+        target_type="user",
+        target_id=target_user_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        changes={
+            "is_active": {"old": True, "new": False},
+            "employment_status": {"old": "ACTIVE", "new": "INACTIVE"},
+        },
+        details={"hard_delete_requested": hard_delete},
+    )
 
     try:
         from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches
@@ -375,11 +427,24 @@ async def delete_user_endpoint(
 async def assign_role(
     target_user_id: str,
     request: AssignRoleRequest,
+    http_request: Request,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
     result = await assign_user_role(auth_ctx.user_id, target_user_id, request.dict())
     if result["error"]:
         raise HTTPException(status_code=403, detail=result["error"])
+
+    # Audit log role assignment
+    await log_audit_event(
+        action="ROLE_ASSIGNED",
+        action_category="IAM",
+        target_type="role_assignment",
+        target_id=target_user_id,
+        request=http_request,
+        auth_ctx=auth_ctx,
+        details=request.dict(),
+    )
+
     return {"message": "Role assigned successfully", "assignment": result["data"]}
 
 

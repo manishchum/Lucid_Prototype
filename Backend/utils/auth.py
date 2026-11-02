@@ -1,3 +1,4 @@
+
 import base64
 import json
 import os
@@ -17,6 +18,20 @@ from utils.auth_bridge import get_service_supabase_client
 import uuid as _uuid
 from httpx import RemoteProtocolError, TransportError
 from utils.redis_client import redis_client
+
+_DEVICE_SESSION_L1_CACHE: Dict[str, Tuple[float, str]] = {}
+
+def invalidate_device_session_l1(user_id: str, platform: Optional[str] = None) -> None:
+    if not user_id:
+        return
+    u_str = str(user_id)
+    if platform:
+        p = "mobile" if platform.lower() == "mobile" else "web"
+        _DEVICE_SESSION_L1_CACHE.pop(f"session:{u_str}:{p}", None)
+    else:
+        _DEVICE_SESSION_L1_CACHE.pop(f"session:{u_str}:web", None)
+        _DEVICE_SESSION_L1_CACHE.pop(f"session:{u_str}:mobile", None)
+
 
 @dataclass
 class RequestAuth:
@@ -244,6 +259,14 @@ def validate_device_session(
     norm_platform = "mobile" if platform and platform.lower() == "mobile" else "web"
     session_key = f"session:{user_id_str}:{norm_platform}"
 
+    # Fast Tier-0: In-Memory L1 Cache (< 0.001ms) - bypasses remote Redis network latency
+    import time
+    now_ts = time.time()
+    l1_entry = _DEVICE_SESSION_L1_CACHE.get(session_key)
+    if l1_entry and (now_ts - l1_entry[0] < 15.0):
+        if l1_entry[1] == device_id_str:
+            return  # Fast path valid session
+
     try:
         existing_device = redis_client.get(session_key)
     except Exception as e:
@@ -279,6 +302,7 @@ def validate_device_session(
 
     # Same device
     if existing_device_str == device_id_str:
+        _DEVICE_SESSION_L1_CACHE[session_key] = (now_ts, device_id_str)
         try:
             redis_client.expire(
                 session_key,
@@ -309,7 +333,7 @@ def get_request_auth_optional(
 	# 1. Fast path: reuse already-verified auth context from middleware
 	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
 		cached_auth: RequestAuth = request.state.auth_ctx
-		if x_device_id and isinstance(x_device_id, str):
+		if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
 			validate_device_session(cached_auth.user_id, x_device_id, platform=platform)
 		return cached_auth
 
@@ -415,6 +439,7 @@ def get_request_auth_required(
 	x_worker_token: Optional[str] = Header(None, alias="X-Worker-Internal-Token"),
 	x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
 	x_company_id: Optional[str] = Header(None, alias="X-Company-ID"),
+	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
 	platform = resolve_platform(
 		x_platform or (request.headers.get("X-Platform") if request else None),
@@ -455,7 +480,7 @@ def get_request_auth_required(
 
 	claims = _verify_token(token)
 	auth_ctx = _build_request_auth_from_verified_claims(claims, None)
-	if x_device_id and isinstance(x_device_id, str):
+	if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
 		validate_device_session(auth_ctx.user_id, x_device_id, platform=platform)
 
 	return auth_ctx
@@ -693,9 +718,12 @@ def register_device_session(
     if not user_id or not device_id:
         return
     norm_platform = "mobile" if platform and platform.lower() == "mobile" else "web"
+    import time
+    session_key = f"session:{user_id}:{norm_platform}"
+    _DEVICE_SESSION_L1_CACHE[session_key] = (time.time(), str(device_id))
     try:
         redis_client.set(
-            f"session:{user_id}:{norm_platform}",
+            session_key,
             str(device_id),
             ex=60 * 60 * 24 * 30,   # 30 days
         )

@@ -79,7 +79,8 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
 
         # Build query
         query = query_client.table('module_progress').select(
-            '*, processed_modules(title, original_module_id, learning_style)'
+            'module_progress_id, user_id, processed_module_id, started_at, completed_at, pass_status, quiz_score, quiz_feedback, viewed_at, audio_listen_duration, processed_modules(title, original_module_id, learning_style)',
+            count='exact'
         ).eq('user_id', target_user_id).order('started_at', desc=True)
         
         if completed_only:
@@ -87,9 +88,9 @@ async def get_progress_by_user(requesting_user_id: str, target_user_id: str,
         
         query = query.range(safe_offset, safe_offset + safe_limit - 1)
         resp = query.execute()
-        return {"data": getattr(resp, 'data', None), "error": None}
+        return {"data": getattr(resp, 'data', None), "total": getattr(resp, 'count', None), "error": None}
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        return {"data": None, "total": None, "error": str(e)}
 
 
 async def get_progress_by_processed_module(requesting_user_id: str, processed_module_id: str,
@@ -122,14 +123,15 @@ async def get_progress_by_processed_module(requesting_user_id: str, processed_mo
         safe_offset = max(0, offset)
 
         resp = supabase.table('module_progress').select(
-            '*, users!inner(name, email)'
+            'module_progress_id, user_id, processed_module_id, started_at, completed_at, pass_status, quiz_score, quiz_feedback, viewed_at, audio_listen_duration, users!inner(name, email)',
+            count='exact'
         ).eq('processed_module_id', processed_module_id).order('started_at', desc=True).range(
             safe_offset, safe_offset + safe_limit - 1
         ).execute()
         
-        return {"data": getattr(resp, 'data', None), "error": None}
+        return {"data": getattr(resp, 'data', None), "total": getattr(resp, 'count', None), "error": None}
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        return {"data": None, "total": None, "error": str(e)}
 
 
 async def get_progress_by_user_and_module(requesting_user_id: str, user_id: str,
@@ -187,7 +189,8 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
 
         # Build query with company filter through users table
         query = supabase.table('module_progress').select(
-            '*, users!inner(name, email, company_id), processed_modules(title, original_module_id)'
+            'module_progress_id, user_id, processed_module_id, started_at, completed_at, pass_status, quiz_score, quiz_feedback, viewed_at, audio_listen_duration, users!inner(name, email, company_id), processed_modules(title, original_module_id)',
+            count='exact'
         ).eq('users.company_id', company_id).order('started_at', desc=True)
         
         if user_id:
@@ -198,9 +201,9 @@ async def get_progress_by_company(requesting_user_id: str, company_id: str,
         
         query = query.range(safe_offset, safe_offset + safe_limit - 1)
         resp = query.execute()
-        return {"data": getattr(resp, 'data', None), "error": None}
+        return {"data": getattr(resp, 'data', None), "total": getattr(resp, 'count', None), "error": None}
     except Exception as e:
-        return {"data": None, "error": str(e)}
+        return {"data": None, "total": None, "error": str(e)}
 
 
 async def create_or_update_progress(requesting_user_id: str, progress_data: Dict[str, Any]) -> Dict[str, Any]:

@@ -6,7 +6,7 @@ import uuid
 from typing import Dict, List, Optional
 from fastapi import WebSocket
 import redis.asyncio as aioredis
-from utils.redis_client import redis_client
+from utils.redis_client import redis_client, redis_ssl
 
 logger = logging.getLogger("lucid.websocket_manager")
 NOTIFICATION_CHANNEL_PREFIX = "notifications:"
@@ -40,13 +40,17 @@ class NotificationConnectionManager:
             resolved_host = socket.gethostbyname(raw_host)
         except Exception:
             resolved_host = raw_host
-        return {
+        cfg = {
             "host": resolved_host,
             "port": int(os.getenv("REDIS_PORT", 6379)),
             "username": os.getenv("REDIS_USERNAME"),
             "password": os.getenv("REDIS_PASSWORD"),
             "decode_responses": True,
         }
+        if redis_ssl:
+            cfg["ssl"] = True
+            cfg["ssl_cert_reqs"] = None
+        return cfg
 
     async def _ensure_listener(self):
         """Initializes the background async Redis Pub/Sub client and loop if not running."""

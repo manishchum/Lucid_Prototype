@@ -23,6 +23,9 @@ export type Addon =
   | 'lucid_studio_textual'
   | 'lucid_studio_podcast'
   | 'lucid_studio_video'
+  | 'lucid_studio_video_slides'
+  | 'lucid_studio_video_interactive'
+  | 'interactive_video'
   | 'lucid_studio_mindmap'
   | 'lucid_studio_infographic'
   | 'lucid_studio_flashcard'
@@ -52,6 +55,9 @@ export const FEATURES = {
   LUCID_STUDIO_TEXTUAL: "lucidStudioTextual",
   LUCID_STUDIO_PODCAST: "lucidStudioPodcast",
   LUCID_STUDIO_VIDEO: "lucidStudioVideo",
+  LUCID_STUDIO_VIDEO_SLIDES: "lucidStudioVideoSlides",
+  LUCID_STUDIO_VIDEO_INTERACTIVE: "lucidStudioVideoInteractive",
+  INTERACTIVE_VIDEO: "interactiveVideo",
   LUCID_STUDIO_MINDMAP: "lucidStudioMindmap",
   LUCID_STUDIO_INFOGRAPHIC: "lucidStudioInfographic",
   LUCID_STUDIO_FLASHCARDS: "lucidstudioflashcards",
@@ -81,6 +87,15 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.LUCID_STUDIO_TEXTUAL]: { requiredAddons: ["lucid_studio_textual"] },
   [FEATURES.LUCID_STUDIO_PODCAST]: { requiredAddons: ["lucid_studio_podcast"] },
   [FEATURES.LUCID_STUDIO_VIDEO]: { requiredAddons: ["lucid_studio_video"] },
+  [FEATURES.LUCID_STUDIO_VIDEO_SLIDES]: { requiredAddons: ["lucid_studio_video_slides"] },
+  [FEATURES.LUCID_STUDIO_VIDEO_INTERACTIVE]: {
+    requiredAddons: ["lucid_studio_video_interactive", "interactive_video"],
+    requiresAnyAddon: true,
+  },
+  [FEATURES.INTERACTIVE_VIDEO]: {
+    requiredAddons: ["interactive_video", "lucid_studio_video_interactive"],
+    requiresAnyAddon: true,
+  },
   [FEATURES.LUCID_STUDIO_MINDMAP]: { requiredAddons: ["lucid_studio_mindmap"] },
   [FEATURES.LUCID_STUDIO_INFOGRAPHIC]: { requiredAddons: ["lucid_studio_infographic"] },
   [FEATURES.LUCID_STUDIO_FLASHCARDS]: {
@@ -173,6 +188,9 @@ const isAddon = (value: string): value is Addon => {
     "lucid_studio_textual",
     "lucid_studio_podcast",
     "lucid_studio_video",
+    "lucid_studio_video_slides",
+    "lucid_studio_video_interactive",
+    "interactive_video",
     "lucid_studio_mindmap",
     "lucid_studio_infographic",
     "lucid_studio_flashcard",
@@ -209,6 +227,9 @@ const deriveFrontendTier = (addons: Addon[]): Tier | null => {
     current.has("lucid_studio_textual") ||
     current.has("lucid_studio_podcast") ||
     current.has("lucid_studio_video") ||
+    current.has("lucid_studio_video_slides") ||
+    current.has("lucid_studio_video_interactive") ||
+    current.has("interactive_video") ||
     current.has("lucid_studio_mindmap") ||
     current.has("lucid_studio_infographic") ||
     current.has("lucid_studio_flashcard") ||

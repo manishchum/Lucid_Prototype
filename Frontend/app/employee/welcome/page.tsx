@@ -184,7 +184,7 @@ export default function EmployeeWelcome() {
   const router = useRouter();
   const hasTaskManagementAccess = hasFeature(FEATURES.TASK_MANAGEMENT);
   // --- Logic State ---
-  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [employee, setEmployee] = useState<Employee | null>(() => employeeData || null);
   const [loading, setLoading] = useState(true);
   const [scoreHistory, setScoreHistory] = useState<any[]>([]);
   const [moduleProgress, setModuleProgress] = useState<any[]>([]);
@@ -216,10 +216,17 @@ export default function EmployeeWelcome() {
   const [showLoadingProgress, setShowLoadingProgress] = useState(true);
   const [activeHomeTab, setActiveHomeTab] = useState<"sprints" | "tasks">("sprints");
 
-  // Sync basic loading state without fake UI delays
+  // Keep employee state in sync with auth-context
   useEffect(() => {
-    setShowLoadingProgress(authLoading || loading);
-  }, [authLoading, loading]);
+    if (employeeData) {
+      setEmployee(employeeData);
+    }
+  }, [employeeData]);
+
+  // Keep loading skeleton active until auth, dashboard data, and employee identity are completely ready
+  useEffect(() => {
+    setShowLoadingProgress(authLoading || loading || !employeeData);
+  }, [authLoading, loading, employeeData]);
 
   useEffect(() => {
     if (!hasTaskManagementAccess && activeHomeTab === "tasks") {
@@ -1022,13 +1029,13 @@ export default function EmployeeWelcome() {
   const loadDashboard = async () => {
     if (!user?.email) return;
 
+    const emp = employeeData;
+    if (!emp) {
+      return;
+    }
+
     try {
       setLoading(true);
-      const emp = employeeData;
-      if (!emp) {
-        return;
-      }
-
       setEmployee(emp);
 
       const selectedCompanyId = emp.company_id;
@@ -1094,7 +1101,11 @@ export default function EmployeeWelcome() {
         data?.userRank?.top_percentile ?? 10,
         completedCount
       );
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.message?.includes("Session_Replaced") || String(e).includes("Session_Replaced")) {
+        // Displaced session — silent redirect to login is already handled cleanly
+        return;
+      }
       console.error("[Welcome] loadDashboard failed:", e);
     } finally {
       setLoading(false);
@@ -1102,13 +1113,13 @@ export default function EmployeeWelcome() {
   };
 
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!authLoading && user && employeeData) {
       loadDashboard();
     }
     if (!authLoading && !user) {
       router.push("/login");
     }
-  }, [user, authLoading, activeCompanyId, isDeveloperMode]);
+  }, [user, authLoading, employeeData, activeCompanyId, isDeveloperMode]);
 
   const generateNudgeMessage = (progress: number, rank: number | null, total: number, percentile: number, completed: number) => {
     if (progress === 100) setNudgeMessage("🎉 Congratulations! You've completed your Performance Sprint!");

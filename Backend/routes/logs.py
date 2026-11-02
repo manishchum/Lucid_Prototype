@@ -3,65 +3,11 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 from utils.redis_limiter import check_rate_limit
+from utils.logging import mask_email, sanitize_text, sanitize_header_field
 
 router = APIRouter(
     tags=["Client Logs"]
 )
-
-# ── PII Sanitization Patterns ─────────────────────────────────────────
-BEARER_TOKEN_RE = re.compile(r"Bearer\s+[A-Za-z0-9_\-\.=]+", re.IGNORECASE)
-JWT_TOKEN_RE = re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-\.]+")
-SECRET_PARAM_RE = re.compile(r"(token|key|secret|password|auth|api_key|apikey|access_token)=[^&\s'\"`]+", re.IGNORECASE)
-EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
-CRLF_RE = re.compile(r"[\r\n\t]+")
-
-
-def mask_email(email: Optional[str]) -> Optional[str]:
-    """Mask email address to obscure user identity (e.g. j***e@d***.com)."""
-    if not email or not isinstance(email, str):
-        return None
-    cleaned = email.strip()
-    if "@" not in cleaned:
-        return "[ANONYMIZED_ID]"
-    try:
-        user, domain = cleaned.split("@", 1)
-        if len(user) <= 2:
-            masked_user = user[0] + "***"
-        else:
-            masked_user = user[0] + "***" + user[-1]
-
-        if "." in domain:
-            dom_name, dom_ext = domain.rsplit(".", 1)
-            masked_domain = (dom_name[0] if dom_name else "") + "***." + dom_ext
-        else:
-            masked_domain = "***"
-
-        return f"{masked_user}@{masked_domain}"
-    except Exception:
-        return "[MASKED_EMAIL]"
-
-
-def sanitize_text(text: Optional[str], max_len: int = 10000) -> Optional[str]:
-    """Scrub sensitive PII, JWT tokens, Bearer tokens, passwords, and API keys."""
-    if not text or not isinstance(text, str):
-        return text
-
-    scrubbed = text[:max_len]
-    scrubbed = BEARER_TOKEN_RE.sub("Bearer [REDACTED]", scrubbed)
-    scrubbed = JWT_TOKEN_RE.sub("[JWT_REDACTED]", scrubbed)
-    scrubbed = SECRET_PARAM_RE.sub(r"\1=[REDACTED]", scrubbed)
-    scrubbed = EMAIL_RE.sub("[EMAIL_REDACTED]", scrubbed)
-    scrubbed = PHONE_RE.sub("[PHONE_REDACTED]", scrubbed)
-    return scrubbed
-
-
-def sanitize_header_field(val: Optional[str], max_len: int = 300) -> Optional[str]:
-    """Remove control characters and newlines to prevent log injection (CRLF)."""
-    if not val or not isinstance(val, str):
-        return val
-    cleaned = CRLF_RE.sub(" ", val).strip()
-    return cleaned[:max_len]
 
 
 class ClientLogPayload(BaseModel):
