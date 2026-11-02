@@ -2046,6 +2046,442 @@ export default function CoachUploadsPage() {
           </div>
         )}
 
+        {/* Google Drive Folder Picker Modal - Two-Pane Workspace Explorer */}
+        {folderModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xl max-w-5xl w-full max-h-[88vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4 bg-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner flex-shrink-0">
+                    <FolderTree className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Google Drive Workspace Explorer</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Choose any folder in My Drive, Shared with me, or Shared Drives. All supported documents inside this folder and any nested subfolders will be auto-ingested.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setFolderModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+                  title="Close Explorer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Navigation Strip & Search Bar */}
+              <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                {/* Breadcrumbs */}
+                <div className="flex items-center gap-1.5 text-slate-600 overflow-x-auto">
+                  {folderBreadcrumbs.map((crumb, idx) => {
+                    const isLast = idx === folderBreadcrumbs.length - 1
+                    return (
+                      <React.Fragment key={idx}>
+                        {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                        <button
+                          onClick={() => handleNavigateBreadcrumb(idx)}
+                          disabled={isLast || folderLoading}
+                          className={`hover:underline flex items-center gap-1 flex-shrink-0 font-medium ${
+                            isLast ? "text-indigo-600 font-semibold" : "text-slate-600 hover:text-slate-900"
+                          }`}
+                        >
+                          {idx === 0 ? (
+                            <HardDrive className="w-3.5 h-3.5 text-slate-500" />
+                          ) : crumb.id === "shared_with_me" ? (
+                            <Users className="w-3.5 h-3.5 text-sky-500" />
+                          ) : (
+                            <Folder className="w-3.5 h-3.5 text-indigo-500" />
+                          )}
+                          <span>{crumb.name}</span>
+                        </button>
+                      </React.Fragment>
+                    )
+                  })}
+                </div>
+
+                {/* Instant Search */}
+                <div className="relative flex-shrink-0">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search folders & files..."
+                    value={modalSearchQuery}
+                    onChange={(e) => setModalSearchQuery(e.target.value)}
+                    className="pl-8 pr-3 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 w-full sm:w-48 shadow-2xs"
+                  />
+                </div>
+              </div>
+
+              {/* Active Monitored Folder Banner if connected */}
+              {gdriveStatus?.integration?.folder_name && (
+                <div className="px-6 py-2 bg-indigo-50/40 border-b border-indigo-100/60 flex items-center justify-between text-xs text-indigo-900">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-slate-500 font-medium flex-shrink-0">Currently Monitored:</span>
+                    <span className="font-semibold text-indigo-700 flex items-center gap-1 truncate">
+                      <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                      {gdriveStatus.integration.folder_name}
+                    </span>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.5 rounded flex-shrink-0">
+                      Recursive Subtree
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-slate-500 hidden md:inline flex-shrink-0">
+                    Switching folders preserves historical documents as detached
+                  </span>
+                </div>
+              )}
+
+              {/* Main Two-Pane Explorer Body */}
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden min-h-[460px]">
+                {/* Left Pane: Folders & Subtrees (Col 5) */}
+                <div className="md:col-span-5 border-r border-slate-200 flex flex-col bg-slate-50/50 overflow-hidden">
+                  <div className="p-3.5 border-b border-slate-200/80 bg-slate-100/70 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Folder className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                        Folders & Drives ({filteredModalFolders.length})
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      Click to inspect
+                    </span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {folderLoading ? (
+                      <div className="flex flex-col items-center justify-center h-48 gap-3 text-slate-400 text-xs">
+                        <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+                        <span>Browsing Google Drive folders...</span>
+                      </div>
+                    ) : filteredModalFolders.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-48 text-center p-6 bg-white rounded-2xl border border-dashed border-slate-200">
+                        <Folder className="w-8 h-8 text-slate-300 mb-2" />
+                        <p className="text-xs font-semibold text-slate-700">No subfolders in this location</p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          You can select this folder as your root for automated ingestion.
+                        </p>
+                      </div>
+                    ) : (
+                      filteredModalFolders.map(item => {
+                        const isSelected = selectedFolder?.id === item.id
+                        const isSharedDrive = item.container_type === "shared_drive"
+                        const isSharedWithMeRoot = item.id === "shared_with_me"
+                        const isSharedFolder = item.parent_id === "shared_with_me" || item.metadata?.is_shared_with_me === true
+                        const canSelect = item.can_select !== false
+
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => handleSelectFolder(item)}
+                            className={`p-3 rounded-xl border transition cursor-pointer group ${
+                              isSelected
+                                ? "bg-indigo-50/80 border-indigo-400 shadow-sm ring-1 ring-indigo-300"
+                                : isSharedWithMeRoot
+                                  ? "bg-sky-50/40 hover:bg-sky-50/80 border-sky-200"
+                                  : "bg-white hover:bg-slate-100/70 border-slate-200"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                  isSharedDrive 
+                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-200" 
+                                    : isSharedWithMeRoot
+                                      ? "bg-sky-100 text-sky-700 border border-sky-200"
+                                      : isSharedFolder
+                                        ? "bg-blue-50 text-blue-600 border border-blue-200"
+                                        : "bg-indigo-50 text-indigo-600 border border-indigo-100"
+                                }`}>
+                                  {isSharedDrive ? (
+                                    <HardDrive className="w-4 h-4" />
+                                  ) : isSharedWithMeRoot ? (
+                                    <Users className="w-4 h-4" />
+                                  ) : isSharedFolder ? (
+                                    <FolderSync className="w-4 h-4" />
+                                  ) : (
+                                    <Folder className="w-4 h-4" />
+                                  )}
+                                </div>
+                                <div className="truncate">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`text-xs font-semibold truncate ${
+                                      isSelected ? "text-indigo-900 font-bold" : "text-slate-800"
+                                    }`}>
+                                      {item.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 font-mono block truncate">
+                                    {item.path}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {canSelect ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleEnterFolder(item)
+                                      }}
+                                      className="px-2 py-1 text-[11px] font-semibold text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg border border-slate-200 transition flex items-center gap-0.5 shadow-2xs"
+                                      title="Open subfolder"
+                                    >
+                                      <span>Open</span>
+                                      <ChevronRight className="w-3 h-3" />
+                                    </button>
+
+                                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                                      isSelected
+                                        ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
+                                        : "border-slate-300 group-hover:border-slate-400 bg-white"
+                                    }`}>
+                                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleEnterFolder(item)
+                                    }}
+                                    className="px-2.5 py-1 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg border border-sky-200 transition flex items-center gap-1"
+                                  >
+                                    <span>Browse</span>
+                                    <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Pane: Folder Inspector & Files Preview (Col 7) */}
+                <div className="md:col-span-7 flex flex-col bg-white overflow-hidden">
+                  {/* Inspector Subheader */}
+                  <div className="p-3.5 border-b border-slate-200 bg-white flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FolderOpen className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                        <span className="text-xs font-bold text-slate-900 truncate">
+                          {activeInspectorFolder.name}
+                        </span>
+                        {isInspectingSelectedSubfolder && (
+                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.2 rounded flex-shrink-0">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Metrics Pills */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          {eligibleFilesCount} Eligible
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                          <Ban className="w-2.5 h-2.5 text-slate-400" />
+                          {excludedFilesCount} Excluded
+                        </span>
+                        {totalInspectorBytes > 0 && (
+                          <span className="text-[10px] text-slate-500 bg-slate-50 px-2 py-0.5 rounded border border-slate-200 font-mono">
+                            {formatBytes(totalInspectorBytes)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filter Tabs for Inspector */}
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("all")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition ${
+                          inspectorTab === "all"
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                        }`}
+                      >
+                        All Files ({rawInspectorFiles.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("eligible")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+                          inspectorTab === "eligible"
+                            ? "bg-emerald-600 text-white"
+                            : "text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        Eligible Only ({eligibleFilesCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInspectorTab("excluded")}
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition flex items-center gap-1 ${
+                          inspectorTab === "excluded"
+                            ? "bg-slate-700 text-white"
+                            : "text-slate-500 hover:bg-slate-100"
+                        }`}
+                      >
+                        <Ban className="w-2.5 h-2.5" />
+                        Excluded ({excludedFilesCount})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Inspector File Items */}
+                  <div className="flex-1 overflow-y-auto p-3.5 space-y-2 bg-slate-50/20">
+                    {loadingSelectedFiles ? (
+                      <div className="flex flex-col items-center justify-center h-48 gap-2.5 text-slate-400 text-xs">
+                        <RefreshCw className="w-5 h-5 animate-spin text-indigo-600" />
+                        <span>Inspecting folder contents...</span>
+                      </div>
+                    ) : filteredInspectorFiles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-48 text-center p-6 bg-white rounded-2xl border border-dashed border-slate-200">
+                        <FileIcon className="w-8 h-8 text-slate-300 mb-2" />
+                        <p className="text-xs font-semibold text-slate-700">No files found</p>
+                        <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                          {modalSearchQuery.trim()
+                            ? "No files match your current search query."
+                            : "No files directly in this folder. Any nested subfolders will still be auto-scanned recursively."}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredInspectorFiles.map(file => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between p-2.5 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition shadow-2xs"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            {getDriveItemFileIcon(file.mime_type, file.extension)}
+                            <div className="truncate">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-slate-800 truncate" title={file.name}>
+                                  {file.name}
+                                </span>
+                                {file.extension && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                                    {file.extension}
+                                  </span>
+                                )}
+                                {file.is_google_doc && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    Workspace
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                <span>{file.size_bytes ? formatBytes(file.size_bytes) : "Auto-converted"}</span>
+                                {file.modified_time && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Updated {new Date(file.modified_time).toLocaleDateString()}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                            {file.is_supported ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                Ready for AI
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                <Ban className="w-2.5 h-2.5 text-slate-400" />
+                                Excluded
+                              </span>
+                            )}
+
+                            {file.web_view_link && (
+                              <a
+                                href={file.web_view_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 text-slate-400 hover:text-indigo-600 rounded transition"
+                                title="Open in Google Drive"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Selection Summary & Action Footer */}
+              <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="truncate max-w-md">
+                  <span className="text-slate-400 block font-medium">Selected Target Folder:</span>
+                  {selectedFolder && selectedFolder.can_select !== false ? (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-indigo-700 font-semibold truncate mt-0.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 text-emerald-600" />
+                        <span className="truncate">{selectedFolder.name}</span>
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-200 flex-shrink-0">
+                          Recursive Subtree
+                        </span>
+                        <span className="text-[10px] text-slate-600 bg-slate-200/80 px-1.5 py-0.5 rounded font-mono flex-shrink-0">
+                          {selectedFolder.path}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-emerald-700 font-medium block mt-0.5">
+                        {eligibleFilesCount} eligible document(s) ready • Historical documents preserved as detached
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-slate-500 italic mt-0.5 block">
+                      Click any folder in the left pane to select it for AI ingestion
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2.5 self-end sm:self-auto flex-shrink-0">
+                  <button
+                    onClick={() => setFolderModalOpen(false)}
+                    className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 font-semibold rounded-xl border border-slate-200 transition shadow-2xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmFolderSelection}
+                    disabled={!selectedFolder || selectedFolder.can_select === false || savingFolder}
+                    className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition shadow-sm disabled:opacity-50"
+                  >
+                    {savingFolder ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        Saving & Syncing...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Confirm & Monitor Folder
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   )
