@@ -4,6 +4,10 @@ import os
 import logging
 import re
 
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["GUARDRAILS_DISABLE_TRACING"] = "true"
+logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
+
 # Build version: 2026.09.27-cloudbuild-02
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())

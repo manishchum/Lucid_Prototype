@@ -42,10 +42,22 @@ CRITICAL RULES:
    - NEVER use raw `::date = 'YYYY-MM-DD'` on dot-separated dates like '02.04.26' because PostgreSQL's default DateStyle will misinterpret day vs month or fail.
 4. If filtering by a specific employee, check both:
    `employee_name ILIKE '%Name%' OR (row_data->>'Employee Name') ILIKE '%Name%' OR (row_data->>'User Name') ILIKE '%Name%'`
-5. If the question relates to a specific sheet, include `AND sheet_name = 'Sheet_Name'`.
-6. Strictly generate READ-ONLY queries starting with SELECT. NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
-7. Do NOT add trailing semicolons. Only add LIMIT if the user asks for a top-N ranking (e.g., 'top 5'); otherwise the execution sandbox automatically limits results.
-8. Return ONLY valid JSON with keys:
+5. ENTITY & DIMENSION INQUIRIES ("insights of...", "details of...", "performance of...", "list of..."):
+   - When the user asks for insights, details, or breakdown of a specific entity (e.g. account, client, licensee, store, branch, product, employee, or location):
+     a) Identify the matching column in the provided schema (e.g., 'Licensee Name', 'Employee Name', 'Store Name', 'Customer Name', 'ASE', 'Depot', etc.).
+     b) Robust Text Matching:
+        - If the entity contains a numeric code/ID alongside a name (e.g. '2302042 Neemkathana ... -2302042'):
+          Filter on the key numeric ID or distinct keyword using ILIKE:
+          `((row_data->>'Column') ILIKE '%2302042%' OR (row_data->>'Column') ILIKE '%Neemkathana%')`
+          Do NOT search for long exact strings with hyphens or trailing duplicate codes, as formatting differences will result in 0 rows.
+        - For multi-word entity names (e.g. 'mandoli manoj kumar'):
+          Match key words flexibly:
+          `((row_data->>'Column') ILIKE '%mandoli%' AND (row_data->>'Column') ILIKE '%manoj%')`
+     c) Columns to SELECT: Select key descriptive columns (e.g. item/product, category, location, date) alongside numeric metrics (e.g. cases, quantities, amounts, totals) so comprehensive insights can be provided. Add `LIMIT 50` if returning itemized records.
+6. If the question relates to a specific sheet, include `AND sheet_name = 'Sheet_Name'`.
+7. Strictly generate READ-ONLY queries starting with SELECT. NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
+8. Do NOT add trailing semicolons. Only add LIMIT if the user asks for a top-N ranking (e.g., 'top 5') or itemized entity rows (LIMIT 50); otherwise the execution sandbox automatically handles limits.
+9. Return ONLY valid JSON with keys:
    {
      "sql_query": "SELECT ...",
      "explanation": "Brief explanation of what this query aggregates."

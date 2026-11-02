@@ -60,22 +60,28 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
 # ============================================================================
 # 2. ROUTER NODE
 # ============================================================================
-ROUTER_SYSTEM_PROMPT = """You are a smart query classifier for an enterprise Performance Coach.
-Analyze the user's question, the available spreadsheet schema, and the uploaded document catalog.
+ROUTER_SYSTEM_PROMPT = """You are a smart, domain-agnostic query classifier for an enterprise Performance Coach.
+Analyze the user's question, the available spreadsheet schema (sheets & columns), and the uploaded document catalog.
 Classify the user's intent into EXACTLY ONE of the following categories:
 
-- "SQL": The question strictly requires numerical calculations, metric aggregations (SUM, AVG, MIN, MAX), counts, rankings (top/bottom performers), quota attainment percentages, or tabular spreadsheet data.
-- "RAG": The question asks about ANY uploaded document, file, plan, policy, guide, presentation, company knowledge (e.g. Exotel Believer Plan, SOPs, training manuals, product docs, company plans), or qualitative employee performance reviews, 1-on-1 feedback, manager notes, and goals.
-  IMPORTANT: If the user asks for a summary, explanation, definition ("what is...", "tell me about...", "summarize...", "give me summary of..."), or factual details regarding ANY topic, entity, plan, or document, ALWAYS classify as "RAG".
-- "HYBRID": The question requires BOTH numerical spreadsheet metrics AND qualitative review feedback/document context (e.g., "Why did Rahul miss his sales quota? What did his manager say?").
+- "SQL": The question asks for data, numbers, calculations, aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, or tabular records for entities, dimensions, or columns present in the Available Columns or Sheets.
+  IMPORTANT: Also classify as "SQL" if the user asks for "insights", "details", "performance", "breakdown", "status", or a list/lookup of any entity, dimension, person, store, account, client, territory, or code that corresponds to the Available Columns or Sheets in the spreadsheet.
+- "RAG": The question strictly asks about uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or text files found in the Available Documents catalog.
+- "HYBRID": The question requires BOTH tabular spreadsheet data (metrics/numbers/entity performance) AND qualitative document context/reviews from the uploaded document catalog.
 - "CATALOG": The question asks what documents, spreadsheets, or files are uploaded or available in the knowledge base.
-- "GENERAL": ONLY for conversational greetings or pleasantries (e.g., "Hello", "Hi", "Good morning", "How are you", "Thank you", "Who are you?"). Do NOT classify factual, informational, or document-related questions as GENERAL.
+- "GENERAL": ONLY for conversational greetings, polite pleasantries (e.g. "Hello", "Hi", "Good morning", "Thank you"), or assistant self-introduction ("Who are you?").
+- "OUT_OF_SCOPE": The question is completely UNRELATED to the company's business data, spreadsheets, or uploaded documents. This covers ANY external topic whatsoever (e.g. movies, entertainment, school/academic math or science formulas, recipes/cooking, shopping advice, sports, gaming, medical/health, travel, news, trivia, or general knowledge).
 
-When in doubt between RAG and GENERAL, ALWAYS choose "RAG" so the document knowledge base can be searched.
+DECISION GUIDELINES:
+1. If the question mentions an entity, dimension, or column from the spreadsheet schema -> "SQL".
+2. If the question asks about a document, policy, or file from the uploaded document catalog -> "RAG".
+3. If both spreadsheet data and qualitative document context are needed -> "HYBRID".
+4. If it's a polite greeting or gratitude -> "GENERAL".
+5. If the question asks about ANY external topic NOT in the company's spreadsheets or documents (e.g. movies, formulas, shopping, recipes, trivia) -> ALWAYS choose "OUT_OF_SCOPE".
 
 Return ONLY a JSON object:
 {
-  "intent": "SQL" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL",
+  "intent": "SQL" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL" | "OUT_OF_SCOPE",
   "reasoning": "1 sentence explanation."
 }"""
 
@@ -93,7 +99,18 @@ def router_node(state: CoachState) -> Dict[str, Any]:
 
     q_lower = user_query.lower()
 
-    # Heuristic fast-path 0: Conversational Greetings & Thanks (e.g. "eyy hii", "hello", "thanks")
+    # Heuristic fast-path 0A: Input Safety, Security & Scope Guardrails (< 5ms)
+    from coach.guardrails import check_input_guardrails
+    guardrail_match = check_input_guardrails(user_query)
+    if guardrail_match:
+        return {
+            "intent": guardrail_match["intent"],
+            "routing_reason": guardrail_match["routing_reason"],
+            "final_response": guardrail_match["response"],
+            "guardrail_triggered": True
+        }
+
+    # Heuristic fast-path 0B: Conversational Greetings & Thanks (e.g. "eyy hii", "hello", "thanks")
     clean_greeting = re.sub(r"[^a-zA-Z\s]", "", q_lower).strip()
     greeting_tokens = set(clean_greeting.split())
     greetings = {"hi", "hii", "hiii", "hello", "ey", "eyy", "hey", "heyy", "heyya", "hola", "namaste", "howdy", "sup", "yo"}
@@ -109,25 +126,49 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets"]):
         return {"intent": "CATALOG", "routing_reason": "User requested document catalog inventory."}
 
+    # Extract dynamic column match tokens from all_cols
+    col_tokens = set()
+    for col in all_cols:
+        clean_c = re.sub(r"[^a-zA-Z0-9\s]", " ", col.lower()).strip()
+        if clean_c:
+            col_tokens.add(clean_c)
+            for part in clean_c.split():
+                if len(part) >= 3 and part not in {"and", "the", "for", "with", "from", "date"}:
+                    col_tokens.add(part)
+
     # Heuristic fast-path 2: If user query mentions words from any uploaded document file name
+    matched_doc = None
     for doc in doc_catalog:
         fn = doc.get("file_name", "").lower()
         base_name = fn.rsplit(".", 1)[0]
         keywords = [w for w in re.split(r"[_\-\s\(\)]+", base_name) if len(w) >= 4]
         if any(kw in q_lower for kw in keywords):
-            math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
-            if any(mw in q_lower for mw in math_words):
-                return {"intent": "HYBRID", "routing_reason": f"Query mentions document '{doc.get('file_name')}' alongside quantitative metrics."}
-            return {"intent": "RAG", "routing_reason": f"Query mentions uploaded document '{doc.get('file_name')}'."}
+            matched_doc = doc
+            break
 
-    # Heuristic fast-path 3: Informational / Explanation / Summary questions route to RAG
-    info_triggers = ["what is", "tell me about", "summary of", "summarize", "explain", "overview of", "details of", "how does", "what are"]
-    if any(q_lower.startswith(t) or f" {t} " in q_lower for t in info_triggers):
-        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "discount", "percentage", "%"]
-        if not any(mw in q_lower for mw in math_words):
-            return {"intent": "RAG", "routing_reason": "Informational query seeking explanation or document knowledge."}
+    if matched_doc:
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
+        if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
+            return {"intent": "HYBRID", "routing_reason": f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns."}
+        return {"intent": "RAG", "routing_reason": f"Query mentions uploaded document '{matched_doc.get('file_name')}'."}
 
-    # Heuristic fast-path 4: If company has NO spreadsheets, route to RAG
+    # Heuristic fast-path 3: Schema-Aware Entity & Dimension Detection
+    # If the user asks for insights, details, performance, breakdown, list, or status of an entity or column from the spreadsheet:
+    query_mentions_column = any(f" {ct} " in f" {q_lower} " or q_lower.startswith(ct) or q_lower.endswith(ct) for ct in col_tokens)
+    entity_inquiry_phrases = ["insights of", "insights for", "details of", "details for", "performance of", "breakdown of", "status of", "list of", "list all", "show me", "records of", "give me insights", "who is", "which is"]
+
+    if has_sheets and query_mentions_column:
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
+        is_entity_inquiry = any(p in q_lower for p in entity_inquiry_phrases) or any(mw in q_lower for mw in math_words)
+        if is_entity_inquiry:
+            return {"intent": "SQL", "routing_reason": "Query references active spreadsheet columns/entities for data retrieval."}
+
+    # Heuristic fast-path 4: Informational / Explanation questions (strictly for general documents when no spreadsheet entity is mentioned)
+    info_triggers = ["what is", "tell me about", "summary of", "summarize", "explain", "how does", "what are"]
+    if any(q_lower.startswith(t) or f" {t} " in q_lower for t in info_triggers) and not query_mentions_column:
+        return {"intent": "RAG", "routing_reason": "Informational query seeking explanation or document knowledge."}
+
+    # Heuristic fast-path 5: If company has NO spreadsheets, route to RAG
     if not has_sheets:
         return {"intent": "RAG", "routing_reason": "No spreadsheets uploaded; defaulting to qualitative RAG."}
 
@@ -166,7 +207,7 @@ def router_node(state: CoachState) -> Dict[str, Any]:
             raw = resp.choices[0].message.content or "{}"
             data = json.loads(raw.strip())
             intent = data.get("intent", "RAG").upper()
-            if intent not in ["SQL", "RAG", "HYBRID", "CATALOG", "GENERAL"]:
+            if intent not in ["SQL", "RAG", "HYBRID", "CATALOG", "GENERAL", "OUT_OF_SCOPE"]:
                 intent = "RAG"
             return {"intent": intent, "routing_reason": data.get("reasoning", "")}
         except Exception as e:
@@ -177,8 +218,8 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         return {"intent": "HYBRID", "routing_reason": "Heuristic match for employee comparison & award evaluation."}
 
     math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
-    if any(w in q_lower for w in math_words):
-        return {"intent": "SQL", "routing_reason": "Heuristic match for quantitative metrics."}
+    if any(w in q_lower for w in math_words) or query_mentions_column:
+        return {"intent": "SQL", "routing_reason": "Heuristic match for spreadsheet data or active columns."}
 
     return {"intent": "RAG", "routing_reason": "Defaulted to qualitative RAG."}
 
@@ -290,9 +331,11 @@ Your goal is to provide actionable, constructive, and accurate performance insig
 STRICT GROUNDING & CITATION RULES:
 1. Base all numerical statements directly on the retrieved SQL data. Do not fabricate or estimate numbers.
 2. When referencing qualitative feedback, mention the source document name, section, page, or reporting period.
-3. If an employee missed a goal or underperformed, pair the data constructively with feedback on blockers and actionable improvement recommendations.
+3. If an employee or entity underperformed or missed a goal, pair the data constructively with feedback on blockers and actionable improvement recommendations.
 4. If retrieved data does not fully answer the question, state what is known and what data is missing clearly.
 5. Format your response cleanly using GitHub Markdown (headings, bullet points, and tables where appropriate).
+6. ENTITY NOT FOUND / EMPTY DATA: If the retrieved SQL data contains 0 rows or does not contain records for the requested entity, state clearly: "No records were found for '[entity]' in the uploaded company spreadsheet." Do NOT speculate, hallucinate data, or dump unrelated entities. Suggest checking the exact spelling, identifier, or uploading updated records.
+7. RELEVANCE & OFF-TOPIC INTEGRITY: If the user's question asks about external, non-work topics (such as culinary recipes, cooking, entertainment, sports trivia, creative poetry, jokes, or non-business subjects), DO NOT dump, list, or summarize unrelated company performance records. Explicitly and politely state that you are an AI Performance Coach dedicated solely to workplace performance, business analytics, and official company documentation, and invite the user to ask about their business metrics.
 """
 
 
@@ -304,6 +347,23 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
     sql_query = state.get("sql_query")
     rag_chunks = state.get("rag_chunks", [])
     doc_catalog = state.get("document_catalog", [])
+
+    # Case 0: Guardrail Triggered or Out-of-Scope Deflection
+    if state.get("guardrail_triggered") or intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
+        if intent == "OUT_OF_SCOPE":
+            return {
+                "final_response": (
+                    "I am your company's **AI Performance Coach**, dedicated solely to analyzing team metrics, "
+                    "sales performance, incentive policies, and uploaded company documentation.\n\n"
+                    "I cannot assist with questions regarding external topics, general knowledge, movies, academic homework, or non-work matters. "
+                    "Please feel free to ask about your team's KPI reports, case performance, incentives, or uploaded company files!"
+                ),
+                "citations": []
+            }
+        return {
+            "final_response": state.get("final_response", ""),
+            "citations": []
+        }
 
     # Case A: Document Catalog Intent
     if intent == "CATALOG":
@@ -362,11 +422,12 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                 )
             }
 
-        # For general conversational queries, use a warm conversational prompt
+        # For general conversational queries, enforce domain boundary
         general_prompt = (
-            "You are a friendly, encouraging, and highly professional Executive Sales & Performance Coach. "
-            "Respond warmly and conversationally to the user's message. Introduce yourself as their AI Performance Coach and "
-            "invite them to ask about their sales metrics, employee performance, or uploaded documents."
+            "You are an enterprise AI Performance Coach dedicated solely to sales metrics, team performance, and uploaded company documentation.\n"
+            "STRICT DOMAIN BOUNDARY:\n"
+            "- If the user asks general pleasantries (e.g. 'how are you', 'what do you know about me'), respond warmly and politely explain that you are their AI Performance Coach ready to assist with company sales and performance data.\n"
+            "- If the user asks off-topic questions (academic school math/science like formulas, trigonometry, calculus, homework, movies, shopping, or general trivia), DO NOT solve or answer the question! Explicitly and politely decline by stating that you are dedicated solely to workplace performance analytics and company documents, and invite them to ask about their business data."
         )
         if OPENAI_API_KEY:
             try:

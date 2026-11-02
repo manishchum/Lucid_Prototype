@@ -16,6 +16,7 @@ from coach.nodes import (
     rag_node,
     synthesizer_node
 )
+from coach.guardrails import check_input_guardrails
 
 try:
     from langgraph.graph import StateGraph, START, END
@@ -30,12 +31,16 @@ except ImportError:
 # ============================================================================
 def route_from_router(state: CoachState) -> Literal["sql_generator", "rag", "synthesizer"]:
     """Routes based on classified intent."""
+    if state.get("guardrail_triggered"):
+        return "synthesizer"
     intent = state.get("intent", "GENERAL")
+    if intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
+        return "synthesizer"
     if intent in ["SQL", "HYBRID"]:
         return "sql_generator"
     elif intent == "RAG":
         return "rag"
-    else:  # "CATALOG" or "GENERAL"
+    else:  # "CATALOG", "GENERAL", "OUT_OF_SCOPE"
         return "synthesizer"
 
 
@@ -132,6 +137,18 @@ def execute_coach_agent(
     Executes the Performance Coach workflow.
     Uses compiled LangGraph when available, with deterministic fallback.
     """
+    # 0. Fast-Path Input Guardrails (< 5ms: Crisis, Harm, DB Security, Off-topic Poems)
+    guardrail_match = check_input_guardrails(user_query)
+    if guardrail_match:
+        return {
+            "response": guardrail_match["response"],
+            "intent": guardrail_match["intent"],
+            "sql_query": None,
+            "sql_result": None,
+            "citations": [],
+            "error": None
+        }
+
     initial_state: CoachState = {
         "user_query": user_query,
         "company_id": company_id,

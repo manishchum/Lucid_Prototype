@@ -22,9 +22,10 @@ class CoachState(TypedDict, total=False):
     schema_prompt: str
     document_catalog: List[Dict[str, Any]]
 
-    # Routing Decision: "SQL", "RAG", "HYBRID", "CATALOG", "GENERAL"
+    # Routing Decision: "SQL", "RAG", "HYBRID", "CATALOG", "GENERAL", "SAFETY", "SECURITY", "SCOPE_DEFLECTION"
     intent: str
     routing_reason: str
+    guardrail_triggered: Optional[bool]
 
     # Text-to-SQL Engine State
     sql_query: Optional[str]
