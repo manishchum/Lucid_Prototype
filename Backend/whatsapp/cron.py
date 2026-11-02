@@ -173,9 +173,9 @@ class WhatsAppCronWorker:
             if user_id:
                 try:
                     from utils.supabase_client import supabase_admin
-                    u_resp = supabase_admin.table("users").select("name,first_name").eq("user_id", user_id).maybe_single().execute()
-                    if u_resp.data:
-                        user_name = u_resp.data.get("first_name") or u_resp.data.get("name") or "Learner"
+                    u_resp = supabase_admin.table("users").select("name").eq("user_id", user_id).maybe_single().execute()
+                    if u_resp.data and u_resp.data.get("name"):
+                        user_name = u_resp.data["name"].split()[0]
                 except Exception as ex:
                     logger.debug(f"Could not resolve name for user {user_id}: {ex}")
 

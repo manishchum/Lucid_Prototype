@@ -27,6 +27,7 @@ from utils.db.whatsapp_db import (
     get_users_for_module,
     get_module_content,
     update_dispatch_status,
+    deactivate_scheduled_whatsapp,
 )
 from utils.db.email_db import (
     create_scheduled_email,
@@ -141,7 +142,9 @@ class NotifyWhatsAppRequest(BaseModel):
     company_id: str
    
     # Module selection
-    module_ids: List[str]  # List of processed_module_ids to send content from
+    module_ids: List[str]  # List of processed_module_ids or sprint module_id
+    sprint_id: Optional[str] = None  # Parent sprint ID (training_module id)
+    user_ids: Optional[List[str]] = None  # Explicit recipient user IDs if specified
    
     # Content types to include
     selected_content: List[str]  # e.g. ["flashcards", "audio", "video"]
@@ -154,6 +157,8 @@ class NotifyWhatsAppRequest(BaseModel):
    
     # Optional metadata & Immediate flag
     custom_message: Optional[str] = None
+    customAudioUrl: Optional[str] = None
+    custom_audio_url: Optional[str] = None
     is_immediate: Optional[bool] = None
     engagement_question: Optional[str] = None
     dry_run: bool = False  # True = return what would be sent without actually scheduling
@@ -832,6 +837,12 @@ Generate a concise, engaging nudge message for WhatsApp. Return ONLY a raw JSON 
 - "nudge_message": a warm, encouraging 2-3 sentence WhatsApp message that nudges the user to engage with the training sprint (plain text, no HTML or special formatting, emojis are OK)
 - "engagement": if an engagement question is provided below, write it as a single plain-text sentence. Otherwise return an empty string "".
 
+CRITICAL FORMATTING RULES:
+1. The WhatsApp message template ALREADY includes the greeting and user name (e.g. "Hii <Name>,").
+2. Therefore, your generated "nudge_message" MUST NEVER contain or begin with any greeting or salutation such as "Hey there", "Hey there!", "Hey there,", "Hi there", "Hey", "Hi", "Hello", "Greetings", or the recipient's name.
+3. Start IMMEDIATELY with the core content or an action-oriented hook (e.g. "Your training sprint is ready...", "Ready to level up your skills?...", "Take a few minutes to explore...").
+4. Under NO circumstances include the phrase "Hey there" anywhere in the message.
+
 Keep the message conversational, friendly, and action-oriented. Make it feel like a personal message from a supportive colleague, not corporate jargon.
 
 Sprint: {request.sprint_title}
@@ -857,9 +868,24 @@ Engagement question: {request.engagement_question or "none"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate WhatsApp content: {str(e)}")
 
+    def clean_whatsapp_message(text: str) -> str:
+        if not text:
+            return ""
+        # Remove any "hey there", "hi there", "hello there", "hey", "hi", "hello", "greetings" at the start
+        cleaned = re.sub(r'^(?:hey\s+there|hi\s+there|hello\s+there|hey|hi|hello|greetings)[!,\.\s\-:]*', '', text, flags=re.IGNORECASE).strip()
+        # Also remove any rogue "hey there" inside the message
+        cleaned = re.sub(r'\bhey\s+there\b[,!.]*\s*', '', cleaned, flags=re.IGNORECASE).strip()
+        if cleaned and cleaned[0].islower():
+            cleaned = cleaned[0].upper() + cleaned[1:]
+        return cleaned
+
     # ── Build the message ──
-    nudge_message = snippets.get("nudge_message", f"Hi! Your training sprint '{request.sprint_title}' is ready. Let's dive in! 🚀")
-    engagement_text = snippets.get("engagement", "")
+    fallback_nudge = f"Your training sprint '{request.sprint_title}' is ready. Let's dive in! 🚀"
+    nudge_message = clean_whatsapp_message(snippets.get("nudge_message", fallback_nudge))
+    if not nudge_message:
+        nudge_message = fallback_nudge
+
+    engagement_text = clean_whatsapp_message(snippets.get("engagement", ""))
 
     # Combine nudge message with engagement question if present
     full_message = nudge_message
@@ -1858,87 +1884,26 @@ async def dispatch_bootstrap(
 
 
 # ── WhatsApp Notification Endpoint ──────────────────────────────
+@router.post("/notify-whatsapp")
 async def notify_whatsapp(
     request: NotifyWhatsAppRequest,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
+    """
+    Schedule or immediately send WhatsApp messages for content distribution.
+    - Resolves dynamic audio, video, flashcards, mindmaps, and infographics from the database.
+    - Sends ONLY to users who are actively assigned to the sprint in learning_plan.
+    """
     user_id = auth_ctx.user_id
-    try:
-        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
-       
-        # Determine if this should be dispatched immediately or scheduled
-        is_immediate = (
-            request.is_immediate is True
-            or (request.schedule_type == "one_time" and not request.scheduled_date)
-        )
+    from datetime import datetime, timedelta, date as dt_date
 
-        # ── Validate Input ──
-        if not request.module_ids:
-            raise HTTPException(status_code=400, detail="At least one module_id is required")
-       
-        if not request.selected_content:
-            raise HTTPException(status_code=400, detail="At least one content type is required")
-       
-        if request.schedule_type not in ["one_time", "recurring"]:
-            raise HTTPException(status_code=400, detail="Invalid schedule_type")
-       
-        if not is_immediate and request.schedule_type == "one_time" and not request.scheduled_date:
-            raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
-       
-        if not is_immediate and request.schedule_type == "recurring" and not request.days_of_week:
-            raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
-       
-        # ── Generate Message Schedule ──
-        # Create a cartesian product of modules x content_types
-        messages_to_create = []
-        for i, module_id in enumerate(request.module_ids):
-            for j, content_type in enumerate(request.selected_content):
-                message_order = i * len(request.selected_content) + j
-                messages_to_create.append({
-                    "module_id": module_id,
-                    "content_type": content_type,
-                    "order": message_order,
-                })
-       
-        print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules (is_immediate={is_immediate})")
-       
-        # ── Dry Run: Return what would be created ──
-        if request.dry_run:
-            preview = []
-            for msg_plan in messages_to_create:
-                module_result = await get_module_content(msg_plan["module_id"])
-                if not module_result["error"] and module_result["data"]:
-                    module = module_result["data"]
-                    preview.append({
-                        "module_id": msg_plan["module_id"],
-                        "module_title": module.get("title", ""),
-                        "content_type": msg_plan["content_type"],
-                        "day_offset": msg_plan["order"],
-                    })
-           
-            return {
-                "status": "dry_run",
-                "message_count": len(preview),
-                "messages": preview,
-            }
-    """
-    Schedule WhatsApp messages for content distribution.
-   
-    This endpoint creates scheduled WhatsApp messages and dispatch records for
-    all assigned users. It handles:
-   
-    1. Multi-module distribution (spread across days)
-    2. Multiple content types (one message per content type, per module)
-    3. One-time and recurring schedules
-   
-    Example: 2 modules x 2 content types = 4 messages
-    - Day 1: Module 1, Content Type 1
-    - Day 2: Module 2, Content Type 1
-    - Day 3: Module 1, Content Type 2
-    - Day 4: Module 2, Content Type 2
-    """
-   
+    # Determine if this should be dispatched immediately or scheduled
+    is_immediate = (
+        request.is_immediate is True
+        or (request.schedule_type == "one_time" and not request.scheduled_date)
+    )
+
     # ── Validate Input ──
     if not request.module_ids:
         raise HTTPException(status_code=400, detail="At least one module_id is required")
@@ -1949,12 +1914,12 @@ async def notify_whatsapp(
     if request.schedule_type not in ["one_time", "recurring"]:
         raise HTTPException(status_code=400, detail="Invalid schedule_type")
    
-    if request.schedule_type == "one_time" and not request.scheduled_date:
+    if not is_immediate and request.schedule_type == "one_time" and not request.scheduled_date:
         raise HTTPException(status_code=400, detail="scheduled_date is required for one_time schedule")
    
-    if request.schedule_type == "recurring" and not request.days_of_week:
+    if not is_immediate and request.schedule_type == "recurring" and not request.days_of_week:
         raise HTTPException(status_code=400, detail="days_of_week is required for recurring schedule")
-   
+
     # ── Generate Message Schedule ──
     # Create a cartesian product of modules x content_types
     messages_to_create = []
@@ -1966,15 +1931,15 @@ async def notify_whatsapp(
                 "content_type": content_type,
                 "order": message_order,
             })
-   
-    print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules")
-   
+
+    print(f"[NOTIFY-WHATSAPP DEBUG] Generated {len(messages_to_create)} message schedules (is_immediate={is_immediate})")
+
     # ── Dry Run: Return what would be created ──
     if request.dry_run:
         preview = []
         for msg_plan in messages_to_create:
             module_result = await get_module_content(msg_plan["module_id"])
-            if not module_result["error"] and module_result["data"]:
+            if not module_result.get("error") and module_result.get("data"):
                 module = module_result["data"]
                 preview.append({
                     "module_id": msg_plan["module_id"],
@@ -2004,52 +1969,39 @@ async def notify_whatsapp(
     )
     if replay is not None:
         return replay
-   
+
     try:
-        print(f"\n[NOTIFY-WHATSAPP DEBUG] Received request: {request}")
-       
-        # ── Create Scheduled Messages and Dispatch Records ──
         created_schedules = []
         all_users_affected = set()
         total_sent_count = 0
         total_failed_count = 0
-       
+
         for msg_plan in messages_to_create:
-            processed_module_id = msg_plan["module_id"]
+            target_module_id = msg_plan["module_id"]
             content_type = msg_plan["content_type"]
             day_offset = msg_plan["order"]
-           
-            # Fetch module content
-            module_result = await get_module_content(processed_module_id)
-            print(f"[NOTIFY-WHATSAPP DEBUG] Fetching content for module_id: {processed_module_id}")
-            if module_result["error"]:
-                print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching module: {module_result['error']}")
-                continue
-           
-            module = module_result["data"]
-            if not module:
-                print(f"[NOTIFY-WHATSAPP DEBUG] Module not found: {processed_module_id}")
-                continue
-           
-            module_title = module.get("title", "Learning Module")
-            original_module_id = module.get("original_module_id")
-           
-            from datetime import datetime, timedelta, date as dt_date
 
-            # Determine scheduled date based on offset
-            from datetime import datetime, timedelta
-           
+            # Fetch dynamic module content
+            module_result = await get_module_content(target_module_id)
+            if module_result.get("error") or not module_result.get("data"):
+                print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching module {target_module_id}: {module_result.get('error')}")
+                continue
+
+            module = module_result["data"]
+            module_title = module.get("title", "Learning Module")
+            original_module_id = module.get("original_module_id") or request.sprint_id or target_module_id
+            processed_module_id = module.get("processed_module_id") or target_module_id
+
             if is_immediate:
                 message_date = dt_date.today().strftime("%Y-%m-%d")
             elif request.schedule_type == "one_time":
                 schedule_date = datetime.strptime(request.scheduled_date, "%Y-%m-%d")
                 message_date = (schedule_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
             else:
-                # For recurring, use today + offset as first occurrence
                 message_date = None
 
-            # Deduplication: Check DB if schedule already exists for same (company_id, module_id, message_date)
-            if request.schedule_type == "one_time" and message_date:
+            # Deduplication: Check DB if future schedule already exists for same (company_id, module_id, message_date)
+            if not is_immediate and request.schedule_type == "one_time" and message_date:
                 existing_wa = DispatchIdempotency.check_db_scheduled_whatsapp(
                     company_id=request.company_id,
                     module_id=processed_module_id,
@@ -2068,55 +2020,86 @@ async def notify_whatsapp(
                         "note": "Existing schedule found in database",
                     })
                     continue
-           
-            # Build message content based on content type or custom message
-            if request.custom_message:
-                message_body = request.custom_message
-                media_url = None
-                media_type = None
-            elif content_type == "flashcards":
-                flashcard_data = module.get("flashcard_data", [])
-                message_body = formatter.format_flashcards(
-                    "Flashcards",
-                    flashcard_data,
-                    module_title
-                )
-                media_url = None
-                media_type = None
-           
-            elif content_type == "audio":
-                audio_url = module.get("audio_url", "")
-                message_body = formatter.format_audio_message(module_title, "Audio Lesson")
-                media_url = audio_url
-                media_type = "audio" if audio_url else None
-           
-            elif content_type == "video":
-                video_url = module.get("video_url", "")
-                message_body = formatter.format_video_message(module_title, "Video Lesson")
-                media_url = video_url
-                media_type = "video" if video_url else None
-           
-            elif content_type == "mindmap":
-                mindmap_data = module.get("mindmap_data", {})
-                mindmap_url = mindmap_data.get("image_url", "") if isinstance(mindmap_data, dict) else ""
-                message_body = formatter.format_mindmap_message(module_title, "Mind Map")
-                media_url = mindmap_url
-                media_type = "image" if mindmap_url else None
-           
-            elif content_type == "infographic":
-                infographic_data = module.get("infographic_data", {})
-                infographic_url = infographic_data.get("image_url", "") if isinstance(infographic_data, dict) else ""
-                message_body = formatter.format_infographic_message(module_title, "Infographic")
-                media_url = infographic_url
-                media_type = "image" if infographic_url else None
-           
-            else:
-                print(f"[NOTIFY-WHATSAPP DEBUG] Unknown content type: {content_type}")
-                continue
-           
-            print(f"[NOTIFY-WHATSAPP DEBUG] Built message body for '{content_type}' with media_url: {media_url}")
 
-            # Create scheduled_whatsapp record
+            # Dynamic extraction from DB
+            dynamic_video_url = module.get("video_url")
+            dynamic_audio_url = request.customAudioUrl or request.custom_audio_url or module.get("audio_url")
+            dynamic_flashcards = module.get("flashcard_data") or []
+            sprint_image_url = module.get("sprint_image_url")
+            mindmap_url = (module.get("mindmap_data") or {}).get("image_url") if isinstance(module.get("mindmap_data"), dict) else None
+            infographic_url = (module.get("infographic_data") or {}).get("image_url") if isinstance(module.get("infographic_data"), dict) else None
+
+            media_url = None
+            selected_template = None
+
+            if content_type == "flashcards":
+                # Always format flashcards dynamically from database
+                if dynamic_flashcards:
+                    fc_body = formatter.format_flashcards(module.get("title", "Flashcards"), dynamic_flashcards, module_title)
+                else:
+                    fc_body = f"📚 *{module_title}*\n\nReview your key learning points on the platform! ✨"
+
+                if request.custom_message:
+                    message_body = f"{request.custom_message}\n\n{fc_body}"
+                else:
+                    message_body = fc_body
+
+                # Flashcards selected: use approved lucid_image template with sprint cover image header
+                media_url = sprint_image_url or "https://rest.dovesoft.io//tempMediaFiles/image.jpeg"
+                media_type = "image"
+                selected_template = "lucid_image"
+
+            elif content_type == "audio":
+                if request.custom_message:
+                    message_body = request.custom_message
+                else:
+                    message_body = formatter.format_audio_message(module_title, module.get("title", "Audio Lesson"))
+
+                # NOTE: Do NOT append URLs to message_body.
+                # Meta WhatsApp silently drops template messages when body parameters contain URLs.
+                # The audio link should be delivered via a CTA button in the template, not in body text.
+
+                # Audio selected: use approved lucid_audio1 template with CTA dynamic TinyURL button
+                media_url = dynamic_audio_url
+                media_type = "audio" if dynamic_audio_url else None
+                selected_template = "lucid_audio1"
+
+            elif content_type == "video":
+                if request.custom_message:
+                    message_body = request.custom_message
+                else:
+                    message_body = formatter.format_video_message(module_title, module.get("title", "Video Lesson"))
+
+                # Only attach video when video is explicitly selected (attached to header, do NOT append raw URL to body)
+                media_url = dynamic_video_url
+                media_type = "video" if dynamic_video_url else None
+                selected_template = "lucid_video"
+
+            elif content_type in ["mindmap", "infographic"]:
+                img_url = mindmap_url if content_type == "mindmap" else infographic_url
+                message_body = request.custom_message or (
+                    formatter.format_mindmap_message(module_title, "Mind Map")
+                    if content_type == "mindmap"
+                    else formatter.format_infographic_message(module_title, "Infographic")
+                )
+                media_url = img_url or sprint_image_url or "https://rest.dovesoft.io//tempMediaFiles/image.jpeg"
+                media_type = "image" if media_url else None
+                selected_template = "lucid_image"
+
+            else:
+                message_body = request.custom_message or f"Training update: {module_title}"
+                media_url = None
+                media_type = None
+                selected_template = "lucid_audio"
+
+            # Strip any URLs from message_body before sending via template
+            # Meta WhatsApp SILENTLY DROPS template messages when body parameters contain URLs
+            import re
+            message_body = re.sub(r'https?://\S+', '', message_body).strip()
+            message_body = re.sub(r'🎬\s*\*?Watch Video:\*?', '', message_body).strip()
+            message_body = re.sub(r'🎧\s*\*?Listen to Audio Lesson:\*?', '', message_body).strip()
+
+            # Create scheduled_whatsapp record with dynamic media and body
             schedule_result = await create_scheduled_whatsapp(
                 company_id=request.company_id,
                 message_body=message_body,
@@ -2130,58 +2113,70 @@ async def notify_whatsapp(
                 media_type=media_type,
                 is_active=True,
             )
-           
-            if schedule_result["error"]:
+
+            if schedule_result.get("error"):
                 print(f"[NOTIFY-WHATSAPP DEBUG] Error creating schedule: {schedule_result['error']}")
                 continue
-           
+
             scheduled_msg = schedule_result["data"]
             scheduled_whatsapp_id = scheduled_msg.get("scheduled_whatsapp_id")
-           
-            # Fetch users for this module
-            users_result = await get_users_for_module(original_module_id)
-            if users_result["error"]:
+
+            # Fetch ONLY active users assigned to this sprint / module
+            target_sprint_id = request.sprint_id or original_module_id
+            users_result = await get_users_for_module(
+                module_id=target_sprint_id,
+                company_id=request.company_id,
+                specific_user_ids=request.user_ids,
+            )
+            if users_result.get("error"):
                 print(f"[NOTIFY-WHATSAPP DEBUG] Error fetching users: {users_result['error']}")
                 continue
-           
+
             users_data = users_result.get("data", [])
-            print(f"[NOTIFY-WHATSAPP DEBUG] Found {len(users_data)} users for module")
-           
+            print(f"[NOTIFY-WHATSAPP DEBUG] Found {len(users_data)} active assigned users for sprint {target_sprint_id}")
+
             if not users_data:
-                print(f"[NOTIFY-WHATSAPP DEBUG] No users with phone numbers for module {processed_module_id}")
+                print(f"[NOTIFY-WHATSAPP DEBUG] No active assigned users with phone numbers for sprint {target_sprint_id}")
                 continue
-           
+
             # Create dispatch records
             dispatch_result = await create_whatsapp_dispatch_batch(
                 scheduled_whatsapp_id,
                 users_data,
             )
-           
-            if dispatch_result["error"]:
+
+            if dispatch_result.get("error"):
                 print(f"[NOTIFY-WHATSAPP DEBUG] Error creating dispatch: {dispatch_result['error']}")
                 continue
-           
+
             dispatch_records = dispatch_result.get("data", [])
-            print(f"[NOTIFY-WHATSAPP DEBUG] Created {len(dispatch_records)} dispatch records")
 
             # If immediate send requested, dispatch right away via DoveSoft WhatsApp API
             if is_immediate:
-                for user in users_data:
+                import asyncio
+                for idx, user in enumerate(users_data):
                     u_phone = user.get("phone_number")
-                    u_name = user.get("name") or user.get("first_name") or "Learner"
+                    u_name = user.get("name") or "Learner"
                     u_id = user.get("user_id")
+
+                    # Stagger sends with 1.5s delay to avoid DoveSoft/Meta rate-limiting drops
+                    if idx > 0:
+                        await asyncio.sleep(1.5)
 
                     # Find matching dispatch record
                     disp_rec = next((d for d in dispatch_records if d.get("user_id") == u_id), None)
                     disp_id = disp_rec.get("whatsapp_dispatch_id") if disp_rec else None
 
+                    print(f"[NOTIFY-WHATSAPP] 🚀 Sending to {u_phone} ({u_name}) via template '{selected_template}' (media: {media_url})...")
                     send_res = await whatsapp_service.send_template_message(
                         recipient_phone=u_phone,
                         user_name=u_name,
                         message_body=message_body,
                         media_url=media_url,
                         media_type=media_type,
+                        template_name=selected_template,
                     )
+                    print(f"[NOTIFY-WHATSAPP] Response for {u_phone}: success={send_res.get('success')}, message_id={send_res.get('message_id')}, error={send_res.get('error')}")
 
                     if send_res.get("success"):
                         total_sent_count += 1
@@ -2199,11 +2194,16 @@ async def notify_whatsapp(
                                 "failed",
                                 error_message=send_res.get("error")
                             )
-           
-            # Track affected users
+
+                if scheduled_whatsapp_id:
+                    try:
+                        await deactivate_scheduled_whatsapp(scheduled_whatsapp_id)
+                    except Exception as deact_err:
+                        print(f"[NOTIFY-WHATSAPP] Note: could not deactivate immediate scheduled record: {deact_err}")
+
             for user in users_data:
                 all_users_affected.add(user["user_id"])
-           
+
             created_schedules.append({
                 "scheduled_whatsapp_id": scheduled_whatsapp_id,
                 "module_id": processed_module_id,
@@ -2213,15 +2213,11 @@ async def notify_whatsapp(
                 "recipient_count": len(users_data),
                 "scheduled_date": message_date if request.schedule_type == "one_time" else None,
             })
-       
-        # ── Return Confirmation ──
+
         status_label = "sent" if is_immediate else "scheduled"
-        return {
+        result = {
             "status": status_label,
             "schedule_type": "immediate" if is_immediate else request.schedule_type,
-        result = {
-            "status": "scheduled",
-            "schedule_type": request.schedule_type,
             "scheduled_time": request.scheduled_time,
             "total_messages": len(created_schedules),
             "unique_recipients": len(all_users_affected),
@@ -2231,7 +2227,7 @@ async def notify_whatsapp(
         }
         DispatchIdempotency.complete(redis_key, ttl, result)
         return result
-   
+
     except HTTPException:
         DispatchIdempotency.release_on_failure(redis_key)
         raise
