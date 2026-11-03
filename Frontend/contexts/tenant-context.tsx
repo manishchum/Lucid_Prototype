@@ -239,7 +239,7 @@ const deriveFrontendTier = (addons: Addon[]): Tier | null => {
 }
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {
-  const { userId, employeeData, userRoles, loading: authLoading, isDeveloper } = useAuth()
+  const { userId, employeeData, userRoles, loading: authLoading, isDeveloper, initialTenantData } = useAuth()
   const [activeCompanyId, setActiveCompanyIdState] = useState<string | null>(null)
   const [availableCompanies, setAvailableCompanies] = useState<Company[]>([])
   const [loadingCompanies, setLoadingCompanies] = useState(false)
@@ -281,6 +281,26 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         return
       }
 
+      // Fast-path: use availableCompanies already provided by consolidated /api/auth/me bootstrap
+      const bootstrapCompanies = Array.isArray(initialTenantData?.availableCompanies) && initialTenantData.availableCompanies.length > 0
+        ? initialTenantData.availableCompanies
+        : null
+
+      if (bootstrapCompanies) {
+        const companies = bootstrapCompanies.filter((c: Company) => c?.company_id)
+        const resolvedCompanies: Company[] = companies.length > 0 ? companies : [fallbackCompany]
+        setAvailableCompanies(resolvedCompanies)
+        const persisted = storageKey && typeof window !== "undefined"
+          ? window.localStorage.getItem(storageKey)
+          : null
+        const persistedExists = persisted && resolvedCompanies.some((c) => c.company_id === persisted)
+        const nextCompanyId = persistedExists
+          ? persisted
+          : resolvedCompanies[0]?.company_id || fallbackCompany.company_id
+        setActiveCompanyIdState(nextCompanyId)
+        return
+      }
+
       setLoadingCompanies(true)
       try {
         const res = await fetchWithAuth(`${API_BASE}/api/companies/`)
@@ -318,7 +338,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return () => {
       ignore = true
     }
-  }, [authLoading, userId, employeeData?.company_id, isDeveloperMode, storageKey])
+  }, [authLoading, userId, employeeData?.company_id, isDeveloperMode, storageKey, initialTenantData])
 
   useEffect(() => {
     if (!storageKey || !activeCompanyId || !isDeveloperMode || typeof window === "undefined") {

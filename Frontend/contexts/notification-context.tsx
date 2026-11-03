@@ -44,10 +44,25 @@ const NotificationContext = createContext<NotificationContextType>({
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, initialNotificationsData } = useAuth();
   const { toast } = useToast();
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    return Array.isArray(initialNotificationsData?.items) ? initialNotificationsData.items : [];
+  });
+  const [unreadCount, setUnreadCount] = useState<number>(() => {
+    return typeof initialNotificationsData?.unread_count === "number" ? initialNotificationsData.unread_count : 0;
+  });
+
+  useEffect(() => {
+    if (initialNotificationsData) {
+      if (typeof initialNotificationsData.unread_count === "number") {
+        setUnreadCount(initialNotificationsData.unread_count);
+      }
+      if (Array.isArray(initialNotificationsData.items)) {
+        setNotifications(initialNotificationsData.items);
+      }
+    }
+  }, [initialNotificationsData]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
@@ -286,8 +301,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (userId) {
       if (lastFetchedUserIdRef.current !== userId) {
         lastFetchedUserIdRef.current = userId;
-        fetchUnreadCount();
-        fetchNotifications();
+        // If initialNotificationsData was already supplied by unified /api/auth/me bootstrap, skip redundant network calls
+        if (!initialNotificationsData) {
+          fetchUnreadCount();
+          fetchNotifications();
+        }
       }
       connectWebSocket();
     } else {
@@ -302,7 +320,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setUnreadCount(0);
       setConnectionStatus('disconnected');
     }
-  }, [userId, fetchUnreadCount, fetchNotifications, connectWebSocket]);
+  }, [userId, fetchUnreadCount, fetchNotifications, connectWebSocket, initialNotificationsData]);
 
   useEffect(() => {
     return () => {
