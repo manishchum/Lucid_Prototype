@@ -492,16 +492,24 @@ class ConnectorManager:
                             resolved_emp_id = (item.metadata or {}).get("target_employee_id")
                             if not resolved_emp_id and (item.metadata or {}).get("detected_participants"):
                                 try:
-                                    from services.connectors.providers.google_meet.client import match_speaker_to_employee
                                     from ingestion.coach_store import fetch_company_employees
                                     roster = fetch_company_employees(company_id)
-                                    resolved_emp_id = match_speaker_to_employee(
-                                        item.metadata["detected_participants"],
-                                        roster,
-                                        host_email=account_identifier
-                                    )
+                                    if provider == "gmail":
+                                        from services.connectors.providers.gmail.client import match_email_participants_to_employee
+                                        resolved_emp_id = match_email_participants_to_employee(
+                                            item.metadata["detected_participants"],
+                                            roster,
+                                            host_email=account_identifier
+                                        )
+                                    else:
+                                        from services.connectors.providers.google_meet.client import match_speaker_to_employee
+                                        resolved_emp_id = match_speaker_to_employee(
+                                            item.metadata["detected_participants"],
+                                            roster,
+                                            host_email=account_identifier
+                                        )
                                     if resolved_emp_id:
-                                        print(f"[{provider.upper()} SYNC] Resolved speaker to employee_id={resolved_emp_id}")
+                                        print(f"[{provider.upper()} SYNC] Resolved participant to employee_id={resolved_emp_id}")
                                 except Exception as match_err:
                                     print(f"[{provider.upper()} SYNC] Employee match note: {match_err}")
 
@@ -763,4 +771,4 @@ class ConnectorManager:
         return True
 
 
-
+from services.connectors.providers.google_drive.client import get_oauth_credentials

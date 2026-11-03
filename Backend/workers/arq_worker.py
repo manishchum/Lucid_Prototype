@@ -860,6 +860,17 @@ async def arq_shutdown(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker shutting down gracefully.")
 
 
+async def poll_whatsapp_dispatches(ctx: Dict[str, Any]) -> None:
+    """
+    Polls scheduled WhatsApp messages and dispatches pending records when due.
+    """
+    try:
+        from whatsapp.cron import run_whatsapp_cron
+        await run_whatsapp_cron()
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error in poll_whatsapp_dispatches: {e}")
+
+
 # -----------------------------------------------------------------------------
 # Worker Settings
 # -----------------------------------------------------------------------------
@@ -879,6 +890,7 @@ class WorkerSettings:
     cron_jobs = [
         # 1. Notification dispatch queue (every 10s)
         cron(poll_notification_jobs, second=set(range(0, 60, 10))),
+        cron(poll_whatsapp_dispatches, minute=set(range(0, 60, 1))),
 
         # 2. Scheduled email campaign polling (every 2m)
         cron(run_email_cron, minute=set(range(0, 60, 2))),

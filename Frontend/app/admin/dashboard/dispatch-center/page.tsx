@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye, Bell } from 'lucide-react';
 import NotificationTemplatesManager from './NotificationTemplatesManager';
 import EmployeeNavigation from '@/components/employee-navigation';
@@ -100,7 +100,7 @@ const fetchUserByEmail = async (email: string | null) => {
   }
 };
 
-function DispatchCenterContent() {
+export default function AdminDispatchCenterPage() {
   const { user, loading: authLoading, isDeveloper } = useAuth();
   const searchParams = useSearchParams();
   const initialTab = (searchParams?.get('tab') === 'templates' && isDeveloper) ? 'templates' : 'dispatches';
@@ -272,6 +272,10 @@ function DispatchCenterContent() {
       setSelectedSubModuleIds([]);
       setAssignedUsers([]);
       setDraftedEmail(null);
+      setDraftedWhatsApp(null);
+      setIsEditingWhatsApp(false);
+      setEditWhatsAppMessage('');
+      setWhatsappResult(null);
       setSendResult(null);
       setMultiModuleResult(null);
       setSprintImageUrl('');
@@ -282,6 +286,10 @@ function DispatchCenterContent() {
       setLoadingSubModules(true);
       setLoadingImage(true);
       setDraftedEmail(null);
+      setDraftedWhatsApp(null);
+      setIsEditingWhatsApp(false);
+      setEditWhatsAppMessage('');
+      setWhatsappResult(null);
       setSendResult(null);
       setMultiModuleResult(null);
       try {
@@ -889,13 +897,19 @@ function DispatchCenterContent() {
 
     // Determine scheduled time (use scheduledTime if provided, otherwise default to 09:00)
     const whatsappScheduledTime = scheduleEnabled ? (scheduleMode === 'once' ? scheduledTime : recurringTime) : '09:00';
+    const finalWhatsAppMessage = isEditingWhatsApp ? editWhatsAppMessage : (draftedWhatsApp?.message || '');
 
     const whatsappPayload: Record<string, any> = {
       company_id: currentUser.company_id,
+      sprint_id: selectedSprintId,
+      user_ids: assignedUsers.map((u) => u.user_id),
       module_ids: selectedSubModuleIds.length > 0 ? selectedSubModuleIds : [selectedSprintId],
-      selected_content: selectedContent,
+      selected_content: selectedContent.filter((c) => c !== 'flashcards'),
       schedule_type: scheduleEnabled ? (scheduleMode === 'once' ? 'one_time' : 'recurring') : 'one_time',
       scheduled_time: whatsappScheduledTime,
+      is_immediate: !scheduleEnabled,
+      ...(finalWhatsAppMessage ? { custom_message: finalWhatsAppMessage } : {}),
+      ...(customAudioUrl ? { customAudioUrl } : {}),
     };
 
     // Add scheduling details if enabled
@@ -1043,7 +1057,10 @@ function DispatchCenterContent() {
                 </label>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setSelectedChannel('whatsapp')}
+                    onClick={() => {
+                      setSelectedChannel('whatsapp');
+                      setSelectedContent((prev) => prev.filter((x) => x !== 'flashcards'));
+                    }}
                     className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
                       selectedChannel === 'whatsapp'
                         ? 'border-green-500 bg-green-50 text-green-700'
@@ -1180,89 +1197,91 @@ function DispatchCenterContent() {
                   </label>
                   <div className="space-y-3">
 
-                    {/* ── Flashcard card ── */}
-                    <div className={`rounded-xl border-2 transition-all overflow-hidden ${
-                      selectedContent.includes('flashcards')
-                        ? 'border-purple-400 bg-purple-50'
-                        : 'border-slate-200 bg-white'
-                    }`}>
-                      <button
-                        onClick={() => toggleContent('flashcards')}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                          selectedContent.includes('flashcards') ? 'bg-purple-500' : 'bg-slate-100'
-                        }`}>
-                          <FileJson size={16} className={selectedContent.includes('flashcards') ? 'text-white' : 'text-slate-500'} />
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-sm text-slate-800">Flashcards</p>
-                          <p className="text-xs text-slate-500">Embed flashcard cards from the module</p>
-                        </div>
-                        {selectedContent.includes('flashcards') && (
-                          <Check size={16} className="text-purple-500 shrink-0" />
-                        )}
-                      </button>
-
-                      {/* Flashcard sub-options */}
-                      {selectedContent.includes('flashcards') && (
-                        <div className="px-4 pb-4 space-y-3">
-                          {/* Toggle pill */}
-                          <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
-                            <button
-                              onClick={() => { setFlashcardMode('existing'); setCustomFlashcards(null); setFlashcardImportError(''); setFlashcardImportSuccess(''); }}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                flashcardMode === 'existing'
-                                  ? 'bg-white shadow text-slate-800'
-                                  : 'text-slate-500 hover:text-slate-700'
-                              }`}
-                            >
-                              Use Existing
-                            </button>
-                            <button
-                              onClick={() => setFlashcardMode('import')}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                flashcardMode === 'import'
-                                  ? 'bg-white shadow text-slate-800'
-                                  : 'text-slate-500 hover:text-slate-700'
-                              }`}
-                              >
-                              Import JSON
-                            </button>
+                    {/* ── Email-only: Flashcard card ── */}
+                    {selectedChannel === 'email' && (
+                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
+                        selectedContent.includes('flashcards')
+                          ? 'border-purple-400 bg-purple-50'
+                          : 'border-slate-200 bg-white'
+                      }`}>
+                        <button
+                          onClick={() => toggleContent('flashcards')}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                        >
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                            selectedContent.includes('flashcards') ? 'bg-purple-500' : 'bg-slate-100'
+                          }`}>
+                            <FileJson size={16} className={selectedContent.includes('flashcards') ? 'text-white' : 'text-slate-500'} />
                           </div>
-
-                          {/* Import JSON panel */}
-                          {flashcardMode === 'import' && (
-                            <div className="space-y-2">
-                              <input
-                                ref={flashcardFileRef}
-                                type="file"
-                                accept=".json"
-                                className="hidden"
-                                onChange={handleFlashcardFileChange}
-                              />
-                              <button
-                                onClick={() => flashcardFileRef.current?.click()}
-                                className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-purple-300 bg-white text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-all w-full justify-center"
-                              >
-                                <Upload size={14} /> Choose .json file
-                              </button>
-                              {flashcardImportSuccess && (
-                                <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
-                                  <Check size={12} /> {flashcardImportSuccess}
-                                </p>
-                              )}
-                              {flashcardImportError && (
-                                <p className="text-xs text-red-500">{flashcardImportError}</p>
-                              )}
-                              <p className="text-[11px] text-slate-400">
-                                Expected format: <code className="bg-slate-100 px-1 rounded">{'[{ "heading": "...", "points": ["..."] }]'}</code>
-                              </p>
-                            </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-sm text-slate-800">Flashcards</p>
+                            <p className="text-xs text-slate-500">Embed flashcard cards from the module</p>
+                          </div>
+                          {selectedContent.includes('flashcards') && (
+                            <Check size={16} className="text-purple-500 shrink-0" />
                           )}
-                        </div>
-                      )}
-                    </div>
+                        </button>
+
+                        {/* Flashcard sub-options */}
+                        {selectedContent.includes('flashcards') && (
+                          <div className="px-4 pb-4 space-y-3">
+                            {/* Toggle pill */}
+                            <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
+                              <button
+                                onClick={() => { setFlashcardMode('existing'); setCustomFlashcards(null); setFlashcardImportError(''); setFlashcardImportSuccess(''); }}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                  flashcardMode === 'existing'
+                                    ? 'bg-white shadow text-slate-800'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                              >
+                                Use Existing
+                              </button>
+                              <button
+                                onClick={() => setFlashcardMode('import')}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                                  flashcardMode === 'import'
+                                    ? 'bg-white shadow text-slate-800'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                }`}
+                              >
+                                Import JSON
+                              </button>
+                            </div>
+
+                            {/* Import JSON panel */}
+                            {flashcardMode === 'import' && (
+                              <div className="space-y-2">
+                                <input
+                                  ref={flashcardFileRef}
+                                  type="file"
+                                  accept=".json"
+                                  className="hidden"
+                                  onChange={handleFlashcardFileChange}
+                                />
+                                <button
+                                  onClick={() => flashcardFileRef.current?.click()}
+                                  className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-purple-300 bg-white text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-all w-full justify-center"
+                                >
+                                  <Upload size={14} /> Choose .json file
+                                </button>
+                                {flashcardImportSuccess && (
+                                  <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                    <Check size={12} /> {flashcardImportSuccess}
+                                  </p>
+                                )}
+                                {flashcardImportError && (
+                                  <p className="text-xs text-red-500">{flashcardImportError}</p>
+                                )}
+                                <p className="text-[11px] text-slate-400">
+                                  Expected format: <code className="bg-slate-100 px-1 rounded">{'[{ "heading": "...", "points": ["..."] }]'}</code>
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* ── Audio card ── */}
                     <div className={`rounded-xl border-2 transition-all overflow-hidden ${
@@ -1404,7 +1423,7 @@ function DispatchCenterContent() {
                     )}
 
                     {/* ── WhatsApp-only: Mindmap card ── */}
-                    {selectedChannel === 'whatsapp' && (
+                    {/* {selectedChannel === 'whatsapp' && (
                       <div className={`rounded-xl border-2 transition-all overflow-hidden ${
                         selectedContent.includes('mindmap')
                           ? 'border-cyan-400 bg-cyan-50'
@@ -1428,10 +1447,10 @@ function DispatchCenterContent() {
                           )}
                         </button>
                       </div>
-                    )}
+                    )} */}
 
                     {/* ── WhatsApp-only: Infographic card ── */}
-                    {selectedChannel === 'whatsapp' && (
+                    {/* {selectedChannel === 'whatsapp' && (
                       <div className={`rounded-xl border-2 transition-all overflow-hidden ${
                         selectedContent.includes('infographic')
                           ? 'border-pink-400 bg-pink-50'
@@ -1455,7 +1474,7 @@ function DispatchCenterContent() {
                           )}
                         </button>
                       </div>
-                    )}
+                    )} */}
 
                   </div>
                 </div>
@@ -1803,7 +1822,7 @@ function DispatchCenterContent() {
                     </div>
                   </div>
                   {assignedUsers.length > 0 ? (
-                    <div className="max-h-[120px] overflow-y-auto space-y-1.5">
+                    <div className="max-h-[280px] overflow-y-auto space-y-1.5 pr-1">
                       {assignedUsers.map((u) => (
                         <div key={u.user_id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 text-sm">
                           <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0">
@@ -2276,20 +2295,3 @@ function DispatchCenterContent() {
     </div>
   );
 }
-
-export default function AdminDispatchCenterPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-slate-50">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
-            <p className="text-sm font-medium text-slate-600">Loading dispatch center...</p>
-          </div>
-        </div>
-      }
-    >
-      <DispatchCenterContent />
-    </Suspense>
-  );
-}

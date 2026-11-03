@@ -24,6 +24,9 @@ ZOOM_DEFAULT_SCOPES = [
 
 def get_zoom_credentials() -> Tuple[str, str, str, str, str]:
     """Reads Zoom OAuth & Webhook credentials from environment."""
+    from config import ENV_PATH
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
     client_id = os.getenv("ZOOM_CLIENT_ID", "").strip()
     client_secret = os.getenv("ZOOM_CLIENT_SECRET", "").strip()
     secret_token = os.getenv("ZOOM_WEBHOOK_SECRET_TOKEN", "").strip()

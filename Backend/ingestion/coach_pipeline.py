@@ -117,6 +117,11 @@ def run_coach_file_ingestion(
             status="completed",
             parsed_metadata=parsed_metadata
         )
+        try:
+            from routes.coach_upload import invalidate_coach_docs_cached
+            invalidate_coach_docs_cached(company_id)
+        except Exception:
+            pass
         
         _report_progress("completed", 100, {
             "stage_text": "Ingestion completed and ready for AI Coach",

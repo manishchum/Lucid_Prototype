@@ -564,13 +564,88 @@ def set_coach_docs_cached(key: str, val: Any, ttl: int = 120):
 
 def invalidate_coach_docs_cached(company_id: str):
     prefix = f"coach_docs:{company_id}:"
-    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix)]
+    stats_key = f"coach_stats:{company_id}"
+    _COACH_DOCS_L1_CACHE.pop(stats_key, None)
+    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix) or k.startswith(stats_key)]
     for k in keys_to_del:
         _COACH_DOCS_L1_CACHE.pop(k, None)
     try:
         delete_cache_pattern(f"{prefix}*")
+        delete_cache_pattern(f"{stats_key}*")
     except Exception:
         pass
+
+
+def get_company_coach_stats(company_id: str) -> Dict[str, int]:
+    """
+    Retrieves global company-wide stats across the entire document vault:
+    Total documents, completed documents, total vector chunks, and spreadsheet rows.
+    Cached in L1 (Memory) + L2 (Redis) with TTL=60s.
+    """
+    cache_key = f"coach_stats:{company_id}"
+    cached = get_coach_docs_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _get_total_docs():
+        try:
+            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
+        except Exception:
+            return 0
+
+    def _get_completed_docs():
+        try:
+            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).eq("status", "completed").limit(1).execute().count or 0
+        except Exception:
+            return 0
+
+    def _get_total_chunks():
+        try:
+            return supabase_admin.table("coach_document_chunks").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
+        except Exception:
+            return 0
+
+    def _get_total_rows():
+        try:
+            return supabase_admin.table("coach_spreadsheet_rows").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
+        except Exception:
+            return 0
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_total = ex.submit(_get_total_docs)
+        f_comp = ex.submit(_get_completed_docs)
+        f_chunks = ex.submit(_get_total_chunks)
+        f_rows = ex.submit(_get_total_rows)
+
+        total_docs = f_total.result()
+        completed_docs = f_comp.result()
+        total_chunks = f_chunks.result()
+        total_rows = f_rows.result()
+
+    stats = {
+        "total_documents": total_docs,
+        "completed_documents": completed_docs,
+        "total_chunks": total_chunks,
+        "total_spreadsheet_rows": total_rows
+    }
+    set_coach_docs_cached(cache_key, stats, ttl=60)
+    return stats
+
+
+@router.get("/stats")
+async def get_coach_stats(
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """
+    Returns company-wide document and ingestion stats across the entire vault:
+    total documents, completed documents, total vector chunks, and spreadsheet rows.
+    """
+    company_id = auth.company_id
+    if not company_id:
+        raise HTTPException(status_code=400, detail="Company context required.")
+    return get_company_coach_stats(company_id)
 
 
 @router.get("/documents")
@@ -625,7 +700,8 @@ async def list_coach_documents(
         "total": total_count,
         "page": page,
         "limit": limit,
-        "total_pages": total_pages
+        "total_pages": total_pages,
+        "stats": get_company_coach_stats(company_id)
     }
     set_coach_docs_cached(cache_key, catalog_result, ttl=120)
     return catalog_result

@@ -148,6 +148,7 @@ async def connector_oauth_callback(
     state: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
     error_description: Optional[str] = Query(None),
+    error_subcode: Optional[str] = Query(None),
     background_tasks: BackgroundTasks = None
 ):
     """
@@ -156,15 +157,61 @@ async def connector_oauth_callback(
     and returns a postMessage HTML popup response.
     """
     if error:
-        err_msg = error_description or error
+        is_cancelled = (error_subcode == "cancel") or ("cancel" in str(error).lower()) or ("cancel" in str(error_description or "").lower())
+        err_msg = "Sign-in was cancelled by user." if is_cancelled else (error_description or error)
+        status_title = "Sign-in Cancelled" if is_cancelled else "Authentication Error"
+
         return HTMLResponse(content=f"""
-        <html><body><script>
-            if (window.opener) {{
-                window.opener.postMessage({{ type: "CONNECTOR_OAUTH_ERROR", provider: "{provider}", error: "{err_msg}" }}, "*");
-            }}
-            window.close();
-        </script><p>Authentication failed: {err_msg}</p></body></html>
-        """, status_code=400)
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>{status_title}</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                    background-color: #f8fafc;
+                    color: #1e293b;
+                }}
+                .card {{
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 16px;
+                    padding: 32px;
+                    text-align: center;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                    max-width: 380px;
+                }}
+                h2 {{ margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #0f172a; }}
+                p {{ margin: 0; font-size: 13px; color: #64748b; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h2>{status_title}</h2>
+                <p>{err_msg}</p>
+            </div>
+            <script>
+                if (window.opener) {{
+                    window.opener.postMessage({{
+                        type: "CONNECTOR_OAUTH_ERROR",
+                        provider: "{provider}",
+                        error: "{err_msg}",
+                        cancelled: {"true" if is_cancelled else "false"}
+                    }}, "*");
+                }}
+                setTimeout(function() {{
+                    window.close();
+                }}, 1200);
+            </script>
+        </body>
+        </html>
+        """, status_code=200)
 
     if not code:
         raise HTTPException(status_code=400, detail="Authorization code missing from callback.")

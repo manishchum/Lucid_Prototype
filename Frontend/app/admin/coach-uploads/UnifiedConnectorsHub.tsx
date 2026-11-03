@@ -104,11 +104,21 @@ export function UnifiedConnectorsHub({
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === "CONNECTOR_OAUTH_SUCCESS") {
+        if (e.data.provider) {
+          setActionLoading(prev => ({ ...prev, [e.data.provider]: false }))
+        }
         if (onSuccessToast) onSuccessToast(`Successfully connected to ${e.data.provider}!`)
         fetchStatus()
         if (onIngestionTriggered) onIngestionTriggered()
       } else if (e.data?.type === "CONNECTOR_OAUTH_ERROR") {
-        if (onErrorToast) onErrorToast(`Authentication failed: ${e.data.error || "Unknown error"}`)
+        if (e.data.provider) {
+          setActionLoading(prev => ({ ...prev, [e.data.provider]: false }))
+        }
+        if (e.data.cancelled) {
+          console.log(`[UnifiedConnectorsHub] OAuth flow cancelled for ${e.data.provider}`)
+        } else {
+          if (onErrorToast) onErrorToast(`Authentication failed: ${e.data.error || "Unknown error"}`)
+        }
       }
     }
     window.addEventListener("message", handleMessage)
