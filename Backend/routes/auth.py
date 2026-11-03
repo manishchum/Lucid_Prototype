@@ -387,6 +387,26 @@ async def refresh_token(
 
 
 
+NOTIFICATION_METADATA_WHITELIST = {
+    "target_screen",
+    "screen",
+    "initial_tab",
+    "action_url",
+    "url",
+    "link",
+    "sprint_id",
+    "roleplay_id",
+    "task_id",
+    "workflow_id",
+    "assignment_title",
+    "company_id",
+}
+
+def _sanitize_notification_metadata(meta: Any) -> Dict[str, Any]:
+    if not isinstance(meta, dict):
+        return {}
+    return {k: v for k, v in meta.items() if k in NOTIFICATION_METADATA_WHITELIST and v is not None}
+
 _AUTH_ME_L1_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 def invalidate_auth_me_l1_cache(user_id: Optional[str]) -> None:
@@ -537,7 +557,15 @@ async def get_current_user_profile(
                 .range(0, 39)
                 .execute()
             )
-            return resp.data or []
+            raw_notifs = resp.data or []
+            sanitized = []
+            for n in raw_notifs:
+                if isinstance(n, dict):
+                    n_copy = dict(n)
+                    if "metadata" in n_copy:
+                        n_copy["metadata"] = _sanitize_notification_metadata(n_copy.get("metadata"))
+                    sanitized.append(n_copy)
+            return sanitized
         except Exception as e:
             print(f"[_fetch_recent_notifications] Error: {e}")
             return []
@@ -592,12 +620,12 @@ async def get_current_user_profile(
         emp_data["company_name"] = company_data.get("name")
         emp_data["company_logo"] = company_data.get("company_logo")
         emp_data["subscription_tier"] = company_data.get("subscription_tier")
-        emp_data["subscription_addons"] = company_data.get("subscription_addons")
         emp_data["learning_style_enabled"] = bool(company_data.get("learning_style"))
 
     # Security Data Minimization & Payload Optimization:
-    # 1. Strip redundant joined company dictionary (eliminates duplicated subscription_addons)
+    # 1. Strip redundant joined company dictionary and subscription_addons (authoritative copy in tenant.activeCompany)
     emp_data.pop("company", None)
+    emp_data.pop("subscription_addons", None)
     # 2. Strip sensitive internal auth provider identifiers & database artifacts
     emp_data.pop("firebase_uid", None)
     emp_data.pop("password", None)
@@ -609,28 +637,34 @@ async def get_current_user_profile(
         "domain": company_data.get("domain") if company_data else None,
         "company_logo": company_data.get("company_logo") if company_data else emp_data.get("company_logo"),
         "subscription_tier": company_data.get("subscription_tier") if company_data else emp_data.get("subscription_tier"),
-        "subscription_addons": company_data.get("subscription_addons") if company_data else emp_data.get("subscription_addons"),
+        "subscription_addons": company_data.get("subscription_addons") if company_data else [],
         "learning_style_enabled": bool(company_data.get("learning_style")) if company_data else bool(emp_data.get("learning_style_enabled")),
     } if (company_data or emp_data.get("company_id")) else None
 
     # Available companies consolidation (for developer/superadmin tenant switcher)
     def _fetch_available_companies():
         if has_developer_role or has_super_admin_role:
-            cached_comps = get_cache("all_active_companies")
+            cached_comps = get_cache("all_active_companies_light")
             if cached_comps and isinstance(cached_comps, list):
-                return cached_comps
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in cached_comps
+                ]
             try:
                 resp = (
                     service_client
                     .table("companies")
-                    .select("company_id, name, domain, company_logo, subscription_tier, subscription_addons")
+                    .select("company_id, name, domain, company_logo, subscription_tier")
                     .eq("is_company_active", True)
                     .order("name")
                     .execute()
                 )
                 comps = resp.data or []
-                set_cache("all_active_companies", comps, ttl=300)
-                return comps
+                set_cache("all_active_companies_light", comps, ttl=300)
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in comps
+                ]
             except Exception as e:
                 print(f"[_fetch_available_companies] Error: {e}")
         return [active_company] if active_company else []

@@ -267,8 +267,11 @@ def test_data_minimization_and_sensitive_fields_purged():
         assert emp["company_name"] == "Workfloww"
         assert emp["company_logo"] == "logo.png"
         assert emp["subscription_tier"] == "tier_2"
-        assert emp["subscription_addons"] == ["addon_1", "addon_2"]
+        assert "subscription_addons" not in emp, "Payload Duplication: subscription_addons must not be in employeeData"
         assert emp["learning_style_enabled"] is True
+
+        # Assert authoritative tenant metadata is housed in activeCompany
+        assert res["tenant"]["activeCompany"]["subscription_addons"] == ["addon_1", "addon_2"]
 
 
 def test_anti_caching_and_transport_security_headers():

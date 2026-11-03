@@ -204,7 +204,11 @@ const fetchUserRoles = async (userId: string) => {
   }
 }
 
-const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = false) => {
+const loadCachedFullProfile = async (
+  authUser: AuthUserLike,
+  throwOnError = false,
+  registerSession = false
+) => {
   if (!authUser?.email) return null
 
   // Check if a valid Firebase token exists before attempting to fetch
@@ -224,7 +228,8 @@ const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = fals
     const result = await sharedDataClient.query(
       key,
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/auth/me`, { registerSession: true } as any)
+        const fetchOpts: any = registerSession ? { registerSession: true } : {}
+        const res = await fetchWithAuth(`${API_BASE}/api/auth/me`, fetchOpts)
         if (!res.ok) {
           let errText = ""
           try {
@@ -885,8 +890,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
-        // Consolidated bootstrap: /api/auth/me registers device session and returns user + roles + tenant + notifications atomically
-        const profile = await loadCachedFullProfile(authUserObj, true);
+        // Consolidated bootstrap: /api/auth/me registers device session on login and returns user + roles + tenant + notifications atomically
+        const profile = await loadCachedFullProfile(authUserObj, true, true);
 
         if (profile) {
           writeCachedProfile(profile)
@@ -998,6 +1003,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
             setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+            if (profile.tenant) setInitialTenantData(profile.tenant)
+            if (profile.notifications) setInitialNotificationsData(profile.notifications)
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)

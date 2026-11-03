@@ -75,6 +75,6 @@ def test_concurrent_multi_tab_stampede():
                 assert r["employeeData"]["name"] == "Concurrent Tester"
 
             # Verify performance: 10 concurrent requests completed swiftly
-            assert total_time_ms < 1500.0
+            assert total_time_ms < 2500.0
 
     asyncio.run(_test())

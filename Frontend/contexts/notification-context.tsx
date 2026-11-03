@@ -44,7 +44,7 @@ const NotificationContext = createContext<NotificationContextType>({
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, initialNotificationsData } = useAuth();
+  const { user, loading: authLoading, rolesLoaded, initialNotificationsData } = useAuth();
   const { toast } = useToast();
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
     return Array.isArray(initialNotificationsData?.items) ? initialNotificationsData.items : [];
@@ -298,17 +298,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Initial load and WebSocket lifecycle
   useEffect(() => {
-    if (userId) {
-      if (lastFetchedUserIdRef.current !== userId) {
-        lastFetchedUserIdRef.current = userId;
-        // If initialNotificationsData was already supplied by unified /api/auth/me bootstrap, skip redundant network calls
-        if (!initialNotificationsData) {
-          fetchUnreadCount();
-          fetchNotifications();
-        }
-      }
-      connectWebSocket();
-    } else {
+    if (!userId) {
       lastFetchedUserIdRef.current = null;
       if (wsRef.current) {
         wsRef.current.close();
@@ -319,8 +309,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setNotifications([]);
       setUnreadCount(0);
       setConnectionStatus('disconnected');
+      return;
     }
-  }, [userId, fetchUnreadCount, fetchNotifications, connectWebSocket, initialNotificationsData]);
+
+    // Wait for unified auth bootstrap (/api/auth/me) to finish before checking notification state
+    if (authLoading || !rolesLoaded) {
+      return;
+    }
+
+    if (lastFetchedUserIdRef.current !== userId) {
+      lastFetchedUserIdRef.current = userId;
+      // Skip redundant HTTP network calls when initialNotificationsData was supplied by /api/auth/me
+      if (!initialNotificationsData) {
+        fetchUnreadCount();
+        fetchNotifications();
+      }
+    }
+    connectWebSocket();
+  }, [userId, authLoading, rolesLoaded, fetchUnreadCount, fetchNotifications, connectWebSocket, initialNotificationsData]);
 
   useEffect(() => {
     return () => {
