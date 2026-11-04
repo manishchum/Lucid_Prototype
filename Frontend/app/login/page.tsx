@@ -15,7 +15,8 @@ import {
   CheckCircle2 
 } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
-import { useAuth } from "@/contexts/auth-context"
+import { useAuth, isBrowserSessionActive, setBrowserSessionActive, updateLastActiveTimestamp, clearBrowserSessionActive, clearManualAuthUser } from "@/contexts/auth-context"
+import { signOut } from "firebase/auth"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { LoadingProgress } from "@/components/LoadingProgress"
 
@@ -34,6 +35,12 @@ function LoginContent() {
 
   useEffect(() => {
     setMounted(true)
+
+    if (!isBrowserSessionActive()) {
+      clearBrowserSessionActive()
+      clearManualAuthUser()
+      try { signOut(auth); } catch {}
+    }
 
     // Option 1: Storage-only cross-tab sync — transitions idle login tab immediately when another tab logs in
     const handleStorageChange = (e: StorageEvent) => {
@@ -60,12 +67,17 @@ function LoginContent() {
       return;
     }
 
-    if (!authLoading && user) {
+    if (!authLoading && user && isBrowserSessionActive()) {
       router.replace('/employee/welcome')
     }
   }, [user, authLoading, router, searchParams])
 
   useEffect(() => {
+    const reason = searchParams.get("reason")
+    if (reason === "inactivity") {
+      setError("Your session has expired due to 1 hour of inactivity. Please sign in again.")
+      return
+    }
     const urlError = searchParams.get("error")
     if (urlError) {
       switch (urlError) {
@@ -87,10 +99,10 @@ function LoginContent() {
   const isDisplaced = typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
 
   // Client-only storage verification guarded by mounted to prevent hydration mismatches
-  const hasStoredSession = mounted && !isDisplaced && typeof window !== "undefined" && Boolean(
-    window.localStorage.getItem("lucid:manual-auth-user") ||
+  const hasStoredSession = mounted && !isDisplaced && isBrowserSessionActive() && typeof window !== "undefined" && Boolean(
     window.sessionStorage.getItem("lucid:manual-auth-user") ||
-    window.localStorage.getItem("lucid:manual-auth-profile")
+    window.localStorage.getItem("lucid:manual-auth-user") ||
+    window.sessionStorage.getItem("lucid:manual-auth-profile")
   );
 
   if (mounted && !isDisplaced && (user || (authLoading && hasStoredSession))) {
@@ -129,6 +141,8 @@ function LoginContent() {
     setLoading(true)
     setError("")
     setResetMessage("")
+    setBrowserSessionActive()
+    updateLastActiveTimestamp()
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
@@ -192,6 +206,8 @@ function LoginContent() {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError("")
+    setBrowserSessionActive()
+    updateLastActiveTimestamp()
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)

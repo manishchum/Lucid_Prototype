@@ -45,17 +45,36 @@ async def get_assigned_users_for_sprint(module_id: str) -> Dict[str, Any]:
     Falls back to basic columns if new unsubscribe columns don't exist yet.
     """
     try:
+        # Resolve sprint (original_module_id) if module_id is a processed_module_id
+        resolved_sprint_id = module_id
+        try:
+            pm = (
+                supabase.table("processed_modules")
+                .select("original_module_id")
+                .eq("processed_module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+            if pm.data and pm.data.get("original_module_id"):
+                resolved_sprint_id = pm.data.get("original_module_id")
+        except Exception:
+            pass
+
         # Get user_ids from learning_plan for this module
         lp_response = (
             supabase.table("learning_plan")
-            .select("user_id")
-            .eq("module_id", module_id)
+            .select("user_id, status")
+            .eq("module_id", resolved_sprint_id)
             .execute()
         )
         if not lp_response.data:
             return {"data": [], "error": None}
 
-        user_ids = list({row["user_id"] for row in lp_response.data if row.get("user_id")})
+        user_ids = list({
+            row["user_id"] 
+            for row in lp_response.data 
+            if row.get("user_id") and (row.get("status") not in ["UNASSIGNED", "CANCELLED", "DELETED"])
+        })
         if not user_ids:
             return {"data": [], "error": None}
 

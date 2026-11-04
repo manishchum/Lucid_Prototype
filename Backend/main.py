@@ -56,6 +56,7 @@ from routes.logs import router as logs_router
 from routes.notification_workflows import router as workflows_router
 from routes.coach_upload import router as coach_upload_router
 from routes.google_drive import router as google_drive_router
+from routes.connectors import router as connectors_router
 from routes.audit_logs import router as audit_logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
@@ -257,6 +258,28 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    # Background WhatsApp periodic dispatcher loop (runs every 60 seconds)
+    async def _whatsapp_cron_loop():
+        while True:
+            try:
+                await asyncio.sleep(60)
+                from whatsapp.cron import run_whatsapp_cron
+                await run_whatsapp_cron()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[WhatsApp Cron Loop] Non-fatal error: {e}")
+
+    asyncio.create_task(_whatsapp_cron_loop())
+
+    # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+@app.post("/api/cron/whatsapp-dispatch", tags=["cron"])
+async def trigger_whatsapp_cron():
+    """Trigger manual or Cloud Scheduler polling of pending scheduled WhatsApp messages."""
+    from whatsapp.cron import run_whatsapp_cron
+    await run_whatsapp_cron()
+    return {"success": True, "message": "WhatsApp dispatch cron executed successfully"}
     # Pre-warm distributed WebSocket Redis Pub/Sub listener
     try:
         from utils.websocket_manager import manager
@@ -425,6 +448,7 @@ app.include_router(unsubscribe.router)
 app.include_router(logs_router)
 app.include_router(coach_upload_router)
 app.include_router(google_drive_router)
+app.include_router(connectors_router)
 app.include_router(audit_logs_router)
 
 

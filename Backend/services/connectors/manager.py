@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 
 from utils.supabase_client import supabase_admin
+from utils.file_utils import sanitize_filename
 from ingestion.coach_store import create_document_record
 from ingestion.coach_pipeline import run_coach_file_ingestion
 from services.connectors.registry import ConnectorRegistry
@@ -33,6 +34,20 @@ TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
 
 
 class ConnectorManager:
+    @staticmethod
+    def get_webhook_url_for_provider(provider: str) -> str:
+        env_key = f"{provider.upper()}_WEBHOOK_URL"
+        custom_url = os.getenv(env_key, "").strip()
+        if custom_url:
+            return custom_url
+        if provider == "google_drive":
+            gd_url = os.getenv("GOOGLE_DRIVE_WEBHOOK_URL", "").strip()
+            if gd_url:
+                return gd_url
+        api_base = os.getenv("API_BASE_URL", "").rstrip("/")
+        if not api_base:
+            api_base = os.getenv("FRONTEND_URL", "https://api.lucid.work").rstrip("/")
+        return f"{api_base}/api/connectors/{provider}/webhook"
     """Enterprise Manager orchestrating cloud integrations."""
 
     @staticmethod
@@ -222,7 +237,7 @@ class ConnectorManager:
                 print(f"[{provider.upper()}] Note: Could not stop old watch: {e}")
 
         # Register new webhook watch
-        _, _, _, webhook_url = get_oauth_credentials()
+        webhook_url = ConnectorManager.get_webhook_url_for_provider(provider)
         watch_info = await connector.register_watch(access_token, container_id, webhook_url)
 
         # Update config
@@ -320,6 +335,7 @@ class ConnectorManager:
 
         integration_id = integration["id"]
         connected_user_id = integration.get("connected_by")
+        account_identifier = integration.get("account_identifier")
         config = integration.get("config") or {}
 
         # 2. Fetch monitored sources
@@ -447,7 +463,8 @@ class ConnectorManager:
                         else:
                             doc_id = str(uuid.uuid4())
 
-                        safe_filename = f"{doc_id}_{clean_filename}"
+                        clean_filename = sanitize_filename(clean_filename)
+                        safe_filename = sanitize_filename(f"{doc_id}_{clean_filename}")
                         storage_path = f"{company_id}/{doc_id}/{clean_filename}"
 
                         # Upload to Supabase Storage
@@ -473,6 +490,23 @@ class ConnectorManager:
                             }).eq("id", existing_doc_id).execute()
                             doc_record_id = existing_doc_id
                         else:
+                            # Disambiguate and link target employee if detected from meeting participants or metadata
+                            resolved_emp_id = (item.metadata or {}).get("target_employee_id")
+                            if not resolved_emp_id and (item.metadata or {}).get("detected_participants"):
+                                try:
+                                    from services.connectors.providers.google_meet.client import match_speaker_to_employee
+                                    from ingestion.coach_store import fetch_company_employees
+                                    roster = fetch_company_employees(company_id)
+                                    resolved_emp_id = match_speaker_to_employee(
+                                        item.metadata["detected_participants"],
+                                        roster,
+                                        host_email=account_identifier
+                                    )
+                                    if resolved_emp_id:
+                                        print(f"[{provider.upper()} SYNC] Resolved speaker to employee_id={resolved_emp_id}")
+                                except Exception as match_err:
+                                    print(f"[{provider.upper()} SYNC] Employee match note: {match_err}")
+
                             doc_record = create_document_record(
                                 company_id=company_id,
                                 uploaded_by=connected_user_id,
@@ -481,14 +515,18 @@ class ConnectorManager:
                                 file_size_bytes=file_size,
                                 storage_path=storage_path,
                                 file_hash=file_sha,
-                                target_employee_id=None,
+                                target_employee_id=resolved_emp_id,
                                 manual_description=f"Auto-imported from {connector.display_name}: {src.get('source_name', 'Folder')}"
                             )
                             doc_record_id = doc_record["id"]
 
-                        # Save to local temp file for coach_pipeline embedding
+                        # Save to local temp file for coach_pipeline embedding with path traversal defense
                         os.makedirs(TEMP_DIR, exist_ok=True)
-                        temp_file_path = os.path.join(TEMP_DIR, safe_filename)
+                        temp_file_path = os.path.abspath(os.path.join(TEMP_DIR, safe_filename))
+                        temp_dir_abs = os.path.abspath(TEMP_DIR)
+                        if not temp_file_path.startswith(temp_dir_abs + os.sep) and temp_file_path != temp_dir_abs:
+                            raise ValueError(f"Invalid filename: path traversal attempt detected in '{clean_filename}'.")
+
                         with open(temp_file_path, "wb") as f:
                             f.write(content)
 
@@ -501,7 +539,7 @@ class ConnectorManager:
                                 company_id=company_id,
                                 file_name=clean_filename,
                                 file_type=ext,
-                                target_employee_id=None
+                                target_employee_id=resolved_emp_id if not is_update else None
                             )
                         finally:
                             if os.path.exists(temp_file_path):
@@ -638,7 +676,7 @@ class ConnectorManager:
         integrations = res.data if (res and getattr(res, "data", None)) else []
         renewed_count = 0
         connector = ConnectorRegistry.get(provider)
-        _, _, _, webhook_url = get_oauth_credentials()
+        webhook_url = ConnectorManager.get_webhook_url_for_provider(provider)
 
         for item in integrations:
             config = dict(item.get("config") or {})

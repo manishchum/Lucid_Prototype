@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/auth-context";
+import { useAuth, isBrowserSessionActive } from "@/contexts/auth-context";
 import { LoadingProgress } from "@/components/LoadingProgress";
 import { 
   BookOpen, 
@@ -27,8 +27,10 @@ export default function LandingPage() {
 
     // Immediate active session detection for root navigation & new tabs
     const checkActiveSession = () => {
+      if (!isBrowserSessionActive()) return;
+
       const stored = typeof window !== "undefined"
-        ? (window.localStorage.getItem("lucid:manual-auth-user") || window.sessionStorage.getItem("lucid:manual-auth-user"))
+        ? (window.sessionStorage.getItem("lucid:manual-auth-user") || window.localStorage.getItem("lucid:manual-auth-user"))
         : null;
 
       if (user || stored) {
@@ -57,10 +59,10 @@ export default function LandingPage() {
   const isDisplaced = mounted && typeof window !== "undefined" && window.sessionStorage.getItem("lucid:displaced-session") === "1";
 
   // Check storage only after mounting on the client to eliminate SSR hydration mismatch
-  const hasStoredSession = mounted && !isDisplaced && Boolean(
-    window.localStorage.getItem("lucid:manual-auth-user") || 
+  const hasStoredSession = mounted && !isDisplaced && isBrowserSessionActive() && Boolean(
     window.sessionStorage.getItem("lucid:manual-auth-user") ||
-    window.localStorage.getItem("lucid:manual-auth-profile")
+    window.localStorage.getItem("lucid:manual-auth-user") ||
+    window.sessionStorage.getItem("lucid:manual-auth-profile")
   );
 
   if (mounted && !isDisplaced && (user || isRedirecting || (loading && hasStoredSession))) {

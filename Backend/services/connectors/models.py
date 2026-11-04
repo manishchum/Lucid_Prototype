@@ -24,7 +24,7 @@ class ContainerItem(BaseModel):
     """
     id: str
     name: str
-    container_type: Literal["folder", "shared_drive", "channel", "workspace"] = "folder"
+    container_type: str = "folder"
     parent_id: Optional[str] = None
     path: str = "/"
     drive_id: Optional[str] = None  # Specific to Google Drive / OneDrive Shared Drives

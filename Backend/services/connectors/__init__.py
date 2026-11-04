@@ -1,7 +1,7 @@
 # Backend/services/connectors/__init__.py
 """
 Multi-Connector Integration Engine.
-Registers all available providers into ConnectorRegistry.
+Registers all available cloud providers into ConnectorRegistry.
 """
 
 from services.connectors.base import BaseConnector
@@ -17,10 +17,21 @@ from services.connectors.models import (
 
 # Providers
 from services.connectors.providers.google_drive import GoogleDriveConnector
+from services.connectors.providers.onedrive import OneDriveConnector
+from services.connectors.providers.teams import TeamsConnector
+from services.connectors.providers.slack import SlackConnector
+from services.connectors.providers.zoom import ZoomConnector
+from services.connectors.providers.google_meet import GoogleMeetConnector
+from services.connectors.providers.gmail import GmailConnector
 
-# Register Google Drive connector
-_gdrive_instance = GoogleDriveConnector()
-ConnectorRegistry.register(_gdrive_instance)
+# Register all 7 enterprise connectors into the central registry
+ConnectorRegistry.register(GoogleDriveConnector())
+ConnectorRegistry.register(OneDriveConnector())
+ConnectorRegistry.register(TeamsConnector())
+ConnectorRegistry.register(SlackConnector())
+ConnectorRegistry.register(ZoomConnector())
+ConnectorRegistry.register(GoogleMeetConnector())
+ConnectorRegistry.register(GmailConnector())
 
 __all__ = [
     "BaseConnector",
@@ -31,5 +42,11 @@ __all__ = [
     "SyncItemInfo",
     "SyncBatchResult",
     "ConnectorStatus",
-    "GoogleDriveConnector"
+    "GoogleDriveConnector",
+    "OneDriveConnector",
+    "TeamsConnector",
+    "SlackConnector",
+    "ZoomConnector",
+    "GoogleMeetConnector",
+    "GmailConnector"
 ]
