@@ -246,6 +246,12 @@ def resolve_platform(x_platform: Optional[str] = None, user_agent: Optional[str]
 	return "web"
 
 
+def _get_session_ttl(platform: Optional[str] = None) -> int:
+	norm = "mobile" if platform and platform.lower() == "mobile" else "web"
+	if norm == "mobile":
+		return 60 * 60 * 24 * 30  # 30 days for mobile devices
+	return 3600  # 1 hour sliding idle window for web
+
 def validate_device_session(
     user_id: str,
     device_id: str,
@@ -281,22 +287,19 @@ def validate_device_session(
             if legacy_device:
                 existing_device = legacy_device
                 # Migrate to partitioned key and clean up legacy
-                redis_client.set(session_key, existing_device, ex=60 * 60 * 24 * 30)
+                redis_client.set(session_key, existing_device, ex=_get_session_ttl(norm_platform))
                 redis_client.delete(legacy_key)
         except Exception as e:
             print("REDIS MIGRATION WARNING:", e)
 
-    # First login or uninitialized session
+    # LOOPHOLE FIX: If session does not exist in Redis, the session has expired due to inactivity
+    # or was revoked/logged out. Do NOT re-create the key! Raise 401 Session_Expired so the client logs out.
     if existing_device is None:
-        try:
-            redis_client.set(
-                session_key,
-                device_id_str,
-                ex=60 * 60 * 24 * 30,
-            )
-        except Exception as e:
-            print("REDIS INSERT FAILED:", e)
-        return
+        _DEVICE_SESSION_L1_CACHE.pop(session_key, None)
+        raise HTTPException(
+            status_code=401,
+            detail="Session_Expired",
+        )
 
     existing_device_str = str(existing_device)
 
@@ -306,7 +309,7 @@ def validate_device_session(
         try:
             redis_client.expire(
                 session_key,
-                60 * 60 * 24 * 30,
+                _get_session_ttl(norm_platform),
             )
         except Exception:
             pass
@@ -325,6 +328,7 @@ def get_request_auth_optional(
 	x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
 	x_platform: Optional[str] = Header(None, alias="X-Platform"),
 	user_agent: Optional[str] = Header(None, alias="User-Agent"),
+	x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
 ) -> RequestAuth:
 	platform = resolve_platform(
 		x_platform or (request.headers.get("X-Platform") if request else None),
@@ -470,7 +474,7 @@ def get_request_auth_required(
 	# 1. Fast path: reuse already-verified auth context from middleware
 	if request and hasattr(request, "state") and getattr(request.state, "auth_ctx", None):
 		cached_auth: RequestAuth = request.state.auth_ctx
-		if x_device_id and isinstance(x_device_id, str):
+		if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
 			validate_device_session(cached_auth.user_id, x_device_id, platform=platform)
 		return cached_auth
 
@@ -725,7 +729,7 @@ def register_device_session(
         redis_client.set(
             session_key,
             str(device_id),
-            ex=60 * 60 * 24 * 30,   # 30 days
+            ex=_get_session_ttl(norm_platform),
         )
         # Clean up legacy unpartitioned key if present
         try:

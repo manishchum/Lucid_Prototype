@@ -18,6 +18,7 @@ from utils.auth import (
 import time
 from typing import Any, Tuple
 from utils.redis_client import redis_client, set_cache, get_cache
+from utils.notification_dispatcher import get_redis_unread_count, set_redis_unread_count
 from utils.auth_socket_manager import auth_socket_manager
 from utils.redis_limiter import check_rate_limit, get_client_ip
 
@@ -386,6 +387,26 @@ async def refresh_token(
 
 
 
+NOTIFICATION_METADATA_WHITELIST = {
+    "target_screen",
+    "screen",
+    "initial_tab",
+    "action_url",
+    "url",
+    "link",
+    "sprint_id",
+    "roleplay_id",
+    "task_id",
+    "workflow_id",
+    "assignment_title",
+    "company_id",
+}
+
+def _sanitize_notification_metadata(meta: Any) -> Dict[str, Any]:
+    if not isinstance(meta, dict):
+        return {}
+    return {k: v for k, v in meta.items() if k in NOTIFICATION_METADATA_WHITELIST and v is not None}
+
 _AUTH_ME_L1_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 def invalidate_auth_me_l1_cache(user_id: Optional[str]) -> None:
@@ -433,16 +454,18 @@ async def get_current_user_profile(
     now_ts = time.time()
 
     # Fast-Path L1 Cache Hit (< 0.005 ms)
-    cached = _AUTH_ME_L1_CACHE.get(cache_key)
-    if cached and (now_ts - cached[0] < 30.0):
-        if x_dev_str and x_register_session != "true":
-            validate_device_session(user_id, x_dev_str, platform=norm_platform)
-        return cached[1]
+    # If registration is requested, bypass L1 cache to ensure fresh session setup
+    if x_register_session != "true":
+        cached = _AUTH_ME_L1_CACHE.get(cache_key)
+        if cached and (now_ts - cached[0] < 30.0):
+            if x_dev_str:
+                validate_device_session(user_id, x_dev_str, platform=norm_platform)
+            return cached[1]
 
     # Layer 2: Device Session Integrity & Revocation Verification (Cold Path)
     if x_dev_str and x_register_session != "true":
         validate_device_session(user_id, x_dev_str, platform=norm_platform)
-    else:
+    elif not x_dev_str and x_register_session != "true":
         # If an active session exists in Redis for this user and platform, enforce device_id
         try:
             active_session = redis_client.get(f"session:{user_id}:{norm_platform}")
@@ -505,10 +528,54 @@ async def get_current_user_profile(
         rows = getattr(res, "data", None) or []
         return len(rows) > 0
 
-    user_data, assignments, has_direct_reports = await asyncio.gather(
+    def _fetch_unread_count():
+        try:
+            cached_count = get_redis_unread_count(user_id)
+            if cached_count is not None:
+                return cached_count
+            resp = (
+                service_client.table("notifications")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .eq("read", False)
+                .execute()
+            )
+            count = resp.count if resp.count is not None else len(resp.data or [])
+            set_redis_unread_count(user_id, count)
+            return count
+        except Exception as e:
+            print(f"[_fetch_unread_count] Error: {e}")
+            return 0
+
+    def _fetch_recent_notifications():
+        try:
+            resp = (
+                service_client.table("notifications")
+                .select("id,title,message,type,metadata,read,created_at")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .range(0, 39)
+                .execute()
+            )
+            raw_notifs = resp.data or []
+            sanitized = []
+            for n in raw_notifs:
+                if isinstance(n, dict):
+                    n_copy = dict(n)
+                    if "metadata" in n_copy:
+                        n_copy["metadata"] = _sanitize_notification_metadata(n_copy.get("metadata"))
+                    sanitized.append(n_copy)
+            return sanitized
+        except Exception as e:
+            print(f"[_fetch_recent_notifications] Error: {e}")
+            return []
+
+    user_data, assignments, has_direct_reports, unread_count, notifications = await asyncio.gather(
         asyncio.to_thread(_fetch_user_and_company),
         asyncio.to_thread(_fetch_roles),
-        asyncio.to_thread(_check_has_direct_reports)
+        asyncio.to_thread(_check_has_direct_reports),
+        asyncio.to_thread(_fetch_unread_count),
+        asyncio.to_thread(_fetch_recent_notifications),
     )
 
     if not user_data:
@@ -553,16 +620,56 @@ async def get_current_user_profile(
         emp_data["company_name"] = company_data.get("name")
         emp_data["company_logo"] = company_data.get("company_logo")
         emp_data["subscription_tier"] = company_data.get("subscription_tier")
-        emp_data["subscription_addons"] = company_data.get("subscription_addons")
         emp_data["learning_style_enabled"] = bool(company_data.get("learning_style"))
 
     # Security Data Minimization & Payload Optimization:
-    # 1. Strip redundant joined company dictionary (eliminates duplicated subscription_addons)
+    # 1. Strip redundant joined company dictionary and subscription_addons (authoritative copy in tenant.activeCompany)
     emp_data.pop("company", None)
+    emp_data.pop("subscription_addons", None)
     # 2. Strip sensitive internal auth provider identifiers & database artifacts
     emp_data.pop("firebase_uid", None)
     emp_data.pop("password", None)
     emp_data.pop("fcm_token", None)
+
+    active_company = {
+        "company_id": company_data.get("company_id") if company_data else emp_data.get("company_id"),
+        "name": company_data.get("name") if company_data else emp_data.get("company_name", "My Company"),
+        "domain": company_data.get("domain") if company_data else None,
+        "company_logo": company_data.get("company_logo") if company_data else emp_data.get("company_logo"),
+        "subscription_tier": company_data.get("subscription_tier") if company_data else emp_data.get("subscription_tier"),
+        "subscription_addons": company_data.get("subscription_addons") if company_data else [],
+        "learning_style_enabled": bool(company_data.get("learning_style")) if company_data else bool(emp_data.get("learning_style_enabled")),
+    } if (company_data or emp_data.get("company_id")) else None
+
+    # Available companies consolidation (for developer/superadmin tenant switcher)
+    def _fetch_available_companies():
+        if has_developer_role or has_super_admin_role:
+            cached_comps = get_cache("all_active_companies_light")
+            if cached_comps and isinstance(cached_comps, list):
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in cached_comps
+                ]
+            try:
+                resp = (
+                    service_client
+                    .table("companies")
+                    .select("company_id, name, domain, company_logo, subscription_tier")
+                    .eq("is_company_active", True)
+                    .order("name")
+                    .execute()
+                )
+                comps = resp.data or []
+                set_cache("all_active_companies_light", comps, ttl=300)
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in comps
+                ]
+            except Exception as e:
+                print(f"[_fetch_available_companies] Error: {e}")
+        return [active_company] if active_company else []
+
+    available_companies = await asyncio.to_thread(_fetch_available_companies)
 
     result = {
         "success": True,
@@ -574,6 +681,14 @@ async def get_current_user_profile(
         "isDeveloper": has_developer_role,
         "isManager": has_manager_role,
         "isManagerofUsers": is_actual_manager,
+        "tenant": {
+            "activeCompany": active_company,
+            "availableCompanies": available_companies,
+        },
+        "notifications": {
+            "unread_count": unread_count,
+            "items": notifications,
+        },
     }
 
     _AUTH_ME_L1_CACHE[cache_key] = (now_ts, result)

@@ -46,6 +46,7 @@ from utils.supabase_client import supabase_admin
 from utils.db.permissions import check_user_permission
 from utils.redis_client import redis_client, redis_ssl, get_cache, set_cache, delete_cache_pattern
 from utils.arq_client import enqueue_job
+from utils.file_utils import sanitize_filename
 from ingestion.coach_store import create_document_record
 from ingestion.coach_pipeline import run_coach_file_ingestion
 
@@ -328,6 +329,7 @@ async def upload_performance_document(
         manual_description = manual_description.strip() or None
 
     raw_filename = file.filename or "unknown_file"
+    clean_filename = sanitize_filename(raw_filename)
 
     # Read content with memory-safe limit check
     content = await file.read()
@@ -339,15 +341,15 @@ async def upload_performance_document(
     if file_size > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"File '{raw_filename}' ({round(file_size / (1024 * 1024), 2)}MB) exceeds maximum allowable limit of 100MB."
+            detail=f"File '{clean_filename}' ({round(file_size / (1024 * 1024), 2)}MB) exceeds maximum allowable limit of 100MB."
         )
 
-    # Magic-byte MIME sniffing
-    is_valid, detected_mime, file_ext = detect_mime_and_validate(content, raw_filename)
+    # Magic-byte MIME sniffing (validated on sanitized filename)
+    is_valid, detected_mime, file_ext = detect_mime_and_validate(content, clean_filename)
     if not is_valid:
         raise HTTPException(
             status_code=400,
-            detail=f"File validation failed for '{raw_filename}'. Unsupported format or invalid binary signature. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            detail=f"File validation failed for '{clean_filename}'. Unsupported format or invalid binary signature. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
 
     file_hash = hashlib.sha256(content).hexdigest()
@@ -367,12 +369,12 @@ async def upload_performance_document(
             existing = hash_check.data[0]
             raise HTTPException(
                 status_code=409,
-                detail=f"Document '{raw_filename}' already exists with identical contents (ID: {existing['id']})."
+                detail=f"Document '{clean_filename}' already exists with identical contents (ID: {existing['id']})."
             )
 
     # Handle Conflict Resolution: OVERWRITE IN-PLACE
     doc_id = None
-    target_filename = raw_filename
+    target_filename = clean_filename
     is_overwrite = False
 
     if conflict_mode == "overwrite" and existing_doc_id:
@@ -388,7 +390,7 @@ async def upload_performance_document(
             doc_id = existing_doc_id
             curr_ver = int(existing_doc.data.get("version") or 1)
             is_overwrite = True
-            print(f"[COACH UPLOAD] Overwriting document '{raw_filename}' (ID: {doc_id}) -> Version {curr_ver + 1}")
+            print(f"[COACH UPLOAD] Overwriting document '{clean_filename}' (ID: {doc_id}) -> Version {curr_ver + 1}")
 
             # Purge old vector chunks & tabular rows
             try:
@@ -409,22 +411,23 @@ async def upload_performance_document(
 
     elif conflict_mode == "version":
         # Version bump: Append version suffix to filename
-        base_name, dot_ext = os.path.splitext(raw_filename)
+        base_name, dot_ext = os.path.splitext(clean_filename)
         timestamp_suffix = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        target_filename = f"{base_name}_v{timestamp_suffix}{dot_ext}"
-        print(f"[COACH UPLOAD] Versioning conflicting file: '{raw_filename}' -> '{target_filename}'")
+        target_filename = sanitize_filename(f"{base_name}_v{timestamp_suffix}{dot_ext}")
+        print(f"[COACH UPLOAD] Versioning conflicting file: '{clean_filename}' -> '{target_filename}'")
 
     elif conflict_mode == "skip":
         return {
             "success": True,
             "status": "skipped",
-            "message": f"Upload for '{raw_filename}' skipped due to existing duplicate."
+            "message": f"Upload for '{clean_filename}' skipped due to existing duplicate."
         }
 
     if not doc_id:
         doc_id = str(uuid.uuid4())
 
-    safe_filename = f"{doc_id}_{target_filename}"
+    target_filename = sanitize_filename(target_filename)
+    safe_filename = sanitize_filename(f"{doc_id}_{target_filename}")
     storage_path = f"{company_id}/{doc_id}/{target_filename}"
 
     # 1. Upload to Supabase Storage bucket
@@ -453,9 +456,13 @@ async def upload_performance_document(
         )
         doc_id = doc_record["id"]
 
-    # 3. Save to local temporary path for ingestion worker
+    # 3. Save to local temporary path for ingestion worker with path traversal defense
     os.makedirs(TEMP_DIR, exist_ok=True)
-    temp_file_path = os.path.join(TEMP_DIR, safe_filename)
+    temp_file_path = os.path.abspath(os.path.join(TEMP_DIR, safe_filename))
+    temp_dir_abs = os.path.abspath(TEMP_DIR)
+    if not temp_file_path.startswith(temp_dir_abs + os.sep) and temp_file_path != temp_dir_abs:
+        raise HTTPException(status_code=400, detail="Invalid filename: path traversal attempt detected.")
+
     with open(temp_file_path, "wb") as f:
         f.write(content)
 

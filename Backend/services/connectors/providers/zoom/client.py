@@ -4,6 +4,7 @@ Resilient Zoom API Client with OAuth2 and CRC Webhook Challenge Validation.
 """
 
 import os
+import time
 import hmac
 import hashlib
 import asyncio
@@ -46,6 +47,36 @@ def validate_zoom_crc(plain_token: str, secret_token: str) -> str:
         plain_token.encode("utf-8"),
         hashlib.sha256
     ).hexdigest()
+
+
+def verify_zoom_signature(
+    request_body: bytes,
+    timestamp: str,
+    signature: str,
+    secret_token: str
+) -> bool:
+    """Verifies that an incoming webhook event genuinely originated from Zoom."""
+    if not secret_token or not signature or not timestamp:
+        return False
+
+    # Prevent replay attacks (> 5 minutes old)
+    try:
+        ts_val = float(timestamp)
+        if ts_val > 1e11:  # milliseconds
+            ts_val = ts_val / 1000.0
+        if abs(time.time() - ts_val) > 300:
+            return False
+    except (ValueError, TypeError):
+        return False
+
+    message = f"v0:{timestamp}:".encode("utf-8") + request_body
+    computed_hash = "v0=" + hmac.new(
+        secret_token.encode("utf-8"),
+        message,
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(computed_hash, signature)
 
 
 async def execute_zoom_api_call(
