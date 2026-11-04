@@ -1,10 +1,11 @@
 'use client'
 
 import React, { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import EmployeeNavigation from "@/components/employee-navigation";
 import Footer from "@/components/Footer";
 import { useTenant } from "@/contexts/tenant-context";
+import { useAuth, hasActiveSession } from "@/contexts/auth-context";
 
 interface LayoutWithNavigationProps {
   children: React.ReactNode;
@@ -12,6 +13,8 @@ interface LayoutWithNavigationProps {
 
 const LayoutWithNavigation = ({ children }: LayoutWithNavigationProps) => {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [sidebarWidth, setSidebarWidth] = useState('17.5rem');
   const { activeCompany } = useTenant();
 
@@ -73,6 +76,31 @@ const shouldShowNavigation =
 
     return () => observer.disconnect();
   }, [shouldShowNavigation]);
+
+  // Fast session check on protected routes when switching tabs
+  useEffect(() => {
+    if (!shouldShowNavigation) return;
+
+    const verifyActiveSession = () => {
+      if (document.visibilityState === "visible") {
+        if (!hasActiveSession() && !user && !authLoading) {
+          router.replace('/login');
+        }
+      }
+    };
+
+    verifyActiveSession();
+
+    window.addEventListener('focus', verifyActiveSession);
+    document.addEventListener('visibilitychange', verifyActiveSession);
+    window.addEventListener('storage', verifyActiveSession);
+
+    return () => {
+      window.removeEventListener('focus', verifyActiveSession);
+      document.removeEventListener('visibilitychange', verifyActiveSession);
+      window.removeEventListener('storage', verifyActiveSession);
+    };
+  }, [shouldShowNavigation, user, authLoading, router]);
 
   if (!shouldShowNavigation) {
     if (pathname === '/' || pathname === '/login') {

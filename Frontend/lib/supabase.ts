@@ -106,7 +106,19 @@ const mockSupabase = {
 const realSupabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || supabaseAnonKey;
-const realSupabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+const realSupabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+    storageKey: 'sb-admin-auth-session-internal',
+    storage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    },
+  },
+});
 
 export const supabase: any = useMock ? mockSupabase : realSupabase;
 export const supabaseAdmin: any = useMock ? mockSupabase : realSupabaseAdmin;

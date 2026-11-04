@@ -15,21 +15,29 @@ AUTH_CHANNEL_PREFIX = "auth_session:"
 class AuthConnectionManager:
     """
     Distributed Auth WebSocket Connection Manager for Multi-Worker / Multi-Instance Deployments:
-    - Thread-safe and async-safe: manages active auth sockets per user and device.
+    - Thread-safe and async-safe: manages active auth sockets partitioned by user and platform (web vs mobile).
     - Bridges worker processes and Cloud Run instances via Redis Pub/Sub (channel 'auth_session:{user_id}').
-    - Displaces superseded sessions across all worker processes when a user logs in from another device/browser.
+    - Displaces superseded sessions across all worker processes when a user logs in from another device/browser
+      on the SAME platform (enforcing exactly 1 active web session and 1 active mobile session concurrently).
     - Gracefully delivers force_logout payload and closes displaced connections with code 4001.
     """
 
     def __init__(self):
         self.instance_id = uuid.uuid4().hex
-        self.active_sockets: Dict[str, Dict[str, WebSocket]] = {}
+        # active_sockets[user_id][platform][device_id] = websocket
+        self.active_sockets: Dict[str, Dict[str, Dict[str, WebSocket]]] = {}
         self._lock = asyncio.Lock()
         self._async_redis: Optional[aioredis.Redis] = None
         self._pubsub: Optional[aioredis.client.PubSub] = None
         self._subscribed_channels: Set[str] = set()
         self._listener_task: Optional[asyncio.Task] = None
         self._init_lock = asyncio.Lock()
+
+    @staticmethod
+    def _normalize_platform(platform: Optional[str]) -> str:
+        if platform and str(platform).strip().lower() == "mobile":
+            return "mobile"
+        return "web"
 
     def _get_redis_config(self) -> dict:
         raw_host = os.getenv("REDIS_HOST", "127.0.0.1")
@@ -125,10 +133,16 @@ class AuthConnectionManager:
                 await asyncio.sleep(1.0)
 
     async def _displace_local_sockets(self, user_id: str, keep_device_id: str, platform: str) -> None:
-        """Closes all local sockets for user_id where device_id != keep_device_id."""
+        """
+        Closes local sockets for user_id on the SPECIFIED platform where device_id != keep_device_id.
+        Sockets on the other platform are left completely untouched.
+        """
+        norm_platform = self._normalize_platform(platform)
         sockets_to_close = []
+
         async with self._lock:
-            device_map = self.active_sockets.get(user_id, {})
+            user_platforms = self.active_sockets.get(user_id, {})
+            device_map = user_platforms.get(norm_platform, {})
             for dev_id, ws in list(device_map.items()):
                 if dev_id != keep_device_id:
                     sockets_to_close.append((dev_id, ws))
@@ -138,7 +152,8 @@ class AuthConnectionManager:
                 await ws.send_json({
                     "type": "force_logout",
                     "reason": "session_replaced",
-                    "platform": platform,
+                    "platform": norm_platform,
+                    "keep_device_id": keep_device_id,
                 })
             except Exception:
                 pass
@@ -148,18 +163,26 @@ class AuthConnectionManager:
             except Exception:
                 pass
 
-            await self.unregister(user_id, dev_id, ws)
+            await self.unregister(user_id, dev_id, ws, platform=norm_platform)
+
+        try:
+            from utils.auth import invalidate_device_session_l1
+            invalidate_device_session_l1(user_id, platform=norm_platform)
+        except Exception:
+            pass
 
         if sockets_to_close:
             logger.info(
-                f"[AuthSocketManager] Displaced {len(sockets_to_close)} auth socket(s) for user {user_id} "
+                f"[AuthSocketManager] Displaced {len(sockets_to_close)} {norm_platform} socket(s) for user {user_id} "
                 f"(kept device: {keep_device_id})"
             )
 
-    async def register(self, user_id: str, device_id: str, websocket: WebSocket) -> None:
-        """Registers an incoming auth WebSocket connection and ensures Redis subscription."""
+    async def register(self, user_id: str, device_id: str, websocket: WebSocket, platform: str = "web") -> None:
+        """Registers an incoming auth WebSocket connection partitioned by user and platform."""
+        norm_platform = self._normalize_platform(platform)
         async with self._lock:
-            device_map = self.active_sockets.setdefault(user_id, {})
+            user_platforms = self.active_sockets.setdefault(user_id, {})
+            device_map = user_platforms.setdefault(norm_platform, {})
             device_map[device_id] = websocket
 
         await self._ensure_listener()
@@ -180,16 +203,23 @@ class AuthConnectionManager:
             except Exception:
                 pass
 
-    async def unregister(self, user_id: str, device_id: str, websocket: WebSocket) -> None:
-        """Unregisters an auth WebSocket connection and unsubscribes from Redis when empty."""
+    async def unregister(self, user_id: str, device_id: str, websocket: WebSocket, platform: Optional[str] = None) -> None:
+        """Unregisters an auth WebSocket connection and unsubscribes from Redis when all sockets for user close."""
         channel_to_unsub = None
         async with self._lock:
-            device_map = self.active_sockets.get(user_id)
-            if device_map:
-                current = device_map.get(device_id)
-                if current is websocket:
-                    device_map.pop(device_id, None)
-                if not device_map:
+            user_platforms = self.active_sockets.get(user_id)
+            if user_platforms:
+                platforms_to_check = [self._normalize_platform(platform)] if platform else ["web", "mobile"]
+                for plat in platforms_to_check:
+                    dev_map = user_platforms.get(plat)
+                    if dev_map:
+                        current = dev_map.get(device_id)
+                        if current is websocket:
+                            dev_map.pop(device_id, None)
+                        if not dev_map:
+                            user_platforms.pop(plat, None)
+
+                if not user_platforms:
                     self.active_sockets.pop(user_id, None)
                     channel = f"{AUTH_CHANNEL_PREFIX}{user_id}"
                     if channel in self._subscribed_channels:
@@ -209,16 +239,17 @@ class AuthConnectionManager:
         platform: str = "web"
     ) -> None:
         """
-        Broadcasting session displacement:
-        1. Closes displaced local sockets on this process immediately.
+        Broadcasting session displacement for a specific platform:
+        1. Closes displaced local sockets on this process for the target platform immediately.
         2. Publishes to Redis channel 'auth_session:{user_id}' across all worker processes / instances.
         3. Forwards to notification manager for dual defense-in-depth redundancy.
         """
         user_id_str = str(user_id)
         keep_device_id_str = str(keep_device_id)
+        norm_platform = self._normalize_platform(platform)
 
-        # 1. Displace local sockets on this process
-        await self._displace_local_sockets(user_id_str, keep_device_id_str, platform)
+        # 1. Displace local sockets on this process for target platform
+        await self._displace_local_sockets(user_id_str, keep_device_id_str, norm_platform)
 
         # 2. Broadcast via Redis Pub/Sub across all worker processes
         channel = f"{AUTH_CHANNEL_PREFIX}{user_id_str}"
@@ -227,7 +258,7 @@ class AuthConnectionManager:
             "action": "session_replaced",
             "user_id": user_id_str,
             "keep_device_id": keep_device_id_str,
-            "platform": platform,
+            "platform": norm_platform,
         })
 
         try:
@@ -244,7 +275,7 @@ class AuthConnectionManager:
             await ws_manager.send_personal_message(user_id_str, {
                 "type": "force_logout",
                 "reason": "session_replaced",
-                "platform": platform,
+                "platform": norm_platform,
                 "keep_device_id": keep_device_id_str,
             })
         except Exception as ws_err:

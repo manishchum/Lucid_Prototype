@@ -210,14 +210,8 @@ async def is_user_a_manager(user_id: str) -> Dict[str, Any]:
             return {"data": False, "error": None}
 
         db = get_service_supabase_client()
-        resp = _safe_execute(_get_table(db, "users").select("user_id, manager_id, is_active").eq("manager_id", target_id).limit(1))
+        resp = _safe_execute(_get_table(db, "users").select("user_id").eq("manager_id", target_id).eq("is_active", True).limit(1))
         rows = resp.data or []
-
-        if not rows:
-            fallback_resp = _safe_execute(_get_table(db, "users").select("user_id, manager_id, is_active").limit(1000))
-            all_rows = fallback_resp.data or []
-            rows = [row for row in all_rows if _row_matches_manager(row, target_id)]
-
         has_direct_reports = len(rows) > 0
         return {"data": has_direct_reports, "error": None}
     except Exception as exc:

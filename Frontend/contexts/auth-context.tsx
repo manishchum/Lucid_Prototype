@@ -6,10 +6,29 @@ import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
 import { fetchWithAuth, getFirebaseIdToken } from "@/lib/fetch-with-auth"
+import { getDeviceId } from "@/lib/device"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
 const MANUAL_PROFILE_STORAGE_KEY = "lucid:manual-auth-profile"
+const LAST_ACTIVE_STORAGE_KEY = "lucid:last-active-at"
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
+const SESSION_COOKIE_NAME = "lucid_session_active"
+
+export const isBrowserSessionActive = (): boolean => {
+  if (typeof document === "undefined") return false
+  return document.cookie.split(";").some((c) => c.trim().startsWith(`${SESSION_COOKIE_NAME}=`))
+}
+
+export const setBrowserSessionActive = (): void => {
+  if (typeof document === "undefined") return
+  document.cookie = `${SESSION_COOKIE_NAME}=1; path=/; SameSite=Lax`
+}
+
+export const clearBrowserSessionActive = (): void => {
+  if (typeof document === "undefined") return
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`
+}
 
 type AuthUserLike = {
   uid: string
@@ -33,8 +52,10 @@ interface AuthContextType {
   isManagerofUsers: boolean
   userId: string | null
   employeeData: any | null
+  initialTenantData?: any | null
+  initialNotificationsData?: any | null
   login: (userData: any) => Promise<void>
-  logout: () => Promise<void>
+  logout: (reason?: string) => Promise<void>
   refreshProfile: () => Promise<void>
 }
 
@@ -50,6 +71,8 @@ const AuthContext = createContext<AuthContextType>({
   isManagerofUsers: false,
   userId: null,
   employeeData: null,
+  initialTenantData: null,
+  initialNotificationsData: null,
   login: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
@@ -181,8 +204,18 @@ const fetchUserRoles = async (userId: string) => {
   }
 }
 
-const loadCachedFullProfile = async (authUser: AuthUserLike) => {
+const loadCachedFullProfile = async (
+  authUser: AuthUserLike,
+  throwOnError = false,
+  registerSession = false
+) => {
   if (!authUser?.email) return null
+
+  // Check if a valid Firebase token exists before attempting to fetch
+  const token = await getFirebaseIdToken()
+  if (!token) {
+    return null
+  }
 
   const key = createCacheKey({
     namespace: "auth",
@@ -195,74 +228,37 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
     const result = await sharedDataClient.query(
       key,
       async () => {
-        const empData = await fetchUserByEmail(authUser.email)
-        if (!empData) {
-          throw new Error("Access denied. Your email is not in the allowed users list.")
-        }
-
-        if (empData.is_active === false) {
-          throw new Error("Your account has been deactivated. Please contact your administrator.")
-        }
-
-        // Validate company status
-        if (empData.company_id) {
-          const companyRes = await fetchWithAuth(
-            `${API_BASE}/api/companies/${empData.company_id}`
-          )
-
-          if (!companyRes.ok) {
-            throw new Error("Your organization is no longer available. Please contact your administrator.")
+        const fetchOpts: any = registerSession ? { registerSession: true } : {}
+        const res = await fetchWithAuth(`${API_BASE}/api/auth/me`, fetchOpts)
+        if (!res.ok) {
+          let errText = ""
+          try {
+            const errJson = await res.json()
+            errText = errJson?.detail || ""
+          } catch {
+            errText = await res.text().catch(() => "")
           }
-
-          const companyPayload = await companyRes.json()
-
-          if (!companyPayload?.data) {
-            console.error("[auth-context] Company fetch returned no data:", companyPayload)
-            throw new Error("Your organization is no longer available. Please contact your administrator.")
+          if (res.status === 403 || res.status === 404) {
+            throw new Error(errText || "Access denied. Your email is not in the allowed users list.")
           }
-
-          const isCompanyActive = 
-            companyPayload.data.is_company_active !== false && 
-            companyPayload.data.is_active !== false;
-
-          if (!isCompanyActive) {
-            throw new Error("Your organization account has been deactivated. Please contact your administrator.")
+          if (res.status === 401 && (errText.includes("bearer token") || errText.includes("Missing"))) {
+            return null
           }
+          throw new Error(errText || `Failed to fetch profile: ${res.status}`)
         }
 
-        const resolvedUserId = (empData.user_id || '').toString().trim()
-        if (!resolvedUserId || resolvedUserId === 'undefined' || resolvedUserId === 'null') {
-          throw new Error("Access denied. Your email is not in the allowed users list.")
-        }
-
-        const rolesData = await fetchUserRoles(resolvedUserId)
-        
-        // Fetch actual manager status from backend (has direct reports)
-        let isActualManager = rolesData.isManager
-        try {
-          const managerStatusRes = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/check-manager-status`, {
-            headers: { 'X-User-ID': resolvedUserId }
-          })
-          if (managerStatusRes.ok) {
-            const statusData = await managerStatusRes.json()
-            isActualManager = Boolean(statusData.is_manager || rolesData.isManager)
-            console.log('[auth-context] Manager status check:', { statusData, isActualManager, userId: resolvedUserId })
-          }
-        } catch (err) {
-          console.warn('[auth-context] Failed to fetch actual manager status, falling back to role-based check', err)
-          // Fall back to role-based check if endpoint fails
-          isActualManager = rolesData.isManager
-        }
-
+        const payload = await res.json()
         return {
-          employeeData: empData,
-          userId: resolvedUserId,
-          userRoles: rolesData.roles,
-          isAdmin: rolesData.isAdmin,
-          isSuperAdmin: rolesData.isSuperAdmin,
-          isDeveloper: rolesData.isDeveloper,
-          isManager: rolesData.isManager,
-          isManagerofUsers: isActualManager
+          employeeData: payload.employeeData,
+          userId: payload.userId,
+          userRoles: payload.userRoles || [],
+          isAdmin: Boolean(payload.isAdmin),
+          isSuperAdmin: Boolean(payload.isSuperAdmin),
+          isDeveloper: Boolean(payload.isDeveloper),
+          isManager: Boolean(payload.isManager),
+          isManagerofUsers: Boolean(payload.isManagerofUsers),
+          tenant: payload.tenant,
+          notifications: payload.notifications,
         }
       },
       {
@@ -275,21 +271,23 @@ const loadCachedFullProfile = async (authUser: AuthUserLike) => {
     return result.data
   } catch (error: any) {
     console.error("[auth-context] Profile fetch failed:", error)
-    if (error.message && (
+    if (throwOnError || (error.message && (
       error.message.includes("Access denied") ||
       error.message.includes("deactivated") ||
       error.message.includes("organization")
-    )) {
+    ))) {
       throw error
     }
     return undefined // Use undefined to explicitly indicate non-access system failure
   }
 }
 
-const readManualAuthUser = (): AuthUserLike | null => {
+export const readManualAuthUser = (): AuthUserLike | null => {
   if (typeof window === "undefined") return null
+  if (!isBrowserSessionActive()) return null
   try {
-    const raw = window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
+    const raw = window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY) ||
+                window.localStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as AuthUserLike
     if (!parsed?.uid || !parsed?.email) return null
@@ -299,20 +297,40 @@ const readManualAuthUser = (): AuthUserLike | null => {
   }
 }
 
+export const hasActiveSession = (): boolean => {
+  if (typeof window === "undefined") return false
+  if (!isBrowserSessionActive()) return false
+  try {
+    const isDisplaced = window.sessionStorage.getItem("lucid:displaced-session") === "1"
+    if (isDisplaced) return false
+    const user = readManualAuthUser()
+    return Boolean(user?.uid && user?.email)
+  } catch {
+    return false
+  }
+}
+
 const writeManualAuthUser = (user: AuthUserLike): void => {
   if (typeof window === "undefined") return
   try {
-    window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, JSON.stringify(user))
+    const val = JSON.stringify(user)
+    window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, val)
+    window.localStorage.setItem(MANUAL_AUTH_STORAGE_KEY, val)
+    setBrowserSessionActive()
   } catch {
     // no-op
   }
 }
 
-const clearManualAuthUser = (): void => {
+export const clearManualAuthUser = (): void => {
   if (typeof window === "undefined") return
   try {
     window.sessionStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+    window.localStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
+    window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    clearBrowserSessionActive()
   } catch {
     // no-op
   }
@@ -321,7 +339,9 @@ const clearManualAuthUser = (): void => {
 const writeCachedProfile = (profile: any): void => {
   if (typeof window === "undefined") return
   try {
-    window.sessionStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, JSON.stringify(profile))
+    const val = JSON.stringify(profile)
+    window.sessionStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, val)
+    window.localStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, val)
   } catch {
     // no-op
   }
@@ -329,8 +349,10 @@ const writeCachedProfile = (profile: any): void => {
 
 const readCachedProfile = (): any | null => {
   if (typeof window === "undefined") return null
+  if (!isBrowserSessionActive()) return null
   try {
-    const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
+    const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ||
+                window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
@@ -338,9 +360,42 @@ const readCachedProfile = (): any | null => {
   }
 }
 
+export const isSessionExpiredDueToInactivity = (): boolean => {
+  if (typeof window === "undefined") return false
+  try {
+    const lastActiveStr = window.localStorage.getItem(LAST_ACTIVE_STORAGE_KEY) ||
+                          window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)
+    if (!lastActiveStr) return false
+    const lastActive = parseInt(lastActiveStr, 10)
+    if (isNaN(lastActive)) return false
+    return Date.now() - lastActive > INACTIVITY_TIMEOUT_MS
+  } catch {
+    return false
+  }
+}
+
+export const updateLastActiveTimestamp = (): void => {
+  if (typeof window === "undefined") return
+  try {
+    const now = Date.now().toString()
+    window.localStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now)
+    window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now)
+  } catch {}
+}
+
+let hasRegisteredSessionForUser: string | null = null
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(() => {
+    if (isSessionExpiredDueToInactivity()) {
+      clearManualAuthUser();
+      return null;
+    }
+    return (readManualAuthUser() as User) || null
+  })
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !readManualAuthUser()
+  })
   const [rolesLoaded, setRolesLoaded] = useState(false)
   const [userRoles, setUserRoles] = useState<string[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
@@ -350,6 +405,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isManagerofUsers, setIsManagerofUsers] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const [initialTenantData, setInitialTenantData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.tenant ?? null
+  })
+  const [initialNotificationsData, setInitialNotificationsData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.notifications ?? null
+  })
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -402,11 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        const deviceId = localStorage.getItem("device_id") || (() => {
-          const generatedId = crypto.randomUUID()
-          localStorage.setItem("device_id", generatedId)
-          return generatedId
-        })()
+        const deviceId = getDeviceId()
 
         const wsBase = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws")
         if (authSocketSingleton) {
@@ -418,7 +477,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const socket = new WebSocket(
-          `${wsBase}/api/auth/ws?token=${encodeURIComponent(token)}&device_id=${encodeURIComponent(deviceId)}`
+          `${wsBase}/api/auth/ws?token=${encodeURIComponent(token)}&device_id=${encodeURIComponent(deviceId)}&platform=web`
         )
 
         authSocketSingleton = socket
@@ -428,9 +487,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           try {
             const payload = JSON.parse(event.data)
             if (payload?.type === "force_logout" || payload?.type === "session_replaced") {
-              window.dispatchEvent(
-                new CustomEvent("lucid:auth:force-logout", { detail: { reason: "session_replaced" } })
-              )
+              const platform = String(payload?.platform || "web").toLowerCase()
+              if (platform !== "web") {
+                return // Mobile displacement does not affect web
+              }
+              const keepDevId = payload?.keep_device_id
+              const currentDevId = getDeviceId()
+              if (keepDevId && currentDevId && keepDevId === currentDevId) {
+                // Kept device must not logout
+                return
+              }
+              if (keepDevId && currentDevId && keepDevId !== currentDevId) {
+                window.dispatchEvent(
+                  new CustomEvent("lucid:auth:force-logout", { detail: { reason: "session_replaced" } })
+                )
+              }
             }
           } catch {
             // ignore malformed payloads
@@ -462,9 +533,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      const effectiveUser = firebaseUser ?? readManualAuthUser()
-      setUser((effectiveUser as User) || null)
-
       const pathname =
         typeof window !== "undefined"
           ? window.location.pathname
@@ -475,17 +543,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
+      // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
+      if (isAuthPage && firebaseUser) {
+        setBrowserSessionActive();
+        updateLastActiveTimestamp();
+      }
+
+      // 2. If NOT on an auth page and browser session is NOT active, user opened browser fresh after close
+      if (!isAuthPage && !isBrowserSessionActive()) {
+        if (firebaseUser) {
+          try {
+            await signOut(auth);
+          } catch {}
+        }
+        clearManualAuthUser();
+        clearBrowserSessionActive();
+        setUser(null);
+        setLoading(false);
+        if (typeof window !== "undefined") {
+          window.location.replace("/login");
+        }
+        return;
+      }
+
+      // 3. Check 1-hour inactivity
+      if (isSessionExpiredDueToInactivity()) {
+        await logout("inactivity");
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=inactivity");
+        }
+        return;
+      }
+
+      const effectiveUser = firebaseUser ?? readManualAuthUser()
+      setUser((effectiveUser as User) || null)
+
       if (effectiveUser?.email) {
         if (!isAuthPage) {
           setRolesLoaded(false)
-          try {
-            await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-              method: "POST",
-              registerSession: true as any,
-            } as any);
-          } catch (err) {
-            console.error("[auth-context] Failed to register session:", err);
-          } 
+
           let profile = readCachedProfile();
 
           if (!profile) {
@@ -507,6 +603,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setIsDeveloper(Boolean(profile.isDeveloper))
               setIsManager(Boolean(profile.isManager))
               setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+              if (profile.tenant) setInitialTenantData(profile.tenant)
+              if (profile.notifications) setInitialNotificationsData(profile.notifications)
               setRolesLoaded(true)
             } else {
               setEmployeeData(null)
@@ -557,8 +655,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     })
 
+    let isDisplacing = false;
     const forceLogoutListener = async (event?: Event) => {
-      console.warn("[auth-context] Handling lucid:auth:force-logout event", event);
+      if (isDisplacing) return;
+      isDisplacing = true;
+      const customEvt = event as CustomEvent;
+      const reason = customEvt?.detail?.reason;
+      console.info("[auth-context] Graceful session revocation in progress", reason, event);
+
       if (authSocketSingleton) {
         try {
           authSocketSingleton.close();
@@ -566,12 +670,125 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authSocketSingleton = null;
         authSocketCurrentUserId = null;
       }
-      await logout();
+
+      // Synchronously clear local auth tokens & user state immediately to halt all in-flight polling
+      clearManualAuthUser();
+      sharedDataClient.clear();
+      clearBrowserSessionActive();
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        try {
+          if (reason === "session_replaced") {
+            window.sessionStorage.setItem("lucid:displaced-session", "1");
+          } else {
+            window.sessionStorage.removeItem("lucid:displaced-session");
+          }
+        } catch {}
+      }
+
+      // Run background signOut without blocking redirect
+      try {
+        signOut(auth).catch(() => {});
+      } catch {}
+
+      try {
+        if (typeof BroadcastChannel !== "undefined") {
+          const ch = new BroadcastChannel("lucid:auth-sync");
+          ch.postMessage({
+            type: "LUCID_SESSION_LOGOUT",
+            payload: { reason: "displaced" },
+          });
+          ch.close();
+        }
+      } catch {}
+
+      if (typeof window !== 'undefined') {
+        window.location.replace('/login');
       }
     };
     
+    // Option 2 (Approved): Cross-tab BroadcastChannel synchronization
+    let authChannel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        authChannel = new BroadcastChannel("lucid:auth-sync");
+        authChannel.onmessage = (event) => {
+          const { type, payload } = event.data || {};
+
+          if (type === "LUCID_SESSION_PROBE") {
+            const currentManual = readManualAuthUser();
+            const currentProf = readCachedProfile();
+            const lastActive = typeof window !== "undefined" ? window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY) : null;
+            if (currentManual && !isSessionExpiredDueToInactivity()) {
+              authChannel?.postMessage({
+                type: "LUCID_SESSION_RESPONSE",
+                payload: {
+                  user: currentManual,
+                  profile: currentProf,
+                  lastActive: lastActive || Date.now().toString(),
+                },
+              });
+            }
+          } else if (type === "LUCID_SESSION_RESPONSE" || type === "LUCID_SESSION_LOGIN") {
+            if (payload?.user) {
+              writeManualAuthUser(payload.user);
+              if (payload.profile) {
+                writeCachedProfile(payload.profile);
+                setEmployeeData(payload.profile.employeeData);
+                setUserId(payload.profile.userId);
+                setUserRoles(payload.profile.userRoles);
+                setIsAdmin(payload.profile.isAdmin);
+                setIsSuperAdmin(payload.profile.isSuperAdmin);
+                setIsDeveloper(Boolean(payload.profile.isDeveloper));
+                setIsManager(Boolean(payload.profile.isManager));
+                setIsManagerofUsers(Boolean(payload.profile.isManagerofUsers));
+                setRolesLoaded(true);
+              }
+              if (payload.lastActive && typeof window !== "undefined") {
+                window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, String(payload.lastActive));
+              }
+              setUser(payload.user as User);
+              setLoading(false);
+              if (typeof window !== "undefined" && (window.location.pathname === "/login" || window.location.pathname === "/")) {
+                window.location.replace("/employee/welcome");
+              }
+            }
+          } else if (type === "LUCID_SESSION_LOGOUT") {
+            clearManualAuthUser();
+            sharedDataClient.clear();
+            setUser(null);
+            setEmployeeData(null);
+            setUserId(null);
+            setUserRoles([]);
+            setIsAdmin(false);
+            setIsSuperAdmin(false);
+            setIsDeveloper(false);
+            setIsManager(false);
+            setIsManagerofUsers(false);
+            setRolesLoaded(false);
+            setLoading(false);
+            const reason = payload?.reason || "manual";
+            if (typeof window !== "undefined") {
+              const path = window.location.pathname;
+              if (path !== "/login" && path !== "/" && path !== "/signup") {
+                const target = reason === "inactivity" ? "/login?reason=inactivity" : "/login";
+                window.location.replace(target);
+              }
+            }
+          } else if (type === "LUCID_ACTIVITY_PING") {
+            if (payload?.timestamp && typeof window !== "undefined") {
+              window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, String(payload.timestamp));
+            }
+          }
+        };
+
+        if (!readManualAuthUser()) {
+          authChannel.postMessage({ type: "LUCID_SESSION_PROBE" });
+        }
+      } catch (err) {
+        console.warn("[auth-context] BroadcastChannel init error:", err);
+      }
+    }
+
     if (typeof window !== 'undefined') {
       window.addEventListener('lucid:auth:force-logout', forceLogoutListener);
     }
@@ -581,25 +798,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (typeof window !== 'undefined') {
         window.removeEventListener('lucid:auth:force-logout', forceLogoutListener);
       }
+      if (authChannel) {
+        try {
+          authChannel.close();
+        } catch {}
+      }
     };
   }, [])
+
+  // Inactivity tracking (1-hour idle timeout)
+  useEffect(() => {
+    if (typeof window === "undefined" || !user) return;
+
+    if (!window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)) {
+      updateLastActiveTimestamp();
+    }
+
+    let lastWrite = 0;
+    let lastBroadcast = 0;
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite > 15_000) {
+        lastWrite = now;
+        try {
+          window.localStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now.toString());
+          window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now.toString());
+        } catch {}
+      }
+
+      if (now - lastBroadcast > 30_000) {
+        lastBroadcast = now;
+        try {
+          if (typeof BroadcastChannel !== "undefined") {
+            const ch = new BroadcastChannel("lucid:auth-sync");
+            ch.postMessage({ type: "LUCID_ACTIVITY_PING", payload: { timestamp: now } });
+            ch.close();
+          }
+        } catch {}
+      }
+    };
+
+    const activityEvents = ["mousedown", "keydown", "scroll", "touchstart"];
+    activityEvents.forEach((evt) => window.addEventListener(evt, recordActivity, { passive: true }));
+
+    const checkInactivity = async () => {
+      if (isSessionExpiredDueToInactivity()) {
+        console.info("[auth-context] Session expired due to 1 hour of inactivity");
+        await logout("inactivity");
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=inactivity");
+        }
+      }
+    };
+
+    const intervalId = setInterval(checkInactivity, 30_000);
+    window.addEventListener("focus", checkInactivity);
+    document.addEventListener("visibilitychange", checkInactivity);
+
+    return () => {
+      activityEvents.forEach((evt) => window.removeEventListener(evt, recordActivity));
+      clearInterval(intervalId);
+      window.removeEventListener("focus", checkInactivity);
+      document.removeEventListener("visibilitychange", checkInactivity);
+    };
+  }, [user?.uid]);
 
   // Login function for email/password authentication
   const login = async (userData: any) => {
     try {
       setUser(userData as User)
-      const sessionRes = await fetchWithAuth(
-        `${API_BASE}/api/auth/session`,
-        {
-          method: "POST",
-          registerSession: true as any,
-        } as any
-      );
 
-      if (!sessionRes.ok) {
-        throw new Error("Failed to register session after login.")
-      }
-      
       if (userData?.email && userData?.uid) {
         const authUserObj = {
           uid: userData.uid,
@@ -608,15 +877,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: userData.name ?? userData.displayName ?? null,
         }
 
-        writeManualAuthUser(authUserObj)
+        setBrowserSessionActive();
+        updateLastActiveTimestamp();
+        writeManualAuthUser(authUserObj);
+        hasRegisteredSessionForUser = authUserObj.uid;
 
         // Invalidate stale cache for fresh login validation
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+          window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
-        const profile = await loadCachedFullProfile(authUserObj)
+        // Consolidated bootstrap: /api/auth/me registers device session on login and returns user + roles + tenant + notifications atomically
+        const profile = await loadCachedFullProfile(authUserObj, true, true);
 
         if (profile) {
           writeCachedProfile(profile)
@@ -628,7 +903,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsDeveloper(Boolean(profile.isDeveloper))
           setIsManager(Boolean(profile.isManager))
           setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+          if (profile.tenant) setInitialTenantData(profile.tenant)
+          if (profile.notifications) setInitialNotificationsData(profile.notifications)
           setRolesLoaded(true)
+          try {
+            if (typeof BroadcastChannel !== "undefined") {
+              const ch = new BroadcastChannel("lucid:auth-sync");
+              ch.postMessage({
+                type: "LUCID_SESSION_LOGIN",
+                payload: {
+                  user: authUserObj,
+                  profile,
+                  lastActive: Date.now().toString(),
+                },
+              });
+              ch.close();
+            }
+          } catch {}
         } else {
           setEmployeeData(null)
           setUserId(null)
@@ -642,7 +933,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           throw new Error("Access denied. Your email is not in the allowed users list.")
         }
       }
-      
+
       setLoading(false)
     } catch (error) {
       console.error("Login failed:", error)
@@ -650,7 +941,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const logout = async () => {
+  const logout = async (reason?: string) => {
     if (authSocketSingleton) {
       try {
         authSocketSingleton.close()
@@ -660,7 +951,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     authSocketSingleton = null
     authSocketCurrentUserId = null
-    await signOut(auth)
+    hasRegisteredSessionForUser = null
+    try {
+      await signOut(auth)
+    } catch {}
     clearManualAuthUser()
     sharedDataClient.invalidateByPrefix("v1|auth")
     sharedDataClient.clear()
@@ -674,6 +968,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsManager(false)
     setIsManagerofUsers(false)
     setRolesLoaded(false)
+
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        const ch = new BroadcastChannel("lucid:auth-sync");
+        ch.postMessage({
+          type: "LUCID_SESSION_LOGOUT",
+          payload: { reason: reason || "manual" },
+        });
+        ch.close();
+      }
+    } catch {}
   }
 
   const refreshProfile = async () => {
@@ -698,6 +1003,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
             setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+            if (profile.tenant) setInitialTenantData(profile.tenant)
+            if (profile.notifications) setInitialNotificationsData(profile.notifications)
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)
@@ -729,6 +1036,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isManagerofUsers,
         userId, 
         employeeData, 
+        initialTenantData,
+        initialNotificationsData,
         login, 
         logout,
         refreshProfile

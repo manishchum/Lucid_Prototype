@@ -103,6 +103,10 @@ class GeminiProvider:
         if max_output_tokens is not None:
             config_kwargs["max_output_tokens"] = max_output_tokens
 
+        thinking_config = generation_config.get("thinking_config")
+        if thinking_config is not None:
+            config_kwargs["thinking_config"] = thinking_config
+
         if response_format == "json":
             config_kwargs["response_mime_type"] = "application/json"
 

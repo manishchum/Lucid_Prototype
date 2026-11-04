@@ -1,0 +1,306 @@
+{
+  "timestamp": "2026-10-29T22:07:20.585588",
+  "unit": [
+    {
+      "test": "Valid PDF magic bytes",
+      "passed": true,
+      "expected_valid": true,
+      "actual_valid": true,
+      "expected_mime": "application/pdf",
+      "actual_mime": "application/pdf"
+    },
+    {
+      "test": "Fake PDF with text header",
+      "passed": true,
+      "expected_valid": false,
+      "actual_valid": false,
+      "expected_mime": "application/octet-stream",
+      "actual_mime": "application/octet-stream"
+    },
+    {
+      "test": "Valid DOCX PK header",
+      "passed": true,
+      "expected_valid": true,
+      "actual_valid": true,
+      "expected_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "actual_mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    },
+    {
+      "test": "Valid XLSX PK header",
+      "passed": true,
+      "expected_valid": true,
+      "actual_valid": true,
+      "expected_mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "actual_mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    },
+    {
+      "test": "Reject Windows Executable (MZ)",
+      "passed": true,
+      "expected_valid": false,
+      "actual_valid": false,
+      "expected_mime": "application/x-executable",
+      "actual_mime": "application/x-executable"
+    },
+    {
+      "test": "Reject Renamed Executable (.pdf with MZ)",
+      "passed": true,
+      "expected_valid": false,
+      "actual_valid": false,
+      "expected_mime": "application/x-executable",
+      "actual_mime": "application/x-executable"
+    },
+    {
+      "test": "Reject Linux ELF Binary",
+      "passed": true,
+      "expected_valid": false,
+      "actual_valid": false,
+      "expected_mime": "application/x-executable",
+      "actual_mime": "application/x-executable"
+    },
+    {
+      "test": "Valid CSV plain text",
+      "passed": true,
+      "expected_valid": true,
+      "actual_valid": true,
+      "expected_mime": "text/csv",
+      "actual_mime": "text/csv"
+    },
+    {
+      "test": "Binary file disguised as CSV",
+      "passed": true,
+      "expected_valid": false,
+      "actual_valid": false,
+      "expected_mime": "application/octet-stream",
+      "actual_mime": "application/octet-stream"
+    },
+    {
+      "test": "Max File Size Limit 100MB",
+      "passed": true,
+      "size_bytes": 104857600
+    }
+  ],
+  "integration": [
+    {
+      "test": "Unauthenticated access rejected (401)",
+      "passed": true
+    },
+    {
+      "test": "Authenticated document listing & pagination",
+      "passed": true
+    },
+    {
+      "test": "Search filter by document name",
+      "passed": true
+    },
+    {
+      "test": "Preflight check for new file",
+      "passed": true
+    },
+    {
+      "test": "Preflight duplicate filename detection",
+      "passed": true
+    },
+    {
+      "test": "Chunks inspection endpoint",
+      "passed": true
+    },
+    {
+      "test": "Secure signed download URL generation",
+      "passed": true
+    },
+    {
+      "test": "Real-time SSE events stream",
+      "passed": true
+    }
+  ],
+  "system": [
+    {
+      "test": "E2E Upload initial document",
+      "passed": true
+    },
+    {
+      "test": "E2E Conflict detection with 409 status",
+      "passed": true
+    },
+    {
+      "test": "E2E Conflict resolution 'skip'",
+      "passed": true
+    },
+    {
+      "test": "E2E Conflict resolution 'version'",
+      "passed": true
+    },
+    {
+      "test": "E2E Immutable audit log verification",
+      "passed": true
+    },
+    {
+      "test": "E2E Document deletion & cleanup",
+      "passed": true
+    }
+  ],
+  "stress_metrics": {
+    "1": {
+      "total_requests": 1,
+      "concurrency": 1,
+      "elapsed_sec": 0.006,
+      "rps": 173.0,
+      "success_count": 1,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 5.57,
+      "mean_ms": 5.57,
+      "p50_ms": 5.57,
+      "p90_ms": 5.57,
+      "p95_ms": 5.57,
+      "p99_ms": 5.57,
+      "max_ms": 5.57,
+      "mem_mb": 501.2,
+      "cpu_pct": 0.0
+    },
+    "10": {
+      "total_requests": 10,
+      "concurrency": 5,
+      "elapsed_sec": 0.027,
+      "rps": 368.5,
+      "success_count": 10,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 6.95,
+      "mean_ms": 12.37,
+      "p50_ms": 13.5,
+      "p90_ms": 18.07,
+      "p95_ms": 18.07,
+      "p99_ms": 18.07,
+      "max_ms": 18.07,
+      "mem_mb": 501.2,
+      "cpu_pct": 31.2
+    },
+    "50": {
+      "total_requests": 50,
+      "concurrency": 25,
+      "elapsed_sec": 0.108,
+      "rps": 464.1,
+      "success_count": 50,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 11.7,
+      "mean_ms": 42.37,
+      "p50_ms": 38.3,
+      "p90_ms": 82.27,
+      "p95_ms": 87.23,
+      "p99_ms": 91.23,
+      "max_ms": 91.23,
+      "mem_mb": 501.5,
+      "cpu_pct": 19.6
+    },
+    "100": {
+      "total_requests": 100,
+      "concurrency": 50,
+      "elapsed_sec": 0.197,
+      "rps": 507.6,
+      "success_count": 100,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 11.07,
+      "mean_ms": 73.1,
+      "p50_ms": 67.97,
+      "p90_ms": 150.45,
+      "p95_ms": 168.6,
+      "p99_ms": 178.54,
+      "max_ms": 178.54,
+      "mem_mb": 502.0,
+      "cpu_pct": 30.5
+    },
+    "500": {
+      "total_requests": 500,
+      "concurrency": 100,
+      "elapsed_sec": 1.125,
+      "rps": 444.6,
+      "success_count": 500,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 23.56,
+      "mean_ms": 169.56,
+      "p50_ms": 148.57,
+      "p90_ms": 188.69,
+      "p95_ms": 482.19,
+      "p99_ms": 807.69,
+      "max_ms": 848.75,
+      "mem_mb": 502.9,
+      "cpu_pct": 34.4
+    },
+    "1000": {
+      "total_requests": 1000,
+      "concurrency": 200,
+      "elapsed_sec": 2.676,
+      "rps": 373.7,
+      "success_count": 1000,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 16.45,
+      "mean_ms": 415.16,
+      "p50_ms": 280.21,
+      "p90_ms": 658.95,
+      "p95_ms": 1947.96,
+      "p99_ms": 2318.3,
+      "max_ms": 2405.32,
+      "mem_mb": 505.1,
+      "cpu_pct": 36.1
+    },
+    "10000": {
+      "total_requests": 10000,
+      "concurrency": 250,
+      "elapsed_sec": 27.908,
+      "rps": 358.3,
+      "success_count": 10000,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 30.96,
+      "mean_ms": 689.91,
+      "p50_ms": 629.84,
+      "p90_ms": 1032.15,
+      "p95_ms": 1077.03,
+      "p99_ms": 1302.61,
+      "max_ms": 2481.38,
+      "mem_mb": 506.5,
+      "cpu_pct": 40.1
+    },
+    "50000": {
+      "total_requests": 50000,
+      "concurrency": 300,
+      "elapsed_sec": 137.45,
+      "rps": 363.8,
+      "success_count": 50000,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 20.22,
+      "mean_ms": 822.44,
+      "p50_ms": 767.04,
+      "p90_ms": 1182.62,
+      "p95_ms": 1268.35,
+      "p99_ms": 1653.5,
+      "max_ms": 3004.2,
+      "mem_mb": 509.7,
+      "cpu_pct": 36.9
+    },
+    "100000": {
+      "total_requests": 100000,
+      "concurrency": 400,
+      "elapsed_sec": 271.648,
+      "rps": 368.1,
+      "success_count": 100000,
+      "error_count": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 37.82,
+      "mean_ms": 1082.68,
+      "p50_ms": 1058.0,
+      "p90_ms": 1473.97,
+      "p95_ms": 1618.38,
+      "p99_ms": 2148.17,
+      "max_ms": 6875.27,
+      "mem_mb": 514.3,
+      "cpu_pct": 34.3
+    }
+  }
+}

@@ -1,12 +1,12 @@
 'use client'
 
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AlertCircle, ArrowLeft, Mail, CheckCircle2, RefreshCw } from 'lucide-react';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
-export default function UnsubscribeErrorPage() {
+function UnsubscribeErrorContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const reason = searchParams.get('reason') || 'invalid_token';
@@ -146,3 +146,21 @@ export default function UnsubscribeErrorPage() {
     </div>
   );
 }
+
+export default function UnsubscribeErrorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-red-50/30 flex items-center justify-center p-4">
+          <div className="flex flex-col items-center gap-3">
+            <RefreshCw className="w-8 h-8 animate-spin text-slate-400" />
+            <p className="text-sm font-medium text-slate-500">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <UnsubscribeErrorContent />
+    </Suspense>
+  );
+}
+

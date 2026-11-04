@@ -2,19 +2,25 @@ import asyncio
 import json
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import APIRouter, Response, Depends, Header, WebSocket, WebSocketDisconnect, BackgroundTasks
 
 from utils.auth import (
     RequestAuth,
     register_device_session,
+    validate_device_session,
     resolve_platform,
     _verify_firebase_token,
     get_request_auth_jwt_required,
+    get_request_auth_required,
     _build_request_auth_from_verified_claims,
     _ensure_firebase_admin_initialized,
 )
+import time
+from typing import Any, Tuple
 from utils.redis_client import redis_client, set_cache, get_cache
+from utils.notification_dispatcher import get_redis_unread_count, set_redis_unread_count
 from utils.auth_socket_manager import auth_socket_manager
+from utils.redis_limiter import check_rate_limit, get_client_ip
 
 # Backwards-compatibility alias for local registry inspection
 AUTH_SOCKET_REGISTRY = auth_socket_manager.active_sockets
@@ -50,7 +56,8 @@ async def auth_socket(websocket: WebSocket):
     await websocket.accept()
     user_id_str = str(auth_ctx.user_id)
     device_id_str = str(device_id)
-    await auth_socket_manager.register(user_id_str, device_id_str, websocket)
+    platform = websocket.query_params.get("platform") or "web"
+    await auth_socket_manager.register(user_id_str, device_id_str, websocket, platform=platform)
 
     try:
         while True:
@@ -67,7 +74,7 @@ async def auth_socket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
-        await auth_socket_manager.unregister(user_id_str, device_id_str, websocket)
+        await auth_socket_manager.unregister(user_id_str, device_id_str, websocket, platform=platform)
 
 
 from pydantic import BaseModel, Field
@@ -303,7 +310,7 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
     if device_id and user_data.get("user_id"):
         user_id_str = str(user_data["user_id"])
         register_device_session(user_id_str, device_id, platform=platform)
-        await notify_session_replaced(user_id_str, device_id, platform=platform)
+        await auth_socket_manager.notify_session_replaced(user_id_str, device_id, platform=platform)
 
     return {
         "success": True,
@@ -324,7 +331,7 @@ async def register_session(
     if auth.user_id and x_device_id and x_register_session == "true":
         platform = resolve_platform(x_platform, request.headers.get("User-Agent"))
         register_device_session(auth.user_id, x_device_id, platform=platform)
-        await notify_session_replaced(auth.user_id, x_device_id, platform=platform)
+        await auth_socket_manager.notify_session_replaced(auth.user_id, x_device_id, platform=platform)
 
     return {"success": True}
 
@@ -378,3 +385,311 @@ async def refresh_token(
     }
 
 
+
+
+NOTIFICATION_METADATA_WHITELIST = {
+    "target_screen",
+    "screen",
+    "initial_tab",
+    "action_url",
+    "url",
+    "link",
+    "sprint_id",
+    "roleplay_id",
+    "task_id",
+    "workflow_id",
+    "assignment_title",
+    "company_id",
+}
+
+def _sanitize_notification_metadata(meta: Any) -> Dict[str, Any]:
+    if not isinstance(meta, dict):
+        return {}
+    return {k: v for k, v in meta.items() if k in NOTIFICATION_METADATA_WHITELIST and v is not None}
+
+_AUTH_ME_L1_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+def invalidate_auth_me_l1_cache(user_id: Optional[str]) -> None:
+    if not user_id:
+        return
+    _AUTH_ME_L1_CACHE.pop(f"auth_me:{user_id}", None)
+
+def _normalize_role_name(value: str) -> str:
+    return (value or "").lower().replace("-", "").replace("_", "").replace(" ", "")
+
+@router.get("/me")
+async def get_current_user_profile(
+    response: Response = None,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    x_device_id: Optional[str] = Header(None, alias="X-Device-ID"),
+    x_platform: Optional[str] = Header(None, alias="X-Platform"),
+    x_register_session: Optional[str] = Header(None, alias="X-Register-Session"),
+):
+    """
+    Unified 5-Layer Secure & High-Performance Auth Bootstrap Endpoint.
+    Layer 1: Zero-Trust Context Binding (claims strictly drive user context; query params ignored).
+    Layer 2: Hardware/Device Session Binding & Displacement Revocation.
+    Layer 3: Distributed Rate Limiting & Abuse Prevention.
+    Layer 4: Anti-Caching & Security Transport Headers.
+    Layer 5: Data Minimization & Allow-list Sanitization.
+    """
+    # Layer 4: Anti-Caching & Transport Security Headers
+    if response:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+
+    user_id = str(auth_ctx.user_id)
+    x_plat_str = str(x_platform) if isinstance(x_platform, str) else None
+    norm_platform = "mobile" if x_plat_str and x_plat_str.lower() == "mobile" else "web"
+    x_dev_str = str(x_device_id) if isinstance(x_device_id, str) else None
+
+    # Registration path: atomic session establishment on login bootstrap
+    if x_dev_str and x_register_session == "true":
+        register_device_session(user_id, x_dev_str, platform=norm_platform)
+        await auth_socket_manager.notify_session_replaced(user_id, x_dev_str, platform=norm_platform)
+
+    cache_key = f"auth_me:{user_id}"
+    now_ts = time.time()
+
+    # Fast-Path L1 Cache Hit (< 0.005 ms)
+    # If registration is requested, bypass L1 cache to ensure fresh session setup
+    if x_register_session != "true":
+        cached = _AUTH_ME_L1_CACHE.get(cache_key)
+        if cached and (now_ts - cached[0] < 30.0):
+            if x_dev_str:
+                validate_device_session(user_id, x_dev_str, platform=norm_platform)
+            return cached[1]
+
+    # Layer 2: Device Session Integrity & Revocation Verification (Cold Path)
+    if x_dev_str and x_register_session != "true":
+        validate_device_session(user_id, x_dev_str, platform=norm_platform)
+    elif not x_dev_str and x_register_session != "true":
+        # If an active session exists in Redis for this user and platform, enforce device_id
+        try:
+            active_session = redis_client.get(f"session:{user_id}:{norm_platform}")
+            if active_session:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Missing X-Device-ID header for active session"
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # Layer 3: Rate Limiting & Anti-Brute-Force (enforced before executing DB queries)
+    try:
+        await check_rate_limit(user_id=user_id, endpoint="auth-me", limit=120, window=60)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[auth/me] Rate limit warning: {e}")
+
+    service_client = get_service_supabase_client()
+
+    def _fetch_user_and_company():
+        res = (
+            service_client
+            .table("users")
+            .select("user_id, name, email, phone, avatar_url, position, employment_status, hire_date, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, domain, company_logo, subscription_tier, subscription_addons, is_company_active, learning_style)")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return getattr(res, "data", None)
+
+    def _fetch_roles():
+        try:
+            res = (
+                service_client
+                .table("user_role_assignments")
+                .select("is_active, role_id, role:roles(role_id, name, display_name, level)")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            assignments = getattr(res, "data", None) or []
+            return [r for r in assignments if r.get("is_active") is not False]
+        except Exception as e:
+            print(f"[_fetch_roles] Error fetching roles for user {user_id}: {e}")
+            return []
+
+    def _check_has_direct_reports():
+        res = (
+            service_client
+            .table("users")
+            .select("user_id")
+            .eq("manager_id", user_id)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(res, "data", None) or []
+        return len(rows) > 0
+
+    def _fetch_unread_count():
+        try:
+            cached_count = get_redis_unread_count(user_id)
+            if cached_count is not None:
+                return cached_count
+            resp = (
+                service_client.table("notifications")
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .eq("read", False)
+                .execute()
+            )
+            count = resp.count if resp.count is not None else len(resp.data or [])
+            set_redis_unread_count(user_id, count)
+            return count
+        except Exception as e:
+            print(f"[_fetch_unread_count] Error: {e}")
+            return 0
+
+    def _fetch_recent_notifications():
+        try:
+            resp = (
+                service_client.table("notifications")
+                .select("id,title,message,type,metadata,read,created_at")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .range(0, 39)
+                .execute()
+            )
+            raw_notifs = resp.data or []
+            sanitized = []
+            for n in raw_notifs:
+                if isinstance(n, dict):
+                    n_copy = dict(n)
+                    if "metadata" in n_copy:
+                        n_copy["metadata"] = _sanitize_notification_metadata(n_copy.get("metadata"))
+                    sanitized.append(n_copy)
+            return sanitized
+        except Exception as e:
+            print(f"[_fetch_recent_notifications] Error: {e}")
+            return []
+
+    user_data, assignments, has_direct_reports, unread_count, notifications = await asyncio.gather(
+        asyncio.to_thread(_fetch_user_and_company),
+        asyncio.to_thread(_fetch_roles),
+        asyncio.to_thread(_check_has_direct_reports),
+        asyncio.to_thread(_fetch_unread_count),
+        asyncio.to_thread(_fetch_recent_notifications),
+    )
+
+    if not user_data:
+        raise HTTPException(status_code=404, detail="Access denied. Your email is not in the allowed users list.")
+    if user_data.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact your administrator.")
+
+    company_data = user_data.get("company")
+    if company_data:
+        is_company_active = company_data.get("is_company_active") is not False
+        if not is_company_active:
+            raise HTTPException(status_code=403, detail="Your organization account has been deactivated. Please contact your administrator.")
+
+    # Normalize roles
+    normalized_roles = []
+    for ra in assignments:
+        role_node = ra.get("role") or {}
+        if isinstance(role_node, list) and role_node:
+            role_node = role_node[0]
+        name = str(role_node.get("name") or ra.get("name") or "").strip()
+        level_raw = role_node.get("level") or ra.get("level") or -1
+        try:
+            level = int(level_raw)
+        except Exception:
+            level = -1
+        if name or level >= 0:
+            normalized_roles.append({
+                "name": name,
+                "level": level,
+                "id": role_node.get("role_id") or role_node.get("id") or ra.get("role_id")
+            })
+
+    role_names = [r["name"] for r in normalized_roles if r.get("name")]
+    has_admin_role = any(r["level"] >= 3 or _normalize_role_name(r["name"]) in ('admin', 'superadmin', 'super_admin', 'ceo') for r in normalized_roles)
+    has_super_admin_role = any(r["level"] >= 4 or _normalize_role_name(r["name"]) in ('superadmin', 'super_admin', 'ceo') for r in normalized_roles)
+    has_manager_role = any(r["level"] == 2 or 'manager' in _normalize_role_name(r["name"]) for r in normalized_roles)
+    has_developer_role = any(r["level"] >= 6 or 'developer' in _normalize_role_name(r["name"]) for r in normalized_roles)
+    is_actual_manager = bool(has_direct_reports or has_manager_role)
+
+    emp_data = dict(user_data)
+    if company_data:
+        emp_data["company_name"] = company_data.get("name")
+        emp_data["company_logo"] = company_data.get("company_logo")
+        emp_data["subscription_tier"] = company_data.get("subscription_tier")
+        emp_data["learning_style_enabled"] = bool(company_data.get("learning_style"))
+
+    # Security Data Minimization & Payload Optimization:
+    # 1. Strip redundant joined company dictionary and subscription_addons (authoritative copy in tenant.activeCompany)
+    emp_data.pop("company", None)
+    emp_data.pop("subscription_addons", None)
+    # 2. Strip sensitive internal auth provider identifiers & database artifacts
+    emp_data.pop("firebase_uid", None)
+    emp_data.pop("password", None)
+    emp_data.pop("fcm_token", None)
+
+    active_company = {
+        "company_id": company_data.get("company_id") if company_data else emp_data.get("company_id"),
+        "name": company_data.get("name") if company_data else emp_data.get("company_name", "My Company"),
+        "domain": company_data.get("domain") if company_data else None,
+        "company_logo": company_data.get("company_logo") if company_data else emp_data.get("company_logo"),
+        "subscription_tier": company_data.get("subscription_tier") if company_data else emp_data.get("subscription_tier"),
+        "subscription_addons": company_data.get("subscription_addons") if company_data else [],
+        "learning_style_enabled": bool(company_data.get("learning_style")) if company_data else bool(emp_data.get("learning_style_enabled")),
+    } if (company_data or emp_data.get("company_id")) else None
+
+    # Available companies consolidation (for developer/superadmin tenant switcher)
+    def _fetch_available_companies():
+        if has_developer_role or has_super_admin_role:
+            cached_comps = get_cache("all_active_companies_light")
+            if cached_comps and isinstance(cached_comps, list):
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in cached_comps
+                ]
+            try:
+                resp = (
+                    service_client
+                    .table("companies")
+                    .select("company_id, name, domain, company_logo, subscription_tier")
+                    .eq("is_company_active", True)
+                    .order("name")
+                    .execute()
+                )
+                comps = resp.data or []
+                set_cache("all_active_companies_light", comps, ttl=300)
+                return [
+                    active_company if (active_company and c.get("company_id") == active_company.get("company_id")) else c
+                    for c in comps
+                ]
+            except Exception as e:
+                print(f"[_fetch_available_companies] Error: {e}")
+        return [active_company] if active_company else []
+
+    available_companies = await asyncio.to_thread(_fetch_available_companies)
+
+    result = {
+        "success": True,
+        "employeeData": emp_data,
+        "userId": user_id,
+        "userRoles": role_names,
+        "isAdmin": has_admin_role,
+        "isSuperAdmin": has_super_admin_role,
+        "isDeveloper": has_developer_role,
+        "isManager": has_manager_role,
+        "isManagerofUsers": is_actual_manager,
+        "tenant": {
+            "activeCompany": active_company,
+            "availableCompanies": available_companies,
+        },
+        "notifications": {
+            "unread_count": unread_count,
+            "items": notifications,
+        },
+    }
+
+    _AUTH_ME_L1_CACHE[cache_key] = (now_ts, result)
+    return result

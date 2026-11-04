@@ -61,6 +61,7 @@ from routes.notification_workflows import router as workflows_router
 from routes.coach_upload import router as coach_upload_router
 from routes.coach_chat import router as coach_chat_router
 from routes.google_drive import router as google_drive_router
+from routes.connectors import router as connectors_router
 from routes.audit_logs import router as audit_logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
@@ -147,13 +148,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code = 500
 
     # Ensure CORS headers strictly match allowed origins (prevents reflecting arbitrary untrusted origins)
+    headers = {}
     origin = request.headers.get("origin", "")
     norm_origin = origin.rstrip("/") if origin else ""
-    cors_origin = origin if norm_origin in CORS_ALLOWED_ORIGINS else FRONTEND_URL
-    headers = {
-        "Access-Control-Allow-Origin": cors_origin,
-        "Access-Control-Allow-Credentials": "true",
-    }
+    if norm_origin and norm_origin in CORS_ALLOWED_ORIGINS:
+        headers = {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
 
     return JSONResponse(status_code=status_code, content=content, headers=headers)
 
@@ -260,6 +263,28 @@ async def startup_event():
 
     threading.Thread(target=_background_loader, daemon=True).start()
 
+    # Background WhatsApp periodic dispatcher loop (runs every 60 seconds)
+    async def _whatsapp_cron_loop():
+        while True:
+            try:
+                await asyncio.sleep(60)
+                from whatsapp.cron import run_whatsapp_cron
+                await run_whatsapp_cron()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[WhatsApp Cron Loop] Non-fatal error: {e}")
+
+    asyncio.create_task(_whatsapp_cron_loop())
+
+    # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
+
+@app.post("/api/cron/whatsapp-dispatch", tags=["cron"])
+async def trigger_whatsapp_cron():
+    """Trigger manual or Cloud Scheduler polling of pending scheduled WhatsApp messages."""
+    from whatsapp.cron import run_whatsapp_cron
+    await run_whatsapp_cron()
+    return {"success": True, "message": "WhatsApp dispatch cron executed successfully"}
     # Pre-warm distributed WebSocket Redis Pub/Sub listener
     try:
         from utils.websocket_manager import manager
@@ -288,6 +313,12 @@ async def shutdown_event():
     try:
         from scheduler import scheduler
         await scheduler.shutdown()
+    except Exception:
+        pass
+
+    try:
+        from utils.auth_socket_manager import auth_socket_manager
+        await auth_socket_manager.stop()
     except Exception:
         pass
 
@@ -423,6 +454,7 @@ app.include_router(logs_router)
 app.include_router(coach_upload_router)
 app.include_router(coach_chat_router)
 app.include_router(google_drive_router)
+app.include_router(connectors_router)
 app.include_router(audit_logs_router)
 
 
