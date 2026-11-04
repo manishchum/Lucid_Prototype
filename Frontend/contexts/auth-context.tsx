@@ -11,6 +11,24 @@ import { getDeviceId } from "@/lib/device"
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 const MANUAL_AUTH_STORAGE_KEY = "lucid:manual-auth-user"
 const MANUAL_PROFILE_STORAGE_KEY = "lucid:manual-auth-profile"
+const LAST_ACTIVE_STORAGE_KEY = "lucid:last-active-at"
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
+const SESSION_COOKIE_NAME = "lucid_session_active"
+
+export const isBrowserSessionActive = (): boolean => {
+  if (typeof document === "undefined") return false
+  return document.cookie.split(";").some((c) => c.trim().startsWith(`${SESSION_COOKIE_NAME}=`))
+}
+
+export const setBrowserSessionActive = (): void => {
+  if (typeof document === "undefined") return
+  document.cookie = `${SESSION_COOKIE_NAME}=1; path=/; SameSite=Lax`
+}
+
+export const clearBrowserSessionActive = (): void => {
+  if (typeof document === "undefined") return
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`
+}
 
 type AuthUserLike = {
   uid: string
@@ -34,8 +52,10 @@ interface AuthContextType {
   isManagerofUsers: boolean
   userId: string | null
   employeeData: any | null
+  initialTenantData?: any | null
+  initialNotificationsData?: any | null
   login: (userData: any) => Promise<void>
-  logout: () => Promise<void>
+  logout: (reason?: string) => Promise<void>
   refreshProfile: () => Promise<void>
 }
 
@@ -51,6 +71,8 @@ const AuthContext = createContext<AuthContextType>({
   isManagerofUsers: false,
   userId: null,
   employeeData: null,
+  initialTenantData: null,
+  initialNotificationsData: null,
   login: async () => {},
   logout: async () => {},
   refreshProfile: async () => {},
@@ -182,7 +204,11 @@ const fetchUserRoles = async (userId: string) => {
   }
 }
 
-const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = false) => {
+const loadCachedFullProfile = async (
+  authUser: AuthUserLike,
+  throwOnError = false,
+  registerSession = false
+) => {
   if (!authUser?.email) return null
 
   // Check if a valid Firebase token exists before attempting to fetch
@@ -202,7 +228,8 @@ const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = fals
     const result = await sharedDataClient.query(
       key,
       async () => {
-        const res = await fetchWithAuth(`${API_BASE}/api/auth/me`)
+        const fetchOpts: any = registerSession ? { registerSession: true } : {}
+        const res = await fetchWithAuth(`${API_BASE}/api/auth/me`, fetchOpts)
         if (!res.ok) {
           let errText = ""
           try {
@@ -230,6 +257,8 @@ const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = fals
           isDeveloper: Boolean(payload.isDeveloper),
           isManager: Boolean(payload.isManager),
           isManagerofUsers: Boolean(payload.isManagerofUsers),
+          tenant: payload.tenant,
+          notifications: payload.notifications,
         }
       },
       {
@@ -255,6 +284,7 @@ const loadCachedFullProfile = async (authUser: AuthUserLike, throwOnError = fals
 
 export const readManualAuthUser = (): AuthUserLike | null => {
   if (typeof window === "undefined") return null
+  if (!isBrowserSessionActive()) return null
   try {
     const raw = window.sessionStorage.getItem(MANUAL_AUTH_STORAGE_KEY) ||
                 window.localStorage.getItem(MANUAL_AUTH_STORAGE_KEY)
@@ -269,6 +299,7 @@ export const readManualAuthUser = (): AuthUserLike | null => {
 
 export const hasActiveSession = (): boolean => {
   if (typeof window === "undefined") return false
+  if (!isBrowserSessionActive()) return false
   try {
     const isDisplaced = window.sessionStorage.getItem("lucid:displaced-session") === "1"
     if (isDisplaced) return false
@@ -285,18 +316,21 @@ const writeManualAuthUser = (user: AuthUserLike): void => {
     const val = JSON.stringify(user)
     window.sessionStorage.setItem(MANUAL_AUTH_STORAGE_KEY, val)
     window.localStorage.setItem(MANUAL_AUTH_STORAGE_KEY, val)
+    setBrowserSessionActive()
   } catch {
     // no-op
   }
 }
 
-const clearManualAuthUser = (): void => {
+export const clearManualAuthUser = (): void => {
   if (typeof window === "undefined") return
   try {
     window.sessionStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    clearBrowserSessionActive()
   } catch {
     // no-op
   }
@@ -315,6 +349,7 @@ const writeCachedProfile = (profile: any): void => {
 
 const readCachedProfile = (): any | null => {
   if (typeof window === "undefined") return null
+  if (!isBrowserSessionActive()) return null
   try {
     const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ||
                 window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
@@ -325,10 +360,37 @@ const readCachedProfile = (): any | null => {
   }
 }
 
+export const isSessionExpiredDueToInactivity = (): boolean => {
+  if (typeof window === "undefined") return false
+  try {
+    const lastActiveStr = window.localStorage.getItem(LAST_ACTIVE_STORAGE_KEY) ||
+                          window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)
+    if (!lastActiveStr) return false
+    const lastActive = parseInt(lastActiveStr, 10)
+    if (isNaN(lastActive)) return false
+    return Date.now() - lastActive > INACTIVITY_TIMEOUT_MS
+  } catch {
+    return false
+  }
+}
+
+export const updateLastActiveTimestamp = (): void => {
+  if (typeof window === "undefined") return
+  try {
+    const now = Date.now().toString()
+    window.localStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now)
+    window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now)
+  } catch {}
+}
+
 let hasRegisteredSessionForUser: string | null = null
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
+    if (isSessionExpiredDueToInactivity()) {
+      clearManualAuthUser();
+      return null;
+    }
     return (readManualAuthUser() as User) || null
   })
   const [loading, setLoading] = useState<boolean>(() => {
@@ -343,6 +405,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isManagerofUsers, setIsManagerofUsers] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
   const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const [initialTenantData, setInitialTenantData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.tenant ?? null
+  })
+  const [initialNotificationsData, setInitialNotificationsData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.notifications ?? null
+  })
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -463,9 +533,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      const effectiveUser = firebaseUser ?? readManualAuthUser()
-      setUser((effectiveUser as User) || null)
-
       const pathname =
         typeof window !== "undefined"
           ? window.location.pathname
@@ -476,20 +543,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
+      // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
+      if (isAuthPage && firebaseUser) {
+        setBrowserSessionActive();
+        updateLastActiveTimestamp();
+      }
+
+      // 2. If NOT on an auth page and browser session is NOT active, user opened browser fresh after close
+      if (!isAuthPage && !isBrowserSessionActive()) {
+        if (firebaseUser) {
+          try {
+            await signOut(auth);
+          } catch {}
+        }
+        clearManualAuthUser();
+        clearBrowserSessionActive();
+        setUser(null);
+        setLoading(false);
+        if (typeof window !== "undefined") {
+          window.location.replace("/login");
+        }
+        return;
+      }
+
+      // 3. Check 1-hour inactivity
+      if (isSessionExpiredDueToInactivity()) {
+        await logout("inactivity");
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=inactivity");
+        }
+        return;
+      }
+
+      const effectiveUser = firebaseUser ?? readManualAuthUser()
+      setUser((effectiveUser as User) || null)
+
       if (effectiveUser?.email) {
         if (!isAuthPage) {
           setRolesLoaded(false)
-          if (hasRegisteredSessionForUser !== effectiveUser.uid) {
-            try {
-              await fetchWithAuth(`${API_BASE}/api/auth/session`, {
-                method: "POST",
-                registerSession: true as any,
-              } as any);
-              hasRegisteredSessionForUser = effectiveUser.uid;
-            } catch (err) {
-              console.error("[auth-context] Failed to register session:", err);
-            }
-          } 
+
           let profile = readCachedProfile();
 
           if (!profile) {
@@ -511,6 +603,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setIsDeveloper(Boolean(profile.isDeveloper))
               setIsManager(Boolean(profile.isManager))
               setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+              if (profile.tenant) setInitialTenantData(profile.tenant)
+              if (profile.notifications) setInitialNotificationsData(profile.notifications)
               setRolesLoaded(true)
             } else {
               setEmployeeData(null)
@@ -565,7 +659,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const forceLogoutListener = async (event?: Event) => {
       if (isDisplacing) return;
       isDisplacing = true;
-      console.info("[auth-context] Graceful session revocation in progress", event);
+      const customEvt = event as CustomEvent;
+      const reason = customEvt?.detail?.reason;
+      console.info("[auth-context] Graceful session revocation in progress", reason, event);
 
       if (authSocketSingleton) {
         try {
@@ -578,9 +674,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Synchronously clear local auth tokens & user state immediately to halt all in-flight polling
       clearManualAuthUser();
       sharedDataClient.clear();
+      clearBrowserSessionActive();
       if (typeof window !== 'undefined') {
         try {
-          window.sessionStorage.setItem("lucid:displaced-session", "1");
+          if (reason === "session_replaced") {
+            window.sessionStorage.setItem("lucid:displaced-session", "1");
+          } else {
+            window.sessionStorage.removeItem("lucid:displaced-session");
+          }
         } catch {}
       }
 
@@ -589,72 +690,179 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signOut(auth).catch(() => {});
       } catch {}
 
+      try {
+        if (typeof BroadcastChannel !== "undefined") {
+          const ch = new BroadcastChannel("lucid:auth-sync");
+          ch.postMessage({
+            type: "LUCID_SESSION_LOGOUT",
+            payload: { reason: "displaced" },
+          });
+          ch.close();
+        }
+      } catch {}
+
       if (typeof window !== 'undefined') {
         window.location.replace('/login');
       }
     };
     
-    // Option 1: Storage-only cross-tab sync — synchronizes login/logout state across open tabs
-    const storageSyncListener = (event: StorageEvent) => {
-      if (event.key === MANUAL_AUTH_STORAGE_KEY) {
-        if (!event.newValue) {
-          // Another tab logged out
-          setUser(null);
-          setEmployeeData(null);
-          setUserId(null);
-          setUserRoles([]);
-          setIsAdmin(false);
-          setIsSuperAdmin(false);
-          setIsDeveloper(false);
-          setIsManager(false);
-          setIsManagerofUsers(false);
-          setRolesLoaded(false);
-          setLoading(false);
-          if (typeof window !== "undefined") {
-            const path = window.location.pathname;
-            if (path !== "/login" && path !== "/" && path !== "/signup") {
-              window.location.replace("/login");
+    // Option 2 (Approved): Cross-tab BroadcastChannel synchronization
+    let authChannel: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        authChannel = new BroadcastChannel("lucid:auth-sync");
+        authChannel.onmessage = (event) => {
+          const { type, payload } = event.data || {};
+
+          if (type === "LUCID_SESSION_PROBE") {
+            const currentManual = readManualAuthUser();
+            const currentProf = readCachedProfile();
+            const lastActive = typeof window !== "undefined" ? window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY) : null;
+            if (currentManual && !isSessionExpiredDueToInactivity()) {
+              authChannel?.postMessage({
+                type: "LUCID_SESSION_RESPONSE",
+                payload: {
+                  user: currentManual,
+                  profile: currentProf,
+                  lastActive: lastActive || Date.now().toString(),
+                },
+              });
             }
-          }
-        } else {
-          // Another tab logged in
-          const manual = readManualAuthUser();
-          if (manual) {
-            setUser(manual as User);
-            const profile = readCachedProfile();
-            if (profile) {
-              setEmployeeData(profile.employeeData);
-              setUserId(profile.userId);
-              setUserRoles(profile.userRoles);
-              setIsAdmin(profile.isAdmin);
-              setIsSuperAdmin(profile.isSuperAdmin);
-              setIsDeveloper(Boolean(profile.isDeveloper));
-              setIsManager(Boolean(profile.isManager));
-              setIsManagerofUsers(Boolean(profile.isManagerofUsers));
-              setRolesLoaded(true);
+          } else if (type === "LUCID_SESSION_RESPONSE" || type === "LUCID_SESSION_LOGIN") {
+            if (payload?.user) {
+              writeManualAuthUser(payload.user);
+              if (payload.profile) {
+                writeCachedProfile(payload.profile);
+                setEmployeeData(payload.profile.employeeData);
+                setUserId(payload.profile.userId);
+                setUserRoles(payload.profile.userRoles);
+                setIsAdmin(payload.profile.isAdmin);
+                setIsSuperAdmin(payload.profile.isSuperAdmin);
+                setIsDeveloper(Boolean(payload.profile.isDeveloper));
+                setIsManager(Boolean(payload.profile.isManager));
+                setIsManagerofUsers(Boolean(payload.profile.isManagerofUsers));
+                setRolesLoaded(true);
+              }
+              if (payload.lastActive && typeof window !== "undefined") {
+                window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, String(payload.lastActive));
+              }
+              setUser(payload.user as User);
+              setLoading(false);
+              if (typeof window !== "undefined" && (window.location.pathname === "/login" || window.location.pathname === "/")) {
+                window.location.replace("/employee/welcome");
+              }
             }
+          } else if (type === "LUCID_SESSION_LOGOUT") {
+            clearManualAuthUser();
+            sharedDataClient.clear();
+            setUser(null);
+            setEmployeeData(null);
+            setUserId(null);
+            setUserRoles([]);
+            setIsAdmin(false);
+            setIsSuperAdmin(false);
+            setIsDeveloper(false);
+            setIsManager(false);
+            setIsManagerofUsers(false);
+            setRolesLoaded(false);
             setLoading(false);
-            if (typeof window !== "undefined" && (window.location.pathname === "/login" || window.location.pathname === "/")) {
-              window.location.replace("/employee/welcome");
+            const reason = payload?.reason || "manual";
+            if (typeof window !== "undefined") {
+              const path = window.location.pathname;
+              if (path !== "/login" && path !== "/" && path !== "/signup") {
+                const target = reason === "inactivity" ? "/login?reason=inactivity" : "/login";
+                window.location.replace(target);
+              }
+            }
+          } else if (type === "LUCID_ACTIVITY_PING") {
+            if (payload?.timestamp && typeof window !== "undefined") {
+              window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, String(payload.timestamp));
             }
           }
+        };
+
+        if (!readManualAuthUser()) {
+          authChannel.postMessage({ type: "LUCID_SESSION_PROBE" });
         }
+      } catch (err) {
+        console.warn("[auth-context] BroadcastChannel init error:", err);
       }
-    };
+    }
 
     if (typeof window !== 'undefined') {
       window.addEventListener('lucid:auth:force-logout', forceLogoutListener);
-      window.addEventListener('storage', storageSyncListener);
     }
 
     return () => {
       unsubscribe();
       if (typeof window !== 'undefined') {
         window.removeEventListener('lucid:auth:force-logout', forceLogoutListener);
-        window.removeEventListener('storage', storageSyncListener);
+      }
+      if (authChannel) {
+        try {
+          authChannel.close();
+        } catch {}
       }
     };
   }, [])
+
+  // Inactivity tracking (1-hour idle timeout)
+  useEffect(() => {
+    if (typeof window === "undefined" || !user) return;
+
+    if (!window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)) {
+      updateLastActiveTimestamp();
+    }
+
+    let lastWrite = 0;
+    let lastBroadcast = 0;
+
+    const recordActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite > 15_000) {
+        lastWrite = now;
+        try {
+          window.localStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now.toString());
+          window.sessionStorage.setItem(LAST_ACTIVE_STORAGE_KEY, now.toString());
+        } catch {}
+      }
+
+      if (now - lastBroadcast > 30_000) {
+        lastBroadcast = now;
+        try {
+          if (typeof BroadcastChannel !== "undefined") {
+            const ch = new BroadcastChannel("lucid:auth-sync");
+            ch.postMessage({ type: "LUCID_ACTIVITY_PING", payload: { timestamp: now } });
+            ch.close();
+          }
+        } catch {}
+      }
+    };
+
+    const activityEvents = ["mousedown", "keydown", "scroll", "touchstart"];
+    activityEvents.forEach((evt) => window.addEventListener(evt, recordActivity, { passive: true }));
+
+    const checkInactivity = async () => {
+      if (isSessionExpiredDueToInactivity()) {
+        console.info("[auth-context] Session expired due to 1 hour of inactivity");
+        await logout("inactivity");
+        if (typeof window !== "undefined") {
+          window.location.replace("/login?reason=inactivity");
+        }
+      }
+    };
+
+    const intervalId = setInterval(checkInactivity, 30_000);
+    window.addEventListener("focus", checkInactivity);
+    document.addEventListener("visibilitychange", checkInactivity);
+
+    return () => {
+      activityEvents.forEach((evt) => window.removeEventListener(evt, recordActivity));
+      clearInterval(intervalId);
+      window.removeEventListener("focus", checkInactivity);
+      document.removeEventListener("visibilitychange", checkInactivity);
+    };
+  }, [user?.uid]);
 
   // Login function for email/password authentication
   const login = async (userData: any) => {
@@ -669,35 +877,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: userData.name ?? userData.displayName ?? null,
         }
 
-        writeManualAuthUser(authUserObj)
-        hasRegisteredSessionForUser = authUserObj.uid
+        setBrowserSessionActive();
+        updateLastActiveTimestamp();
+        writeManualAuthUser(authUserObj);
+        hasRegisteredSessionForUser = authUserObj.uid;
 
         // Invalidate stale cache for fresh login validation
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
           window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
-        // 1. Authoritatively register session FIRST (ensures Redis is updated with new device ID before profile fetch)
-        const sessionRes = await fetchWithAuth(
-          `${API_BASE}/api/auth/session`,
-          {
-            method: "POST",
-            registerSession: true as any,
-          } as any
-        );
-
-        if (!sessionRes.ok) {
-          console.warn("[auth-context] Session registration non-200:", sessionRes.status);
-        }
-
-        // 2. Fetch full profile (device session is now guaranteed to match registered device ID)
-        const profile = await loadCachedFullProfile(authUserObj, true);
-
-        if (!sessionRes.ok) {
-          console.warn("[auth-context] Session registration non-200:", sessionRes.status);
-        }
+        // Consolidated bootstrap: /api/auth/me registers device session on login and returns user + roles + tenant + notifications atomically
+        const profile = await loadCachedFullProfile(authUserObj, true, true);
 
         if (profile) {
           writeCachedProfile(profile)
@@ -709,7 +903,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsDeveloper(Boolean(profile.isDeveloper))
           setIsManager(Boolean(profile.isManager))
           setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+          if (profile.tenant) setInitialTenantData(profile.tenant)
+          if (profile.notifications) setInitialNotificationsData(profile.notifications)
           setRolesLoaded(true)
+          try {
+            if (typeof BroadcastChannel !== "undefined") {
+              const ch = new BroadcastChannel("lucid:auth-sync");
+              ch.postMessage({
+                type: "LUCID_SESSION_LOGIN",
+                payload: {
+                  user: authUserObj,
+                  profile,
+                  lastActive: Date.now().toString(),
+                },
+              });
+              ch.close();
+            }
+          } catch {}
         } else {
           setEmployeeData(null)
           setUserId(null)
@@ -731,7 +941,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const logout = async () => {
+  const logout = async (reason?: string) => {
     if (authSocketSingleton) {
       try {
         authSocketSingleton.close()
@@ -742,7 +952,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authSocketSingleton = null
     authSocketCurrentUserId = null
     hasRegisteredSessionForUser = null
-    await signOut(auth)
+    try {
+      await signOut(auth)
+    } catch {}
     clearManualAuthUser()
     sharedDataClient.invalidateByPrefix("v1|auth")
     sharedDataClient.clear()
@@ -756,6 +968,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsManager(false)
     setIsManagerofUsers(false)
     setRolesLoaded(false)
+
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        const ch = new BroadcastChannel("lucid:auth-sync");
+        ch.postMessage({
+          type: "LUCID_SESSION_LOGOUT",
+          payload: { reason: reason || "manual" },
+        });
+        ch.close();
+      }
+    } catch {}
   }
 
   const refreshProfile = async () => {
@@ -780,6 +1003,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setIsDeveloper(Boolean(profile.isDeveloper))
             setIsManager(Boolean(profile.isManager))
             setIsManagerofUsers(Boolean(profile.isManagerofUsers))
+            if (profile.tenant) setInitialTenantData(profile.tenant)
+            if (profile.notifications) setInitialNotificationsData(profile.notifications)
             setRolesLoaded(true)
           } else {
             setEmployeeData(null)
@@ -811,6 +1036,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isManagerofUsers,
         userId, 
         employeeData, 
+        initialTenantData,
+        initialNotificationsData,
         login, 
         logout,
         refreshProfile

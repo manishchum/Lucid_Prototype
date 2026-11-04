@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { ChevronDown, MessageSquare, Mail, Calendar, Clock, Check, Send, Loader2, X, Users, AlertCircle, FileJson, Music, Upload, RefreshCw, Pencil, Eye, Bell } from 'lucide-react';
 import NotificationTemplatesManager from './NotificationTemplatesManager';
 import EmployeeNavigation from '@/components/employee-navigation';
@@ -100,7 +100,7 @@ const fetchUserByEmail = async (email: string | null) => {
   }
 };
 
-export default function AdminDispatchCenterPage() {
+function AdminDispatchCenterContent() {
   const { user, loading: authLoading, isDeveloper } = useAuth();
   const searchParams = useSearchParams();
   const initialTab = (searchParams?.get('tab') === 'templates' && isDeveloper) ? 'templates' : 'dispatches';
@@ -2285,5 +2285,13 @@ export default function AdminDispatchCenterPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function AdminDispatchCenterPage() {
+  return (
+    <Suspense fallback={<LoadingProgress label="Loading dispatch center..." progress={50} />}>
+      <AdminDispatchCenterContent />
+    </Suspense>
   );
 }

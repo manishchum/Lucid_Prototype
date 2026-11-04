@@ -33,6 +33,7 @@ from utils.logging import mask_email
 from utils.redis_client import redis_client, get_cache, set_cache, delete_cache_pattern
 
 from services.connectors import ConnectorManager, ConnectorRegistry
+from routes.connectors import persist_oauth_state, verify_and_consume_oauth_state
 from services.google_drive_service import (
     generate_auth_url,
     exchange_code_for_tokens,
@@ -117,6 +118,7 @@ async def get_google_drive_auth_url(
 
     try:
         url = generate_auth_url(company_id=company_id, user_id=user_id)
+        persist_oauth_state(provider="google_drive", company_id=company_id, user_id=user_id, auth_url=url)
         return {"success": True, "auth_url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate authorization URL: {str(e)}")
@@ -304,11 +306,13 @@ async def google_drive_oauth_callback(
         return _render_oauth_popup_response(success=False, error="Missing authorization code or state parameter.")
 
     try:
-        # 1. Parse state
-        decoded_state = urllib.parse.unquote(state)
-        state_data = json.loads(decoded_state)
-        company_id = state_data.get("company_id")
-        user_id = state_data.get("user_id")
+        # 1. Validate & consume server-persisted state
+        state_record = verify_and_consume_oauth_state("google_drive", state)
+        if not state_record:
+            return _render_oauth_popup_response(success=False, error="Invalid, unknown, or expired OAuth state token. Please initiate connection again.")
+
+        company_id = state_record.get("company_id")
+        user_id = state_record.get("user_id")
 
         if not company_id or not user_id:
             raise ValueError("State payload is missing required company_id or user_id.")
