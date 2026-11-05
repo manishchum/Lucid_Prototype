@@ -146,6 +146,8 @@ function LoginContent() {
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
+      setBrowserSessionActive()
+      updateLastActiveTimestamp()
       await login(emailAuthResult.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
@@ -211,6 +213,8 @@ function LoginContent() {
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
+      setBrowserSessionActive()
+      updateLastActiveTimestamp()
       await login(result.user)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }

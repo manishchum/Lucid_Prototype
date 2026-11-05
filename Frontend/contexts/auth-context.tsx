@@ -19,7 +19,9 @@ export const isBrowserSessionActive = (): boolean => {
   if (typeof document === "undefined") return false
   return document.cookie.split(";").some((c) => {
     const trimmed = c.trim()
-    return trimmed.startsWith(`${SESSION_COOKIE_NAME}=`) && trimmed.slice(`${SESSION_COOKIE_NAME}=`.length).trim() === "1"
+    if (!trimmed.startsWith(`${SESSION_COOKIE_NAME}=`)) return false
+    const val = trimmed.slice(`${SESSION_COOKIE_NAME}=`.length).trim().toLowerCase()
+    return val === "1" || val === "true"
   })
 }
 
@@ -553,17 +555,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const isPublicPage = isAuthPage || pathname === "/";
 
-      // 1. If user is on an auth page, only update activity if browser session is already active.
-      // If browser session is NOT active (e.g. browser was reopened fresh), purge unasserted Firebase session.
-      if (isAuthPage && firebaseUser && isBrowserSessionActive()) {
+      // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
+      if (isAuthPage && firebaseUser) {
+        setBrowserSessionActive();
         updateLastActiveTimestamp();
-      } else if (isAuthPage && firebaseUser && !isBrowserSessionActive()) {
-        try {
-          await signOut(auth);
-        } catch {}
-        clearManualAuthUser();
-        clearBrowserSessionActive();
-        setUser(null);
       }
 
       // 2. If NOT on an auth/public page and browser session is NOT active, user opened browser fresh after close
