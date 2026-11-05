@@ -17,7 +17,10 @@ const SESSION_COOKIE_NAME = "lucid_session_active"
 
 export const isBrowserSessionActive = (): boolean => {
   if (typeof document === "undefined") return false
-  return document.cookie.split(";").some((c) => c.trim().startsWith(`${SESSION_COOKIE_NAME}=`))
+  return document.cookie.split(";").some((c) => {
+    const trimmed = c.trim()
+    return trimmed.startsWith(`${SESSION_COOKIE_NAME}=`) && trimmed.slice(`${SESSION_COOKIE_NAME}=`.length).trim() === "1"
+  })
 }
 
 export const setBrowserSessionActive = (): void => {
@@ -27,7 +30,7 @@ export const setBrowserSessionActive = (): void => {
 
 export const clearBrowserSessionActive = (): void => {
   if (typeof document === "undefined") return
-  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`
 }
 
 type AuthUserLike = {
