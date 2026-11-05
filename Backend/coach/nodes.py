@@ -20,6 +20,7 @@ from coach.state import CoachState
 from coach.schema_inspector import (
     get_company_spreadsheet_schema,
     get_company_document_catalog,
+    get_company_active_integrations,
     format_schema_for_sql_prompt
 )
 from coach.tools.sql_tool import generate_coach_sql, execute_coach_sql
@@ -45,12 +46,14 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
     schema_dict = get_company_spreadsheet_schema(company_id)
     schema_prompt = format_schema_for_sql_prompt(schema_dict, company_id)
     doc_catalog = get_company_document_catalog(company_id)
+    active_integrations = get_company_active_integrations(company_id)
 
     return {
         "user_query": user_query or "",
         "schema_dict": schema_dict,
         "schema_prompt": schema_prompt,
         "document_catalog": doc_catalog,
+        "active_integrations": active_integrations,
         "sql_retry_count": state.get("sql_retry_count", 0),
         "citations": state.get("citations", []),
         "rag_chunks": state.get("rag_chunks", [])
@@ -61,23 +64,26 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
 # 2. ROUTER NODE
 # ============================================================================
 ROUTER_SYSTEM_PROMPT = """You are a smart, domain-agnostic query classifier for an enterprise Performance Coach.
-Analyze the user's question, the available spreadsheet schema (sheets & columns), and the uploaded document catalog.
+Analyze the user's question, the available spreadsheet schema (sheets & columns), the uploaded document catalog, and the connected cloud integrations.
 Classify the user's intent into EXACTLY ONE of the following categories:
 
 - "SQL": The question asks for data, numbers, calculations, aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, or tabular records for entities, dimensions, or columns present in the Available Columns or Sheets.
   IMPORTANT: Also classify as "SQL" if the user asks for "insights", "details", "performance", "breakdown", "status", or a list/lookup of any entity, dimension, person, store, account, client, territory, or code that corresponds to the Available Columns or Sheets in the spreadsheet.
-- "RAG": The question strictly asks about uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or text files found in the Available Documents catalog.
-- "HYBRID": The question requires BOTH tabular spreadsheet data (metrics/numbers/entity performance) AND qualitative document context/reviews from the uploaded document catalog.
-- "CATALOG": The question asks what documents, spreadsheets, or files are uploaded or available in the knowledge base.
+- "RAG": The question strictly asks about:
+  1. Uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or text files found in the Available Documents catalog.
+  2. Communications, meeting transcripts, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads).
+- "HYBRID": The question requires BOTH tabular spreadsheet data (metrics/numbers/entity performance) AND qualitative document context/reviews from the uploaded document catalog or connected integration streams.
+- "CATALOG": The question asks what documents, spreadsheets, files, or cloud integrations are uploaded or connected in the knowledge base.
 - "GENERAL": ONLY for conversational greetings, polite pleasantries (e.g. "Hello", "Hi", "Good morning", "Thank you"), or assistant self-introduction ("Who are you?").
-- "OUT_OF_SCOPE": The question is completely UNRELATED to the company's business data, spreadsheets, or uploaded documents. This covers ANY external topic whatsoever (e.g. movies, entertainment, school/academic math or science formulas, recipes/cooking, shopping advice, sports, gaming, medical/health, travel, news, trivia, or general knowledge).
+- "OUT_OF_SCOPE": The question is completely UNRELATED to the company's business data, spreadsheets, uploaded documents, or connected integrations. This covers ANY external topic whatsoever (e.g. movies, entertainment, school/academic math or science formulas, recipes/cooking, consumer shopping advice, sports, gaming, medical/health, travel, news, trivia, or general world knowledge).
 
 DECISION GUIDELINES:
 1. If the question mentions an entity, dimension, or column from the spreadsheet schema -> "SQL".
-2. If the question asks about a document, policy, or file from the uploaded document catalog -> "RAG".
+2. If the question asks about a document, policy, or file from the uploaded document catalog, OR asks about communications, files, or transcripts from connected cloud integrations (Drive, Zoom, Teams, Slack, Email) -> "RAG".
 3. If both spreadsheet data and qualitative document context are needed -> "HYBRID".
-4. If it's a polite greeting or gratitude -> "GENERAL".
-5. If the question asks about ANY external topic NOT in the company's spreadsheets or documents (e.g. movies, formulas, shopping, recipes, trivia) -> ALWAYS choose "OUT_OF_SCOPE".
+4. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
+5. If it's a polite greeting or gratitude -> "GENERAL".
+6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations (e.g. movies, formulas, shopping, recipes, trivia) -> ALWAYS choose "OUT_OF_SCOPE".
 
 Return ONLY a JSON object:
 {
@@ -123,8 +129,8 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         return {"intent": "GENERAL", "routing_reason": "Conversational gratitude."}
 
     # Heuristic fast-path 1: Catalog inventory queries
-    if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets"]):
-        return {"intent": "CATALOG", "routing_reason": "User requested document catalog inventory."}
+    if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets", "what integrations", "connected integrations", "connected tools", "connected sources", "what connectors"]):
+        return {"intent": "CATALOG", "routing_reason": "User requested document catalog or connected integrations inventory."}
 
     # Extract dynamic column match tokens from all_cols
     col_tokens = set()
@@ -135,6 +141,23 @@ def router_node(state: CoachState) -> Dict[str, Any]:
             for part in clean_c.split():
                 if len(part) >= 3 and part not in {"and", "the", "for", "with", "from", "date"}:
                     col_tokens.add(part)
+
+    # Heuristic fast-path 1B: Connected Cloud Integrations detection
+    active_integrations = state.get("active_integrations", [])
+    active_providers = {i.get("provider", "").lower() for i in active_integrations}
+    connector_keywords = {
+        "google_drive": ["google drive", "gdrive", "drive folder", "shared drive", "cloud drive"],
+        "onedrive": ["onedrive", "sharepoint"],
+        "zoom": ["zoom", "meeting transcript", "zoom call", "zoom recording", "meeting recording", "meeting notes", "meeting summary"],
+        "google_meet": ["google meet", "gmeet", "meet call", "meet recording"],
+        "teams": ["ms teams", "teams channel", "teams chat", "teams message"],
+        "slack": ["slack", "slack channel", "slack message"],
+        "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"]
+    }
+    for prov, kws in connector_keywords.items():
+        if any(kw in q_lower for kw in kws):
+            if not active_providers or prov in active_providers:
+                return {"intent": "RAG", "routing_reason": f"Query references connected workplace integration '{prov}'."}
 
     # Heuristic fast-path 2: If user query mentions words from any uploaded document file name
     matched_doc = None
@@ -182,8 +205,18 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         doc_summaries.append(f"- {fn} [{d.get('file_type', '').upper()}] ({cat}{period}{topics})")
     catalog_text = "\n".join(doc_summaries) if doc_summaries else "(No documents currently uploaded)"
 
+    # Format connected integrations for LLM router context
+    integration_summaries = []
+    for it in active_integrations:
+        prov = it.get("provider", "")
+        acct = f" ({it['account_identifier']})" if it.get("account_identifier") else ""
+        sources = f", Monitored: {', '.join(it['monitored_sources'])}" if it.get("monitored_sources") else ""
+        integration_summaries.append(f"- {prov.upper()}{acct}{sources}")
+    integrations_text = "\n".join(integration_summaries) if integration_summaries else "(No cloud integrations currently connected)"
+
     # LLM Router Classification
     context_desc = (
+        f"Connected Cloud Integrations:\n{integrations_text}\n\n"
         f"Available Documents in Knowledge Base:\n{catalog_text}\n\n"
         f"Available Sheets: {', '.join(all_sheets)}\n"
         f"Available Columns: {', '.join(all_cols[:25])}\n\n"
@@ -354,9 +387,9 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             return {
                 "final_response": (
                     "I am your company's **AI Performance Coach**, dedicated solely to analyzing team metrics, "
-                    "sales performance, incentive policies, and uploaded company documentation.\n\n"
+                    "sales performance, incentive policies, uploaded company documentation, and connected workplace tools (Google Drive, Meetings, Emails, Teams).\n\n"
                     "I cannot assist with questions regarding external topics, general knowledge, movies, academic homework, or non-work matters. "
-                    "Please feel free to ask about your team's KPI reports, case performance, incentives, or uploaded company files!"
+                    "Please feel free to ask about your team's KPI reports, case performance, incentives, meeting summaries, or company files!"
                 ),
                 "citations": []
             }
@@ -365,17 +398,30 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             "citations": []
         }
 
-    # Case A: Document Catalog Intent
+    # Case A: Document & Connected Integrations Catalog Intent
     if intent == "CATALOG":
-        if not doc_catalog:
-            return {"final_response": "No documents or spreadsheets are currently uploaded for your company."}
+        active_integrations = state.get("active_integrations", [])
+        if not doc_catalog and not active_integrations:
+            return {"final_response": "No documents, spreadsheets, or cloud integrations are currently connected for your company."}
 
-        lines = ["### Uploaded Knowledge Base Documents\n"]
-        for d in doc_catalog:
-            period_str = f" (Period: {d['document_period']})" if d.get("document_period") else ""
-            cat_str = f" [{d['category']}]" if d.get("category") else ""
-            summary_str = f"\n   *Summary:* {d['summary']}" if d.get("summary") else ""
-            lines.append(f"- **{d['file_name']}** (`{d['file_type'].upper()}`){period_str}{cat_str}{summary_str}")
+        lines = ["### Uploaded Knowledge Base & Connected Integrations\n"]
+        if doc_catalog:
+            lines.append("#### Uploaded Documents & Spreadsheets:")
+            for d in doc_catalog:
+                period_str = f" (Period: {d['document_period']})" if d.get("document_period") else ""
+                cat_str = f" [{d['category']}]" if d.get("category") else ""
+                summary_str = f"\n   *Summary:* {d['summary']}" if d.get("summary") else ""
+                lines.append(f"- **{d['file_name']}** (`{d['file_type'].upper()}`){period_str}{cat_str}{summary_str}")
+            lines.append("")
+
+        if active_integrations:
+            lines.append("#### Connected Cloud Integrations:")
+            for it in active_integrations:
+                prov = it.get("provider", "").upper()
+                acct = f" ({it['account_identifier']})" if it.get("account_identifier") else ""
+                sources = f" | Monitored: {', '.join(it['monitored_sources'])}" if it.get("monitored_sources") else ""
+                lines.append(f"- **{prov}**{acct}{sources}")
+
         return {"final_response": "\n".join(lines)}
 
     # Case B: Conversational Greetings & General Dialogue

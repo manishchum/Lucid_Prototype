@@ -95,6 +95,10 @@ def _run_ingestion_background(
     finally:
         # Clean up local temporary file after ingestion
         if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
 # ============================================================================
 # 1. HELPERS: MIME SNIFFING, RBAC, AUDIT LOGGING
 # ============================================================================
@@ -633,7 +637,7 @@ async def list_coach_documents(
     # Fast L1 (Memory) + L2 (Redis) Cache lookup (<1ms response time)
     cache_key = f"coach_docs:{company_id}:{page}:{limit}:{search or ''}:{status or ''}:{source or ''}"
     cached_data = get_coach_docs_cached(cache_key)
-    if cached_data is not None:
+    if cached_data is not None and "total_rows" in cached_data and "total_chunks" in cached_data:
         return cached_data
 
     # Base query
@@ -661,12 +665,60 @@ async def list_coach_documents(
     total_count = res.count or 0
     total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
+    # Exact aggregate counts for company vault
+    total_spreadsheet_rows = 0
+    total_vector_chunks = 0
+    try:
+        rows_res = (
+            supabase_admin.table("coach_spreadsheet_rows")
+            .select("id", count="exact")
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        )
+        total_spreadsheet_rows = getattr(rows_res, "count", 0) or 0
+    except Exception as e:
+        print(f"[COACH DOCS] Note querying spreadsheet rows: {e}")
+
+    try:
+        chunks_res = (
+            supabase_admin.table("coach_document_chunks")
+            .select("id", count="exact")
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        )
+        total_vector_chunks = getattr(chunks_res, "count", 0) or 0
+    except Exception as e:
+        print(f"[COACH DOCS] Note querying vector chunks: {e}")
+
+    # Fallback to sum of parsed_metadata across all company documents if direct table count is 0
+    if total_spreadsheet_rows == 0 or total_vector_chunks == 0:
+        try:
+            meta_res = (
+                supabase_admin.table("coach_uploaded_documents")
+                .select("parsed_metadata")
+                .eq("company_id", company_id)
+                .in_("status", ["completed", "embedding", "COMPLETED"])
+                .execute()
+            )
+            for d in (getattr(meta_res, "data", None) or []):
+                pm = d.get("parsed_metadata") or {}
+                if total_spreadsheet_rows == 0:
+                    total_spreadsheet_rows += (pm.get("spreadsheet_rows_count") or pm.get("total_rows") or pm.get("stored_rows") or 0)
+                if total_vector_chunks == 0:
+                    total_vector_chunks += (pm.get("chunks_count") or pm.get("total_chunks") or pm.get("chunk_count") or 0)
+        except Exception as meta_err:
+            print(f"[COACH DOCS] Note summing metadata: {meta_err}")
+
     catalog_result = {
         "documents": res.data or [],
         "total": total_count,
         "page": page,
         "limit": limit,
-        "total_pages": total_pages
+        "total_pages": total_pages,
+        "total_rows": total_spreadsheet_rows,
+        "total_chunks": total_vector_chunks
     }
     set_coach_docs_cached(cache_key, catalog_result, ttl=120)
     return catalog_result

@@ -30,7 +30,6 @@ import {
   UserCheck,
   FolderSync,
   HardDrive,
-  FolderOpen
   FolderOpen,
   Folder,
   FolderTree,
@@ -178,6 +177,8 @@ export default function CoachUploadsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalDocuments, setTotalDocuments] = useState(0)
+  const [totalRowsCount, setTotalRowsCount] = useState<number | null>(null)
+  const [totalChunksCount, setTotalChunksCount] = useState<number | null>(null)
 
   // Upload Form State (Multi-File)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -259,6 +260,8 @@ export default function CoachUploadsPage() {
         setTotalDocuments(payload.total || 0)
         setCurrentPage(payload.page || 1)
         setTotalPages(payload.total_pages || 1)
+        if (typeof payload.total_rows === "number") setTotalRowsCount(payload.total_rows)
+        if (typeof payload.total_chunks === "number") setTotalChunksCount(payload.total_chunks)
       }
     } catch (err) {
       console.error("[coach-upload] Failed to fetch documents:", err)
@@ -996,8 +999,18 @@ export default function CoachUploadsPage() {
   // Summary Metrics
   const totalDocs = totalDocuments || documents.length
   const completedDocs = documents.filter(d => d.status === "completed").length
-  const totalChunks = documents.reduce((acc, d) => acc + (d.parsed_metadata?.chunks_count || 0), 0)
-  const totalRows = documents.reduce((acc, d) => acc + (d.parsed_metadata?.spreadsheet_rows_count || 0), 0)
+    // Dynamic fallback calculation across loaded documents with multi-key normalization
+  const fallbackChunks = documents.reduce((acc, d) => {
+    const meta = d.parsed_metadata || {}
+    return acc + (meta.chunks_count ?? meta.total_chunks ?? meta.chunk_count ?? 0)
+  }, 0)
+  const fallbackRows = documents.reduce((acc, d) => {
+    const meta = d.parsed_metadata || {}
+    return acc + (meta.spreadsheet_rows_count ?? meta.total_rows ?? meta.stored_rows ?? 0)
+  }, 0)
+
+  const totalChunks = totalChunksCount !== null && totalChunksCount !== undefined ? totalChunksCount : fallbackChunks
+  const totalRows = totalRowsCount !== null && totalRowsCount !== undefined ? totalRowsCount : fallbackRows
 
   // Filtered Chunks in Drawer
   const filteredChunks = chunksForInspect.filter(c =>
@@ -1354,8 +1367,8 @@ export default function CoachUploadsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {documents.map((doc) => {
                     const meta = doc.parsed_metadata || {}
-                    const chunksCount = meta.chunks_count ?? 0
-                    const rowsCount = meta.spreadsheet_rows_count ?? 0
+                    const chunksCount = meta.chunks_count ?? meta.total_chunks ?? meta.chunk_count ?? 0
+                    const rowsCount = meta.spreadsheet_rows_count ?? meta.total_rows ?? meta.stored_rows ?? 0
                     const empTarget = employees.find(e => e.user_id === doc.target_employee_id)
 
                     return (
@@ -1682,7 +1695,7 @@ export default function CoachUploadsPage() {
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 >
-                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? 0})
+                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? inspectDoc.parsed_metadata?.total_chunks ?? inspectDoc.parsed_metadata?.chunk_count ?? chunksForInspect.length})
                 </button>
               </div>
 

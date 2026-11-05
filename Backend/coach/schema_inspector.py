@@ -167,6 +167,60 @@ def get_company_document_catalog(company_id: str) -> List[Dict[str, Any]]:
         return []
 
 
+def get_company_active_integrations(company_id: str) -> List[Dict[str, Any]]:
+    """
+    Returns an inventory of active cloud integrations (Google Drive, Gmail,
+    Zoom, Teams, Slack, OneDrive) and their monitored folders/channels.
+    Used by introspect_node and router_node to include connected workplace streams
+    in the semantic whitelist.
+    """
+    try:
+        res = (
+            supabase_admin.table("company_integrations")
+            .select("id, provider, account_identifier, status, config, last_synced_at")
+            .eq("company_id", company_id)
+            .eq("status", "active")
+            .execute()
+        )
+        integrations = getattr(res, "data", None) or []
+        if not integrations:
+            return []
+
+        integration_ids = [it["id"] for it in integrations]
+        sources_res = (
+            supabase_admin.table("integration_monitored_sources")
+            .select("integration_id, source_id, source_name, source_type")
+            .in_("integration_id", integration_ids)
+            .execute()
+        )
+        sources = getattr(sources_res, "data", None) or []
+        sources_by_integration: Dict[str, List[Dict[str, Any]]] = {}
+        for s in sources:
+            iid = s.get("integration_id")
+            if iid not in sources_by_integration:
+                sources_by_integration[iid] = []
+            sources_by_integration[iid].append(s)
+
+        summary_list = []
+        for it in integrations:
+            monitored = sources_by_integration.get(it["id"], [])
+            config = it.get("config") or {}
+            source_names = [m.get("source_name") for m in monitored if m.get("source_name")]
+            if not source_names and config.get("folder_name"):
+                source_names = [config.get("folder_name")]
+
+            summary_list.append({
+                "provider": it.get("provider", ""),
+                "account_identifier": it.get("account_identifier", ""),
+                "monitored_sources": source_names,
+                "last_synced_at": it.get("last_synced_at")
+            })
+        return summary_list
+    except Exception as e:
+        print(f"[COACH SCHEMA INSPECTOR] Error fetching integrations catalog: {e}")
+        return []
+
+
 def format_schema_for_sql_prompt(schema_dict: Dict[str, Any], company_id: str) -> str:
     """
     Formats the introspected schema and sample rows into a clear, strict Markdown

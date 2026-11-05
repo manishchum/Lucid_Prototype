@@ -21,6 +21,7 @@ class CoachState(TypedDict, total=False):
     schema_dict: Dict[str, Any]
     schema_prompt: str
     document_catalog: List[Dict[str, Any]]
+    active_integrations: List[Dict[str, Any]]
 
     # Routing Decision: "SQL", "RAG", "HYBRID", "CATALOG", "GENERAL", "SAFETY", "SECURITY", "SCOPE_DEFLECTION"
     intent: str
