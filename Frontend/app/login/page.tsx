@@ -75,6 +75,8 @@ function LoginContent() {
   useEffect(() => {
     const reason = searchParams.get("reason")
     if (reason === "inactivity") {
+      clearManualAuthUser()
+      clearBrowserSessionActive()
       setError("Your session has expired due to 1 hour of inactivity. Please sign in again.")
       return
     }
@@ -141,8 +143,6 @@ function LoginContent() {
     setLoading(true)
     setError("")
     setResetMessage("")
-    setBrowserSessionActive()
-    updateLastActiveTimestamp()
 
     try {
       const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
@@ -151,6 +151,8 @@ function LoginContent() {
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
     } catch (error: any) {
+      clearBrowserSessionActive()
+      clearManualAuthUser()
       setError(mapLoginErrorMessage(error))
       try {
         await fetchWithAuth('/api/logs', {
@@ -206,8 +208,6 @@ function LoginContent() {
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setError("")
-    setBrowserSessionActive()
-    updateLastActiveTimestamp()
     let result = null
     try {
       result = await signInWithPopup(auth, googleProvider)
@@ -216,6 +216,8 @@ function LoginContent() {
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
     } catch (error: any) {
+      clearBrowserSessionActive()
+      clearManualAuthUser()
       if (error?.message?.includes("Access denied")) {
         setError("Access denied. Your Google account email is not in the allowed users list.")
       } else {

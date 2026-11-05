@@ -303,6 +303,7 @@ export const hasActiveSession = (): boolean => {
   try {
     const isDisplaced = window.sessionStorage.getItem("lucid:displaced-session") === "1"
     if (isDisplaced) return false
+    if (isSessionExpiredDueToInactivity()) return false
     const user = readManualAuthUser()
     return Boolean(user?.uid && user?.email)
   } catch {
@@ -330,6 +331,7 @@ export const clearManualAuthUser = (): void => {
     window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.localStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
     clearBrowserSessionActive()
   } catch {
     // no-op
@@ -362,6 +364,9 @@ const readCachedProfile = (): any | null => {
 
 export const isSessionExpiredDueToInactivity = (): boolean => {
   if (typeof window === "undefined") return false
+  if (!isBrowserSessionActive()) return false
+  const hasUser = Boolean(readManualAuthUser() || auth?.currentUser)
+  if (!hasUser) return false
   try {
     const lastActiveStr = window.localStorage.getItem(LAST_ACTIVE_STORAGE_KEY) ||
                           window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)
@@ -543,14 +548,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
+      const isPublicPage = isAuthPage || pathname === "/";
+
       // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
       if (isAuthPage && firebaseUser) {
         setBrowserSessionActive();
         updateLastActiveTimestamp();
       }
 
-      // 2. If NOT on an auth page and browser session is NOT active, user opened browser fresh after close
-      if (!isAuthPage && !isBrowserSessionActive()) {
+      // 2. If NOT on an auth/public page and browser session is NOT active, user opened browser fresh after close
+      if (!isPublicPage && !isBrowserSessionActive()) {
         if (firebaseUser) {
           try {
             await signOut(auth);
@@ -566,8 +573,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 3. Check 1-hour inactivity
-      if (isSessionExpiredDueToInactivity()) {
+      // 3. Check 1-hour inactivity (only on protected non-auth pages for active sessions)
+      if (!isAuthPage && (firebaseUser || readManualAuthUser()) && isSessionExpiredDueToInactivity()) {
         await logout("inactivity");
         if (typeof window !== "undefined") {
           window.location.replace("/login?reason=inactivity");
@@ -702,7 +709,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {}
 
       if (typeof window !== 'undefined') {
-        window.location.replace('/login');
+        const pathname = window.location.pathname;
+        const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password";
+        if (!isAuthPage) {
+          const target = reason === "inactivity" ? "/login?reason=inactivity" : "/login";
+          window.location.replace(target);
+        }
       }
     };
     
@@ -843,7 +855,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activityEvents.forEach((evt) => window.addEventListener(evt, recordActivity, { passive: true }));
 
     const checkInactivity = async () => {
-      if (isSessionExpiredDueToInactivity()) {
+      const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+      const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password";
+      if (!isAuthPage && isSessionExpiredDueToInactivity()) {
         console.info("[auth-context] Session expired due to 1 hour of inactivity");
         await logout("inactivity");
         if (typeof window !== "undefined") {
@@ -886,7 +900,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
-    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
           window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
@@ -937,6 +950,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     } catch (error) {
       console.error("Login failed:", error)
+      clearManualAuthUser()
+      clearBrowserSessionActive()
+      setUser(null)
+      try {
+        await signOut(auth)
+      } catch {}
       throw error
     }
   }
@@ -956,6 +975,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut(auth)
     } catch {}
     clearManualAuthUser()
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+      window.localStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+    }
     sharedDataClient.invalidateByPrefix("v1|auth")
     sharedDataClient.clear()
     setUser(null)
