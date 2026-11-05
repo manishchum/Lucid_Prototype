@@ -553,10 +553,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const isPublicPage = isAuthPage || pathname === "/";
 
-      // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
-      if (isAuthPage && firebaseUser) {
-        setBrowserSessionActive();
+      // 1. If user is on an auth page, only update activity if browser session is already active.
+      // If browser session is NOT active (e.g. browser was reopened fresh), purge unasserted Firebase session.
+      if (isAuthPage && firebaseUser && isBrowserSessionActive()) {
         updateLastActiveTimestamp();
+      } else if (isAuthPage && firebaseUser && !isBrowserSessionActive()) {
+        try {
+          await signOut(auth);
+        } catch {}
+        clearManualAuthUser();
+        clearBrowserSessionActive();
+        setUser(null);
       }
 
       // 2. If NOT on an auth/public page and browser session is NOT active, user opened browser fresh after close
