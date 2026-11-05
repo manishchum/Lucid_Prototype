@@ -17,7 +17,12 @@ const SESSION_COOKIE_NAME = "lucid_session_active"
 
 export const isBrowserSessionActive = (): boolean => {
   if (typeof document === "undefined") return false
-  return document.cookie.split(";").some((c) => c.trim().startsWith(`${SESSION_COOKIE_NAME}=`))
+  return document.cookie.split(";").some((c) => {
+    const trimmed = c.trim()
+    if (!trimmed.startsWith(`${SESSION_COOKIE_NAME}=`)) return false
+    const val = trimmed.slice(`${SESSION_COOKIE_NAME}=`.length).trim().toLowerCase()
+    return val === "1" || val === "true"
+  })
 }
 
 export const setBrowserSessionActive = (): void => {
@@ -27,7 +32,7 @@ export const setBrowserSessionActive = (): void => {
 
 export const clearBrowserSessionActive = (): void => {
   if (typeof document === "undefined") return
-  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`
+  document.cookie = `${SESSION_COOKIE_NAME}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`
 }
 
 type AuthUserLike = {
@@ -248,8 +253,22 @@ const loadCachedFullProfile = async (
         }
 
         const payload = await res.json()
+        const tenantAddons = payload?.tenant?.activeCompany?.subscription_addons
+        const normalizedEmployeeData = payload.employeeData
+          ? {
+              ...payload.employeeData,
+              subscription_addons: Array.isArray(payload.employeeData.subscription_addons)
+                ? payload.employeeData.subscription_addons
+                : (Array.isArray(tenantAddons) ? tenantAddons : []),
+              company: payload.employeeData.company || (payload.tenant?.activeCompany ? {
+                ...payload.tenant.activeCompany,
+                subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+              } : undefined),
+            }
+          : payload.employeeData
+
         return {
-          employeeData: payload.employeeData,
+          employeeData: normalizedEmployeeData,
           userId: payload.userId,
           userRoles: payload.userRoles || [],
           isAdmin: Boolean(payload.isAdmin),
@@ -303,6 +322,7 @@ export const hasActiveSession = (): boolean => {
   try {
     const isDisplaced = window.sessionStorage.getItem("lucid:displaced-session") === "1"
     if (isDisplaced) return false
+    if (isSessionExpiredDueToInactivity()) return false
     const user = readManualAuthUser()
     return Boolean(user?.uid && user?.email)
   } catch {
@@ -330,6 +350,7 @@ export const clearManualAuthUser = (): void => {
     window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
+    window.localStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
     clearBrowserSessionActive()
   } catch {
     // no-op
@@ -354,7 +375,20 @@ const readCachedProfile = (): any | null => {
     const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ||
                 window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
     if (!raw) return null
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    const tenantAddons = parsed?.tenant?.activeCompany?.subscription_addons
+    if (parsed?.employeeData) {
+      if (!parsed.employeeData.subscription_addons && Array.isArray(tenantAddons)) {
+        parsed.employeeData.subscription_addons = tenantAddons
+      }
+      if (!parsed.employeeData.company && parsed?.tenant?.activeCompany) {
+        parsed.employeeData.company = {
+          ...parsed.tenant.activeCompany,
+          subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+        }
+      }
+    }
+    return parsed
   } catch {
     return null
   }
@@ -362,6 +396,9 @@ const readCachedProfile = (): any | null => {
 
 export const isSessionExpiredDueToInactivity = (): boolean => {
   if (typeof window === "undefined") return false
+  if (!isBrowserSessionActive()) return false
+  const hasUser = Boolean(readManualAuthUser() || auth?.currentUser)
+  if (!hasUser) return false
   try {
     const lastActiveStr = window.localStorage.getItem(LAST_ACTIVE_STORAGE_KEY) ||
                           window.sessionStorage.getItem(LAST_ACTIVE_STORAGE_KEY)
@@ -394,17 +431,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return (readManualAuthUser() as User) || null
   })
   const [loading, setLoading] = useState<boolean>(() => {
-    return !readManualAuthUser()
+    const manualUser = readManualAuthUser()
+    if (!manualUser) return false
+    const cachedProfile = readCachedProfile()
+    return !cachedProfile?.employeeData
   })
-  const [rolesLoaded, setRolesLoaded] = useState(false)
-  const [userRoles, setUserRoles] = useState<string[]>([])
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
-  const [isDeveloper, setIsDeveloper] = useState(false)
-  const [isManager, setIsManager] = useState(false)
-  const [isManagerofUsers, setIsManagerofUsers] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const [rolesLoaded, setRolesLoaded] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.employeeData || p?.userId)
+  })
+  const [userRoles, setUserRoles] = useState<string[]>(() => {
+    const p = readCachedProfile()
+    return p?.userRoles || []
+  })
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isAdmin)
+  })
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isSuperAdmin)
+  })
+  const [isDeveloper, setIsDeveloper] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isDeveloper)
+  })
+  const [isManager, setIsManager] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isManager)
+  })
+  const [isManagerofUsers, setIsManagerofUsers] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isManagerofUsers)
+  })
+  const [userId, setUserId] = useState<string | null>(() => {
+    const p = readCachedProfile()
+    return p?.userId ?? null
+  })
+  const [employeeData, setEmployeeData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.employeeData ?? null
+  })
   const [initialTenantData, setInitialTenantData] = useState<any | null>(() => {
     const p = readCachedProfile()
     return p?.tenant ?? null
@@ -543,14 +610,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         pathname === "/signup" ||
         pathname === "/forgot-password";
 
+      const isPublicPage = isAuthPage || pathname === "/";
+
       // 1. If user is currently on an auth page and firebaseUser authenticated, activate browser session
       if (isAuthPage && firebaseUser) {
         setBrowserSessionActive();
         updateLastActiveTimestamp();
       }
 
-      // 2. If NOT on an auth page and browser session is NOT active, user opened browser fresh after close
-      if (!isAuthPage && !isBrowserSessionActive()) {
+      // 2. If NOT on an auth/public page and browser session is NOT active, user opened browser fresh after close
+      if (!isPublicPage && !isBrowserSessionActive()) {
         if (firebaseUser) {
           try {
             await signOut(auth);
@@ -566,8 +635,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // 3. Check 1-hour inactivity
-      if (isSessionExpiredDueToInactivity()) {
+      // 3. Check 1-hour inactivity (only on protected non-auth pages for active sessions)
+      if (!isAuthPage && (firebaseUser || readManualAuthUser()) && isSessionExpiredDueToInactivity()) {
         await logout("inactivity");
         if (typeof window !== "undefined") {
           window.location.replace("/login?reason=inactivity");
@@ -580,11 +649,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (effectiveUser?.email) {
         if (!isAuthPage) {
-          setRolesLoaded(false)
-
           let profile = readCachedProfile();
 
           if (!profile) {
+              setRolesLoaded(false)
               profile = await loadCachedFullProfile(effectiveUser);
 
               if (profile) {
@@ -702,7 +770,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {}
 
       if (typeof window !== 'undefined') {
-        window.location.replace('/login');
+        const pathname = window.location.pathname;
+        const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password";
+        if (!isAuthPage) {
+          const target = reason === "inactivity" ? "/login?reason=inactivity" : "/login";
+          window.location.replace(target);
+        }
       }
     };
     
@@ -732,6 +805,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (payload?.user) {
               writeManualAuthUser(payload.user);
               if (payload.profile) {
+                const tenantAddons = payload.profile?.tenant?.activeCompany?.subscription_addons;
+                if (payload.profile.employeeData) {
+                  if (!payload.profile.employeeData.subscription_addons && Array.isArray(tenantAddons)) {
+                    payload.profile.employeeData.subscription_addons = tenantAddons;
+                  }
+                  if (!payload.profile.employeeData.company && payload.profile?.tenant?.activeCompany) {
+                    payload.profile.employeeData.company = {
+                      ...payload.profile.tenant.activeCompany,
+                      subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+                    };
+                  }
+                }
                 writeCachedProfile(payload.profile);
                 setEmployeeData(payload.profile.employeeData);
                 setUserId(payload.profile.userId);
@@ -843,7 +928,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     activityEvents.forEach((evt) => window.addEventListener(evt, recordActivity, { passive: true }));
 
     const checkInactivity = async () => {
-      if (isSessionExpiredDueToInactivity()) {
+      const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+      const isAuthPage = pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password";
+      if (!isAuthPage && isSessionExpiredDueToInactivity()) {
         console.info("[auth-context] Session expired due to 1 hour of inactivity");
         await logout("inactivity");
         if (typeof window !== "undefined") {
@@ -886,7 +973,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
-    window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
           window.localStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
         }
 
@@ -937,6 +1023,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false)
     } catch (error) {
       console.error("Login failed:", error)
+      clearManualAuthUser()
+      clearBrowserSessionActive()
+      setUser(null)
+      try {
+        await signOut(auth)
+      } catch {}
       throw error
     }
   }
@@ -956,6 +1048,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut(auth)
     } catch {}
     clearManualAuthUser()
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+      window.localStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
+    }
     sharedDataClient.invalidateByPrefix("v1|auth")
     sharedDataClient.clear()
     setUser(null)
