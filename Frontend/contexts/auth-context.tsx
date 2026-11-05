@@ -253,8 +253,22 @@ const loadCachedFullProfile = async (
         }
 
         const payload = await res.json()
+        const tenantAddons = payload?.tenant?.activeCompany?.subscription_addons
+        const normalizedEmployeeData = payload.employeeData
+          ? {
+              ...payload.employeeData,
+              subscription_addons: Array.isArray(payload.employeeData.subscription_addons)
+                ? payload.employeeData.subscription_addons
+                : (Array.isArray(tenantAddons) ? tenantAddons : []),
+              company: payload.employeeData.company || (payload.tenant?.activeCompany ? {
+                ...payload.tenant.activeCompany,
+                subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+              } : undefined),
+            }
+          : payload.employeeData
+
         return {
-          employeeData: payload.employeeData,
+          employeeData: normalizedEmployeeData,
           userId: payload.userId,
           userRoles: payload.userRoles || [],
           isAdmin: Boolean(payload.isAdmin),
@@ -361,7 +375,20 @@ const readCachedProfile = (): any | null => {
     const raw = window.sessionStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ||
                 window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY)
     if (!raw) return null
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    const tenantAddons = parsed?.tenant?.activeCompany?.subscription_addons
+    if (parsed?.employeeData) {
+      if (!parsed.employeeData.subscription_addons && Array.isArray(tenantAddons)) {
+        parsed.employeeData.subscription_addons = tenantAddons
+      }
+      if (!parsed.employeeData.company && parsed?.tenant?.activeCompany) {
+        parsed.employeeData.company = {
+          ...parsed.tenant.activeCompany,
+          subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+        }
+      }
+    }
+    return parsed
   } catch {
     return null
   }
@@ -404,17 +431,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return (readManualAuthUser() as User) || null
   })
   const [loading, setLoading] = useState<boolean>(() => {
-    return !readManualAuthUser()
+    const manualUser = readManualAuthUser()
+    if (!manualUser) return false
+    const cachedProfile = readCachedProfile()
+    return !cachedProfile?.employeeData
   })
-  const [rolesLoaded, setRolesLoaded] = useState(false)
-  const [userRoles, setUserRoles] = useState<string[]>([])
-  const [isAdmin, setIsAdmin] = useState(false)
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
-  const [isDeveloper, setIsDeveloper] = useState(false)
-  const [isManager, setIsManager] = useState(false)
-  const [isManagerofUsers, setIsManagerofUsers] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const [rolesLoaded, setRolesLoaded] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.employeeData || p?.userId)
+  })
+  const [userRoles, setUserRoles] = useState<string[]>(() => {
+    const p = readCachedProfile()
+    return p?.userRoles || []
+  })
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isAdmin)
+  })
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isSuperAdmin)
+  })
+  const [isDeveloper, setIsDeveloper] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isDeveloper)
+  })
+  const [isManager, setIsManager] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isManager)
+  })
+  const [isManagerofUsers, setIsManagerofUsers] = useState<boolean>(() => {
+    const p = readCachedProfile()
+    return Boolean(p?.isManagerofUsers)
+  })
+  const [userId, setUserId] = useState<string | null>(() => {
+    const p = readCachedProfile()
+    return p?.userId ?? null
+  })
+  const [employeeData, setEmployeeData] = useState<any | null>(() => {
+    const p = readCachedProfile()
+    return p?.employeeData ?? null
+  })
   const [initialTenantData, setInitialTenantData] = useState<any | null>(() => {
     const p = readCachedProfile()
     return p?.tenant ?? null
@@ -592,11 +649,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (effectiveUser?.email) {
         if (!isAuthPage) {
-          setRolesLoaded(false)
-
           let profile = readCachedProfile();
 
           if (!profile) {
+              setRolesLoaded(false)
               profile = await loadCachedFullProfile(effectiveUser);
 
               if (profile) {
@@ -749,6 +805,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (payload?.user) {
               writeManualAuthUser(payload.user);
               if (payload.profile) {
+                const tenantAddons = payload.profile?.tenant?.activeCompany?.subscription_addons;
+                if (payload.profile.employeeData) {
+                  if (!payload.profile.employeeData.subscription_addons && Array.isArray(tenantAddons)) {
+                    payload.profile.employeeData.subscription_addons = tenantAddons;
+                  }
+                  if (!payload.profile.employeeData.company && payload.profile?.tenant?.activeCompany) {
+                    payload.profile.employeeData.company = {
+                      ...payload.profile.tenant.activeCompany,
+                      subscription_addons: Array.isArray(tenantAddons) ? tenantAddons : []
+                    };
+                  }
+                }
                 writeCachedProfile(payload.profile);
                 setEmployeeData(payload.profile.employeeData);
                 setUserId(payload.profile.userId);
