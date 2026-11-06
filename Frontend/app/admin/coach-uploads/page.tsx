@@ -166,8 +166,9 @@ interface DocumentChunk {
 }
 
 export default function CoachUploadsPage() {
-  const { employeeData, user: authUser } = useAuth()
+  const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, rolesLoaded, loading: authLoading } = useAuth()
   const companyId = employeeData?.company_id
+  const hasAccess = isAdmin || isSuperAdmin || isDeveloper
 
   // Documents & Pagination State
   const [documents, setDocuments] = useState<CoachDocument[]>([])
@@ -1232,7 +1233,7 @@ export default function CoachUploadsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start pt-2">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Target Scope (Optional)
+                  Target Scope 
                 </label>
                 <select
                   value={targetEmployeeId}
@@ -1253,7 +1254,7 @@ export default function CoachUploadsPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Document Description / Notes (Optional)
+                  Document Description
                 </label>
                 <input
                   type="text"
@@ -1263,7 +1264,7 @@ export default function CoachUploadsPage() {
                   className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Enables the AI Coach to quickly identify and route questions to this document.
+                  Give a good detailed description of the document for agent understanding.
                 </p>
               </div>
             </div>
@@ -1375,8 +1376,8 @@ export default function CoachUploadsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {documents.map((doc) => {
                     const meta = doc.parsed_metadata || {}
-                    const chunksCount = meta.chunks_count ?? 0
-                    const rowsCount = meta.spreadsheet_rows_count ?? 0
+                    const chunksCount = meta.chunks_count ?? meta.total_chunks ?? meta.chunk_count ?? 0
+                    const rowsCount = meta.spreadsheet_rows_count ?? meta.total_rows ?? meta.stored_rows ?? 0
                     const empTarget = employees.find(e => e.user_id === doc.target_employee_id)
 
                     return (
@@ -1395,7 +1396,7 @@ export default function CoachUploadsPage() {
                               {getFileIcon(doc.file_type)}
                             </div>
                             <div>
-                              <div className="font-semibold text-slate-900 flex items-center gap-2">
+                              <div className="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
                                 {doc.file_name}
                                 <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                                   {doc.file_type}
@@ -1703,7 +1704,7 @@ export default function CoachUploadsPage() {
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 >
-                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? 0})
+                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? inspectDoc.parsed_metadata?.total_chunks ?? inspectDoc.parsed_metadata?.chunk_count ?? chunksForInspect.length})
                 </button>
               </div>
 

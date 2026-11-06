@@ -4,6 +4,10 @@ import os
 import logging
 import re
 
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["GUARDRAILS_DISABLE_TRACING"] = "true"
+logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
+
 # Build version: 2026.09.27-cloudbuild-02
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -55,6 +59,7 @@ from routes.uploads import router as uploads_router
 from routes.logs import router as logs_router
 from routes.notification_workflows import router as workflows_router
 from routes.coach_upload import router as coach_upload_router
+from routes.coach_chat import router as coach_chat_router
 from routes.google_drive import router as google_drive_router
 from routes.connectors import router as connectors_router
 from routes.audit_logs import router as audit_logs_router
@@ -447,6 +452,7 @@ app.include_router(unsubscribe.router)
 
 app.include_router(logs_router)
 app.include_router(coach_upload_router)
+app.include_router(coach_chat_router)
 app.include_router(google_drive_router)
 app.include_router(connectors_router)
 app.include_router(audit_logs_router)

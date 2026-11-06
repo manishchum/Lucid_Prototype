@@ -61,6 +61,44 @@ BUCKET_NAME = "coach-documents"
 TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
 
 
+async def _verify_coach_admin_permission(user_id: str) -> None:
+    """
+    Verifies that the requesting user has at least Admin role level (Admin, SuperAdmin, Developer).
+    Normal employees/learners and managers are not permitted.
+    """
+    has_perm = await check_user_permission(user_id, "admin")
+    if not has_perm:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Admin or Developer role required to access Performance Coach Ingestion."
+        )
+
+
+def _run_ingestion_background(
+    temp_file_path: str,
+    document_id: str,
+    company_id: str,
+    file_name: str,
+    file_type: str,
+    target_employee_id: Optional[str] = None
+):
+    """Background worker task to run file parsing and embedding."""
+    try:
+        run_coach_file_ingestion(
+            file_path=temp_file_path,
+            document_id=document_id,
+            company_id=company_id,
+            file_name=file_name,
+            file_type=file_type,
+            target_employee_id=target_employee_id
+        )
+    finally:
+        # Clean up local temporary file after ingestion
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
 # ============================================================================
 # 1. HELPERS: MIME SNIFFING, RBAC, AUDIT LOGGING
 # ============================================================================
@@ -674,7 +712,7 @@ async def list_coach_documents(
     # Fast L1 (Memory) + L2 (Redis) Cache lookup (<1ms response time)
     cache_key = f"coach_docs:{company_id}:{page}:{limit}:{search or ''}:{status or ''}:{source or ''}"
     cached_data = get_coach_docs_cached(cache_key)
-    if cached_data is not None:
+    if cached_data is not None and "total_rows" in cached_data and "total_chunks" in cached_data:
         return cached_data
 
     # Base query
@@ -702,6 +740,52 @@ async def list_coach_documents(
     total_count = res.count or 0
     total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
+    # Exact aggregate counts for company vault
+    total_spreadsheet_rows = 0
+    total_vector_chunks = 0
+    try:
+        rows_res = (
+            supabase_admin.table("coach_spreadsheet_rows")
+            .select("id", count="exact")
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        )
+        total_spreadsheet_rows = getattr(rows_res, "count", 0) or 0
+    except Exception as e:
+        print(f"[COACH DOCS] Note querying spreadsheet rows: {e}")
+
+    try:
+        chunks_res = (
+            supabase_admin.table("coach_document_chunks")
+            .select("id", count="exact")
+            .eq("company_id", company_id)
+            .limit(1)
+            .execute()
+        )
+        total_vector_chunks = getattr(chunks_res, "count", 0) or 0
+    except Exception as e:
+        print(f"[COACH DOCS] Note querying vector chunks: {e}")
+
+    # Fallback to sum of parsed_metadata across all company documents if direct table count is 0
+    if total_spreadsheet_rows == 0 or total_vector_chunks == 0:
+        try:
+            meta_res = (
+                supabase_admin.table("coach_uploaded_documents")
+                .select("parsed_metadata")
+                .eq("company_id", company_id)
+                .in_("status", ["completed", "embedding", "COMPLETED"])
+                .execute()
+            )
+            for d in (getattr(meta_res, "data", None) or []):
+                pm = d.get("parsed_metadata") or {}
+                if total_spreadsheet_rows == 0:
+                    total_spreadsheet_rows += (pm.get("spreadsheet_rows_count") or pm.get("total_rows") or pm.get("stored_rows") or 0)
+                if total_vector_chunks == 0:
+                    total_vector_chunks += (pm.get("chunks_count") or pm.get("total_chunks") or pm.get("chunk_count") or 0)
+        except Exception as meta_err:
+            print(f"[COACH DOCS] Note summing metadata: {meta_err}")
+
     catalog_result = {
         "documents": res.data or [],
         "total": total_count,
@@ -721,6 +805,8 @@ async def get_coach_document(
 ):
     """Get status and details of a specific coach document."""
     company_id = auth.company_id
+    await _verify_coach_admin_permission(auth.user_id)
+
     res = (
         supabase_admin.table("coach_uploaded_documents")
         .select("*")
