@@ -872,6 +872,7 @@ Engagement question: {request.engagement_question or "none"}
     def clean_whatsapp_message(text: str) -> str:
         if not text:
             return ""
+        import re
         # Remove any "hey there", "hi there", "hello there", "hey", "hi", "hello", "greetings" at the start
         cleaned = re.sub(r'^(?:hey\s+there|hi\s+there|hello\s+there|hey|hi|hello|greetings)[!,\.\s\-:]*', '', text, flags=re.IGNORECASE).strip()
         # Also remove any rogue "hey there" inside the message

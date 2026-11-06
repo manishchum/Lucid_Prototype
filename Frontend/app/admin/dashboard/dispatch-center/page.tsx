@@ -252,8 +252,8 @@ function AdminDispatchCenterContent() {
           const list = Array.isArray(data)
             ? data
             : Array.isArray(data?.sprints)
-            ? data.sprints
-            : [];
+              ? data.sprints
+              : [];
           setSprints(list);
         }
       } catch (e) {
@@ -455,23 +455,42 @@ function AdminDispatchCenterContent() {
 
   // ── Edit mode helpers ────────────────────────────────────────
   /**
+   * Safely strip HTML tags and decode basic entities to extract readable
+   * plain text without raw DOM HTML injection (prevents XSS vulnerabilities).
+   */
+  const stripHtmlToPlainText = (html: string): string => {
+    if (!html) return '';
+    if (typeof window !== 'undefined' && typeof DOMParser !== 'undefined') {
+      try {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        doc.querySelectorAll('script,style').forEach((el) => el.remove());
+        return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+      } catch {
+        // Fallback to regex below
+      }
+    }
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  /**
    * Extract the visible plain text from the HTML body so the user can
    * edit it as a simple string. We strip all HTML tags and decode entities.
    * We preserve the full HTML structure — edits are applied back via
    * patchEmailBody().
    */
   const getEditableText = (html: string): string => {
-    // Only extract the "editable" region: everything between the two
-    // <!-- CONTENT BLOCKS --> / <!-- DIVIDER --> markers (or before them).
-    // Simpler approach: strip ALL tags, collapse whitespace, let the user
-    // see the readable text of the Gemini-written body rows.
-    const div = document.createElement('div');
-    div.innerHTML = html;
-    // Remove script/style noise
-    div.querySelectorAll('script,style').forEach((el) => el.remove());
-    return (div.textContent || div.innerText || '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return stripHtmlToPlainText(html);
   };
 
   /**
@@ -549,11 +568,8 @@ function AdminDispatchCenterContent() {
         .filter(Boolean);
       setEditBodyText(paragraphs.join('\n\n'));
     } else {
-      // Fallback: strip all tags from the full body
-      const div = document.createElement('div');
-      div.innerHTML = html;
-      div.querySelectorAll('script,style').forEach((el) => el.remove());
-      setEditBodyText((div.textContent || '').replace(/\s+/g, ' ').trim());
+      // Fallback: strip all tags from the full body safely without raw DOM assignment
+      setEditBodyText(stripHtmlToPlainText(html));
     }
 
     setIsEditingEmail(true);
@@ -851,13 +867,13 @@ function AdminDispatchCenterContent() {
         schedule_items,
         scheduled_time: utcTime,
       };
-     
+
       // Comprehensive logging for audio and flashcards
       // console.log('\n========== FRONTEND REQUEST DETAILS ==========');
       // console.log('Total modules:', selectedSubModuleIds.length);
       // console.log('Content types:', selectedContent);
       // console.log('Days selected:', selectedDays);
-     
+
       selectedSubModuleIds.forEach((moduleId, idx) => {
         const contentType = selectedContent[idx % selectedContent.length];
         const day = selectedDays[idx % selectedDays.length];
@@ -867,9 +883,9 @@ function AdminDispatchCenterContent() {
         // console.log(`  - Day: ${day}`);
       });
       // console.log('==============================================\n');
-     
+
       // console.log('[FRONTEND DEBUG] Full request body:', JSON.stringify(requestBody, null, 2));
-     
+
       const res = await fetchWithAuth(`${API_BASE}/api/dispatch/schedule-multi-module`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-User-ID': currentUser.user_id },
@@ -932,7 +948,7 @@ function AdminDispatchCenterContent() {
         const localDate = new Date();
         localDate.setHours(localH, localM, 0, 0);
         const utcTime = `${String(localDate.getUTCHours()).padStart(2, '0')}:${String(localDate.getUTCMinutes()).padStart(2, '0')}`;
-       
+
         whatsappPayload.days_of_week = selectedDays.map((day) => {
           const dayMap: Record<string, number> = { 'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3, 'Fri': 4, 'Sat': 5, 'Sun': 6 };
           return dayMap[day] ?? 0;
@@ -1013,11 +1029,10 @@ function AdminDispatchCenterContent() {
                     setActiveTab('dispatches');
                     router.replace('/admin/dashboard/dispatch-center?tab=dispatches', { scroll: false });
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    activeTab === 'dispatches'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'dispatches'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
                 >
                   <Send size={13} />
                   <span>Sprint Dispatches</span>
@@ -1028,11 +1043,10 @@ function AdminDispatchCenterContent() {
                     setActiveTab('templates');
                     router.replace('/admin/dashboard/dispatch-center?tab=templates', { scroll: false });
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    activeTab === 'templates'
-                      ? 'bg-white text-indigo-700 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'templates'
+                    ? 'bg-white text-indigo-700 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                    }`}
                 >
                   <Bell size={13} />
                   <span>Notification Templates</span>
@@ -1048,382 +1062,369 @@ function AdminDispatchCenterContent() {
             <NotificationTemplatesManager />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* ─── LEFT COLUMN: Configuration ─────────────────── */}
-            <div className="space-y-6">
-              {/* 1. Delivery Channel */}
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                  1. Delivery Channel
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setSelectedChannel('whatsapp');
-                      setSelectedContent((prev) => prev.filter((x) => x !== 'flashcards'));
-                    }}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
-                      selectedChannel === 'whatsapp'
+              {/* ─── LEFT COLUMN: Configuration ─────────────────── */}
+              <div className="space-y-6">
+                {/* 1. Delivery Channel */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                    1. Delivery Channel
+                  </label>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setSelectedChannel('whatsapp');
+                        setSelectedContent((prev) => prev.filter((x) => x !== 'flashcards'));
+                      }}
+                      className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${selectedChannel === 'whatsapp'
                         ? 'border-green-500 bg-green-50 text-green-700'
                         : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    <MessageSquare size={18} />
-                    <span className="font-semibold">WhatsApp</span>
-                  </button>
-                  <button
-                    onClick={() => setSelectedChannel('email')}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
-                      selectedChannel === 'email'
+                        }`}
+                    >
+                      <MessageSquare size={18} />
+                      <span className="font-semibold">WhatsApp</span>
+                    </button>
+                    <button
+                      onClick={() => setSelectedChannel('email')}
+                      className={`flex-1 px-4 py-3 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${selectedChannel === 'email'
                         ? 'border-blue-500 bg-blue-50 text-blue-700'
                         : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    <Mail size={18} />
-                    <span className="font-semibold">Email</span>
-                  </button>
+                        }`}
+                    >
+                      <Mail size={18} />
+                      <span className="font-semibold">Email</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* 2. Target Sprint */}
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                  2. Target Sprint
-                </label>
-                <div className="relative">
-                  {loadingSprints ? (
-                    <div className="flex items-center gap-2 px-4 py-3.5 text-slate-400">
-                      <Loader2 size={16} className="animate-spin" /> Loading sprints…
-                    </div>
-                  ) : (
-                    <>
-                      <Select value={selectedSprintId} onValueChange={setSelectedSprintId}>
-                        <SelectTrigger className="w-full px-4 py-6 rounded-xl border-2 border-slate-200 bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-left h-auto">
-                          <SelectValue placeholder="Select a sprint…" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[300px] w-[var(--radix-select-trigger-width)]">
-                          {sprints.map((s) => (
-                            <SelectItem key={s.module_id} value={s.module_id}>
-                              {s.title}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* 3. Sub-Module Selection (multi) */}
-              {selectedSprintId && (
+                {/* 2. Target Sprint */}
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                      3. Sub-Module Selection
-                    </label>
-                    {subModules.length > 0 && (
-                      <button
-                        onClick={selectAllSubModules}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-                      >
-                        {selectedSubModuleIds.length === subModules.length ? 'Deselect All' : 'Select All'}
-                      </button>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                    2. Target Sprint
+                  </label>
+                  <div className="relative">
+                    {loadingSprints ? (
+                      <div className="flex items-center gap-2 px-4 py-3.5 text-slate-400">
+                        <Loader2 size={16} className="animate-spin" /> Loading sprints…
+                      </div>
+                    ) : (
+                      <>
+                        <Select value={selectedSprintId} onValueChange={setSelectedSprintId}>
+                          <SelectTrigger className="w-full px-4 py-6 rounded-xl border-2 border-slate-200 bg-white text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-left h-auto">
+                            <SelectValue placeholder="Select a sprint…" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[300px] w-[var(--radix-select-trigger-width)]">
+                            {sprints.map((s) => (
+                              <SelectItem key={s.module_id} value={s.module_id}>
+                                {s.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
                     )}
                   </div>
+                </div>
 
-                  {loadingSubModules ? (
-                    <div className="flex items-center gap-2 px-4 py-3 text-slate-400">
-                      <Loader2 size={16} className="animate-spin" /> Loading sub-modules…
+                {/* 3. Sub-Module Selection (multi) */}
+                {selectedSprintId && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        3. Sub-Module Selection
+                      </label>
+                      {subModules.length > 0 && (
+                        <button
+                          onClick={selectAllSubModules}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                          {selectedSubModuleIds.length === subModules.length ? 'Deselect All' : 'Select All'}
+                        </button>
+                      )}
                     </div>
-                  ) : subModules.length === 0 ? (
-                    <div className="flex items-center gap-2 px-4 py-4 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm">
-                      <AlertCircle size={16} /> No sub-modules found for this sprint.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto pr-1">
-                      {subModules.map((mod) => {
-                        const selected = selectedSubModuleIds.includes(mod.processed_module_id);
-                        return (
-                          <button
-                            key={mod.processed_module_id}
-                            onClick={() => toggleSubModule(mod.processed_module_id)}
-                            className={`px-4 py-3 rounded-xl border-2 transition-all text-sm font-semibold text-left flex items-center justify-between gap-2 ${
-                              selected
+
+                    {loadingSubModules ? (
+                      <div className="flex items-center gap-2 px-4 py-3 text-slate-400">
+                        <Loader2 size={16} className="animate-spin" /> Loading sub-modules…
+                      </div>
+                    ) : subModules.length === 0 ? (
+                      <div className="flex items-center gap-2 px-4 py-4 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 text-sm">
+                        <AlertCircle size={16} /> No sub-modules found for this sprint.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[280px] overflow-y-auto pr-1">
+                        {subModules.map((mod) => {
+                          const selected = selectedSubModuleIds.includes(mod.processed_module_id);
+                          return (
+                            <button
+                              key={mod.processed_module_id}
+                              onClick={() => toggleSubModule(mod.processed_module_id)}
+                              className={`px-4 py-3 rounded-xl border-2 transition-all text-sm font-semibold text-left flex items-center justify-between gap-2 ${selected
                                 ? 'border-blue-500 bg-blue-50 text-blue-700'
                                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                            }`}
-                          >
-                            <span className="truncate">{mod.title}</span>
-                            {selected && <Check size={16} className="shrink-0 text-blue-500" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 4. Engagement Question - Email only */}
-              {selectedSprintId && selectedChannel === 'email' && (
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                    4. Engagement Question (optional)
-                  </label>
-                  <div className="bg-red-50 border-2 border-red-100 rounded-xl p-4">
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-                        <span className="text-white font-bold text-lg">?</span>
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-slate-900 text-sm mb-1">Engagement Question</h4>
-                        <p className="text-xs text-slate-600">Include a challenge or thought-provoking question in the email</p>
-                      </div>
-                    </div>
-                    <textarea
-                      value={engagementQuestion}
-                      onChange={(e) => { setEngagementQuestion(e.target.value); setDraftedEmail(null); setSendResult(null); }}
-                      rows={2}
-                      placeholder="e.g. What's one compliance risk you've encountered this quarter?"
-                      className="w-full px-3 py-2 rounded-lg border border-red-200 bg-white text-sm focus:outline-none focus:border-red-400 resize-none"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 5. Content to Include */}
-              {selectedSprintId && (
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
-                    5. Content to Include
-                  </label>
-                  <div className="space-y-3">
-
-                    {/* ── Email-only: Flashcard card ── */}
-                    {selectedChannel === 'email' && (
-                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
-                        selectedContent.includes('flashcards')
-                          ? 'border-purple-400 bg-purple-50'
-                          : 'border-slate-200 bg-white'
-                      }`}>
-                        <button
-                          onClick={() => toggleContent('flashcards')}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                        >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            selectedContent.includes('flashcards') ? 'bg-purple-500' : 'bg-slate-100'
-                          }`}>
-                            <FileJson size={16} className={selectedContent.includes('flashcards') ? 'text-white' : 'text-slate-500'} />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-sm text-slate-800">Flashcards</p>
-                            <p className="text-xs text-slate-500">Embed flashcard cards from the module</p>
-                          </div>
-                          {selectedContent.includes('flashcards') && (
-                            <Check size={16} className="text-purple-500 shrink-0" />
-                          )}
-                        </button>
-
-                        {/* Flashcard sub-options */}
-                        {selectedContent.includes('flashcards') && (
-                          <div className="px-4 pb-4 space-y-3">
-                            {/* Toggle pill */}
-                            <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
-                              <button
-                                onClick={() => { setFlashcardMode('existing'); setCustomFlashcards(null); setFlashcardImportError(''); setFlashcardImportSuccess(''); }}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                  flashcardMode === 'existing'
-                                    ? 'bg-white shadow text-slate-800'
-                                    : 'text-slate-500 hover:text-slate-700'
                                 }`}
-                              >
-                                Use Existing
-                              </button>
-                              <button
-                                onClick={() => setFlashcardMode('import')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                  flashcardMode === 'import'
-                                    ? 'bg-white shadow text-slate-800'
-                                    : 'text-slate-500 hover:text-slate-700'
-                                }`}
-                              >
-                                Import JSON
-                              </button>
-                            </div>
-
-                            {/* Import JSON panel */}
-                            {flashcardMode === 'import' && (
-                              <div className="space-y-2">
-                                <input
-                                  ref={flashcardFileRef}
-                                  type="file"
-                                  accept=".json"
-                                  className="hidden"
-                                  onChange={handleFlashcardFileChange}
-                                />
-                                <button
-                                  onClick={() => flashcardFileRef.current?.click()}
-                                  className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-purple-300 bg-white text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-all w-full justify-center"
-                                >
-                                  <Upload size={14} /> Choose .json file
-                                </button>
-                                {flashcardImportSuccess && (
-                                  <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
-                                    <Check size={12} /> {flashcardImportSuccess}
-                                  </p>
-                                )}
-                                {flashcardImportError && (
-                                  <p className="text-xs text-red-500">{flashcardImportError}</p>
-                                )}
-                                <p className="text-[11px] text-slate-400">
-                                  Expected format: <code className="bg-slate-100 px-1 rounded">{'[{ "heading": "...", "points": ["..."] }]'}</code>
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        )}
+                            >
+                              <span className="truncate">{mod.title}</span>
+                              {selected && <Check size={16} className="shrink-0 text-blue-500" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
+                  </div>
+                )}
 
-                    {/* ── Audio card ── */}
-                    <div className={`rounded-xl border-2 transition-all overflow-hidden ${
-                      selectedContent.includes('audio')
-                        ? 'border-orange-400 bg-orange-50'
-                        : 'border-slate-200 bg-white'
-                    }`}>
-                      <button
-                        onClick={() => toggleContent('audio')}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                      >
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                          selectedContent.includes('audio') ? 'bg-orange-500' : 'bg-slate-100'
-                        }`}>
-                          <Music size={16} className={selectedContent.includes('audio') ? 'text-white' : 'text-slate-500'} />
+                {/* 4. Engagement Question - Email only */}
+                {selectedSprintId && selectedChannel === 'email' && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                      4. Engagement Question (optional)
+                    </label>
+                    <div className="bg-red-50 border-2 border-red-100 rounded-xl p-4">
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
+                          <span className="text-white font-bold text-lg">?</span>
                         </div>
-                        <div className="flex-1">
-                          <p className="font-semibold text-sm text-slate-800">Audio Lesson</p>
-                          <p className="text-xs text-slate-500">Embed a listen link for the module audio</p>
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-sm mb-1">Engagement Question</h4>
+                          <p className="text-xs text-slate-600">Include a challenge or thought-provoking question in the email</p>
                         </div>
-                        {selectedContent.includes('audio') && (
-                          <Check size={16} className="text-orange-500 shrink-0" />
-                        )}
-                      </button>
+                      </div>
+                      <textarea
+                        value={engagementQuestion}
+                        onChange={(e) => { setEngagementQuestion(e.target.value); setDraftedEmail(null); setSendResult(null); }}
+                        rows={2}
+                        placeholder="e.g. What's one compliance risk you've encountered this quarter?"
+                        className="w-full px-3 py-2 rounded-lg border border-red-200 bg-white text-sm focus:outline-none focus:border-red-400 resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
-                      {/* Audio sub-options */}
-                      {selectedContent.includes('audio') && (
-                        <div className="px-4 pb-4 space-y-3">
-                          {/* Toggle pill */}
-                          <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
-                            <button
-                              onClick={() => { setAudioMode('existing'); setCustomAudioUrl(null); setAudioFileName(''); setAudioFileSize(''); setAudioUploadError(''); setAudioUploadProgress(0); }}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                audioMode === 'existing'
-                                  ? 'bg-white shadow text-slate-800'
-                                  : 'text-slate-500 hover:text-slate-700'
-                              }`}
-                            >
-                              Use Existing
-                            </button>
-                            <button
-                              onClick={() => setAudioMode('import')}
-                              className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
-                                audioMode === 'import'
-                                  ? 'bg-white shadow text-slate-800'
-                                  : 'text-slate-500 hover:text-slate-700'
-                              }`}
-                            >
-                              Import Audio
-                            </button>
-                          </div>
+                {/* 5. Content to Include */}
+                {selectedSprintId && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3 block">
+                      5. Content to Include
+                    </label>
+                    <div className="space-y-3">
 
-                          {/* Import Audio panel */}
-                          {audioMode === 'import' && (
-                            <div className="space-y-2">
-                              <input
-                                ref={audioFileRef}
-                                type="file"
-                                accept=".mp3,.wav"
-                                className="hidden"
-                                onChange={handleAudioFileChange}
-                              />
-                              {!audioFileName ? (
+                      {/* ── Email-only: Flashcard card ── */}
+                      {selectedChannel === 'email' && (
+                        <div className={`rounded-xl border-2 transition-all overflow-hidden ${selectedContent.includes('flashcards')
+                          ? 'border-purple-400 bg-purple-50'
+                          : 'border-slate-200 bg-white'
+                          }`}>
+                          <button
+                            onClick={() => toggleContent('flashcards')}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selectedContent.includes('flashcards') ? 'bg-purple-500' : 'bg-slate-100'
+                              }`}>
+                              <FileJson size={16} className={selectedContent.includes('flashcards') ? 'text-white' : 'text-slate-500'} />
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-semibold text-sm text-slate-800">Flashcards</p>
+                              <p className="text-xs text-slate-500">Embed flashcard cards from the module</p>
+                            </div>
+                            {selectedContent.includes('flashcards') && (
+                              <Check size={16} className="text-purple-500 shrink-0" />
+                            )}
+                          </button>
+
+                          {/* Flashcard sub-options */}
+                          {selectedContent.includes('flashcards') && (
+                            <div className="px-4 pb-4 space-y-3">
+                              {/* Toggle pill */}
+                              <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
                                 <button
-                                  onClick={() => audioFileRef.current?.click()}
-                                  disabled={audioUploading}
-                                  className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-orange-300 bg-white text-orange-600 text-xs font-semibold hover:bg-orange-50 transition-all w-full justify-center disabled:opacity-50"
+                                  onClick={() => { setFlashcardMode('existing'); setCustomFlashcards(null); setFlashcardImportError(''); setFlashcardImportSuccess(''); }}
+                                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${flashcardMode === 'existing'
+                                    ? 'bg-white shadow text-slate-800'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                    }`}
                                 >
-                                  <Upload size={14} /> Choose .mp3 or .wav
+                                  Use Existing
                                 </button>
-                              ) : (
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm">
-                                  <span className="text-lg">🎵</span>
-                                  <span className="font-medium text-slate-700 truncate flex-1">{audioFileName}</span>
-                                  <span className="text-slate-400 text-xs shrink-0">{audioFileSize}</span>
-                                  {!audioUploading && !customAudioUrl && (
-                                    <button onClick={() => audioFileRef.current?.click()} className="text-orange-500 hover:text-orange-700 ml-1">
-                                      <Upload size={13} />
-                                    </button>
+                                <button
+                                  onClick={() => setFlashcardMode('import')}
+                                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${flashcardMode === 'import'
+                                    ? 'bg-white shadow text-slate-800'
+                                    : 'text-slate-500 hover:text-slate-700'
+                                    }`}
+                                >
+                                  Import JSON
+                                </button>
+                              </div>
+
+                              {/* Import JSON panel */}
+                              {flashcardMode === 'import' && (
+                                <div className="space-y-2">
+                                  <input
+                                    ref={flashcardFileRef}
+                                    type="file"
+                                    accept=".json"
+                                    className="hidden"
+                                    onChange={handleFlashcardFileChange}
+                                  />
+                                  <button
+                                    onClick={() => flashcardFileRef.current?.click()}
+                                    className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-purple-300 bg-white text-purple-600 text-xs font-semibold hover:bg-purple-50 transition-all w-full justify-center"
+                                  >
+                                    <Upload size={14} /> Choose .json file
+                                  </button>
+                                  {flashcardImportSuccess && (
+                                    <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                      <Check size={12} /> {flashcardImportSuccess}
+                                    </p>
                                   )}
+                                  {flashcardImportError && (
+                                    <p className="text-xs text-red-500">{flashcardImportError}</p>
+                                  )}
+                                  <p className="text-[11px] text-slate-400">
+                                    Expected format: <code className="bg-slate-100 px-1 rounded">{'[{ "heading": "...", "points": ["..."] }]'}</code>
+                                  </p>
                                 </div>
-                              )}
-
-                              {/* Upload progress bar */}
-                              {audioUploading && (
-                                <div className="space-y-1">
-                                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                                    <div
-                                      className="h-full bg-orange-400 transition-all duration-300 ease-out rounded-full"
-                                      style={{ width: `${audioUploadProgress}%` }}
-                                    />
-                                  </div>
-                                  <p className="text-xs text-slate-400">Uploading… {audioUploadProgress}%</p>
-                                </div>
-                              )}
-
-                              {/* Success */}
-                              {customAudioUrl && !audioUploading && (
-                                <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
-                                  <Check size={12} /> Uploaded successfully
-                                </p>
-                              )}
-
-                              {/* Error */}
-                              {audioUploadError && (
-                                <p className="text-xs text-red-500">{audioUploadError}</p>
                               )}
                             </div>
                           )}
                         </div>
                       )}
-                    </div>
 
-                    {/* ── WhatsApp-only: Video card ── */}
-                    {selectedChannel === 'whatsapp' && (
-                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${
-                        selectedContent.includes('video')
-                          ? 'border-red-400 bg-red-50'
-                          : 'border-slate-200 bg-white'
-                      }`}>
+                      {/* ── Audio card ── */}
+                      <div className={`rounded-xl border-2 transition-all overflow-hidden ${selectedContent.includes('audio')
+                        ? 'border-orange-400 bg-orange-50'
+                        : 'border-slate-200 bg-white'
+                        }`}>
                         <button
-                          onClick={() => toggleContent('video')}
+                          onClick={() => toggleContent('audio')}
                           className="w-full flex items-center gap-3 px-4 py-3 text-left"
                         >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                            selectedContent.includes('video') ? 'bg-red-500' : 'bg-slate-100'
-                          }`}>
-                            <span className={selectedContent.includes('video') ? 'text-white' : 'text-slate-500'}>📹</span>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selectedContent.includes('audio') ? 'bg-orange-500' : 'bg-slate-100'
+                            }`}>
+                            <Music size={16} className={selectedContent.includes('audio') ? 'text-white' : 'text-slate-500'} />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-sm text-slate-800">Video Lesson</p>
-                            <p className="text-xs text-slate-500">Send Video via WhatsApp</p>
+                            <p className="font-semibold text-sm text-slate-800">Audio Lesson</p>
+                            <p className="text-xs text-slate-500">Embed a listen link for the module audio</p>
                           </div>
-                          {selectedContent.includes('video') && (
-                            <Check size={16} className="text-red-500 shrink-0" />
+                          {selectedContent.includes('audio') && (
+                            <Check size={16} className="text-orange-500 shrink-0" />
                           )}
                         </button>
-                      </div>
-                    )}
 
-                    {/* ── WhatsApp-only: Mindmap card ── */}
-                    {/* {selectedChannel === 'whatsapp' && (
+                        {/* Audio sub-options */}
+                        {selectedContent.includes('audio') && (
+                          <div className="px-4 pb-4 space-y-3">
+                            {/* Toggle pill */}
+                            <div className="inline-flex rounded-full bg-slate-100 p-1 gap-1">
+                              <button
+                                onClick={() => { setAudioMode('existing'); setCustomAudioUrl(null); setAudioFileName(''); setAudioFileSize(''); setAudioUploadError(''); setAudioUploadProgress(0); }}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${audioMode === 'existing'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                                  }`}
+                              >
+                                Use Existing
+                              </button>
+                              <button
+                                onClick={() => setAudioMode('import')}
+                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${audioMode === 'import'
+                                  ? 'bg-white shadow text-slate-800'
+                                  : 'text-slate-500 hover:text-slate-700'
+                                  }`}
+                              >
+                                Import Audio
+                              </button>
+                            </div>
+
+                            {/* Import Audio panel */}
+                            {audioMode === 'import' && (
+                              <div className="space-y-2">
+                                <input
+                                  ref={audioFileRef}
+                                  type="file"
+                                  accept=".mp3,.wav"
+                                  className="hidden"
+                                  onChange={handleAudioFileChange}
+                                />
+                                {!audioFileName ? (
+                                  <button
+                                    onClick={() => audioFileRef.current?.click()}
+                                    disabled={audioUploading}
+                                    className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-dashed border-orange-300 bg-white text-orange-600 text-xs font-semibold hover:bg-orange-50 transition-all w-full justify-center disabled:opacity-50"
+                                  >
+                                    <Upload size={14} /> Choose .mp3 or .wav
+                                  </button>
+                                ) : (
+                                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-200 text-sm">
+                                    <span className="text-lg">🎵</span>
+                                    <span className="font-medium text-slate-700 truncate flex-1">{audioFileName}</span>
+                                    <span className="text-slate-400 text-xs shrink-0">{audioFileSize}</span>
+                                    {!audioUploading && !customAudioUrl && (
+                                      <button onClick={() => audioFileRef.current?.click()} className="text-orange-500 hover:text-orange-700 ml-1">
+                                        <Upload size={13} />
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Upload progress bar */}
+                                {audioUploading && (
+                                  <div className="space-y-1">
+                                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                                      <div
+                                        className="h-full bg-orange-400 transition-all duration-300 ease-out rounded-full"
+                                        style={{ width: `${audioUploadProgress}%` }}
+                                      />
+                                    </div>
+                                    <p className="text-xs text-slate-400">Uploading… {audioUploadProgress}%</p>
+                                  </div>
+                                )}
+
+                                {/* Success */}
+                                {customAudioUrl && !audioUploading && (
+                                  <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                                    <Check size={12} /> Uploaded successfully
+                                  </p>
+                                )}
+
+                                {/* Error */}
+                                {audioUploadError && (
+                                  <p className="text-xs text-red-500">{audioUploadError}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ── WhatsApp-only: Video card ── */}
+                      {selectedChannel === 'whatsapp' && (
+                        <div className={`rounded-xl border-2 transition-all overflow-hidden ${selectedContent.includes('video')
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-slate-200 bg-white'
+                          }`}>
+                          <button
+                            onClick={() => toggleContent('video')}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${selectedContent.includes('video') ? 'bg-red-500' : 'bg-slate-100'
+                              }`}>
+                              <span className={selectedContent.includes('video') ? 'text-white' : 'text-slate-500'}>📹</span>
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-semibold text-sm text-slate-800">Video Lesson</p>
+                              <p className="text-xs text-slate-500">Send Video via WhatsApp</p>
+                            </div>
+                            {selectedContent.includes('video') && (
+                              <Check size={16} className="text-red-500 shrink-0" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* ── WhatsApp-only: Mindmap card ── */}
+                      {/* {selectedChannel === 'whatsapp' && (
                       <div className={`rounded-xl border-2 transition-all overflow-hidden ${
                         selectedContent.includes('mindmap')
                           ? 'border-cyan-400 bg-cyan-50'
@@ -1449,8 +1450,8 @@ function AdminDispatchCenterContent() {
                       </div>
                     )} */}
 
-                    {/* ── WhatsApp-only: Infographic card ── */}
-                    {/* {selectedChannel === 'whatsapp' && (
+                      {/* ── WhatsApp-only: Infographic card ── */}
+                      {/* {selectedChannel === 'whatsapp' && (
                       <div className={`rounded-xl border-2 transition-all overflow-hidden ${
                         selectedContent.includes('infographic')
                           ? 'border-pink-400 bg-pink-50'
@@ -1476,822 +1477,813 @@ function AdminDispatchCenterContent() {
                       </div>
                     )} */}
 
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* 7. Dispatch Scheduling */}
-              {selectedSprintId && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
-                      <Calendar size={14} />
-                      6. Dispatch Scheduling
-                    </label>
-                    <button
-                      onClick={() => setScheduleEnabled(!scheduleEnabled)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        scheduleEnabled ? 'bg-blue-500' : 'bg-slate-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          scheduleEnabled ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
+                {/* 7. Dispatch Scheduling */}
+                {selectedSprintId && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-2">
+                        <Calendar size={14} />
+                        6. Dispatch Scheduling
+                      </label>
+                      <button
+                        onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${scheduleEnabled ? 'bg-blue-500' : 'bg-slate-300'
+                          }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${scheduleEnabled ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                        />
+                      </button>
+                    </div>
 
-                  {scheduleEnabled && (
-                    <div className="space-y-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    {scheduleEnabled && (
+                      <div className="space-y-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
 
-                      {/* Mode toggle: Once vs Recurring */}
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => setScheduleMode('once')}
-                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
-                            scheduleMode === 'once'
+                        {/* Mode toggle: Once vs Recurring */}
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => setScheduleMode('once')}
+                            className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${scheduleMode === 'once'
                               ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
                               : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                          }`}
-                        >
-                          <Calendar size={16} />
-                          One-Time
-                        </button>
-                        <button
-                          onClick={() => setScheduleMode('recurring')}
-                          className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${
-                            scheduleMode === 'recurring'
-                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
-                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                          }`}
-                        >
-                          <RefreshCw size={16} />
-                          Recurring
-                        </button>
-                      </div>
-
-                      {/* ONE-TIME: date + time */}
-                      {scheduleMode === 'once' && (
-                        <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
-                          <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                              }`}
+                          >
                             <Calendar size={16} />
-                            Send Once on Specific Date
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
-                              <input
-                                type="date"
-                                value={scheduledDate}
-                                onChange={(e) => setScheduledDate(e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time (UTC)</label>
-                              <div className="relative">
-                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                <input
-                                  type="time"
-                                  value={scheduledTime}
-                                  onChange={(e) => setScheduledTime(e.target.value)}
-                                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          {scheduledDate && scheduledTime && (
-                            <div className="p-2 bg-blue-50 rounded text-xs text-blue-700 font-medium">
-                              ✓ Will send on {new Date(scheduledDate + 'T' + scheduledTime).toLocaleDateString()} at {scheduledTime} UTC
-                            </div>
-                          )}
+                            One-Time
+                          </button>
+                          <button
+                            onClick={() => setScheduleMode('recurring')}
+                            className={`flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2 ${scheduleMode === 'recurring'
+                              ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
+                              : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                              }`}
+                          >
+                            <RefreshCw size={16} />
+                            Recurring
+                          </button>
                         </div>
-                      )}
 
-                      {/* RECURRING: days of week + time */}
-                      {scheduleMode === 'recurring' && (() => {
-                        const days = [
-                          { key: 'Mon', label: 'Mon' },
-                          { key: 'Tue', label: 'Tue' },
-                          { key: 'Wed', label: 'Wed' },
-                          { key: 'Thu', label: 'Thu' },
-                          { key: 'Fri', label: 'Fri' },
-                          { key: 'Sat', label: 'Sat' },
-                          { key: 'Sun', label: 'Sun' },
-                        ];
-                        const toggleDay = (key: string) => {
-                          setSelectedDays((prev) =>
-                            prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]
-                          );
-                        };
-                        return (
+                        {/* ONE-TIME: date + time */}
+                        {scheduleMode === 'once' && (
                           <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
                             <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
-                              <RefreshCw size={16} />
-                              Send Every Week
+                              <Calendar size={16} />
+                              Send Once on Specific Date
                             </div>
-                            <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 block">
-                                Days of Week
-                              </label>
-                              <div className="flex gap-2 flex-wrap">
-                                {days.map((d) => (
-                                  <button
-                                    key={d.key}
-                                    onClick={() => toggleDay(d.key)}
-                                    className={`w-12 h-12 rounded-lg text-xs font-bold transition-all border-2 flex items-center justify-center ${
-                                      selectedDays.includes(d.key)
-                                        ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
-                                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
-                                    }`}
-                                  >
-                                    {d.label}
-                                  </button>
-                                ))}
-                              </div>
-                              {selectedDays.length > 0 && (
-                                <p className="text-xs text-blue-600 font-semibold mt-3 p-2 bg-blue-50 rounded">
-                                  🔄 Sends every: <span className="uppercase tracking-wide">{selectedDays.join(', ')}</span>
-                                </p>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
-                                Time (UTC)
-                              </label>
-                              <div className="relative w-44">
-                                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Date</label>
                                 <input
-                                  type="time"
-                                  value={recurringTime}
-                                  onChange={(e) => setRecurringTime(e.target.value)}
-                                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                  type="date"
+                                  value={scheduledDate}
+                                  onChange={(e) => setScheduledDate(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
                                 />
                               </div>
-                              {recurringTime && (
-                                <p className="text-xs text-slate-600 mt-2 p-2 bg-blue-50 rounded">
-                                  ✓ Emails will send at <span className="font-semibold">{recurringTime} UTC</span> every selected day
-                                </p>
+                              <div>
+                                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">Time (UTC)</label>
+                                <div className="relative">
+                                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                  <input
+                                    type="time"
+                                    value={scheduledTime}
+                                    onChange={(e) => setScheduledTime(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            {scheduledDate && scheduledTime && (
+                              <div className="p-2 bg-blue-50 rounded text-xs text-blue-700 font-medium">
+                                ✓ Will send on {new Date(scheduledDate + 'T' + scheduledTime).toLocaleDateString()} at {scheduledTime} UTC
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* RECURRING: days of week + time */}
+                        {scheduleMode === 'recurring' && (() => {
+                          const days = [
+                            { key: 'Mon', label: 'Mon' },
+                            { key: 'Tue', label: 'Tue' },
+                            { key: 'Wed', label: 'Wed' },
+                            { key: 'Thu', label: 'Thu' },
+                            { key: 'Fri', label: 'Fri' },
+                            { key: 'Sat', label: 'Sat' },
+                            { key: 'Sun', label: 'Sun' },
+                          ];
+                          const toggleDay = (key: string) => {
+                            setSelectedDays((prev) =>
+                              prev.includes(key) ? prev.filter((d) => d !== key) : [...prev, key]
+                            );
+                          };
+                          return (
+                            <div className="space-y-4 p-4 bg-white rounded-lg border border-blue-100">
+                              <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+                                <RefreshCw size={16} />
+                                Send Every Week
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 block">
+                                  Days of Week
+                                </label>
+                                <div className="flex gap-2 flex-wrap">
+                                  {days.map((d) => (
+                                    <button
+                                      key={d.key}
+                                      onClick={() => toggleDay(d.key)}
+                                      className={`w-12 h-12 rounded-lg text-xs font-bold transition-all border-2 flex items-center justify-center ${selectedDays.includes(d.key)
+                                        ? 'bg-blue-500 border-blue-500 text-white shadow-sm'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-600'
+                                        }`}
+                                    >
+                                      {d.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                {selectedDays.length > 0 && (
+                                  <p className="text-xs text-blue-600 font-semibold mt-3 p-2 bg-blue-50 rounded">
+                                    🔄 Sends every: <span className="uppercase tracking-wide">{selectedDays.join(', ')}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 block">
+                                  Time (UTC)
+                                </label>
+                                <div className="relative w-44">
+                                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                  <input
+                                    type="time"
+                                    value={recurringTime}
+                                    onChange={(e) => setRecurringTime(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:border-blue-500"
+                                  />
+                                </div>
+                                {recurringTime && (
+                                  <p className="text-xs text-slate-600 mt-2 p-2 bg-blue-50 rounded">
+                                    ✓ Emails will send at <span className="font-semibold">{recurringTime} UTC</span> every selected day
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* ── Stagger preview (multi-module) ── */}
+                              {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
+                                // Build paired schedule items to show in preview
+                                const schedule_items = selectedSubModuleIds.map((moduleId, idx) => {
+                                  const contentType = selectedContent[idx % selectedContent.length];
+                                  const dayOfWeek = selectedDays[idx % selectedDays.length];
+                                  return { moduleId, contentType, dayOfWeek };
+                                });
+
+                                // Check if single day or multiple days
+                                const uniqueDays = new Set(schedule_items.map(item => item.dayOfWeek));
+                                const isSingleDay = uniqueDays.size === 1;
+
+                                // For each schedule item, compute the next occurrence of that day
+                                const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+                                const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+
+                                // Convert local time → UTC for date arithmetic
+                                const [lh, lm] = recurringTime.split(':').map(Number);
+                                const localDate = new Date();
+                                localDate.setHours(lh, lm, 0, 0);
+                                const utcH = localDate.getUTCHours();
+                                const utcM = localDate.getUTCMinutes();
+
+                                const getNextDayOfWeek = (dayName: string): Date => {
+                                  const now = new Date();
+                                  const targetPythonDay = dayMap[dayName] ?? 0;
+                                  const candidate = new Date(Date.UTC(
+                                    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+                                    utcH, utcM, 0
+                                  ));
+                                  const currentPythonDay = jsDayToPython[now.getUTCDay()];
+                                  let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
+                                  candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
+                                  if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
+                                  return candidate;
+                                };
+
+                                const selectedModules = subModules.filter((m) =>
+                                  selectedSubModuleIds.includes(m.processed_module_id)
+                                );
+                                const istTimeLabel = `${recurringTime} IST`;
+
+                                return (
+                                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 overflow-hidden">
+                                    <div className="px-4 py-2.5 bg-blue-500 flex items-center gap-2">
+                                      <Calendar size={14} className="text-white" />
+                                      <span className="text-xs font-bold text-white uppercase tracking-wide">
+                                        {isSingleDay ? 'Staggered Send Plan' : 'Paired Send Plan'} — {selectedModules.length} modules
+                                      </span>
+                                    </div>
+                                    <div className="divide-y divide-blue-100">
+                                      {selectedModules.map((mod, idx) => {
+                                        const item = schedule_items[idx];
+
+                                        // If single day: stagger by weeks
+                                        let runDate: Date;
+                                        if (isSingleDay) {
+                                          const baseDate = getNextDayOfWeek(item.dayOfWeek);
+                                          runDate = new Date(baseDate);
+                                          runDate.setUTCDate(runDate.getUTCDate() + idx * 7); // Add weeks
+                                        } else {
+                                          // Multiple days: each module gets its specific day
+                                          runDate = getNextDayOfWeek(item.dayOfWeek);
+                                        }
+
+                                        const dateLabel = runDate.toLocaleDateString('en-GB', {
+                                          weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+                                        });
+                                        const contentIcon = item.contentType === 'flashcards' ? '📋' : '🎵';
+                                        return (
+                                          <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
+                                            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
+                                              {idx + 1}
+                                            </div>
+                                            <span className="text-sm font-semibold text-slate-800 flex-1 truncate">
+                                              {mod.title}
+                                            </span>
+                                            <span className="text-xs font-semibold text-blue-700 shrink-0 flex items-center gap-1">
+                                              <span>{contentIcon} {item.contentType}</span>
+                                              <span>•</span>
+                                              <span>{dateLabel} · {istTimeLabel}</span>
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
+                                      <p className="text-[11px] text-blue-500">
+                                        {isSingleDay
+                                          ? `Each module will be sent on ${selectedDays[0]}, one week apart starting at ${istTimeLabel}.`
+                                          : `Each module's content will be sent on its specified day at ${istTimeLabel}.`
+                                        }
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          );
+                        })()}
+
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Draft Button — Email only */}
+                {canDraft && selectedChannel === 'email' && (
+                  <button
+                    onClick={handleGenerateEmail}
+                    disabled={generating}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Generating Email…
+                      </>
+                    ) : (
+                      <>
+                        <Mail size={18} />
+                        Draft Email Snippet
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Draft Button — WhatsApp only */}
+                {canDraft && selectedChannel === 'whatsapp' && (
+                  <button
+                    onClick={handleGenerateWhatsApp}
+                    disabled={generating}
+                    className="w-full bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-500/30"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Generating Message…
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare size={18} />
+                        Draft WhatsApp Nudge
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {/* Multi-module stagger schedule button — Email only */}
+                {canDraft && selectedChannel === 'email' && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
+                  <button
+                    onClick={handleScheduleMultiModule}
+                    disabled={sending}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30"
+                  >
+                    {sending ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Scheduling…
+                      </>
+                    ) : (
+                      <>
+                        <Calendar size={18} />
+                        Schedule Staggered Send ({selectedSubModuleIds.length} modules)
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* ─── RIGHT COLUMN: Preview & Send ───────────────── */}
+              <div className="space-y-6">
+                {/* Assigned Users Card */}
+                {selectedSprintId && (
+                  <div className="bg-white rounded-xl p-5 border border-slate-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <Users size={16} className="text-purple-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-900">Recipients</h3>
+                        <p className="text-xs text-slate-500">{assignedUsers.length} user{assignedUsers.length !== 1 ? 's' : ''} assigned to this sprint</p>
+                      </div>
+                    </div>
+                    {assignedUsers.length > 0 ? (
+                      <div className="max-h-[280px] overflow-y-auto space-y-1.5 pr-1">
+                        {assignedUsers.map((u) => (
+                          <div key={u.user_id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 text-sm">
+                            <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0">
+                              {u.name?.charAt(0)?.toUpperCase() || '?'}
+                            </div>
+                            <span className="font-medium text-slate-700 truncate">{u.name}</span>
+                            <span className="text-slate-400 text-xs truncate ml-auto">{u.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400 text-center py-4">No users assigned yet.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Email Preview - only show when email is selected */}
+                {selectedChannel === 'email' && (
+                  <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-6 border border-slate-200 min-h-[300px]">
+                    <h3 className="text-lg font-bold text-slate-900 mb-4">Email Draft</h3>
+
+                    {!draftedEmail && !generating && (
+                      <div className="text-center py-16">
+                        <div className="w-16 h-16 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-sm">
+                          <span className="text-3xl">📧</span>
+                        </div>
+                        <p className="text-sm text-slate-600 font-medium">
+                          Select a sprint &amp; sub-modules, then click
+                        </p>
+                        <p className="text-sm font-bold text-blue-600">&ldquo;Draft Email Snippet&rdquo;</p>
+                        <p className="text-sm text-slate-600 font-medium">to generate a preview.</p>
+                      </div>
+                    )}
+
+                    {generating && (
+                      <div className="text-center py-16">
+                        <Loader2 size={36} className="animate-spin text-blue-500 mx-auto mb-4" />
+                        <p className="text-sm font-semibold text-slate-600">Generating email with AI…</p>
+                      </div>
+                    )}
+
+                    {draftedEmail && !generating && (
+                      <div className="space-y-4">
+                        {/* Subject — always editable */}
+                        <div>
+                          <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Subject</label>
+                          <input
+                            type="text"
+                            value={isEditingEmail ? editSubject : draftedEmail.subject}
+                            onChange={(e) =>
+                              isEditingEmail
+                                ? setEditSubject(e.target.value)
+                                : setDraftedEmail({ ...draftedEmail, subject: e.target.value })
+                            }
+                            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        {/* Body — iframe in preview mode, textarea in edit mode */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-semibold text-slate-500 uppercase">Body</label>
+                            <div className="flex items-center gap-2">
+                              {isEditingEmail ? (
+                                <>
+                                  <button
+                                    onClick={handleCancelEdit}
+                                    className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
+                                  >
+                                    <X size={12} /> Cancel
+                                  </button>
+                                  <button
+                                    onClick={handleSaveEdit}
+                                    className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-all"
+                                  >
+                                    <Check size={12} /> Save
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={handleEnterEditMode}
+                                  className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-blue-400 hover:text-blue-600 transition-all"
+                                >
+                                  <Pencil size={12} /> Edit
+                                </button>
                               )}
                             </div>
-
-                            {/* ── Stagger preview (multi-module) ── */}
-                            {selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (() => {
-                              // Build paired schedule items to show in preview
-                              const schedule_items = selectedSubModuleIds.map((moduleId, idx) => {
-                                const contentType = selectedContent[idx % selectedContent.length];
-                                const dayOfWeek = selectedDays[idx % selectedDays.length];
-                                return { moduleId, contentType, dayOfWeek };
-                              });
-
-                              // Check if single day or multiple days
-                              const uniqueDays = new Set(schedule_items.map(item => item.dayOfWeek));
-                              const isSingleDay = uniqueDays.size === 1;
-
-                              // For each schedule item, compute the next occurrence of that day
-                              const dayMap: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-                              const jsDayToPython: Record<number, number> = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
-
-                              // Convert local time → UTC for date arithmetic
-                              const [lh, lm] = recurringTime.split(':').map(Number);
-                              const localDate = new Date();
-                              localDate.setHours(lh, lm, 0, 0);
-                              const utcH = localDate.getUTCHours();
-                              const utcM = localDate.getUTCMinutes();
-
-                              const getNextDayOfWeek = (dayName: string): Date => {
-                                const now = new Date();
-                                const targetPythonDay = dayMap[dayName] ?? 0;
-                                const candidate = new Date(Date.UTC(
-                                  now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-                                  utcH, utcM, 0
-                                ));
-                                const currentPythonDay = jsDayToPython[now.getUTCDay()];
-                                let daysAhead = (targetPythonDay - currentPythonDay + 7) % 7;
-                                candidate.setUTCDate(candidate.getUTCDate() + daysAhead);
-                                if (candidate <= now) candidate.setUTCDate(candidate.getUTCDate() + 7);
-                                return candidate;
-                              };
-
-                              const selectedModules = subModules.filter((m) =>
-                                selectedSubModuleIds.includes(m.processed_module_id)
-                              );
-                              const istTimeLabel = `${recurringTime} IST`;
-
-                              return (
-                                <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 overflow-hidden">
-                                  <div className="px-4 py-2.5 bg-blue-500 flex items-center gap-2">
-                                    <Calendar size={14} className="text-white" />
-                                    <span className="text-xs font-bold text-white uppercase tracking-wide">
-                                      {isSingleDay ? 'Staggered Send Plan' : 'Paired Send Plan'} — {selectedModules.length} modules
-                                    </span>
-                                  </div>
-                                  <div className="divide-y divide-blue-100">
-                                    {selectedModules.map((mod, idx) => {
-                                      const item = schedule_items[idx];
-                                     
-                                      // If single day: stagger by weeks
-                                      let runDate: Date;
-                                      if (isSingleDay) {
-                                        const baseDate = getNextDayOfWeek(item.dayOfWeek);
-                                        runDate = new Date(baseDate);
-                                        runDate.setUTCDate(runDate.getUTCDate() + idx * 7); // Add weeks
-                                      } else {
-                                        // Multiple days: each module gets its specific day
-                                        runDate = getNextDayOfWeek(item.dayOfWeek);
-                                      }
-                                     
-                                      const dateLabel = runDate.toLocaleDateString('en-GB', {
-                                        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
-                                      });
-                                      const contentIcon = item.contentType === 'flashcards' ? '📋' : '🎵';
-                                      return (
-                                        <div key={mod.processed_module_id} className="flex items-center gap-3 px-4 py-2.5">
-                                          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
-                                            {idx + 1}
-                                          </div>
-                                          <span className="text-sm font-semibold text-slate-800 flex-1 truncate">
-                                            {mod.title}
-                                          </span>
-                                          <span className="text-xs font-semibold text-blue-700 shrink-0 flex items-center gap-1">
-                                            <span>{contentIcon} {item.contentType}</span>
-                                            <span>•</span>
-                                            <span>{dateLabel} · {istTimeLabel}</span>
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="px-4 py-2 bg-blue-50 border-t border-blue-100">
-                                    <p className="text-[11px] text-blue-500">
-                                      {isSingleDay
-                                        ? `Each module will be sent on ${selectedDays[0]}, one week apart starting at ${istTimeLabel}.`
-                                        : `Each module's content will be sent on its specified day at ${istTimeLabel}.`
-                                      }
-                                    </p>
-                                  </div>
-                                </div>
-                              );
-                            })()}
                           </div>
-                        );
-                      })()}
 
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Draft Button — Email only */}
-              {canDraft && selectedChannel === 'email' && (
-                <button
-                  onClick={handleGenerateEmail}
-                  disabled={generating}
-                  className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/30"
-                >
-                  {generating ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Generating Email…
-                    </>
-                  ) : (
-                    <>
-                      <Mail size={18} />
-                      Draft Email Snippet
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Draft Button — WhatsApp only */}
-              {canDraft && selectedChannel === 'whatsapp' && (
-                <button
-                  onClick={handleGenerateWhatsApp}
-                  disabled={generating}
-                  className="w-full bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-500/30"
-                >
-                  {generating ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Generating Message…
-                    </>
-                  ) : (
-                    <>
-                      <MessageSquare size={18} />
-                      Draft WhatsApp Nudge
-                    </>
-                  )}
-                </button>
-              )}
-
-              {/* Multi-module stagger schedule button — Email only */}
-              {canDraft && selectedChannel === 'email' && scheduleEnabled && scheduleMode === 'recurring' && selectedSubModuleIds.length >= 2 && selectedDays.length > 0 && (
-                <button
-                  onClick={handleScheduleMultiModule}
-                  disabled={sending}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30"
-                >
-                  {sending ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Scheduling…
-                    </>
-                  ) : (
-                    <>
-                      <Calendar size={18} />
-                      Schedule Staggered Send ({selectedSubModuleIds.length} modules)
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-
-            {/* ─── RIGHT COLUMN: Preview & Send ───────────────── */}
-            <div className="space-y-6">
-              {/* Assigned Users Card */}
-              {selectedSprintId && (
-                <div className="bg-white rounded-xl p-5 border border-slate-200">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <Users size={16} className="text-purple-600" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">Recipients</h3>
-                      <p className="text-xs text-slate-500">{assignedUsers.length} user{assignedUsers.length !== 1 ? 's' : ''} assigned to this sprint</p>
-                    </div>
-                  </div>
-                  {assignedUsers.length > 0 ? (
-                    <div className="max-h-[280px] overflow-y-auto space-y-1.5 pr-1">
-                      {assignedUsers.map((u) => (
-                        <div key={u.user_id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 text-sm">
-                          <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-700 shrink-0">
-                            {u.name?.charAt(0)?.toUpperCase() || '?'}
-                          </div>
-                          <span className="font-medium text-slate-700 truncate">{u.name}</span>
-                          <span className="text-slate-400 text-xs truncate ml-auto">{u.email}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-4">No users assigned yet.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Email Preview - only show when email is selected */}
-              {selectedChannel === 'email' && (
-              <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-xl p-6 border border-slate-200 min-h-[300px]">
-                <h3 className="text-lg font-bold text-slate-900 mb-4">Email Draft</h3>
-
-                {!draftedEmail && !generating && (
-                  <div className="text-center py-16">
-                    <div className="w-16 h-16 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-sm">
-                      <span className="text-3xl">📧</span>
-                    </div>
-                    <p className="text-sm text-slate-600 font-medium">
-                      Select a sprint &amp; sub-modules, then click
-                    </p>
-                    <p className="text-sm font-bold text-blue-600">&ldquo;Draft Email Snippet&rdquo;</p>
-                    <p className="text-sm text-slate-600 font-medium">to generate a preview.</p>
-                  </div>
-                )}
-
-                {generating && (
-                  <div className="text-center py-16">
-                    <Loader2 size={36} className="animate-spin text-blue-500 mx-auto mb-4" />
-                    <p className="text-sm font-semibold text-slate-600">Generating email with AI…</p>
-                  </div>
-                )}
-
-                {draftedEmail && !generating && (
-                  <div className="space-y-4">
-                    {/* Subject — always editable */}
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Subject</label>
-                      <input
-                        type="text"
-                        value={isEditingEmail ? editSubject : draftedEmail.subject}
-                        onChange={(e) =>
-                          isEditingEmail
-                            ? setEditSubject(e.target.value)
-                            : setDraftedEmail({ ...draftedEmail, subject: e.target.value })
-                        }
-                        className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-800 focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-
-                    {/* Body — iframe in preview mode, textarea in edit mode */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-500 uppercase">Body</label>
-                        <div className="flex items-center gap-2">
                           {isEditingEmail ? (
-                            <>
-                              <button
-                                onClick={handleCancelEdit}
-                                className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
-                              >
-                                <X size={12} /> Cancel
-                              </button>
-                              <button
-                                onClick={handleSaveEdit}
-                                className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-blue-500 hover:bg-blue-600 transition-all"
-                              >
-                                <Check size={12} /> Save
-                              </button>
-                            </>
+                            <div className="space-y-2">
+                              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                                ✏️ Edit the email text below. Each paragraph on a new blank line will appear as a separate paragraph in the email. Flashcards and audio blocks are kept automatically.
+                              </p>
+                              <textarea
+                                value={editBodyText}
+                                onChange={(e) => setEditBodyText(e.target.value)}
+                                placeholder="Write your email message here…&#10;&#10;Use a blank line between paragraphs."
+                                className="w-full rounded-lg border border-blue-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-blue-500 resize-y leading-relaxed p-4"
+                                style={{ height: '400px', minHeight: '200px', fontFamily: 'inherit' }}
+                                spellCheck={true}
+                              />
+                            </div>
                           ) : (
-                            <button
-                              onClick={handleEnterEditMode}
-                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-blue-400 hover:text-blue-600 transition-all"
-                            >
-                              <Pencil size={12} /> Edit
-                            </button>
+                            <iframe
+                              srcDoc={draftedEmail.body}
+                              className="w-full rounded-lg border border-slate-200 bg-white"
+                              style={{ height: '600px' }}
+                              sandbox="allow-same-origin allow-scripts"
+                              title="Email Preview"
+                            />
+                          )}
+                        </div>
+
+                        {/* Send button only (no Regenerate) */}
+                        <div className="pt-2">
+                          <button
+                            onClick={handleSendEmail}
+                            disabled={sending || assignedUsers.length === 0 || isEditingEmail}
+                            className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
+                          >
+                            {sending ? (
+                              <>
+                                <Loader2 size={16} className="animate-spin" />
+                                {scheduleEnabled && scheduleMode === 'recurring' ? 'Saving…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                              </>
+                            ) : scheduleEnabled && scheduleMode === 'recurring' ? (
+                              <>
+                                <RefreshCw size={16} /> Save Recurring Schedule ({assignedUsers.length})
+                              </>
+                            ) : scheduleEnabled ? (
+                              <>
+                                <Calendar size={16} /> Schedule Email ({assignedUsers.length})
+                              </>
+                            ) : (
+                              <>
+                                <Send size={16} /> Send Email ({assignedUsers.length})
+                              </>
+                            )}
+                          </button>
+                          {isEditingEmail && (
+                            <p className="text-xs text-center text-slate-500 mt-2 font-medium">
+                              Click <span className="font-bold text-blue-600">Save</span> above to apply your edits, then send.
+                            </p>
                           )}
                         </div>
                       </div>
+                    )}
+                  </div>
+                )}
 
-                      {isEditingEmail ? (
-                        <div className="space-y-2">
-                          <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                            ✏️ Edit the email text below. Each paragraph on a new blank line will appear as a separate paragraph in the email. Flashcards and audio blocks are kept automatically.
-                          </p>
-                          <textarea
-                            value={editBodyText}
-                            onChange={(e) => setEditBodyText(e.target.value)}
-                            placeholder="Write your email message here…&#10;&#10;Use a blank line between paragraphs."
-                            className="w-full rounded-lg border border-blue-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-blue-500 resize-y leading-relaxed p-4"
-                            style={{ height: '400px', minHeight: '200px', fontFamily: 'inherit' }}
-                            spellCheck={true}
-                          />
+                {/* WhatsApp Preview - only show when WhatsApp is selected */}
+                {selectedChannel === 'whatsapp' && (
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 min-h-[300px]">
+                    <h3 className="text-lg font-bold text-slate-900 mb-4">WhatsApp Nudge Message</h3>
+
+                    {!draftedWhatsApp && !generating && (
+                      <div className="text-center py-16">
+                        <div className="w-16 h-16 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-sm">
+                          <span className="text-3xl">💬</span>
                         </div>
-                      ) : (
-                        <iframe
-                          srcDoc={draftedEmail.body}
-                          className="w-full rounded-lg border border-slate-200 bg-white"
-                          style={{ height: '600px' }}
-                          sandbox="allow-same-origin allow-scripts"
-                          title="Email Preview"
-                        />
-                      )}
-                    </div>
-
-                    {/* Send button only (no Regenerate) */}
-                    <div className="pt-2">
-                      <button
-                        onClick={handleSendEmail}
-                        disabled={sending || assignedUsers.length === 0 || isEditingEmail}
-                        className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
-                      >
-                        {sending ? (
-                          <>
-                            <Loader2 size={16} className="animate-spin" />
-                            {scheduleEnabled && scheduleMode === 'recurring' ? 'Saving…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
-                          </>
-                        ) : scheduleEnabled && scheduleMode === 'recurring' ? (
-                          <>
-                            <RefreshCw size={16} /> Save Recurring Schedule ({assignedUsers.length})
-                          </>
-                        ) : scheduleEnabled ? (
-                          <>
-                            <Calendar size={16} /> Schedule Email ({assignedUsers.length})
-                          </>
-                        ) : (
-                          <>
-                            <Send size={16} /> Send Email ({assignedUsers.length})
-                          </>
-                        )}
-                      </button>
-                      {isEditingEmail && (
-                        <p className="text-xs text-center text-slate-500 mt-2 font-medium">
-                          Click <span className="font-bold text-blue-600">Save</span> above to apply your edits, then send.
+                        <p className="text-sm text-slate-600 font-medium">
+                          Select sub-modules above, then click
                         </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              )}
-
-              {/* WhatsApp Preview - only show when WhatsApp is selected */}
-              {selectedChannel === 'whatsapp' && (
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200 min-h-[300px]">
-                <h3 className="text-lg font-bold text-slate-900 mb-4">WhatsApp Nudge Message</h3>
-
-                {!draftedWhatsApp && !generating && (
-                  <div className="text-center py-16">
-                    <div className="w-16 h-16 bg-white rounded-full mx-auto mb-4 flex items-center justify-center shadow-sm">
-                      <span className="text-3xl">💬</span>
-                    </div>
-                    <p className="text-sm text-slate-600 font-medium">
-                      Select sub-modules above, then click
-                    </p>
-                    <p className="text-sm font-bold text-green-600">&ldquo;Draft WhatsApp Nudge&rdquo;</p>
-                    <p className="text-sm text-slate-600 font-medium">to generate a message preview.</p>
-                  </div>
-                )}
-
-                {generating && (
-                  <div className="text-center py-16">
-                    <Loader2 size={36} className="animate-spin text-green-500 mx-auto mb-4" />
-                    <p className="text-sm font-semibold text-slate-600">Generating nudge message with AI…</p>
-                  </div>
-                )}
-
-                {draftedWhatsApp && !generating && (
-                  <div className="space-y-4">
-                    {/* Message Preview Card */}
-                    <div className="bg-white rounded-xl p-5 border-2 border-green-200 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                            <MessageSquare size={16} className="text-green-600" />
-                          </div>
-                          <h4 className="text-sm font-bold text-slate-900">Nudge Message</h4>
-                        </div>
-                        {!isEditingWhatsApp ? (
-                          <button
-                            onClick={() => {
-                              setIsEditingWhatsApp(true);
-                              setEditWhatsAppMessage(draftedWhatsApp.message);
-                            }}
-                            className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-green-400 hover:text-green-600 transition-all"
-                          >
-                            <Pencil size={12} /> Edit
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => {
-                                setIsEditingWhatsApp(false);
-                                setEditWhatsAppMessage('');
-                              }}
-                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
-                            >
-                              <X size={12} /> Cancel
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (editWhatsAppMessage.trim()) {
-                                  setDraftedWhatsApp({ message: editWhatsAppMessage });
-                                  setIsEditingWhatsApp(false);
-                                }
-                              }}
-                              className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-green-500 hover:bg-green-600 transition-all"
-                            >
-                              <Check size={12} /> Save
-                            </button>
-                          </>
-                        )}
+                        <p className="text-sm font-bold text-green-600">&ldquo;Draft WhatsApp Nudge&rdquo;</p>
+                        <p className="text-sm text-slate-600 font-medium">to generate a message preview.</p>
                       </div>
+                    )}
 
-                      {isEditingWhatsApp ? (
-                        <textarea
-                          value={editWhatsAppMessage}
-                          onChange={(e) => setEditWhatsAppMessage(e.target.value)}
-                          placeholder="Edit your WhatsApp message here…"
-                          className="w-full rounded-lg border border-green-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-green-500 resize-y p-3"
-                          style={{ height: '150px', minHeight: '100px', fontFamily: 'inherit' }}
-                          spellCheck={true}
-                        />
-                      ) : (
-                        <div className="p-4 bg-green-50 rounded-lg border border-green-100 text-sm text-slate-700 whitespace-pre-wrap break-words leading-relaxed">
-                          {draftedWhatsApp.message}
-                        </div>
-                      )}
-                    </div>
+                    {generating && (
+                      <div className="text-center py-16">
+                        <Loader2 size={36} className="animate-spin text-green-500 mx-auto mb-4" />
+                        <p className="text-sm font-semibold text-slate-600">Generating nudge message with AI…</p>
+                      </div>
+                    )}
 
-                    {/* Send/Schedule Section */}
-                    <div className="space-y-3">
-                      {!selectedContent.length ? (
-                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                          <p className="text-xs text-blue-900 font-medium">
-                            💡 <span className="font-semibold">Tip:</span> Select content types above (Flashcards, Audio, etc.) to send along with this nudge message.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                          <h4 className="font-bold text-xs text-green-900 mb-2">Dispatch Summary</h4>
-                          <div className="space-y-1 text-xs text-green-800">
-                            <div className="flex justify-between">
-                              <span>Content types:</span>
-                              <span className="font-semibold">{selectedContent.length}</span>
+                    {draftedWhatsApp && !generating && (
+                      <div className="space-y-4">
+                        {/* Message Preview Card */}
+                        <div className="bg-white rounded-xl p-5 border-2 border-green-200 shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                <MessageSquare size={16} className="text-green-600" />
+                              </div>
+                              <h4 className="text-sm font-bold text-slate-900">Nudge Message</h4>
                             </div>
-                            <div className="flex justify-between pt-1 border-t border-green-200">
-                              <span>Recipients:</span>
-                              <span className="font-semibold">{assignedUsers.length}</span>
-                            </div>
+                            {!isEditingWhatsApp ? (
+                              <button
+                                onClick={() => {
+                                  setIsEditingWhatsApp(true);
+                                  setEditWhatsAppMessage(draftedWhatsApp.message);
+                                }}
+                                className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-600 border border-slate-200 bg-white hover:border-green-400 hover:text-green-600 transition-all"
+                              >
+                                <Pencil size={12} /> Edit
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setIsEditingWhatsApp(false);
+                                    setEditWhatsAppMessage('');
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-slate-500 border border-slate-200 bg-white hover:border-slate-300 transition-all"
+                                >
+                                  <X size={12} /> Cancel
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (editWhatsAppMessage.trim()) {
+                                      setDraftedWhatsApp({ message: editWhatsAppMessage });
+                                      setIsEditingWhatsApp(false);
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-white bg-green-500 hover:bg-green-600 transition-all"
+                                >
+                                  <Check size={12} /> Save
+                                </button>
+                              </>
+                            )}
                           </div>
-                        </div>
-                      )}
 
-                      <button
-                        onClick={handleSendWhatsApp}
-                        disabled={sending || assignedUsers.length === 0}
-                        className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
-                      >
-                        {sending ? (
-                          <>
-                            <Loader2 size={16} className="animate-spin" />
-                            {scheduleEnabled && scheduleMode === 'recurring' ? 'Scheduling…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
-                          </>
-                        ) : scheduleEnabled && scheduleMode === 'recurring' ? (
-                          <>
-                            <RefreshCw size={16} /> Schedule for {assignedUsers.length} users
-                          </>
-                        ) : scheduleEnabled ? (
-                          <>
-                            <Calendar size={16} /> Schedule for {assignedUsers.length} users
-                          </>
-                        ) : (
-                          <>
-                            <Send size={16} /> Send Now ({assignedUsers.length} users)
-                          </>
-                        )}
-                      </button>
-                      {isEditingWhatsApp && (
-                        <p className="text-xs text-center text-slate-500 font-medium">
-                          Click <span className="font-bold text-green-600">Save</span> above to apply your edits, then send.
-                        </p>
-                      )}
-                    </div>
+                          {isEditingWhatsApp ? (
+                            <textarea
+                              value={editWhatsAppMessage}
+                              onChange={(e) => setEditWhatsAppMessage(e.target.value)}
+                              placeholder="Edit your WhatsApp message here…"
+                              className="w-full rounded-lg border border-green-300 bg-white text-sm text-slate-800 focus:outline-none focus:border-green-500 resize-y p-3"
+                              style={{ height: '150px', minHeight: '100px', fontFamily: 'inherit' }}
+                              spellCheck={true}
+                            />
+                          ) : (
+                            <div className="p-4 bg-green-50 rounded-lg border border-green-100 text-sm text-slate-700 whitespace-pre-wrap break-words leading-relaxed">
+                              {draftedWhatsApp.message}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Send/Schedule Section */}
+                        <div className="space-y-3">
+                          {!selectedContent.length ? (
+                            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                              <p className="text-xs text-blue-900 font-medium">
+                                💡 <span className="font-semibold">Tip:</span> Select content types above (Flashcards, Audio, etc.) to send along with this nudge message.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                              <h4 className="font-bold text-xs text-green-900 mb-2">Dispatch Summary</h4>
+                              <div className="space-y-1 text-xs text-green-800">
+                                <div className="flex justify-between">
+                                  <span>Content types:</span>
+                                  <span className="font-semibold">{selectedContent.length}</span>
+                                </div>
+                                <div className="flex justify-between pt-1 border-t border-green-200">
+                                  <span>Recipients:</span>
+                                  <span className="font-semibold">{assignedUsers.length}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={handleSendWhatsApp}
+                            disabled={sending || assignedUsers.length === 0}
+                            className="w-full py-3 rounded-xl bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white font-bold transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-green-500/30"
+                          >
+                            {sending ? (
+                              <>
+                                <Loader2 size={16} className="animate-spin" />
+                                {scheduleEnabled && scheduleMode === 'recurring' ? 'Scheduling…' : scheduleEnabled ? 'Scheduling…' : 'Sending…'}
+                              </>
+                            ) : scheduleEnabled && scheduleMode === 'recurring' ? (
+                              <>
+                                <RefreshCw size={16} /> Schedule for {assignedUsers.length} users
+                              </>
+                            ) : scheduleEnabled ? (
+                              <>
+                                <Calendar size={16} /> Schedule for {assignedUsers.length} users
+                              </>
+                            ) : (
+                              <>
+                                <Send size={16} /> Send Now ({assignedUsers.length} users)
+                              </>
+                            )}
+                          </button>
+                          {isEditingWhatsApp && (
+                            <p className="text-xs text-center text-slate-500 font-medium">
+                              Click <span className="font-bold text-green-600">Save</span> above to apply your edits, then send.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-              )}
 
-              {/* Send Result - Email */}
-              {selectedChannel === 'email' && sendResult && (
-                <div className={`rounded-xl p-5 border-2 ${
-                  sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
+                {/* Send Result - Email */}
+                {selectedChannel === 'email' && sendResult && (
+                  <div className={`rounded-xl p-5 border-2 ${sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
                     ? 'bg-blue-50 border-blue-200'
                     : (sendResult.failed?.length ?? 0) === 0
                       ? 'bg-green-50 border-green-200'
                       : 'bg-yellow-50 border-yellow-200'
-                }`}>
-                  <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                      sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
+                    }`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${sendResult.status === 'scheduled' || sendResult.status === 'saved_recurring'
                         ? 'bg-blue-500'
                         : (sendResult.failed?.length ?? 0) === 0
                           ? 'bg-green-500'
                           : 'bg-yellow-500'
-                    }`}>
-                      {sendResult.status === 'scheduled' ? (
-                        <Calendar size={20} className="text-white" />
-                      ) : sendResult.status === 'saved_recurring' ? (
-                        <RefreshCw size={20} className="text-white" />
-                      ) : (sendResult.failed?.length ?? 0) === 0 ? (
-                        <Check size={20} className="text-white" />
-                      ) : (
-                        <AlertCircle size={20} className="text-white" />
-                      )}
-                    </div>
-                    <div>
-                      {sendResult.status === 'scheduled' ? (
-                        <>
-                          <h4 className="font-bold text-slate-900 text-sm">
-                            Email scheduled for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
-                          </h4>
-                          <p className="text-xs text-slate-500 mt-1">
-                            Delivery time: {sendResult.scheduled_at ? new Date(sendResult.scheduled_at).toLocaleString() : '—'}
-                          </p>
-                        </>
-                      ) : sendResult.status === 'saved_recurring' ? (
-                        <>
-                          <h4 className="font-bold text-slate-900 text-sm">
-                            Recurring schedule saved for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
-                          </h4>
-                          <p className="text-xs text-slate-500 mt-1">
-                            Sends every: {sendResult.days_of_week?.join(', ')} at {sendResult.scheduled_time} UTC
-                          </p>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Schedule ID: <code className="bg-slate-100 px-1 rounded">{sendResult.scheduled_emails_id}</code>
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
-                          {(sendResult.failed?.length ?? 0) > 0 && (
-                            <div className="mt-2">
-                              <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
-                              {(sendResult.failed || []).map((email) => (
-                                <p key={email} className="text-xs text-red-500">{email}</p>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    <button onClick={() => setSendResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Multi-module stagger result */}
-              {multiModuleResult && (
-                <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 overflow-hidden">
-                  <div className="flex items-center justify-between px-5 py-3 bg-indigo-500">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={16} className="text-white" />
-                      <span className="text-sm font-bold text-white">
-                        Staggered Schedule Confirmed — {multiModuleResult.total_modules} modules
-                      </span>
-                    </div>
-                    <button onClick={() => setMultiModuleResult(null)} className="text-indigo-200 hover:text-white">
-                      <X size={16} />
-                    </button>
-                  </div>
-                  <div className="divide-y divide-indigo-100">
-                    {(multiModuleResult.jobs || []).map((job) => (
-                      <div key={job.job_id ?? job.module_id} className="flex items-center gap-3 px-5 py-3">
-                        <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0">
-                          {job.week}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 truncate">{job.module_title}</p>
-                          <p className="text-xs text-slate-500">
-                            {new Date(job.run_date).toLocaleDateString('en-GB', {
-                              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
-                            })} · {new Date(job.run_date).toLocaleTimeString('en-GB', {
-                              hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
-                            })} IST · {job.recipient_count} recipient{job.recipient_count !== 1 ? 's' : ''}
-                          </p>
-                          {job.warning && (
-                            <p className="text-xs text-amber-600 font-medium mt-0.5">⚠ {job.warning}</p>
-                          )}
-                        </div>
-                        {job.job_id ? (
-                          <Check size={16} className="text-indigo-500 shrink-0" />
+                        }`}>
+                        {sendResult.status === 'scheduled' ? (
+                          <Calendar size={20} className="text-white" />
+                        ) : sendResult.status === 'saved_recurring' ? (
+                          <RefreshCw size={20} className="text-white" />
+                        ) : (sendResult.failed?.length ?? 0) === 0 ? (
+                          <Check size={20} className="text-white" />
                         ) : (
-                          <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                          <AlertCircle size={20} className="text-white" />
                         )}
                       </div>
-                    ))}
+                      <div>
+                        {sendResult.status === 'scheduled' ? (
+                          <>
+                            <h4 className="font-bold text-slate-900 text-sm">
+                              Email scheduled for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Delivery time: {sendResult.scheduled_at ? new Date(sendResult.scheduled_at).toLocaleString() : '—'}
+                            </p>
+                          </>
+                        ) : sendResult.status === 'saved_recurring' ? (
+                          <>
+                            <h4 className="font-bold text-slate-900 text-sm">
+                              Recurring schedule saved for {sendResult.recipient_count} recipient{sendResult.recipient_count !== 1 ? 's' : ''}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Sends every: {sendResult.days_of_week?.join(', ')} at {sendResult.scheduled_time} UTC
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              Schedule ID: <code className="bg-slate-100 px-1 rounded">{sendResult.scheduled_emails_id}</code>
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <h4 className="font-bold text-slate-900 text-sm">{sendResult.message}</h4>
+                            {(sendResult.failed?.length ?? 0) > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs font-semibold text-red-600 mb-1">Failed to deliver to:</p>
+                                {(sendResult.failed || []).map((email) => (
+                                  <p key={email} className="text-xs text-red-500">{email}</p>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <button onClick={() => setSendResult(null)} className="ml-auto text-slate-400 hover:text-slate-600">
+                        <X size={16} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="px-5 py-2.5 bg-indigo-50 border-t border-indigo-100">
-                    <p className="text-xs text-indigo-600 font-medium">
-                      Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {recurringTime} IST.
-                    </p>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* WhatsApp Result */}
-              {selectedChannel === 'whatsapp' && whatsappResult && (
-                <div className={`rounded-xl p-5 border-2 ${
-                  whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
+                {/* Multi-module stagger result */}
+                {multiModuleResult && (
+                  <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-3 bg-indigo-500">
+                      <div className="flex items-center gap-2">
+                        <Calendar size={16} className="text-white" />
+                        <span className="text-sm font-bold text-white">
+                          Staggered Schedule Confirmed — {multiModuleResult.total_modules} modules
+                        </span>
+                      </div>
+                      <button onClick={() => setMultiModuleResult(null)} className="text-indigo-200 hover:text-white">
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="divide-y divide-indigo-100">
+                      {(multiModuleResult.jobs || []).map((job) => (
+                        <div key={job.job_id ?? job.module_id} className="flex items-center gap-3 px-5 py-3">
+                          <div className="w-7 h-7 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                            {job.week}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-800 truncate">{job.module_title}</p>
+                            <p className="text-xs text-slate-500">
+                              {new Date(job.run_date).toLocaleDateString('en-GB', {
+                                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata',
+                              })} · {new Date(job.run_date).toLocaleTimeString('en-GB', {
+                                hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata',
+                              })} IST · {job.recipient_count} recipient{job.recipient_count !== 1 ? 's' : ''}
+                            </p>
+                            {job.warning && (
+                              <p className="text-xs text-amber-600 font-medium mt-0.5">⚠ {job.warning}</p>
+                            )}
+                          </div>
+                          {job.job_id ? (
+                            <Check size={16} className="text-indigo-500 shrink-0" />
+                          ) : (
+                            <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 py-2.5 bg-indigo-50 border-t border-indigo-100">
+                      <p className="text-xs text-indigo-600 font-medium">
+                        Each module's flashcard email will be sent on successive {multiModuleResult.scheduled_day}s at {recurringTime} IST.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* WhatsApp Result */}
+                {selectedChannel === 'whatsapp' && whatsappResult && (
+                  <div className={`rounded-xl p-5 border-2 ${whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
                     ? 'bg-blue-50 border-blue-200'
                     : 'bg-green-50 border-green-200'
-                }`}>
-                  <div className="flex items-start gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                      whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
+                    }`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${whatsappResult.status === 'scheduled' || whatsappResult.status === 'saved_recurring'
                         ? 'bg-blue-500'
                         : 'bg-green-500'
-                    }`}>
-                      {whatsappResult.status === 'scheduled' ? (
-                        <Calendar size={20} className="text-white" />
-                      ) : (
-                        <Check size={20} className="text-white" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-slate-900 text-sm">
-                        WhatsApp dispatch {whatsappResult.status === 'scheduled' ? 'scheduled' : 'confirmed'}
-                      </h4>
-                      <div className="mt-2 space-y-1 text-xs text-slate-600">
-                        <div>
-                          <span className="font-semibold">Total messages:</span> {whatsappResult.total_messages}
-                        </div>
-                        <div>
-                          <span className="font-semibold">Unique recipients:</span> {whatsappResult.unique_recipients}
-                        </div>
+                        }`}>
+                        {whatsappResult.status === 'scheduled' ? (
+                          <Calendar size={20} className="text-white" />
+                        ) : (
+                          <Check size={20} className="text-white" />
+                        )}
                       </div>
-                      {whatsappResult.messages && whatsappResult.messages.length > 0 && (
-                        <div className="mt-3 max-h-[120px] overflow-y-auto space-y-1">
-                          {whatsappResult.messages.map((msg, idx) => (
-                            <div key={idx} className="px-2 py-1.5 bg-green-100 rounded text-xs text-green-900">
-                              <span className="font-semibold">{msg.module_title}</span> — {msg.content_type} (Day {msg.day_offset + 1})
-                            </div>
-                          ))}
+                      <div className="flex-1">
+                        <h4 className="font-bold text-slate-900 text-sm">
+                          WhatsApp dispatch {whatsappResult.status === 'scheduled' ? 'scheduled' : 'confirmed'}
+                        </h4>
+                        <div className="mt-2 space-y-1 text-xs text-slate-600">
+                          <div>
+                            <span className="font-semibold">Total messages:</span> {whatsappResult.total_messages}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Unique recipients:</span> {whatsappResult.unique_recipients}
+                          </div>
                         </div>
-                      )}
+                        {whatsappResult.messages && whatsappResult.messages.length > 0 && (
+                          <div className="mt-3 max-h-[120px] overflow-y-auto space-y-1">
+                            {whatsappResult.messages.map((msg, idx) => (
+                              <div key={idx} className="px-2 py-1.5 bg-green-100 rounded text-xs text-green-900">
+                                <span className="font-semibold">{msg.module_title}</span> — {msg.content_type} (Day {msg.day_offset + 1})
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => setWhatsappResult(null)} className="text-slate-400 hover:text-slate-600">
+                        <X size={16} />
+                      </button>
                     </div>
-                    <button onClick={() => setWhatsappResult(null)} className="text-slate-400 hover:text-slate-600">
-                      <X size={16} />
-                    </button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-    </main>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
