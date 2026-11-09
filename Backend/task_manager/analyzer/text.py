@@ -1,8 +1,24 @@
+import os
 import re
-import numpy as np
-from .models import bge_model
+import json
 import time
-from .gemini_usage import extract_gemini_usage
+import uuid
+import inspect
+import asyncio
+import concurrent.futures
+from typing import Any, List, Optional
+from datetime import datetime
+import numpy as np
+
+from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+
+from ai.ai_gateway import AI
+from ai.types import AIRequest
+from utils.supabase_client import supabase
+from utils.auth import RequestAuth, get_request_auth_required
+from task_manager import route as service
+from .models import get_bge_model
 
 STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "to", "for", 
@@ -14,13 +30,14 @@ STOPWORDS = {
     "when", "who", "which", "there", "here", "then", "than", "so", "up", "out", "no"
 }
 
+
 def extract_keywords(text: str) -> set:
     if not text:
         return set()
-    # Normalize: lowercase and replace punctuation with space
     cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
     words = re.findall(r'\b[a-z]{3,}\b', cleaned)
     return {w for w in words if w not in STOPWORDS}
+
 
 def cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
     dot = np.dot(v1, v2)
@@ -29,6 +46,7 @@ def cosine_similarity(v1: np.ndarray, v2: np.ndarray) -> float:
     if norm1 == 0 or norm2 == 0:
         return 0.0
     return float(dot / (norm1 * norm2))
+
 
 def compute_clarity_score(text: str) -> int:
     if not text or not text.strip():
@@ -61,9 +79,76 @@ def compute_clarity_score(text: str) -> int:
         
     return int(max(20, min(100, score)))
 
-def analyze_text(task_title: str, task_description: str, expected_answer: str | None, analyzing_parameters: str | None, employee_response: str) -> dict:
+
+def _run_coroutine(coro):
     """
-    Perform text submission evaluation using Gemini as the primary qualitative evaluator,
+    Safely executes an async coroutine from either a synchronous thread,
+    within an active asyncio event loop, or in sandbox environments.
+    """
+    if not inspect.iscoroutine(coro):
+        return coro
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+
+    try:
+        return asyncio.run(coro)
+    except Exception:
+        try:
+            coro.send(None)
+        except StopIteration as e:
+            return e.value
+        raise
+
+
+def _parse_json_response(raw_text: Any) -> dict:
+    """
+    Standardize JSON extraction from AI responses (handles raw text, markdown blocks, and embedded objects).
+    """
+    if isinstance(raw_text, dict):
+        return raw_text
+    if not raw_text or not isinstance(raw_text, str):
+        return {}
+
+    text = raw_text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except Exception:
+                pass
+    return {}
+
+
+def analyze_text(
+    task_title: str,
+    task_description: str,
+    expected_answer: str | None,
+    analyzing_parameters: str | None,
+    employee_response: str,
+    company_id: str = "system",
+    user_id: str = "system"
+) -> dict:
+    """
+    Perform text submission evaluation using Model Agnostic AI Gateway as the primary qualitative evaluator,
     supported by BGE for semantic relevance and clarity metrics.
     """
     if not employee_response or not employee_response.strip():
@@ -71,6 +156,7 @@ def analyze_text(task_title: str, task_description: str, expected_answer: str | 
             "overall_score": 0,
             "metrics": {
                 "ai_quality_score": 0,
+                "gemini_quality_score": 0,
                 "bge_relevance_score": 0,
                 "clarity_score": 0,
             },
@@ -98,164 +184,62 @@ def analyze_text(task_title: str, task_description: str, expected_answer: str | 
     comparison_text = f"Task:\n{task_context}"
 
     try:
-        emb_comp = bge_model.encode(comparison_text)
-        emb_resp = bge_model.encode(employee_response)
-        sim = cosine_similarity(emb_comp, emb_resp)
-        bge_relevance_score = int(max(0, sim) * 100)
+        bge_model = get_bge_model()
+        if bge_model is not None:
+            emb_comp = bge_model.encode(comparison_text)
+            emb_resp = bge_model.encode(employee_response)
+            sim = cosine_similarity(emb_comp, emb_resp)
+            bge_relevance_score = int(max(0, sim) * 100)
+        else:
+            bge_relevance_score = 50
+            sim = 0.5
     except Exception as e:
-        print("[Text Analyzer] BGE embedding failed:", e)
+        print(f"[Text Analyzer] BGE embedding failed: {e}")
         bge_relevance_score = 50
         sim = 0.5
         
-    # --- 2. Gemini Evaluation (Primary) ---
-    import os
-    api_key = os.getenv("GEMINI_API_KEY")
-    
-    gemini_score = 0
+    # --- 2. Model Agnostic Layer Evaluation (Primary) ---
     res_json = {}
-    
-    input_tokens = 0
-    output_tokens = 0
-    total_tokens = 0
-    usage_dict = {}
-    
-    if api_key:
-        try:
-            import json
-            from google import genai
-            from google.genai import types
-            
-            client = genai.Client(api_key=api_key)
-            
-            # --- Prompt Construction ---
-            prompt_parts = [
-                "You are evaluating an employee's response.",
-                f"\nTASK:\n{task_context}"
-            ]
-            
-            if analyzing_parameters and analyzing_parameters.strip():
-                prompt_parts.append(f"\nEVALUATION CRITERIA:\n{analyzing_parameters.strip()}")
-            
-            if expected_answer and expected_answer.strip():
-                prompt_parts.append(f"\nREFERENCE ANSWER:\n{expected_answer.strip()}")
-                
-            prompt_parts.append(f"\nEMPLOYEE RESPONSE:\n{employee_response.strip()}")
-            prompt_parts.append("\nEvaluate only the employee response based on the task and supplied evaluation criteria.")
-            prompt_parts.append("Do not infer information not explicitly present.")
-            prompt_parts.append("Score the response according to completeness, relevance, specificity, and actionability unless custom evaluation criteria are provided.")
-            prompt_parts.append("""
-Scoring guidance:
-90-100: Complete, specific, relevant, and actionable.
-70-89: Good response with minor gaps.
-40-69: Partially complete, vague, or missing important details.
-1-39: Poor, substantially incomplete, or minimally relevant.
-0: Does not answer the task.
+    ai_score = 0
+    ai_response = None
 
-Return valid JSON only:
-{
-  "overall_score": 0,
-  "sentiment": "positive|neutral|negative|mixed",
-  "key_themes": [],
-  "strengths": [],
-  "concerns": [],
-  "action_orientation": "high|medium|low",
-  "engagement": "high|medium|low",
-  "summary": "",
-  "recommendations": [],
-  "measurable_outcomes": [],
-  "actions_taken": [],
-  "unique_methods": [],
-  "challenges": [],
-  "learnings": [],
-  "missing_information": [],
-  "extraction_confidence": "high|medium|low"
-}
-""")
-            
-            prompt = "\n".join(prompt_parts)
-            prompt_len = len(prompt)
-            
-            start_time = time.perf_counter()
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    thinking_config=types.ThinkingConfig(thinking_budget=1024)
-                )
-            )
-            end_time = time.perf_counter()
-            
-            # --- Token Logging via helper ---
-            usage_dict = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
-            
-            input_tokens = usage_dict["prompt_tokens"]
-            output_tokens = usage_dict["output_tokens"]
-            total_tokens = usage_dict["total_tokens"]
-            
-            print("\n========== GEMINI USAGE & COST ==========")
-            print(f"Model: {usage_dict['model']}\n")
-            print(f"Input Tokens:    {usage_dict['prompt_tokens']:,}")
-            print(f"Output Tokens:   {usage_dict['output_tokens']:,}")
-            print(f"Thinking Tokens: {usage_dict['thinking_tokens']:,}")
-            print(f"Cached Tokens:   {usage_dict['cached_tokens']:,}")
-            print(f"Total Tokens:    {usage_dict['total_tokens']:,}\n")
-            
-            if usage_dict.get('pricing_available'):
-                print(f"Input Cost:      ${usage_dict['input_cost_usd']}")
-                print(f"Output Cost:     ${usage_dict['output_cost_usd']}")
-                print(f"Total Cost:      ${usage_dict['total_cost_usd']}")
-                print(f"Total Cost INR:  ₹{usage_dict['total_cost_inr']}\n")
-            else:
-                print("Pricing:         Unavailable\n")
-            
-            print(f"Duration:        {usage_dict['duration_ms']:,.0f} ms")
-            print("=========================================\n")
-            
-            res_text = response.text.strip()
-            if res_text.startswith("```json"):
-                res_text = res_text[7:]
-            if res_text.startswith("```"):
-                res_text = res_text[3:]
-            if res_text.endswith("```"):
-                res_text = res_text[:-3]
-            res_text = res_text.strip()
-            
-            res_json = json.loads(res_text)
-            gemini_score = int(res_json.get("overall_score", 0))
-        except Exception as e:
-            end_time = time.perf_counter()
-            duration_ms = round((end_time - start_time) * 1000, 2) if 'start_time' in locals() else 0.0
-            print("\n====================================================")
-            print("GEMINI EVALUATION FAILED")
-            print("====================================================")
-            print(f"Model: gemini-2.5-flash")
-            print(f"Error Type: {type(e).__name__}")
-            print(f"Error: {e}")
-            print(f"Request Duration: {duration_ms} ms")
-            print("====================================================\n")
-            gemini_score = bge_relevance_score  # fallback if Gemini fails
-            usage_dict = {
-                "model": "gemini-2.5-flash",
-                "prompt_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "cached_tokens": 0, "total_tokens": 0,
-                "duration_ms": duration_ms, "estimated_cost_usd": None, "estimated_cost_inr": None,
-                "status": "FAILED", "error": str(e)
-            }
-    else:
-        gemini_score = bge_relevance_score
+    variables = {
+        "task_context": task_context,
+        "analyzing_parameters": (analyzing_parameters or "No specific evaluation criteria provided.").strip(),
+        "expected_answer": (expected_answer or "No reference answer provided.").strip(),
+        "employee_response": employee_response.strip(),
+    }
 
-    # --- 3. Final Scoring and Logging ---
-    final_score = gemini_score
-    
-    print("\n========== TEXT AI EVALUATION DEBUG ==========")
-    print(f"Task Comparison Text:\n{comparison_text}")
-    print(f"BGE Raw Cosine Similarity: {round(float(sim), 4)}")
-    print(f"BGE Relevance Score: {bge_relevance_score}")
-    print(f"Gemini Overall Score: {gemini_score}")
-    print(f"Clarity Score: {clarity_score}")
-    print(f"Final Score: {final_score}")
-    print("==============================================\n")
+    try:
+        request = AIRequest(
+            feature="task_evaluation_text",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/text",
+            variables=variables,
+            prompt_type="default",
+            response_format="json",
+            generation_config={
+                "temperature": 0.2,
+                "thinking_config": {"thinking_budget": 1024},
+            },
+        )
+        ai_response = _run_coroutine(AI.execute(request))
 
-    # Map the new format back to the API contract
+        if not ai_response or not ai_response.success:
+            raise RuntimeError(f"AI Gateway returned failure: {getattr(ai_response, 'error', 'No response')}")
+
+        res_json = _parse_json_response(ai_response.content)
+        ai_score = int(res_json.get("overall_score", 0))
+
+    except Exception as e:
+        print(f"[Text Analyzer] AI Gateway evaluation failed ({type(e).__name__}: {e}). Falling back to BGE similarity score.")
+        ai_score = bge_relevance_score
+        res_json = {}
+
+    final_score = ai_score
+
+    # Map the evaluated format to the API contract
     strengths = res_json.get("strengths", [])
     weaknesses = res_json.get("concerns", [])
     improvement_points = res_json.get("recommendations", [])
@@ -293,10 +277,15 @@ Return valid JSON only:
     param_analysis_parts.append(f"Sentiment: {sentiment}.")
     parameter_analysis = " ".join(param_analysis_parts)
 
+    input_tokens = ai_response.input_tokens if ai_response else 0
+    output_tokens = ai_response.output_tokens if ai_response else 0
+    total_tokens = ai_response.total_tokens if ai_response else 0
+
     return {
         "overall_score": final_score,
         "metrics": {
-            "gemini_quality_score": gemini_score,
+            "ai_quality_score": ai_score,
+            "gemini_quality_score": ai_score,
             "bge_relevance_score": bge_relevance_score,
             "bge_raw_similarity": round(float(sim), 4),
             "clarity_score": clarity_score
@@ -316,17 +305,27 @@ Return valid JSON only:
         "missing_information": res_json.get("missing_information", []),
         "extraction_confidence": res_json.get("extraction_confidence", "high"),
         "model_output": {
-            "model_name": "Hybrid-Gemini-BGE",
+            "model_name": f"{ai_response.provider}-{ai_response.model}" if ai_response else "Hybrid-AI-BGE",
             "cosine_similarity": round(float(sim), 4),
+            "ai_output": res_json,
             "gemini_output": res_json,
             "usage_metrics": {
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "total_tokens": total_tokens
             },
-            "usage": usage_dict
+            "usage": {
+                "model": ai_response.model if ai_response else "fallback",
+                "provider": ai_response.provider if ai_response else "none",
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "latency_ms": ai_response.latency_ms if ai_response else 0,
+                "status": "SUCCESS" if ai_response and ai_response.success else "FALLBACK"
+            }
         }
     }
+
 
 def analyze_mcq(questions: list, answers: list) -> dict:
     """
@@ -358,9 +357,7 @@ def analyze_mcq(questions: list, answers: list) -> dict:
         q_id = str(ans.get("question_id") or ans.get("id") or "")
         q_obj = q_map.get(q_id)
 
-        selected = str(ans.get("selected_option") or ans.get("selected_answer") or ans.get("answer") or ans.get("selected") or ""
-
-).strip()
+        selected = str(ans.get("selected_option") or ans.get("selected_answer") or ans.get("answer") or ans.get("selected") or "").strip()
         if q_obj:
             correct = str(q_obj.get("correctAnswer") or q_obj.get("correct_answer") or q_obj.get("correct_answers") or "").strip()
             
@@ -388,7 +385,6 @@ def analyze_mcq(questions: list, answers: list) -> dict:
                 "feedback": "Correct option selected." if is_correct else f"Incorrect. The correct option was: {correct}"
             })
         else:
-            # Invalid question ID provided in payload
             analysis.append({
                 "question": ans.get("question", f"Unknown Question ID: {q_id}"),
                 "selected_answer": selected,
@@ -429,25 +425,8 @@ def analyze_mcq(questions: list, answers: list) -> dict:
     }
 
 
-import os
-import json
-import uuid
-from typing import List, Optional
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, Header, HTTPException, BackgroundTasks
-from pydantic import BaseModel
-from google import genai
-from google.genai import types
-
-from utils.supabase_client import supabase
-from utils.auth import RequestAuth, get_request_auth_required
-from task_manager import route as service
-
 router = APIRouter()
 
-# Initialize Gemini Client using GEMINI_API_KEY
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY") or "") if os.getenv("GEMINI_API_KEY") else None
 
 def get_company_id(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
@@ -458,11 +437,13 @@ def get_company_id(
         raise HTTPException(status_code=400, detail="Company ID is required")
     return company_id
 
+
 class AnswerItem(BaseModel):
     question_id: str
     question: str
     selected_option: str
     correct_answer: str
+
 
 class TextAnalysisRequest(BaseModel):
     assignment_id: str
@@ -470,6 +451,7 @@ class TextAnalysisRequest(BaseModel):
     submission_type: str  # "text" or "multiple_choice"
     text_response: Optional[str] = None
     answers: Optional[List[AnswerItem]] = None
+
 
 @router.post("/submit")
 async def submit_text_analysis(
@@ -568,7 +550,6 @@ async def submit_text_analysis(
         except Exception as e:
             err_msg = str(e).lower()
             if "duplicate key" in err_msg or "23505" in err_msg or "already exists" in err_msg:
-                # Retrieve the row that was just inserted by the concurrent request
                 existing_res = (
                     supabase
                     .table("task_submissions")
@@ -601,10 +582,8 @@ async def submit_text_analysis(
                       "submission_type", "submitted_at"]:
             val = insert_data.get(field)
             if val is not None:
-                # Merge answers to avoid overwriting existing ones for other subtasks
                 if field == "answers" and is_bundle_submission and existing_row.get("answers"):
                     existing_answers = existing_row.get("answers") or []
-                    # Keep old answers, but filter out the ones for this child_task_id if updating
                     merged_answers = [a for a in existing_answers if not (isinstance(a, dict) and a.get("child_task_id") == payload.task_id)]
                     merged_answers.extend(val)
                     update_data[field] = merged_answers
@@ -622,7 +601,6 @@ async def submit_text_analysis(
 
     # 3. Queue background task
     from task_manager.analyzer.pipeline import run_ai_pipeline_bg
-    # run_ai_pipeline_bg.delay(
     background_tasks.add_task(
         run_ai_pipeline_bg,
         submission_id,
@@ -637,4 +615,3 @@ async def submit_text_analysis(
         "message": "Task submitted successfully",
         "submission_id": submission_id
     }
-

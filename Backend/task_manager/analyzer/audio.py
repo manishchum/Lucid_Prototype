@@ -1,6 +1,74 @@
 from __future__ import annotations
 
+import os
+import json
+import inspect
+import asyncio
+import concurrent.futures
 from typing import Any
+
+from ai.ai_gateway import AI
+from ai.types import AIRequest
+from .models import get_whisper_pipeline, get_bge_model
+from .text import cosine_similarity, extract_keywords
+
+
+def _run_coroutine(coro):
+    """
+    Safely executes an async coroutine from either a synchronous thread,
+    within an active asyncio event loop, or in sandbox environments.
+    """
+    if not inspect.iscoroutine(coro):
+        return coro
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+
+    try:
+        return asyncio.run(coro)
+    except Exception:
+        try:
+            coro.send(None)
+        except StopIteration as e:
+            return e.value
+        raise
+
+
+def _parse_json_response(raw_text: Any) -> dict:
+    """
+    Standardize JSON extraction from AI responses (handles raw text, markdown blocks, and embedded objects).
+    """
+    if isinstance(raw_text, dict):
+        return raw_text
+    if not raw_text or not isinstance(raw_text, str):
+        return {}
+
+    text = raw_text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except Exception:
+                pass
+    return {}
 
 
 def _score(value: Any, fallback: int = 0) -> int:
@@ -59,10 +127,6 @@ def generate_audio_score(
         "feedback": gemini_result.get("feedback") or "",
         "improvement_suggestions": gemini_result.get("improvement_suggestions") or [],
     }
-
-
-
-from typing import Any
 
 
 def analyze_audio_features(audio_path: str) -> dict[str, Any]:
@@ -141,114 +205,87 @@ def analyze_audio_features(audio_path: str) -> dict[str, Any]:
             "error": str(exc),
         }
 
-import os
-import json
-from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-import time
-from .gemini_usage import extract_gemini_usage
-
-load_dotenv()
-
-api_key = os.getenv("GEMINI_API_KEY")
-
 
 def analyze_audio_with_gemini(
     audio_bytes: bytes,
     mime_type: str,
-    prompt: str | None = None
-):
-    if not api_key:
+    prompt: str | None = None,
+    company_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Evaluate speech audio communication using the centralized AI Gateway
+    with feature 'task_evaluation_audio' and prompt_type 'communication'.
+    Extracts transcript, tone, communication score, filler words, strengths,
+    weaknesses, feedback, and improvement suggestions.
+    """
+    try:
+        request = AIRequest(
+            feature="task_evaluation_audio",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/audio",
+            variables={},
+            prompt_type="communication",
+            system_prompt=prompt,
+            files=[{"mime_type": mime_type, "data": audio_bytes}],
+            response_format="json",
+            generation_config={"temperature": 0.2},
+        )
+        ai_resp = _run_coroutine(AI.execute(request))
+        raw_content = getattr(ai_resp, "content", None) or ""
+        parsed = _parse_json_response(raw_content)
+
+        if parsed:
+            filler_words = parsed.get("filler_words")
+            if not isinstance(filler_words, list):
+                filler_words = []
+
+            strengths = parsed.get("strengths")
+            if not isinstance(strengths, list):
+                strengths = []
+
+            weaknesses = parsed.get("weaknesses")
+            if not isinstance(weaknesses, list):
+                weaknesses = []
+
+            improvement_suggestions = parsed.get("improvement_suggestions")
+            if not isinstance(improvement_suggestions, list):
+                improvement_suggestions = []
+
+            return {
+                "transcript": str(parsed.get("transcript") or ""),
+                "tone": str(parsed.get("tone") or "not available"),
+                "communication_score": _score(parsed.get("communication_score"), 0),
+                "filler_words": filler_words,
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "feedback": str(parsed.get("feedback") or ""),
+                "improvement_suggestions": improvement_suggestions,
+            }
+        else:
+            return {
+                "transcript": "",
+                "tone": "not available",
+                "communication_score": 0,
+                "filler_words": [],
+                "strengths": [],
+                "weaknesses": ["AI audio response could not be parsed as JSON."],
+                "feedback": str(raw_content) if raw_content else "Audio analysis could not be completed.",
+                "improvement_suggestions": [],
+            }
+    except Exception as e:
+        print(f"[Audio Analyzer] analyze_audio_with_gemini failed: {e}")
         return {
             "transcript": "",
             "tone": "not available",
             "communication_score": 0,
             "filler_words": [],
             "strengths": [],
-            "weaknesses": ["Gemini API key is not configured."],
-            "feedback": "Audio was submitted, but AI audio analysis is not configured.",
+            "weaknesses": [f"AI audio evaluation error: {e}"],
+            "feedback": "Audio analysis could not be completed.",
             "improvement_suggestions": [],
         }
-
-    api_key = os.getenv("GEMINI_API_KEY")
-
-    if not api_key:
-        print("[Audio Analyzer] GEMINI_API_KEY not configured")
-        return {
-            "score": 50,
-            "passed": False,
-            "feedback": "Task compliance evaluation unavailable.",
-            "criteria": []
-        }
-
-    client = genai.Client(api_key=api_key)
-    analysis_prompt = prompt or (
-        "You are an enterprise task communication evaluator. "
-        "Transcribe the speech and analyze tone, professionalism, communication quality, "
-        "sentence structure, language confidence, filler words, strengths, weaknesses, "
-        "feedback, and improvement suggestions. Return STRICT JSON ONLY with keys: "
-        "transcript, tone, communication_score, filler_words, strengths, weaknesses, "
-        "feedback, improvement_suggestions. Scores must be 0-100."
-    )
-
-    start_time = time.time()
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            types.Part.from_bytes(
-                data=audio_bytes,
-                mime_type=mime_type
-            ),
-            types.Part(text=analysis_prompt)
-        ],
-        config=types.GenerateContentConfig(
-            temperature=0.2
-        )
-    )
-    end_time = time.time()
-
-    usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
-    print(f"\n========== GEMINI USAGE: audio.py (analyze_audio_with_gemini) ==========")
-    print(f"Model: {usage['model']} | Duration: {usage['duration_ms']}ms")
-    print(f"Tokens: Input {usage['prompt_tokens']} | Output {usage['output_tokens']} | Total {usage['total_tokens']}")
-    if usage['pricing_available']:
-        print(f"Cost: ${usage['total_cost_usd']} | INR ₹{usage['total_cost_inr']}")
-    print("========================================================================\n")
-
-    text = response.text
-
-    try:
-        parsed = json.loads(
-            text.replace("```json", "")
-                .replace("```", "")
-                .strip()
-        )
-        return {
-            "transcript": parsed.get("transcript", ""),
-            "tone": parsed.get("tone", ""),
-            "communication_score": int(parsed.get("communication_score", 0) or 0),
-            "filler_words": parsed.get("filler_words") or [],
-            "strengths": parsed.get("strengths") or [],
-            "weaknesses": parsed.get("weaknesses") or [],
-            "feedback": parsed.get("feedback", ""),
-            "improvement_suggestions": parsed.get("improvement_suggestions") or [],
-        }
-    except Exception:
-        return {
-            "transcript": "",
-            "tone": "",
-            "communication_score": 0,
-            "filler_words": [],
-            "strengths": [],
-            "weaknesses": ["Gemini response could not be parsed as JSON."],
-            "feedback": text,
-            "improvement_suggestions": [],
-        }
-
-
-
-from typing import Any
 
 
 def analyze_speech_quality(audio_path: str) -> dict[str, Any]:
@@ -307,13 +344,6 @@ def analyze_speech_quality(audio_path: str) -> dict[str, Any]:
             "error": str(exc),
         }
 
-import os
-from google import genai
-from google.genai import types
-from .models import get_whisper_pipeline, get_bge_model
-from .text import cosine_similarity, extract_keywords
-
-
 
 def transcribe_audio_whisper(audio_path: str) -> str:
     """
@@ -323,16 +353,16 @@ def transcribe_audio_whisper(audio_path: str) -> str:
     if not whisper_pipeline:
         print("[Audio Analyzer] Whisper pipeline not initialized")
         return ""
-    
+
     try:
         res = whisper_pipeline(
-              audio_path,
-              generate_kwargs={
-        "task": "transcribe",
-        "language": "en",
-    },
-    return_timestamps=True,
-)
+            audio_path,
+            generate_kwargs={
+                "task": "transcribe",
+                "language": "en",
+            },
+            return_timestamps=True,
+        )
 
         print("\n========== WHISPER OUTPUT ==========")
         print(res)
@@ -341,115 +371,83 @@ def transcribe_audio_whisper(audio_path: str) -> str:
     except Exception as e:
         print("[Audio Analyzer] Whisper transcription failed:", e)
         return ""
+
+
 def evaluate_audio_task_compliance(
     transcript: str,
     task_title: str,
     task_description: str,
     analyzing_parameters: str | None = None,
-    expected_answer: str | None = None
-) -> dict:
+    expected_answer: str | None = None,
+    company_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """
-    Uses Gemini to evaluate whether the transcript satisfies
-    the actual task requirements.
+    Uses the centralized AI Gateway with feature 'task_evaluation_audio' and prompt_type 'compliance'
+    to evaluate whether the transcript satisfies the actual task requirements.
     """
-
-    api_key = os.getenv("GEMINI_API_KEY")
-
-    if not api_key:
-        return {
-            "score": 50,
-            "passed": False,
-            "feedback": "Task compliance could not be evaluated.",
-            "criteria": []
-        }
-        
-    client = genai.Client(api_key=api_key)
-
-    prompt = f"""
-You are an enterprise task-verification AI.
-
-Evaluate the employee's audio transcript against the task requirements.
-
-TASK TITLE:
-{task_title}
-
-TASK DESCRIPTION:
-{task_description}
-
-ANALYZING PARAMETERS:
-{analyzing_parameters or "No additional parameters provided."}
-
-EXPECTED ANSWER:
-{expected_answer or "No expected answer provided."}
-
-EMPLOYEE TRANSCRIPT:
-{transcript}
-
-Evaluate whether the employee actually completed the requested task.
-
-Important:
-- Evaluate the CONTENT of the transcript against the task.
-- Do not penalize the employee merely because the response contains additional information.
-- Check each explicit requirement separately.
-- If a requirement is clearly satisfied, mark it satisfied.
-- If a requirement is missing, mark it missing.
-- Do not invent information that is not present in the transcript.
-
-Return STRICT JSON ONLY:
-
-{{
-    "score": 0,
-    "passed": true,
-    "criteria": [
-        {{
-            "requirement": "requirement description",
-            "satisfied": true,
-            "evidence": "short evidence from transcript"
-        }}
-    ],
-    "feedback": "short explanation"
-}}
-"""
-
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                types.Part(text=prompt)
-            ],
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=0)
-            ),
+        variables = {
+            "task_title": task_title or "Untitled Task",
+            "task_description": task_description or "No task description provided.",
+            "analyzing_parameters": analyzing_parameters or "No additional parameters provided.",
+            "expected_answer": expected_answer or "No expected answer provided.",
+            "transcript": transcript or "No transcript available.",
+        }
+
+        request = AIRequest(
+            feature="task_evaluation_audio",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/audio",
+            variables=variables,
+            prompt_type="compliance",
+            response_format="json",
+            generation_config={
+                "temperature": 0.2,
+                "thinking_config": {"thinking_budget": 0},
+            },
         )
+        ai_resp = _run_coroutine(AI.execute(request))
+        raw_content = getattr(ai_resp, "content", None) or ""
+        parsed = _parse_json_response(raw_content)
 
-        result_text = getattr(response, "text", None) or ""
-
-        try:
-            return json.loads(result_text)
-        except Exception:
-            start = result_text.find("{")
-            end = result_text.rfind("}")
-
-            if start != -1 and end != -1:
-                return json.loads(result_text[start:end + 1])
-
+        if parsed:
+            score = _score(parsed.get("score"), 50)
+            passed = bool(parsed.get("passed", False))
+            criteria = parsed.get("criteria", [])
+            if not isinstance(criteria, list):
+                criteria = []
+            feedback = str(parsed.get("feedback") or "Task compliance evaluated.")
+            return {
+                "score": score,
+                "passed": passed,
+                "criteria": criteria,
+                "feedback": feedback,
+            }
     except Exception as e:
-        print("[Audio Analyzer] Task compliance evaluation failed:", e)
+        print(f"[Audio Analyzer] Task compliance evaluation failed: {e}")
 
     return {
         "score": 50,
         "passed": False,
         "feedback": "Task compliance evaluation unavailable.",
-        "criteria": []
+        "criteria": [],
     }
+
+
+evaluate_task_compliance_with_gemini = evaluate_audio_task_compliance
+
 
 def analyze_audio(
     audio_path: str,
     task_title: str,
     task_description: str,
     expected_answer: str | None,
-    analyzing_parameters: str | None = None
-):
+    analyzing_parameters: str | None = None,
+    company_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
     """
     Silent audio submission analyzer.
     """
@@ -462,13 +460,13 @@ def analyze_audio(
                 "fluency": 0,
                 "confidence": 0,
                 "relevance_score": 0,
-                "improvement_points": ["Audio file missing."]
+                "improvement_points": ["Audio file missing."],
             },
             "strengths": [],
             "weaknesses": ["Media file missing."],
             "detected_issues": ["Audio file not found on disk."],
             "improvement_points": ["Re-upload audio file."],
-            "model_output": {}
+            "model_output": {},
         }
 
     # 1. Whisper Transcription
@@ -484,7 +482,7 @@ def analyze_audio(
                 "relevance_score": 0,
                 "improvement_points": [
                     "Speech could not be transcribed."
-                ]
+                ],
             },
             "strengths": [],
             "weaknesses": [
@@ -496,12 +494,12 @@ def analyze_audio(
             "improvement_points": [
                 "Please speak clearly into the microphone."
             ],
-            "model_output": {}
+            "model_output": {},
         }
 
     # 2. Acoustic features via Librosa
     acoustic_result = analyze_audio_features(audio_path)
-    
+
     # 3. Speech quality via Wav2Vec2 (if available)
     speech_result = analyze_speech_quality(audio_path)
 
@@ -524,14 +522,16 @@ def analyze_audio(
         else:
             relevance_score = 50
             sim = 0.5
-            
-        # 5. Task compliance using Gemini
+
+    # 5. Task compliance using AI Gateway
     task_compliance = evaluate_audio_task_compliance(
         transcript=transcript,
         task_title=task_title,
         task_description=task_description,
         analyzing_parameters=analyzing_parameters,
-        expected_answer=expected_answer
+        expected_answer=expected_answer,
+        company_id=company_id,
+        user_id=user_id,
     )
 
     criteria = task_compliance.get("criteria", [])
@@ -542,7 +542,6 @@ def analyze_audio(
             for criterion in criteria
             if criterion.get("satisfied") is True
         )
-
         task_compliance_score = int(
             (satisfied_count / len(criteria)) * 100
         )
@@ -550,6 +549,7 @@ def analyze_audio(
         task_compliance_score = int(
             max(0, min(100, task_compliance.get("score", 50)))
         )
+
     # Calculate clarity, fluency, confidence
     # Clarity score from Wav2Vec2 or fallback to silence ratio
     raw_clarity = speech_result.get("clarity_score", 0)
@@ -558,10 +558,10 @@ def analyze_audio(
     else:
         silence_ratio = acoustic_result.get("silence_ratio", 0.0)
         clarity = int(max(30, min(100, 100 - silence_ratio * 120)))
-        
+
     # Fluency is based on pace score
     fluency = acoustic_result.get("pace_score", 50)
-    
+
     # Confidence is average of pronunciation score and pace score
     raw_pron = speech_result.get("pronunciation_score", 0)
     if raw_pron > 0:
@@ -571,21 +571,20 @@ def analyze_audio(
 
     # Overall score synthesis
     score = int(
-    0.20 * clarity
-    + 0.15 * fluency
-    + 0.15 * confidence
-    + 0.15 * relevance_score
-    + 0.35 * task_compliance_score
-)
+        0.20 * clarity
+        + 0.15 * fluency
+        + 0.15 * confidence
+        + 0.15 * relevance_score
+        + 0.35 * task_compliance_score
+    )
     print("\n========== AUDIO ANALYZER DEBUG ==========")
-
     print("Clarity:", clarity)
     print("Fluency:", fluency)
     print("Confidence:", confidence)
     print("Relevance:", relevance_score)
     print("Task compliance:", task_compliance_score)
     print("Task compliance details:", task_compliance)
-    print("BGE similarity:", locals().get("sim"))
+    print("BGE similarity:", sim)
     print("Final score:", score)
     print("Analyzing parameters:", analyzing_parameters)
     print("Expected answer:", expected_answer)
@@ -638,7 +637,7 @@ def analyze_audio(
             "fluency": fluency,
             "confidence": confidence,
             "relevance_score": relevance_score,
-            "improvement_points": improvement_points
+            "improvement_points": improvement_points,
         },
         "strengths": strengths,
         "weaknesses": weaknesses,
@@ -648,7 +647,6 @@ def analyze_audio(
             "whisper_transcript": transcript,
             "bge_relevance": round(float(sim), 4),
             "acoustic_features": acoustic_result,
-            "speech_quality": speech_result
-        }
+            "speech_quality": speech_result,
+        },
     }
-
