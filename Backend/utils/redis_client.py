@@ -16,7 +16,7 @@ redis_client = redis.Redis(
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
     ssl=redis_ssl,
-    max_connections=10,
+    max_connections=50,
     socket_timeout=5.0,
     socket_connect_timeout=3.0,
 )

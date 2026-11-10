@@ -279,11 +279,23 @@ async def dispatch_hybrid_notification(
         except Exception as e:
             err_msg = str(e)
             logger.warning(f"[Dispatcher] FCM push dispatch failed for user {user_id}: {err_msg}")
-            if any(token_err in err_msg.lower() for token_err in ["unregistered", "notregistered", "invalid-registration-token", "not registered"]):
+            invalid_token_signatures = [
+                "unregistered",
+                "notregistered",
+                "not registered",
+                "invalid-registration-token",
+                "invalid registration token",
+                "not a valid fcm registration token",
+                "not a valid",
+                "invalid token",
+                "senderidmismatch",
+                "invalid_argument",
+            ]
+            if any(token_err in err_msg.lower() for token_err in invalid_token_signatures):
                 try:
                     _db = get_service_supabase_client()
                     _db.table("users").update({"fcm_token": None}).eq("user_id", user_id).execute()
-                    logger.info(f"[Dispatcher] Purged stale FCM token for user {user_id}")
+                    logger.info(f"[Dispatcher] Purged stale/invalid FCM token for user {user_id}")
                 except Exception as purge_err:
                     logger.warning(f"[Dispatcher] Failed to purge stale FCM token: {purge_err}")
 
