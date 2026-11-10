@@ -10,7 +10,7 @@ from utils.auth_socket_manager import auth_socket_manager
 from utils.redis_client import redis_client
 
 
-def _clear_test_caches(user_id: str):
+def _clear_test_caches(user_id: str, device_id: str = "dev-1"):
     _AUTH_ME_L1_CACHE.pop(f"auth_me:{user_id}", None)
     try:
         redis_client.delete(f"session:{user_id}:web")
@@ -18,6 +18,8 @@ def _clear_test_caches(user_id: str):
         redis_client.delete(f"ratelimit:{user_id}:auth-me")
     except Exception:
         pass
+    if device_id:
+        register_device_session(user_id, device_id, platform="web")
 
 
 def test_attack_idor_parameter_tampering_prevented():
@@ -29,7 +31,7 @@ def test_attack_idor_parameter_tampering_prevented():
     """
     user_a = str(uuid.uuid4())
     user_b_victim = str(uuid.uuid4())
-    _clear_test_caches(user_a)
+    _clear_test_caches(user_a, device_id="dev-attacker")
 
     req_auth = RequestAuth(
         user_id=user_a,
@@ -265,8 +267,11 @@ def test_data_minimization_and_sensitive_fields_purged():
         assert emp["company_name"] == "Workfloww"
         assert emp["company_logo"] == "logo.png"
         assert emp["subscription_tier"] == "tier_2"
-        assert emp["subscription_addons"] == ["addon_1", "addon_2"]
+        assert "subscription_addons" not in emp, "Payload Duplication: subscription_addons must not be in employeeData"
         assert emp["learning_style_enabled"] is True
+
+        # Assert authoritative tenant metadata is housed in activeCompany
+        assert res["tenant"]["activeCompany"]["subscription_addons"] == ["addon_1", "addon_2"]
 
 
 def test_anti_caching_and_transport_security_headers():

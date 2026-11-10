@@ -126,6 +126,12 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem("lucid:last-active-at", Date.now().toString());
+        window.sessionStorage.setItem("lucid:last-active-at", Date.now().toString());
+      } catch {}
+    }
   } else if (headers.has("X-User-ID")) {
     console.warn("[fetch-with-auth] Missing Firebase token for request that includes X-User-ID", { url });
   }
@@ -149,7 +155,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   //   response.status
   // );
 
-  // Handle 401 Session_Replaced silently without dumping noisy red errors in console
+  // Handle 401 Session_Replaced or Session_Expired cleanly without retry loops
   if (response.status === 401) {
     try {
       const errClone = response.clone();
@@ -159,6 +165,15 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
         window.dispatchEvent(
           new CustomEvent("lucid:auth:force-logout", {
             detail: { reason: "session_replaced" }
+          })
+        );
+        return response;
+      }
+      if (errText.includes("Session_Expired")) {
+        console.info("[fetch-with-auth] Session expired due to inactivity.", { url });
+        window.dispatchEvent(
+          new CustomEvent("lucid:auth:force-logout", {
+            detail: { reason: "inactivity" }
           })
         );
         return response;
@@ -206,15 +221,27 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
           "[fetch-with-auth] Cannot refresh token because currentUser is null"
         );
 
-        window.dispatchEvent(
-          new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
-        );
+        if (typeof window !== "undefined") {
+          const path = window.location.pathname;
+          if (path !== "/login" && path !== "/" && path !== "/signup") {
+            window.dispatchEvent(
+              new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
+            );
+          }
+        }
 
         return response;
       }
 
-      const refreshedToken =
-        await currentUser.getIdToken(true);
+      let refreshedToken = "";
+      if (typeof navigator !== "undefined" && (navigator as any).locks) {
+        refreshedToken = await (navigator as any).locks.request("lucid:token-refresh", async () => {
+          return await currentUser.getIdToken(true);
+        });
+      } else {
+        refreshedToken = await currentUser.getIdToken(true);
+      }
+      cachedIdToken = { token: refreshedToken, expiresAt: Date.now() + 5 * 60 * 1000 };
       
       const retryHeaders =
         toHeaders(options.headers);

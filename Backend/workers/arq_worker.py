@@ -39,11 +39,11 @@ redis_settings = RedisSettings(
     port=redis_port,
     username=redis_username,
     password=redis_password,
-    conn_timeout=10,
+    conn_timeout=15,
     conn_retries=5,
     conn_retry_delay=1,
     retry_on_timeout=True,
-    max_connections=5,
+    max_connections=50,
     retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
 )
 
@@ -56,8 +56,16 @@ async def _process_and_update_job(sem: asyncio.Semaphore, db, job: Dict[str, Any
         job_id = job.get("id")
         try:
             logger.info(f"[ARQ Worker] Concurrently processing job {job_id} (Type: {job.get('notification_type')})")
-            success, failure_cat = await process_single_job(db, job)
+            # Enforce 25-second per-job timeout to prevent individual slow SMTP or external calls from stalling the worker
+            success, failure_cat = await asyncio.wait_for(process_single_job(db, job), timeout=25.0)
+        except asyncio.TimeoutError:
+            logger.warning(f"[ARQ Worker] Job {job_id} dispatch timed out after 25s.")
+            success, failure_cat = False, "TIMEOUT_NETWORK_ERROR"
+        except Exception as job_err:
+            logger.error(f"[ARQ Worker] Error in worker processing job {job_id}: {job_err}")
+            success, failure_cat = False, "UNEXPECTED_WORKER_ERROR"
 
+        try:
             is_permanent = (
                 failure_cat in [
                     "PERMANENT_SCHEMA_VIOLATION",
@@ -97,19 +105,32 @@ async def _process_and_update_job(sem: asyncio.Semaphore, db, job: Dict[str, Any
                 .eq("id", job_id)
                 .execute()
             )
-        except Exception as job_err:
-            logger.error(f"[ARQ Worker] Error in worker processing job {job_id}: {job_err}")
+        except Exception as update_err:
+            logger.error(f"[ARQ Worker] Failed to persist terminal/retry status for job {job_id}: {update_err}")
 
 
 async def poll_notification_jobs(ctx: Dict[str, Any]) -> None:
     """
     Cron job function that polls the `notification_jobs` table for jobs that are
     PENDING/QUEUED and scheduled in the past. Executes claimed jobs concurrently
-    with a bounded concurrency semaphore (up to 20 parallel workers).
+    with a bounded concurrency semaphore (up to 15 parallel workers).
     """
+    from utils.redis_client import redis_client
+
+    # Distributed lock with 60-second TTL to prevent overlapping batch polling across workers
+    lock_key = "lock:cron:poll_notification_jobs"
+    try:
+        lock_acquired = redis_client.set(lock_key, "1", nx=True, ex=60)
+        if not lock_acquired:
+            logger.debug("[ARQ Worker] poll_notification_jobs already executing. Skipping overlapping poll tick.")
+            return
+    except Exception:
+        pass
+
     try:
         db = get_service_supabase_client()
-        res = await asyncio.to_thread(db.rpc("get_and_lock_notification_jobs", {"p_limit": 50}).execute)
+        batch_limit = int(os.getenv("NOTIFICATION_BATCH_SIZE", "25"))
+        res = await asyncio.to_thread(db.rpc("get_and_lock_notification_jobs", {"p_limit": batch_limit}).execute)
         
         jobs = getattr(res, "data", [])
         if not jobs:
@@ -117,12 +138,17 @@ async def poll_notification_jobs(ctx: Dict[str, Any]) -> None:
 
         logger.info(f"[ARQ Worker] Found {len(jobs)} notification jobs to process. Dispatching concurrently...")
 
-        sem = asyncio.Semaphore(20)
+        sem = asyncio.Semaphore(15)
         tasks = [_process_and_update_job(sem, db, j) for j in jobs]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     except Exception as e:
         logger.error(f"[ARQ Worker] Error in poll_notification_jobs: {e}")
+    finally:
+        try:
+            redis_client.delete(lock_key)
+        except Exception:
+            pass
 
 
 async def process_single_job(db, job: Dict[str, Any]) -> tuple[bool, Optional[str]]:
@@ -499,20 +525,32 @@ async def scan_workflow_schedules(ctx):
     2. INACTIVITY_NUDGE_3D: Evaluates learners with no activity in >= 3 days.
     3. MODULE_DUE_REMINDER: Evaluates upcoming sprint deadlines within next 24-48 hours.
     4. TASK_DUE_REMINDER: Evaluates upcoming workplace task deadlines.
+    5. Scheduled Recurring Workflows (Daily, Weekly at developer-specified time).
     """
+    from utils.redis_client import redis_client
+
+    # Distributed lock with 10-minute TTL to prevent concurrent or overlapping scans across workers
+    lock_key = "lock:cron:scan_workflow_schedules"
+    try:
+        lock_acquired = redis_client.set(lock_key, "1", nx=True, ex=600)
+        if not lock_acquired:
+            logger.info("[ARQ Worker] scan_workflow_schedules is already in progress. Skipping overlapping run.")
+            return
+    except Exception:
+        pass
+
     logger.info("[ARQ Worker] Running scheduled workflow scan for time-based triggers...")
     try:
         from datetime import timedelta
         from utils.notifications.workflow_engine import WorkflowEngine
         db = get_service_supabase_client()
         now = datetime.now(timezone.utc)
+        sem = asyncio.Semaphore(10)
 
         # 1. Daily Streak Rescue & Check
-        streak_wfs = (
-            WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_RESCUE")
-            or WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_CHECK")
-        )
-        if streak_wfs:
+        has_rescue = bool(WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_RESCUE"))
+        has_check = bool(WorkflowEngine.get_cached_workflows_for_trigger("DAILY_STREAK_CHECK"))
+        if has_rescue or has_check:
             today_str = now.strftime("%Y-%m-%d")
             try:
                 res = (
@@ -520,28 +558,38 @@ async def scan_workflow_schedules(ctx):
                     .select("user_id,company_id,current_streak_days,last_activity_date")
                     .gt("current_streak_days", 0)
                     .neq("last_activity_date", today_str)
-                    .limit(500)
+                    .limit(200)
                     .execute()
                 )
                 users = getattr(res, "data", []) or []
-                for u in users:
-                    payload = {
-                        "streak_days": u.get("current_streak_days", 1),
-                        "gamification.streak_days": u.get("current_streak_days", 1),
-                        "gamification.streak_expiring_hours": 4,
-                    }
-                    await WorkflowEngine.trigger_lifecycle(
-                        trigger_lifecycle="DAILY_STREAK_RESCUE",
-                        user_id=u["user_id"],
-                        payload=payload,
-                        company_id=u.get("company_id"),
-                    )
-                    await WorkflowEngine.trigger_lifecycle(
-                        trigger_lifecycle="DAILY_STREAK_CHECK",
-                        user_id=u["user_id"],
-                        payload=payload,
-                        company_id=u.get("company_id"),
-                    )
+
+                async def _dispatch_streak(u):
+                    async with sem:
+                        try:
+                            payload = {
+                                "streak_days": u.get("current_streak_days", 1),
+                                "gamification.streak_days": u.get("current_streak_days", 1),
+                                "gamification.streak_expiring_hours": 4,
+                            }
+                            if has_rescue:
+                                await WorkflowEngine.trigger_lifecycle(
+                                    trigger_lifecycle="DAILY_STREAK_RESCUE",
+                                    user_id=u["user_id"],
+                                    payload=payload,
+                                    company_id=u.get("company_id"),
+                                )
+                            if has_check:
+                                await WorkflowEngine.trigger_lifecycle(
+                                    trigger_lifecycle="DAILY_STREAK_CHECK",
+                                    user_id=u["user_id"],
+                                    payload=payload,
+                                    company_id=u.get("company_id"),
+                                )
+                        except Exception as u_err:
+                            logger.debug(f"[ARQ Worker] Streak dispatch failed for {u.get('user_id')}: {u_err}")
+
+                if users:
+                    await asyncio.gather(*[_dispatch_streak(u) for u in users], return_exceptions=True)
             except Exception as streak_err:
                 logger.error(f"[ARQ Worker] Error scanning daily streak rescue: {streak_err}")
 
@@ -554,17 +602,25 @@ async def scan_workflow_schedules(ctx):
                     db.table("user_gamification_profiles")
                     .select("user_id,company_id,last_activity_date")
                     .lte("last_activity_date", cutoff_3d)
-                    .limit(500)
+                    .limit(200)
                     .execute()
                 )
                 inactive_users = getattr(res, "data", []) or []
-                for u in inactive_users:
-                    await WorkflowEngine.trigger_lifecycle(
-                        trigger_lifecycle="INACTIVITY_NUDGE_3D",
-                        user_id=u["user_id"],
-                        payload={"days_inactive": 3, "subscriber.days_inactive": 3},
-                        company_id=u.get("company_id"),
-                    )
+
+                async def _dispatch_inact(u):
+                    async with sem:
+                        try:
+                            await WorkflowEngine.trigger_lifecycle(
+                                trigger_lifecycle="INACTIVITY_NUDGE_3D",
+                                user_id=u["user_id"],
+                                payload={"days_inactive": 3, "subscriber.days_inactive": 3},
+                                company_id=u.get("company_id"),
+                            )
+                        except Exception as u_err:
+                            logger.debug(f"[ARQ Worker] Inactivity dispatch failed for {u.get('user_id')}: {u_err}")
+
+                if inactive_users:
+                    await asyncio.gather(*[_dispatch_inact(u) for u in inactive_users], return_exceptions=True)
             except Exception as inact_err:
                 logger.error(f"[ARQ Worker] Error scanning inactivity nudges: {inact_err}")
 
@@ -580,21 +636,29 @@ async def scan_workflow_schedules(ctx):
                     .gte("due_date", window_start)
                     .lte("due_date", window_end)
                     .neq("status", "COMPLETED")
-                    .limit(500)
+                    .limit(200)
                     .execute()
                 )
                 due_plans = getattr(res, "data", []) or []
-                for p in due_plans:
-                    await WorkflowEngine.trigger_lifecycle(
-                        trigger_lifecycle="MODULE_DUE_REMINDER",
-                        user_id=p["user_id"],
-                        payload={
-                            "curriculum.due_date": p.get("due_date"),
-                            "due_date": p.get("due_date"),
-                            "plan_id": p.get("learning_plan_id"),
-                        },
-                        company_id=p.get("company_id"),
-                    )
+
+                async def _dispatch_due_plan(p):
+                    async with sem:
+                        try:
+                            await WorkflowEngine.trigger_lifecycle(
+                                trigger_lifecycle="MODULE_DUE_REMINDER",
+                                user_id=p["user_id"],
+                                payload={
+                                    "curriculum.due_date": p.get("due_date"),
+                                    "due_date": p.get("due_date"),
+                                    "plan_id": p.get("learning_plan_id"),
+                                },
+                                company_id=p.get("company_id"),
+                            )
+                        except Exception as p_err:
+                            logger.debug(f"[ARQ Worker] Module due dispatch failed for {p.get('learning_plan_id')}: {p_err}")
+
+                if due_plans:
+                    await asyncio.gather(*[_dispatch_due_plan(p) for p in due_plans], return_exceptions=True)
             except Exception as due_err:
                 logger.error(f"[ARQ Worker] Error scanning module due reminders: {due_err}")
 
@@ -610,21 +674,29 @@ async def scan_workflow_schedules(ctx):
                     .gte("due_date", window_start)
                     .lte("due_date", window_end)
                     .neq("status", "completed")
-                    .limit(500)
+                    .limit(200)
                     .execute()
                 )
                 due_tasks = getattr(res, "data", []) or []
-                for t in due_tasks:
-                    await WorkflowEngine.trigger_lifecycle(
-                        trigger_lifecycle="TASK_DUE_REMINDER",
-                        user_id=t["user_id"],
-                        payload={
-                            "task.due_date": t.get("due_date"),
-                            "due_date": t.get("due_date"),
-                            "task_id": t.get("task_id"),
-                        },
-                        company_id=t.get("company_id"),
-                    )
+
+                async def _dispatch_task(t):
+                    async with sem:
+                        try:
+                            await WorkflowEngine.trigger_lifecycle(
+                                trigger_lifecycle="TASK_DUE_REMINDER",
+                                user_id=t["user_id"],
+                                payload={
+                                    "task.due_date": t.get("due_date"),
+                                    "due_date": t.get("due_date"),
+                                    "task_id": t.get("task_id"),
+                                },
+                                company_id=t.get("company_id"),
+                            )
+                        except Exception as t_err:
+                            logger.debug(f"[ARQ Worker] Task due dispatch failed for {t.get('task_id')}: {t_err}")
+
+                if due_tasks:
+                    await asyncio.gather(*[_dispatch_task(t) for t in due_tasks], return_exceptions=True)
             except Exception as task_err:
                 logger.error(f"[ARQ Worker] Error scanning task due reminders: {task_err}")
 
@@ -694,33 +766,41 @@ async def scan_workflow_schedules(ctx):
                             )
 
                             now_str = now_local.strftime("%Y-%m-%d %H:%M %Z")
-                            for u in target_users:
-                                target_uid = str(u.get("user_id") or u.get("id") or "")
-                                if not target_uid:
-                                    continue
-                                first_name = (u.get("name") or "").split(" ")[0] or "there"
-                                dept_name = (u.get("function") or {}).get("function_name") or u.get("position") or "General"
-                                role_name = u.get("position") or "employee"
-                                await WorkflowEngine.trigger_lifecycle(
-                                    trigger_lifecycle=wf.get("trigger_lifecycle") or "GENERAL_ANNOUNCEMENT",
-                                    user_id=target_uid,
-                                    payload={
-                                        "subscriber.first_name": first_name,
-                                        "first_name": first_name,
-                                        "subscriber.full_name": u.get("name") or "Learner",
-                                        "subscriber.department": dept_name,
-                                        "subscriber.role": role_name,
-                                        "system.title": wf.get("title") or "Scheduled Announcement",
-                                        "title": wf.get("title") or "Scheduled Announcement",
-                                        "system.message": wf.get("description") or "Please check your portal for details.",
-                                        "message": wf.get("description") or "Please check your portal for details.",
-                                        "system.action_url": "/employee/dashboard",
-                                        "action_url": "/employee/dashboard",
-                                        "system.timestamp": now_str,
-                                        "timestamp": now_str,
-                                    },
-                                    company_id=wf.get("company_id"),
-                                )
+
+                            async def _dispatch_recurring_user(u):
+                                async with sem:
+                                    target_uid = str(u.get("user_id") or u.get("id") or "")
+                                    if not target_uid:
+                                        return
+                                    first_name = (u.get("name") or "").split(" ")[0] or "there"
+                                    dept_name = (u.get("function") or {}).get("function_name") or u.get("position") or "General"
+                                    role_name = u.get("position") or "employee"
+                                    try:
+                                        await WorkflowEngine.trigger_lifecycle(
+                                            trigger_lifecycle=wf.get("trigger_lifecycle") or "GENERAL_ANNOUNCEMENT",
+                                            user_id=target_uid,
+                                            payload={
+                                                "subscriber.first_name": first_name,
+                                                "first_name": first_name,
+                                                "subscriber.full_name": u.get("name") or "Learner",
+                                                "subscriber.department": dept_name,
+                                                "subscriber.role": role_name,
+                                                "system.title": wf.get("title") or "Scheduled Announcement",
+                                                "title": wf.get("title") or "Scheduled Announcement",
+                                                "system.message": wf.get("description") or "Please check your portal for details.",
+                                                "message": wf.get("description") or "Please check your portal for details.",
+                                                "system.action_url": "/employee/dashboard",
+                                                "action_url": "/employee/dashboard",
+                                                "system.timestamp": now_str,
+                                                "timestamp": now_str,
+                                            },
+                                            company_id=wf.get("company_id"),
+                                        )
+                                    except Exception as rec_u_err:
+                                        logger.debug(f"[ARQ Worker] Recurring dispatch error for {target_uid}: {rec_u_err}")
+
+                            if target_users:
+                                await asyncio.gather(*[_dispatch_recurring_user(u) for u in target_users], return_exceptions=True)
 
                             db.table("notification_workflows").update({
                                 "last_triggered_at": now.isoformat(),
@@ -734,6 +814,11 @@ async def scan_workflow_schedules(ctx):
 
     except Exception as e:
         logger.error(f"[ARQ Worker] Error during scheduled workflow scan: {e}")
+    finally:
+        try:
+            redis_client.delete(lock_key)
+        except Exception:
+            pass
 
 
 async def run_leaderboard_refresh(ctx: Optional[dict] = None) -> None:
@@ -860,6 +945,17 @@ async def arq_shutdown(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker shutting down gracefully.")
 
 
+async def poll_whatsapp_dispatches(ctx: Dict[str, Any]) -> None:
+    """
+    Polls scheduled WhatsApp messages and dispatches pending records when due.
+    """
+    try:
+        from whatsapp.cron import run_whatsapp_cron
+        await run_whatsapp_cron()
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error in poll_whatsapp_dispatches: {e}")
+
+
 # -----------------------------------------------------------------------------
 # Worker Settings
 # -----------------------------------------------------------------------------
@@ -875,19 +971,24 @@ class WorkerSettings:
     """
     redis_settings = redis_settings
 
+    # Worker concurrency and execution parameters
+    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "20"))
+    job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 minutes timeout for heavy jobs (e.g. document ingestion)
+    keep_result = 3600
+
     # Periodic background cron schedules
     cron_jobs = [
         # 1. Notification dispatch queue (every 10s)
         cron(poll_notification_jobs, second=set(range(0, 60, 10))),
 
-        # 2. Scheduled email campaign polling (every 2m)
-        cron(run_email_cron, minute=set(range(0, 60, 2))),
-
-        # 3. Scheduled WhatsApp dispatch polling (every 2m)
+        # 2. Scheduled WhatsApp dispatch polling (every 2m)
         cron(run_whatsapp_cron, minute=set(range(0, 60, 2))),
 
-        # 4. Daily streak, gamification & scheduled workflow triggers (every 1m at second 0)
-        cron(scan_workflow_schedules, second=0),
+        # 3. Scheduled email campaign polling (every 2m)
+        cron(run_email_cron, minute=set(range(0, 60, 2))),
+
+        # 4. Daily streak, gamification & scheduled workflow triggers (every 5m)
+        cron(scan_workflow_schedules, minute=set(range(0, 60, 5))),
 
         # 5. Precompute company leaderboards into Redis ZSETs (hourly)
         cron(run_leaderboard_refresh, minute={0}),

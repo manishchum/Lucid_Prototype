@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 
 from utils.supabase_client import supabase_admin
+from utils.file_utils import sanitize_filename
 from ingestion.coach_store import create_document_record
 from ingestion.coach_pipeline import run_coach_file_ingestion
 from services.connectors.registry import ConnectorRegistry
@@ -462,7 +463,8 @@ class ConnectorManager:
                         else:
                             doc_id = str(uuid.uuid4())
 
-                        safe_filename = f"{doc_id}_{clean_filename}"
+                        clean_filename = sanitize_filename(clean_filename)
+                        safe_filename = sanitize_filename(f"{doc_id}_{clean_filename}")
                         storage_path = f"{company_id}/{doc_id}/{clean_filename}"
 
                         # Upload to Supabase Storage
@@ -518,9 +520,13 @@ class ConnectorManager:
                             )
                             doc_record_id = doc_record["id"]
 
-                        # Save to local temp file for coach_pipeline embedding
+                        # Save to local temp file for coach_pipeline embedding with path traversal defense
                         os.makedirs(TEMP_DIR, exist_ok=True)
-                        temp_file_path = os.path.join(TEMP_DIR, safe_filename)
+                        temp_file_path = os.path.abspath(os.path.join(TEMP_DIR, safe_filename))
+                        temp_dir_abs = os.path.abspath(TEMP_DIR)
+                        if not temp_file_path.startswith(temp_dir_abs + os.sep) and temp_file_path != temp_dir_abs:
+                            raise ValueError(f"Invalid filename: path traversal attempt detected in '{clean_filename}'.")
+
                         with open(temp_file_path, "wb") as f:
                             f.write(content)
 
@@ -763,4 +769,4 @@ class ConnectorManager:
         return True
 
 
-
+from services.connectors.providers.google_drive.client import get_oauth_credentials

@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi import HTTPException
 
-from utils.auth import RequestAuth, validate_device_session, register_device_session, _DEVICE_SESSION_L1_CACHE
+from utils.auth import RequestAuth, validate_device_session, register_device_session, _DEVICE_SESSION_L1_CACHE, _get_session_ttl
 from utils.auth_socket_manager import auth_socket_manager
 from routes.auth import _AUTH_ME_L1_CACHE, invalidate_auth_me_l1_cache
 
@@ -234,3 +234,9 @@ def test_auth_me_deactivated_company_raises_403():
             assert "organization account has been deactivated" in exc.value.detail.lower()
 
     asyncio.run(_test())
+
+
+def test_session_ttl_web_vs_mobile():
+    assert _get_session_ttl("web") == 3600  # 1 hour sliding idle window
+    assert _get_session_ttl(None) == 3600  # Default web: 1 hour
+    assert _get_session_ttl("mobile") == 60 * 60 * 24 * 30  # 30 days
