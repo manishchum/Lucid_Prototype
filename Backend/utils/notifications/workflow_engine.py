@@ -334,6 +334,25 @@ class WorkflowEngine:
             logger.debug(f"No active workflows found for lifecycle '{trigger_lifecycle}'")
             return []
 
+        # Optimization: Filter out workflows that are currently in cooldown for this user.
+        # If all candidate workflows are throttled, exit immediately without expensive context DB queries.
+        unthrottled_workflows = []
+        for wf in workflows:
+            wf_id = wf.get("id")
+            cooldown = int(wf.get("cooldown_seconds") or 3600)
+            if cooldown > 0:
+                cooldown_key = f"throttle:workflow:{wf_id}:{user_id}"
+                try:
+                    if redis_client.exists(cooldown_key):
+                        continue
+                except Exception:
+                    pass
+            unthrottled_workflows.append(wf)
+
+        if not unthrottled_workflows:
+            logger.debug(f"All workflows for lifecycle '{trigger_lifecycle}' are in cooldown for user {user_id}. Skipping context enrichment.")
+            return []
+
         # 3. Enrich Learner Context
         context = await NotificationContextEnricher.enrich(
             user_id=user_id,
@@ -344,7 +363,7 @@ class WorkflowEngine:
         results = []
         db = get_service_supabase_client()
 
-        for wf in workflows:
+        for wf in unthrottled_workflows:
             wf_id = wf.get("id")
             wf_title = wf.get("title")
 
