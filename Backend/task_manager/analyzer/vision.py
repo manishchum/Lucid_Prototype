@@ -1,5 +1,73 @@
+import os
+import json
+import inspect
+import asyncio
+import concurrent.futures
+from typing import Any, Dict, List, Optional
 from PIL import Image
 import torch
+
+from ai.ai_gateway import AI
+from ai.types import AIRequest
+
+
+def _run_coroutine(coro):
+    """
+    Safely executes an async coroutine from either a synchronous thread,
+    within an active asyncio event loop, or in sandbox environments.
+    """
+    if not inspect.iscoroutine(coro):
+        return coro
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+
+    try:
+        return asyncio.run(coro)
+    except Exception:
+        try:
+            coro.send(None)
+        except StopIteration as e:
+            return e.value
+        raise
+
+
+def _parse_json_response(raw_text: Any) -> dict:
+    """
+    Standardize JSON extraction from AI responses (handles raw text, markdown blocks, and embedded objects).
+    """
+    if isinstance(raw_text, dict):
+        return raw_text
+    if not raw_text or not isinstance(raw_text, str):
+        return {}
+
+    text = raw_text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except Exception:
+                pass
+    return {}
+
 
 _clip_model = None
 _clip_processor = None
@@ -700,136 +768,97 @@ def extract_frames(video_path, max_frames=20):
 
 
     return frames
-import os
-import json
-
-from dotenv import load_dotenv
-
-from google import genai
-from google.genai import types
-
-
-load_dotenv()
-
-
-client = genai.Client(
-    api_key=os.getenv(
-        "GEMINI_API_KEY"
-    )
-)
-
-import time
-from .gemini_usage import extract_gemini_usage
-
-
-
 def analyze_video_frames(
-        frames,
-        task_description
-):
+    frames: list[bytes],
+    task_description: str,
+    company_id: str | None = None,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Evaluates video frames using the centralized AI Gateway with feature 'task_evaluation_vision'
+    and prompt_type 'video_frames'.
+    """
+    if not frames:
+        return {
+            "task_completed": False,
+            "person_visible": False,
+            "visual_score": 0,
+            "eye_contact_score": 0,
+            "body_language_score": 0,
+            "professionalism_score": 0,
+            "engagement_score": 0,
+            "strengths": [],
+            "weaknesses": ["No frames provided for evaluation."],
+            "feedback": "No video frames available to evaluate.",
+        }
 
+    try:
+        images_payload = [
+            {"mime_type": "image/jpeg", "data": f} if isinstance(f, bytes) else f
+            for f in frames
+        ]
 
-    prompt = f"""
-You are an employee performance evaluator.
+        variables = {
+            "task_description": task_description or "No task description provided."
+        }
 
-Analyze these video frames for the employee task.
-
-Task:
-{task_description}
-
-
-IMPORTANT RULES:
-- A person may appear in a small part of the frame.
-- A person may appear along with slides, screen, product, or objects.
-- If ANY human face/body/person is visible in ANY frame, person_visible MUST be true.
-- Do NOT mark person_visible false just because slides or animations are present.
-- Evaluate the visible employee only.
-
-
-Return ONLY valid JSON:
-
-{{
- "task_completed": true/false,
-
- "person_visible": true/false,
-
- "visual_score": 0-100,
-
- "eye_contact_score":0-100,
-
- "body_language_score":0-100,
-
- "professionalism_score":0-100,
-
- "engagement_score":0-100,
-
-
- "strengths":[
- ],
-
- "weaknesses":[
- ],
-
- "feedback":""
-}}
-
-
-Scoring:
-- visual_score means how well the employee performed the task visually.
-- eye_contact_score means looking towards camera/audience.
-- body_language_score means posture, gestures, confidence.
-- professionalism_score means appearance and presentation.
-- engagement_score means energy and involvement.
-
-If employee is visible:
-Never return all visual scores as 0.
-"""
-
-
-    content = [
-        prompt
-    ]
-
-
-    for frame in frames:
-
-        content.append(
-
-            types.Part.from_bytes(
-                data=frame,
-                mime_type="image/jpeg"
-            )
-
+        request = AIRequest(
+            feature="task_evaluation_vision",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/vision",
+            variables=variables,
+            prompt_type="video_frames",
+            images=images_payload,
+            response_format="json",
+            generation_config={"temperature": 0.2},
         )
+        ai_resp = _run_coroutine(AI.execute(request))
+        raw_content = getattr(ai_resp, "content", None) or ""
+        parsed = _parse_json_response(raw_content)
 
+        if parsed:
+            def _int_score(val, default=50):
+                try:
+                    return int(max(0, min(100, round(float(val)))))
+                except Exception:
+                    return default
 
+            strengths = parsed.get("strengths")
+            if not isinstance(strengths, list):
+                strengths = []
 
-    start_time = time.time()
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=content
-    )
-    end_time = time.time()
+            weaknesses = parsed.get("weaknesses")
+            if not isinstance(weaknesses, list):
+                weaknesses = []
 
-    usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
-    print(f"\n========== GEMINI USAGE: vision.py (analyze_video_frames) ==========")
-    print(f"Model: {usage['model']} | Duration: {usage['duration_ms']}ms")
-    print(f"Tokens: Input {usage['prompt_tokens']} | Output {usage['output_tokens']} | Total {usage['total_tokens']}")
-    if usage['pricing_available']:
-        print(f"Cost: ${usage['total_cost_usd']} | INR ₹{usage['total_cost_inr']}")
-    print("====================================================================\n")
+            return {
+                "task_completed": bool(parsed.get("task_completed", False)),
+                "person_visible": bool(parsed.get("person_visible", False)),
+                "visual_score": _int_score(parsed.get("visual_score"), 50),
+                "eye_contact_score": _int_score(parsed.get("eye_contact_score"), 50),
+                "body_language_score": _int_score(parsed.get("body_language_score"), 50),
+                "professionalism_score": _int_score(parsed.get("professionalism_score"), 50),
+                "engagement_score": _int_score(parsed.get("engagement_score"), 50),
+                "strengths": strengths,
+                "weaknesses": weaknesses,
+                "feedback": str(parsed.get("feedback") or ""),
+            }
+    except Exception as e:
+        print(f"[Video Analyzer] analyze_video_frames failed: {e}")
 
-
-
-    clean = (
-        response.text
-        .replace("```json","")
-        .replace("```","")
-        .strip()
-    )
-
-
-    return json.loads(clean)
+    return {
+        "task_completed": False,
+        "person_visible": False,
+        "visual_score": 50,
+        "eye_contact_score": 50,
+        "body_language_score": 50,
+        "professionalism_score": 50,
+        "engagement_score": 50,
+        "strengths": [],
+        "weaknesses": ["Video frame evaluation unavailable."],
+        "feedback": "Video evaluation could not be completed.",
+    }
 
 # from fastapi import (
 #     APIRouter,
@@ -917,32 +946,20 @@ Never return all visual scores as 0.
 #             result["overall_score"] = 0
 
 #     return result
-import os
-import json
-
-from google import genai
-from google.genai import types
-
-# Import the FULL photo_analysis services pipeline
-
-
-
-
-
-
-
-
 def _get_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY") or ""
-    if not api_key:
-        return None
-    return genai.Client(api_key=api_key)
+    """
+    [DEPRECATED] Direct Gemini client access is deprecated.
+    Use AI.execute(AIRequest(...)) through the Model Agnostic Layer instead.
+    """
+    return None
 
 
 def analyze_image(
     image_path: str,
     instruction: str,
-    analyzing_parameters: str | None = None
+    analyzing_parameters: str | None = None,
+    company_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """
     Full image analysis pipeline using photo_analysis services.
@@ -1043,95 +1060,52 @@ def analyze_image(
         "validation": object_validation
     }
 
-    instruction_text = f"""
-You are an enterprise task verification AI.
-
-Analyze whether the uploaded task proof satisfies the task.
-
-Task:
-{instruction}
-
-Analyzing Parameters:
-{analyzing_parameters or "No specific analyzing parameters provided."}
-
-Evidence summary:
-{json.dumps(gemini_context)}
-
-Rules:
-- Use detected objects as visual proof
-- Use CLIP score for semantic similarity
-- Use OCR only when text matters
-- Use pose/activity when relevant
-- Missing required objects should reduce score
-- Reject fake or unrelated submissions
-- You have access to the actual uploaded image. Inspect it directly.
-- Follow the Analyzing Parameters when evaluating the submission.
-- If the task requires a visual classification, make that classification from the image itself.
-- Do not assume a task is satisfied merely because the CLIP score is high.
-- If the image does not contain enough visual evidence to evaluate the criteria, mark the submission for review.
-
-Return STRICT JSON ONLY:
-
-{{
- "passed": true/false,
- "score": 0-100,
- "feedback": "short explanation",
- "classification": "if applicable, otherwise null"
-}}
-"""
-
     # ──────────────────────────────────────────────
-    # 7. Send to Gemini (TEXT ONLY — no image bytes)
+    # 7. Send to AI Gateway (Image + Compact Evidence Context)
     # ──────────────────────────────────────────────
     gemini_result = None
-    client = _get_gemini_client()
 
-    if client:
-        try:
-            start_time = time.time()
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
+    try:
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
 
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        types.Part(text=instruction_text),
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type="image/jpeg"
-        ),
-    ],
-    config=types.GenerateContentConfig(
-        thinking_config=types.ThinkingConfig(thinking_budget=0)
-    ),
-)
-            end_time = time.time()
+        variables = {
+            "instruction": instruction or "No instruction provided.",
+            "analyzing_parameters": analyzing_parameters or "No specific analyzing parameters provided.",
+            "evidence_summary": json.dumps(gemini_context),
+        }
 
-            usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
-            gemini_usage_report = usage
-            
-            print(f"\n========== GEMINI USAGE: vision.py (analyze_image) ==========")
-            print(f"Model: {usage['model']} | Duration: {usage['duration_ms']}ms")
-            print(f"Tokens: Input {usage['prompt_tokens']} | Output {usage['output_tokens']} | Total {usage['total_tokens']}")
-            if usage['pricing_available']:
-                print(f"Cost: ${usage['total_cost_usd']} | INR ₹{usage['total_cost_inr']}")
-            print("=============================================================\n")
+        request = AIRequest(
+            feature="task_evaluation_vision",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/vision",
+            variables=variables,
+            prompt_type="image_verification",
+            images=[{"mime_type": "image/jpeg", "data": image_bytes}],
+            response_format="json",
+            generation_config={
+                "temperature": 0.2,
+                "thinking_config": {"thinking_budget": 0},
+            },
+        )
+        ai_resp = _run_coroutine(AI.execute(request))
+        raw_content = getattr(ai_resp, "content", None) or ""
+        parsed = _parse_json_response(raw_content)
 
-            result_text = getattr(response, "text", None) or ""
-            try:
-                gemini_result = json.loads(result_text)
-            except Exception:
-                # Try to extract JSON substring
-                start = result_text.find('{')
-                end = result_text.rfind('}')
-                if start != -1 and end != -1:
-                    try:
-                        gemini_result = json.loads(result_text[start:end + 1])
-                    except Exception:
-                        pass
-
-        except Exception as e:
-            print(f"[image_analyzer] Gemini call failed: {e}")
+        if parsed:
+            passed = bool(parsed.get("passed", False))
+            score = int(parsed.get("score", 0) or 0)
+            feedback = str(parsed.get("feedback") or "")
+            classification = parsed.get("classification")
+            gemini_result = {
+                "passed": passed,
+                "score": score,
+                "feedback": feedback,
+                "classification": classification,
+            }
+    except Exception as e:
+        print(f"[image_analyzer] AI Gateway vision verification failed: {e}")
 
     # ──────────────────────────────────────────────
     # 8. Apply scoring verification rules
@@ -1235,7 +1209,7 @@ from .text import cosine_similarity, extract_keywords
 
 from .audio import transcribe_audio_whisper, analyze_audio
 
-def analyze_video(video_path: str, task_title: str, task_description: str, expected_answer: str | None) -> dict:
+def analyze_video(video_path: str, task_title: str, task_description: str, expected_answer: str | None, company_id: str | None = None, user_id: str | None = None) -> dict:
     """
     Silent video submission analyzer using OpenCV, YOLO, Whisper, and BGE.
     """

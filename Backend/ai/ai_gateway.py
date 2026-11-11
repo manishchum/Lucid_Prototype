@@ -96,11 +96,9 @@ class AI:
                     "response_format": request.response_format,
                     "images": request.images,
                     "files": request.files,
+                    "audio": request.audio,
                     "generation_config": request.generation_config,
                 }
-
-                if provider_name == "openai":
-                    provider_kwargs["audio"] = request.audio
 
                 response = await provider_class.execute(
                     **provider_kwargs

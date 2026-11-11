@@ -5,6 +5,7 @@ from google import genai
 from google.genai.types import (
     GenerateContentConfig,
     Part,
+    ThinkingConfig,
 )
 
 from ai.types import (
@@ -40,18 +41,28 @@ class GeminiProvider:
         generation_config = generation_config or {}
 
         contents = []
-        contents.append(
-            Part.from_text(text=prompt)
-        )
+        if prompt:
+            contents.append(
+                Part.from_text(text=prompt)
+            )
 
         for image in images:
+            if isinstance(image, bytes):
+                contents.append(
+                    Part.from_bytes(
+                        data=image,
+                        mime_type="image/jpeg"
+                    )
+                )
+                continue
+
             if not isinstance(image, dict):
                 continue
 
-            mime_type = image.get("mime_type")
+            mime_type = image.get("mime_type") or "image/jpeg"
             data = image.get("data")
 
-            if not mime_type or not data:
+            if not data:
                 continue
 
             if isinstance(data, str):
@@ -67,13 +78,22 @@ class GeminiProvider:
             )
 
         for file in files:
+            if isinstance(file, bytes):
+                contents.append(
+                    Part.from_bytes(
+                        data=file,
+                        mime_type="application/octet-stream"
+                    )
+                )
+                continue
+
             if not isinstance(file, dict):
                 continue
 
-            mime_type = file.get("mime_type")
+            mime_type = file.get("mime_type") or "application/octet-stream"
             data = file.get("data")
 
-            if not mime_type or not data:
+            if not data:
                 continue
 
             if isinstance(data, str):
@@ -87,6 +107,37 @@ class GeminiProvider:
                     mime_type=mime_type
                 )
             )
+
+        if audio is not None:
+            if isinstance(audio, bytes):
+                contents.append(
+                    Part.from_bytes(
+                        data=audio,
+                        mime_type="audio/wav"
+                    )
+                )
+            elif isinstance(audio, dict):
+                mime_type = audio.get("mime_type") or "audio/wav"
+                data = audio.get("data")
+                if isinstance(data, str):
+                    if data.startswith("data:"):
+                        data = data.split(",", 1)[1]
+                    data = base64.b64decode(data)
+                if data:
+                    contents.append(
+                        Part.from_bytes(
+                            data=data,
+                            mime_type=mime_type
+                        )
+                    )
+            elif hasattr(audio, "read"):
+                audio_data = audio.read()
+                contents.append(
+                    Part.from_bytes(
+                        data=audio_data,
+                        mime_type="audio/wav"
+                    )
+                )
 
         temperature = generation_config.get("temperature", model.temperature)
         top_p = generation_config.get("top_p", model.top_p)
@@ -105,9 +156,19 @@ class GeminiProvider:
 
         thinking_config = generation_config.get("thinking_config")
         if thinking_config is not None:
-            config_kwargs["thinking_config"] = thinking_config
+            if isinstance(thinking_config, dict):
+                config_kwargs["thinking_config"] = ThinkingConfig(**thinking_config)
+            else:
+                config_kwargs["thinking_config"] = thinking_config
 
-        if response_format == "json":
+        response_schema = generation_config.get("response_schema")
+        if response_schema is not None:
+            config_kwargs["response_schema"] = response_schema
+
+        response_mime_type = generation_config.get("response_mime_type")
+        if response_mime_type:
+            config_kwargs["response_mime_type"] = response_mime_type
+        elif response_format == "json":
             config_kwargs["response_mime_type"] = "application/json"
 
         config = GenerateContentConfig(
