@@ -163,7 +163,7 @@ def _normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
 
 
-def _extract_firebase_identity(claims: Dict[str, Any]) -> Tuple[str, str, Optional[Any]]:
+def _extract_firebase_identity(claims: Dict[str, Any]) -> Tuple[str, str, str, Optional[Any]]:
     email = _normalize_email(claims.get("email"))
 
     firebase_uid = str(
@@ -333,7 +333,7 @@ def _resolve_user_context_by_identity(
                     row.get("email") or email
                 )
 
-                if user_id and row_email:
+                if user_id:
 
                     company_id = (
                         str(row.get("company_id"))
@@ -354,7 +354,7 @@ def _resolve_user_context_by_identity(
 
                     return BridgeUserContext(
                         user_id=user_id,
-                        email=row_email,
+                        email=row_email or "",
                         company_id=company_id,
                         firebase_uid=resolved_firebase_uid,
                         claims=claims,
@@ -420,9 +420,9 @@ def resolve_user_context_from_claims(
     if cached:
         resolved_ctx = BridgeUserContext(
             user_id = cached["user_id"],
-            email = cached["email"],
-            company_id = cached["company_id"],
-            firebase_uid = cached["firebase_uid"],
+            email = cached.get("email") or "",
+            company_id = cached.get("company_id"),
+            firebase_uid = cached.get("firebase_uid"),
             claims = claims,
         )
         _USER_CONTEXT_L1_CACHE[cache_key] = (now_ts, resolved_ctx)
@@ -430,7 +430,7 @@ def resolve_user_context_from_claims(
 
     
     
-    if not email and not firebase_uid:
+    if not email and not firebase_uid and not phone_number:
         reason = "Bridge claims missing both email and firebase_uid"
         log_bridge_event(
             "bridge_resolution_failed",

@@ -256,6 +256,7 @@ def validate_device_session(
     user_id: str,
     device_id: str,
     platform: str = "web",
+    bypass_l1: bool = False,
 ):
     if not user_id or not device_id:
         return
@@ -266,12 +267,14 @@ def validate_device_session(
     session_key = f"session:{user_id_str}:{norm_platform}"
 
     # Fast Tier-0: In-Memory L1 Cache (< 0.001ms) - bypasses remote Redis network latency
+    # Critical foreground/bootstrap callers (like /api/auth/me) pass bypass_l1=True to verify Redis directly.
     import time
     now_ts = time.time()
-    l1_entry = _DEVICE_SESSION_L1_CACHE.get(session_key)
-    if l1_entry and (now_ts - l1_entry[0] < 15.0):
-        if l1_entry[1] == device_id_str:
-            return  # Fast path valid session
+    if not bypass_l1:
+        l1_entry = _DEVICE_SESSION_L1_CACHE.get(session_key)
+        if l1_entry and (now_ts - l1_entry[0] < 15.0):
+            if l1_entry[1] == device_id_str:
+                return  # Fast path valid session
 
     try:
         existing_device = redis_client.get(session_key)
@@ -316,6 +319,7 @@ def validate_device_session(
         return
 
     # Different device
+    _DEVICE_SESSION_L1_CACHE.pop(session_key, None)
     raise HTTPException(
         status_code=401,
         detail="Session_Replaced",
@@ -352,11 +356,11 @@ def get_request_auth_optional(
 				f"uid={claims.get('uid') or claims.get('user_id') or claims.get('sub')}; "
 				f"resolved_user_id={auth_ctx.user_id}"
 			)
-			if x_device_id and isinstance(x_device_id, str):
+			if x_device_id and isinstance(x_device_id, str) and x_register_session != "true":
 				validate_device_session(auth_ctx.user_id, x_device_id, platform=platform)
 			return auth_ctx
 		except HTTPException as exc:
-			if exc.detail == "Session_Replaced":
+			if exc.detail in ("Session_Replaced", "Session_Expired"):
 				raise exc
 			if exc.detail == "Authenticated Firebase user is not linked to an app user":
 				raise exc

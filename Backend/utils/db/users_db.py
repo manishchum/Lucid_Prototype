@@ -17,7 +17,14 @@ def normalize_phone(phone: str) -> str:
     if not phone:
         return ""
 
-    digits = re.sub(r"\D", "", str(phone))
+    raw = str(phone).strip()
+    digits = re.sub(r"\D", "", raw)
+    if not digits:
+        return ""
+
+    # Explicit E.164 international format: preserve caller's country code
+    if raw.startswith("+"):
+        return f"+{digits}"
 
     # 07404336860
     if digits.startswith("0") and len(digits) == 11:
