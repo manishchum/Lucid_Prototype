@@ -62,6 +62,18 @@ interface ShareTargetOption {
   email?: string
 }
 
+interface SharedPermissionEntry {
+  id: string
+  subject_type: "team" | "department" | "user" | "company" | string
+  subject_id: string
+  subject_name: string
+  subject_detail: string
+  relation: string
+  relation_label: string
+  grant_source: string
+  revocable: boolean
+}
+
 export interface ContainerItemData {
   id: string
   name: string
@@ -99,16 +111,21 @@ export function UnifiedConnectorsHub({
   const [connectTeamId, setConnectTeamId] = useState<string>("")
   const [connectVisibility, setConnectVisibility] = useState<"acl_sync" | "team_only" | "company_wide">("acl_sync")
 
-  // Teams / Users Share Targets
+  // Teams / Users Share Targets & Active Permissions
   const [shareTargets, setShareTargets] = useState<ShareTargetOption[]>([])
   const [shareModalOpen, setShareModalOpen] = useState(false)
   const [shareSubjectKey, setShareSubjectKey] = useState("")
   const [shareRelation, setShareRelation] = useState<"viewer" | "deny_viewer">("viewer")
   const [savingShare, setSavingShare] = useState(false)
+  const [containerPermissions, setContainerPermissions] = useState<SharedPermissionEntry[]>([])
+  const [loadingPermissions, setLoadingPermissions] = useState(false)
+  const [revokingPermissionKey, setRevokingPermissionKey] = useState<string | null>(null)
 
   // Universal Container Picker State
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerProvider, setPickerProvider] = useState<string>("google_drive")
+  const [pickerIntegrationId, setPickerIntegrationId] = useState<string | null>(null)
   const [containers, setContainers] = useState<ContainerItemData[]>([])
   const [selectedContainer, setSelectedContainer] = useState<ContainerItemData | null>(null)
   const [pickerSearch, setPickerSearch] = useState("")
@@ -170,12 +187,25 @@ export function UnifiedConnectorsHub({
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === "CONNECTOR_OAUTH_SUCCESS") {
+        const prov = e.data.provider || activeProvider
+        const integId = e.data.integration_id || null
         if (e.data.provider) {
           setActionLoading(prev => ({ ...prev, [e.data.provider]: false }))
+          setActiveProvider(e.data.provider)
         }
-        if (onSuccessToast) onSuccessToast(`Successfully connected to ${e.data.provider}!`)
+        if (integId) {
+          setSelectedIntegrationId(integId)
+        }
         fetchStatus()
-        if (onIngestionTriggered) onIngestionTriggered()
+        if (e.data.needs_source_selection) {
+          if (onSuccessToast) {
+            onSuccessToast(`Connected to ${prov}! Select the Drive or folder you want to sync.`)
+          }
+          handleOpenPicker(prov, integId)
+        } else {
+          if (onSuccessToast) onSuccessToast(`Successfully connected to ${prov}!`)
+          if (onIngestionTriggered) onIngestionTriggered()
+        }
       } else if (e.data?.type === "CONNECTOR_OAUTH_ERROR") {
         if (e.data.provider) {
           setActionLoading(prev => ({ ...prev, [e.data.provider]: false }))
@@ -191,20 +221,59 @@ export function UnifiedConnectorsHub({
     return () => window.removeEventListener("message", handleMessage)
   }, [fetchStatus, onSuccessToast, onErrorToast, onIngestionTriggered])
 
-  const providerSummary = connectors.find(c => c.provider === activeProvider) || {
+  const formatProviderLabel = (provider: string) =>
+    provider.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+
+  const providerSummary: ConnectorInfo = connectors.find(c => c.provider === activeProvider) || {
     provider: activeProvider,
-    display_name: activeProvider,
+    display_name: formatProviderLabel(activeProvider),
     connected: false,
     status: "disconnected",
     can_manage: true,
   }
   const providerInstances = instances.filter(i => i.provider === activeProvider)
-  const activeConnector =
-    (selectedIntegrationId
-      ? providerInstances.find(i => i.integration_id === selectedIntegrationId)
-      : providerInstances[0]) || providerSummary
+  const selectedInstance = selectedIntegrationId
+    ? providerInstances.find(i => i.integration_id === selectedIntegrationId)
+    : providerInstances[0]
+  const activeConnector: ConnectorInfo = selectedInstance
+    ? {
+        ...selectedInstance,
+        display_name:
+          selectedInstance.display_name ||
+          providerSummary.display_name ||
+          formatProviderLabel(activeProvider),
+      }
+    : providerSummary
   const activeIntegrationId = activeConnector.integration_id || null
+  const activeMonitoredSourceId = activeConnector.monitored_source_id || null
   const canManageActive = activeConnector.can_manage !== false
+
+  const fetchContainerPermissions = useCallback(async (sourceId: string | null) => {
+    if (!sourceId) {
+      setContainerPermissions([])
+      return
+    }
+    try {
+      setLoadingPermissions(true)
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/rbac/containers/${encodeURIComponent(sourceId)}/permissions`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setContainerPermissions(Array.isArray(data.permissions) ? data.permissions : [])
+      } else {
+        setContainerPermissions([])
+      }
+    } catch (err) {
+      console.warn("[UnifiedConnectorsHub] Failed to fetch container permissions:", err)
+    } finally {
+      setLoadingPermissions(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchContainerPermissions(activeMonitoredSourceId)
+  }, [activeMonitoredSourceId, fetchContainerPermissions])
 
   // Handle Connect
   const handleConnect = async (provider: string) => {
@@ -298,18 +367,42 @@ export function UnifiedConnectorsHub({
 
   // Open Container Picker
   const handleOpenPicker = async (provider: string, integrationId?: string | null) => {
+    const targetIntId = integrationId !== undefined ? integrationId : activeIntegrationId
+    const displayLabel =
+      connectors.find(c => c.provider === provider)?.display_name ||
+      (provider === "google_drive" ? "Google Drive" : provider)
+    setPickerProvider(provider)
+    setPickerIntegrationId(targetIntId || null)
     setPickerOpen(true)
     setSelectedContainer(null)
     setPickerSearch("")
-    setBreadcrumbs([{ id: null, name: activeConnector.display_name }])
-    await fetchContainers(provider, null, null, integrationId)
+    setBreadcrumbs([{ id: null, name: displayLabel, drive_id: null }])
+    await fetchContainers(provider, null, null, targetIntId || null)
+  }
+
+  const handleDrillIntoContainer = async (container: ContainerItemData) => {
+    if (!container.has_children) return
+    setSelectedContainer(null)
+    setPickerSearch("")
+    const nextDriveId = container.drive_id || (container.container_type === "shared_drive" ? container.id : null)
+    setBreadcrumbs(prev => [...prev, { id: container.id, name: container.name, drive_id: nextDriveId }])
+    await fetchContainers(pickerProvider, container.id, nextDriveId, pickerIntegrationId)
+  }
+
+  const handleBreadcrumbClick = async (idx: number) => {
+    const target = breadcrumbs[idx]
+    if (!target) return
+    setSelectedContainer(null)
+    setPickerSearch("")
+    setBreadcrumbs(breadcrumbs.slice(0, idx + 1))
+    await fetchContainers(pickerProvider, target.id, target.drive_id || null, pickerIntegrationId)
   }
 
   const fetchContainers = async (
     provider: string,
     parentId: string | null = null,
     driveId: string | null = null,
-    integrationId: string | null = activeIntegrationId
+    integrationId: string | null = pickerIntegrationId || activeIntegrationId
   ) => {
     try {
       setPickerLoading(true)
@@ -336,14 +429,16 @@ export function UnifiedConnectorsHub({
   }
 
   const handleSelectContainer = async () => {
-    if (!selectedContainer) return
+    if (!selectedContainer || selectedContainer.can_select === false) return
+    const targetProvider = pickerProvider || activeProvider
+    const targetIntId = pickerIntegrationId || activeIntegrationId
     try {
       setSavingSelection(true)
-      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${activeProvider}/select-container`, {
+      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${targetProvider}/select-container`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          integration_id: activeIntegrationId,
+          integration_id: targetIntId,
           container_id: selectedContainer.id,
           container_name: selectedContainer.name,
           container_path: selectedContainer.path,
@@ -388,12 +483,17 @@ export function UnifiedConnectorsHub({
         }
       )
       if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setContainerPermissions(data.permissions)
+        } else {
+          fetchContainerPermissions(activeConnector.monitored_source_id)
+        }
         if (onSuccessToast) {
           onSuccessToast(
             `${shareRelation === "deny_viewer" ? "Applied deny override" : "Granted query access"} for ${target.name} on "${activeConnector.monitored_source_name || activeConnector.monitored_source_id}".`
           )
         }
-        setShareModalOpen(false)
         setShareSubjectKey("")
       } else {
         const err = await res.json()
@@ -403,6 +503,45 @@ export function UnifiedConnectorsHub({
       if (onErrorToast) onErrorToast(err.message || "Error updating sharing permissions.")
     } finally {
       setSavingShare(false)
+    }
+  }
+
+  const handleRevokeContainerShare = async (perm: SharedPermissionEntry) => {
+    if (!activeConnector.monitored_source_id) return
+    const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+    try {
+      setRevokingPermissionKey(rowKey)
+      const params = new URLSearchParams({
+        subject_type: perm.subject_type,
+        subject_id: perm.subject_id,
+        relation: perm.relation,
+      })
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/rbac/containers/${encodeURIComponent(activeConnector.monitored_source_id)}/share?${params.toString()}`,
+        { method: "DELETE" }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setContainerPermissions(data.permissions)
+        } else {
+          setContainerPermissions(prev =>
+            prev.filter(
+              p => !(p.subject_type === perm.subject_type && p.subject_id === perm.subject_id && p.relation === perm.relation)
+            )
+          )
+        }
+        if (onSuccessToast) {
+          onSuccessToast(`Revoked ${perm.relation_label} permission for ${perm.subject_name}.`)
+        }
+      } else {
+        const err = await res.json()
+        if (onErrorToast) onErrorToast(err.detail || "Failed to revoke permission.")
+      }
+    } catch (err: any) {
+      if (onErrorToast) onErrorToast(err.message || "Error revoking permission.")
+    } finally {
+      setRevokingPermissionKey(null)
     }
   }
 
@@ -578,10 +717,17 @@ export function UnifiedConnectorsHub({
                 </h2>
                 {activeConnector.connected ? (
                   <>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      Live Sync Active
-                    </span>
+                    {activeConnector.monitored_source_id ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Live Sync Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Select Folder / Drive to Sync
+                      </span>
+                    )}
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                       {activeConnector.connection_scope === "org" ? <Building2 className="w-3 h-3" /> : <Users className="w-3 h-3" />}
                       {activeConnector.connection_scope === "org"
@@ -618,26 +764,38 @@ export function UnifiedConnectorsHub({
                 <>
                   <button
                     onClick={() => handleOpenPicker(activeConnector.provider, activeIntegrationId)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-xs"
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl transition shadow-xs ${
+                      activeConnector.monitored_source_id
+                        ? "text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200"
+                        : "text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-600"
+                    }`}
                   >
-                    <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
-                    Configure Source
+                    <FolderTree className={`w-3.5 h-3.5 ${activeConnector.monitored_source_id ? "text-indigo-600" : "text-white"}`} />
+                    {activeConnector.monitored_source_id ? "Configure Source" : "Choose Drive / Folder"}
                   </button>
 
                   {activeConnector.monitored_source_id && (
                     <button
-                      onClick={() => setShareModalOpen(true)}
+                      onClick={() => {
+                        setShareModalOpen(true)
+                        fetchContainerPermissions(activeConnector.monitored_source_id || null)
+                      }}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-xs"
                       title="Grant or deny cross-team query access on this source"
                     >
                       <Share2 className="w-3.5 h-3.5" />
-                      Share Source
+                      <span>Share Source</span>
+                      {containerPermissions.length > 0 && (
+                        <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-600 text-white">
+                          {containerPermissions.length}
+                        </span>
+                      )}
                     </button>
                   )}
 
                   <button
                     onClick={() => handleSyncNow(activeConnector.provider, activeIntegrationId)}
-                    disabled={actionLoading[activeConnector.provider]}
+                    disabled={actionLoading[activeConnector.provider] || !activeConnector.monitored_source_id}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition shadow-xs disabled:opacity-50"
                   >
                     <FolderSync className={`w-3.5 h-3.5 ${actionLoading[activeConnector.provider] ? "animate-spin text-indigo-600" : ""}`} />
@@ -737,7 +895,7 @@ export function UnifiedConnectorsHub({
             <div className="bg-slate-50/80 p-3 rounded-xl border border-slate-200/60">
               <span className="text-slate-400 block font-medium">Monitored Source</span>
               <span className="text-slate-900 font-semibold truncate block mt-0.5">
-                {activeConnector.monitored_source_name || "Root Workspace"}
+                {activeConnector.monitored_source_name || "Not selected yet"}
               </span>
             </div>
 
@@ -756,12 +914,92 @@ export function UnifiedConnectorsHub({
             </div>
           </div>
         )}
+
+        {/* Active Shared Permissions Quick-View & One-Click Revoke Bar */}
+        {activeConnector.connected && activeConnector.monitored_source_id && (containerPermissions.length > 0 || loadingPermissions) && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Shared Permissions ({containerPermissions.length})</span>
+              </div>
+              {canManageActive && (
+                <button
+                  type="button"
+                  onClick={() => setShareModalOpen(true)}
+                  className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 transition"
+                >
+                  + Manage Access
+                </button>
+              )}
+            </div>
+
+            {loadingPermissions && containerPermissions.length === 0 ? (
+              <div className="text-xs text-slate-400 flex items-center gap-1.5 py-1">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                Loading active permissions...
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {containerPermissions.map(perm => {
+                  const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+                  const isDeny = perm.relation === "deny_viewer" || perm.relation === "deny"
+                  const isRevoking = revokingPermissionKey === rowKey
+                  return (
+                    <div
+                      key={rowKey}
+                      className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition ${
+                        isDeny
+                          ? "bg-rose-50/80 border-rose-200 text-rose-800"
+                          : "bg-emerald-50/70 border-emerald-200 text-slate-800"
+                      }`}
+                    >
+                      {perm.subject_type === "department" ? (
+                        <Building2 className={`w-3.5 h-3.5 flex-shrink-0 ${isDeny ? "text-rose-600" : "text-indigo-600"}`} />
+                      ) : perm.subject_type === "team" ? (
+                        <Users className={`w-3.5 h-3.5 flex-shrink-0 ${isDeny ? "text-rose-600" : "text-sky-600"}`} />
+                      ) : (
+                        <UserCheck className={`w-3.5 h-3.5 flex-shrink-0 ${isDeny ? "text-rose-600" : "text-emerald-600"}`} />
+                      )}
+                      <span className="font-semibold">{perm.subject_name}</span>
+                      <span className="text-[10px] text-slate-500">({perm.subject_detail})</span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          isDeny
+                            ? "bg-rose-100 text-rose-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {isDeny ? "Deny" : perm.relation === "editor" ? "Editor" : "Viewer"}
+                      </span>
+                      {canManageActive && perm.revocable && (
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeContainerShare(perm)}
+                          disabled={isRevoking}
+                          className="ml-0.5 p-0.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-100/70 transition disabled:opacity-50"
+                          title={`Revoke ${perm.relation_label} for ${perm.subject_name}`}
+                        >
+                          {isRevoking ? (
+                            <RefreshCw className="w-3 h-3 animate-spin text-rose-600" />
+                          ) : (
+                            <X className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Cross-Team / User Container Sharing Modal */}
       {shareModalOpen && activeConnector.monitored_source_id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
@@ -784,57 +1022,144 @@ export function UnifiedConnectorsHub({
               </button>
             </div>
 
-            <form onSubmit={handleGrantContainerShare} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Target Team, Department, or User
-                </label>
-                <select
-                  value={shareSubjectKey}
-                  onChange={e => setShareSubjectKey(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">Select target...</option>
-                  {shareTargets.map(t => (
-                    <option key={`${t.subject_type}:${t.id}`} value={`${t.subject_type}:${t.id}`}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="overflow-y-auto flex-1">
+              <form onSubmit={handleGrantContainerShare} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Target Team, Department, or User
+                  </label>
+                  <select
+                    value={shareSubjectKey}
+                    onChange={e => setShareSubjectKey(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="">Select target...</option>
+                    {shareTargets.map(t => (
+                      <option key={`${t.subject_type}:${t.id}`} value={`${t.subject_type}:${t.id}`}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Permission Rule
-                </label>
-                <select
-                  value={shareRelation}
-                  onChange={e => setShareRelation(e.target.value as "viewer" | "deny_viewer")}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="viewer">Allow Querying (Viewer) — Inherits across folder documents</option>
-                  <option value="deny_viewer">Explicit Deny Override — Blocks even if team/cloud grants access</option>
-                </select>
-              </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Permission Rule
+                  </label>
+                  <select
+                    value={shareRelation}
+                    onChange={e => setShareRelation(e.target.value as "viewer" | "deny_viewer")}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="viewer">Allow Querying (Viewer) — Inherits across folder documents</option>
+                    <option value="deny_viewer">Explicit Deny Override — Blocks even if team/cloud grants access</option>
+                  </select>
+                </div>
 
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShareModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!shareSubjectKey || savingShare}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition disabled:opacity-50"
-                >
-                  {savingShare ? "Applying ACL..." : "Apply Permission Rule"}
-                </button>
+                <div className="pt-1 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShareModalOpen(false)}
+                    className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  >
+                    Done
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!shareSubjectKey || savingShare}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition disabled:opacity-50"
+                  >
+                    {savingShare ? "Applying ACL..." : "Apply Permission Rule"}
+                  </button>
+                </div>
+              </form>
+
+              {/* Active Permissions List for Easy Identification & Quick Revoke */}
+              <div className="px-6 pb-6 pt-4 border-t border-slate-100 bg-slate-50/50 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Active Shared Permissions ({containerPermissions.length})
+                  </span>
+                  {loadingPermissions && (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                  )}
+                </div>
+
+                {containerPermissions.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3 text-center bg-white rounded-xl border border-dashed border-slate-200">
+                    No custom team, department, or user shares added yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {containerPermissions.map(perm => {
+                      const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+                      const isDeny = perm.relation === "deny_viewer" || perm.relation === "deny"
+                      const isRevoking = revokingPermissionKey === rowKey
+                      return (
+                        <div
+                          key={rowKey}
+                          className="flex items-center justify-between gap-3 p-2.5 bg-white rounded-xl border border-slate-200/80 shadow-2xs"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                isDeny
+                                  ? "bg-rose-50 text-rose-600"
+                                  : "bg-emerald-50 text-emerald-600"
+                              }`}
+                            >
+                              {perm.subject_type === "department" ? (
+                                <Building2 className="w-4 h-4" />
+                              ) : perm.subject_type === "team" ? (
+                                <Users className="w-4 h-4" />
+                              ) : (
+                                <UserCheck className="w-4 h-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                                <span className="truncate">{perm.subject_name}</span>
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                    isDeny
+                                      ? "bg-rose-100 text-rose-700"
+                                      : "bg-emerald-100 text-emerald-700"
+                                  }`}
+                                >
+                                  {perm.relation_label}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 truncate">
+                                <span className="capitalize">{perm.subject_type}</span>
+                                {perm.subject_detail && perm.subject_detail.toLowerCase() !== perm.subject_type.toLowerCase()
+                                  ? ` · ${perm.subject_detail}`
+                                  : ""}
+                              </div>
+                            </div>
+                          </div>
+
+                          {perm.revocable ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeContainerShare(perm)}
+                              disabled={isRevoking}
+                              className="px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition disabled:opacity-50 flex-shrink-0"
+                            >
+                              {isRevoking ? "Revoking..." : "Revoke"}
+                            </button>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 px-2">
+                              {perm.grant_source}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
@@ -866,12 +1191,34 @@ export function UnifiedConnectorsHub({
               </button>
             </div>
 
+            {/* Breadcrumbs Navigation */}
+            {breadcrumbs.length > 0 && (
+              <div className="px-6 py-2 bg-white border-b border-slate-100 flex items-center gap-1 overflow-x-auto text-xs">
+                {breadcrumbs.map((bc, idx) => (
+                  <React.Fragment key={`${bc.id || "root"}-${idx}`}>
+                    {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />}
+                    <button
+                      type="button"
+                      onClick={() => handleBreadcrumbClick(idx)}
+                      className={`px-2 py-0.5 rounded-md truncate max-w-[160px] transition ${
+                        idx === breadcrumbs.length - 1
+                          ? "font-semibold text-indigo-700 bg-indigo-50"
+                          : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                      }`}
+                    >
+                      {bc.name}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+
             {/* Search */}
             <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
               <Search className="w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search sources..."
+                placeholder="Search drives or folders..."
                 value={pickerSearch}
                 onChange={e => setPickerSearch(e.target.value)}
                 className="w-full bg-transparent text-xs text-slate-800 placeholder-slate-400 focus:outline-none"
@@ -883,21 +1230,31 @@ export function UnifiedConnectorsHub({
               {pickerLoading ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
                   <RefreshCw className="w-5 h-5 mx-auto animate-spin mb-2 text-indigo-600" />
-                  Loading containers...
+                  Loading drives &amp; folders...
                 </div>
               ) : containers.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
-                  No containers found for this provider.
+                  No folders or containers found at this level.
                 </div>
               ) : (
                 containers
                   .filter(c => !pickerSearch || c.name.toLowerCase().includes(pickerSearch.toLowerCase()))
                   .map(c => {
+                    const isSelectable = c.can_select !== false
                     const isSelected = selectedContainer?.id === c.id
                     return (
                       <div
                         key={c.id}
-                        onClick={() => setSelectedContainer(c)}
+                        onClick={() => {
+                          if (isSelectable) {
+                            setSelectedContainer(c)
+                          } else if (c.has_children) {
+                            handleDrillIntoContainer(c)
+                          }
+                        }}
+                        onDoubleClick={() => {
+                          if (c.has_children) handleDrillIntoContainer(c)
+                        }}
                         className={`flex items-center justify-between p-3 rounded-xl cursor-pointer text-xs transition border ${
                           isSelected
                             ? "bg-indigo-50/80 border-indigo-200 text-indigo-900"
@@ -905,13 +1262,38 @@ export function UnifiedConnectorsHub({
                         }`}
                       >
                         <div className="flex items-center gap-2.5 truncate">
-                          <Folder className={`w-4 h-4 ${isSelected ? "text-indigo-600" : "text-slate-400"}`} />
+                          {c.container_type === "shared_drive" ? (
+                            <HardDrive className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-sky-500"}`} />
+                          ) : (
+                            <Folder className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-slate-400"}`} />
+                          )}
                           <span className="font-medium truncate">{c.name}</span>
                           <span className="text-[10px] uppercase font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {c.container_type}
+                            {c.container_type === "shared_drive" ? "Shared Drive" : c.container_type}
                           </span>
+                          {!isSelectable && (
+                            <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                              Open to browse
+                            </span>
+                          )}
                         </div>
-                        {isSelected && <Check className="w-4 h-4 text-indigo-600 flex-shrink-0" />}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {isSelected && <Check className="w-4 h-4 text-indigo-600" />}
+                          {c.has_children && (
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation()
+                                handleDrillIntoContainer(c)
+                              }}
+                              className="inline-flex items-center gap-0.5 px-2 py-1 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-100/70 rounded-lg transition"
+                              title={`Browse inside ${c.name}`}
+                            >
+                              Open
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )
                   })

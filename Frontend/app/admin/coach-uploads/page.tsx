@@ -38,6 +38,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   Users,
+  Share2,
+  Building2,
   File as FileIcon,
   Image as ImageIcon,
   Eye,
@@ -165,12 +167,37 @@ interface DocumentChunk {
   created_at: string
 }
 
+interface DocShareTargetOption {
+  id: string
+  name: string
+  subject_type: "team" | "department" | "user"
+}
+
+interface DocPermissionEntry {
+  id: string
+  subject_type: string
+  subject_id: string
+  subject_name: string
+  subject_detail: string
+  relation: string
+  relation_label: string
+  grant_source: string
+  revocable: boolean
+}
+
 export default function CoachUploadsPage() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers, rolesLoaded, loading: authLoading } = useAuth()
   const companyId = employeeData?.company_id
   const isAdminOrAbove = isAdmin || isSuperAdmin || isDeveloper
   const isManagerOrAbove = isAdminOrAbove || isManager || isManagerofUsers
   const hasAccess = isManagerOrAbove
+  const hydratedAdminOrAbove = mounted && isAdminOrAbove
+  const hydratedManagerOrAbove = mounted && isManagerOrAbove
 
   // Documents & Pagination State
   const [documents, setDocuments] = useState<CoachDocument[]>([])
@@ -214,12 +241,130 @@ export default function CoachUploadsPage() {
 
   // Inspection Drawer State
   const [inspectDoc, setInspectDoc] = useState<CoachDocument | null>(null)
-  const [inspectDrawerTab, setInspectDrawerTab] = useState<"overview" | "chunks">("overview")
+  const [inspectDrawerTab, setInspectDrawerTab] = useState<"overview" | "chunks" | "permissions">("overview")
   const [chunksForInspect, setChunksForInspect] = useState<DocumentChunk[]>([])
   const [loadingChunks, setLoadingChunks] = useState(false)
   const [chunkSearchQuery, setChunkSearchQuery] = useState("")
+  const [docPermissions, setDocPermissions] = useState<DocPermissionEntry[]>([])
+  const [docShareTargets, setDocShareTargets] = useState<DocShareTargetOption[]>([])
+  const [loadingDocPerms, setLoadingDocPerms] = useState(false)
+  const [docShareSubjectKey, setDocShareSubjectKey] = useState("")
+  const [docShareRelation, setDocShareRelation] = useState<"viewer" | "deny_viewer">("viewer")
+  const [savingDocShare, setSavingDocShare] = useState(false)
+  const [revokingDocPermKey, setRevokingDocPermKey] = useState<string | null>(null)
   const [downloadingUrl, setDownloadingUrl] = useState(false)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
+
+  const loadDocPermissions = useCallback(async (docId: string) => {
+    try {
+      setLoadingDocPerms(true)
+      const [permRes, teamsRes] = await Promise.all([
+        fetchWithAuth(`${API_BASE}/api/rbac/documents/${encodeURIComponent(docId)}/permissions`),
+        docShareTargets.length === 0
+          ? fetchWithAuth(`${API_BASE}/api/rbac/teams`)
+          : Promise.resolve(null),
+      ])
+      if (permRes.ok) {
+        const permData = await permRes.json()
+        setDocPermissions(Array.isArray(permData.permissions) ? permData.permissions : [])
+      } else {
+        setDocPermissions([])
+      }
+      if (teamsRes && teamsRes.ok) {
+        const data = await teamsRes.json()
+        const merged: DocShareTargetOption[] = [
+          ...(data.teams || []).map((t: any) => ({
+            id: t.id,
+            name: `${t.name} (${t.subject_type === "department" ? "Department" : "Team"})`,
+            subject_type: t.subject_type,
+          })),
+          ...(data.users || []).map((u: any) => ({
+            id: u.user_id,
+            name: `${u.name || u.email} (User)`,
+            subject_type: "user" as const,
+          })),
+        ]
+        setDocShareTargets(merged)
+      }
+    } catch (err) {
+      console.warn("[CoachUploads] Failed to load document permissions:", err)
+    } finally {
+      setLoadingDocPerms(false)
+    }
+  }, [docShareTargets.length])
+
+  const handleGrantDocShare = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inspectDoc || !docShareSubjectKey) return
+    const target = docShareTargets.find(t => `${t.subject_type}:${t.id}` === docShareSubjectKey)
+    if (!target) return
+    try {
+      setSavingDocShare(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/rbac/documents/${encodeURIComponent(inspectDoc.id)}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_type: target.subject_type,
+          subject_id: target.id,
+          relation: docShareRelation,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setDocPermissions(data.permissions)
+        } else {
+          loadDocPermissions(inspectDoc.id)
+        }
+        setDocShareSubjectKey("")
+        setSuccessToast(`Updated permission for ${target.name} on "${inspectDoc.file_name}".`)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to update document permission.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Error updating document permission.")
+    } finally {
+      setSavingDocShare(false)
+    }
+  }
+
+  const handleRevokeDocShare = async (perm: DocPermissionEntry) => {
+    if (!inspectDoc) return
+    const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+    try {
+      setRevokingDocPermKey(rowKey)
+      const params = new URLSearchParams({
+        subject_type: perm.subject_type,
+        subject_id: perm.subject_id,
+        relation: perm.relation,
+      })
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/rbac/documents/${encodeURIComponent(inspectDoc.id)}/share?${params.toString()}`,
+        { method: "DELETE" }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setDocPermissions(data.permissions)
+        } else {
+          setDocPermissions(prev =>
+            prev.filter(
+              p => !(p.subject_type === perm.subject_type && p.subject_id === perm.subject_id && p.relation === perm.relation)
+            )
+          )
+        }
+        setSuccessToast(`Revoked permission for ${perm.subject_name}.`)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to revoke permission.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Error revoking document permission.")
+    } finally {
+      setRevokingDocPermKey(null)
+    }
+  }
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -1050,7 +1195,9 @@ export default function CoachUploadsPage() {
           </Link>
 
           <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
-            {isAdminOrAbove ? "Admin Console" : isManagerOrAbove ? "Manager Console" : "Employee Vault"} • Coach Knowledge Hub
+            {!mounted
+              ? "Coach Knowledge Hub"
+              : `${hydratedAdminOrAbove ? "Admin Console" : hydratedManagerOrAbove ? "Manager Console" : "Employee Vault"} • Coach Knowledge Hub`}
           </span>
         </div>
 
@@ -1139,15 +1286,15 @@ export default function CoachUploadsPage() {
         </div>
 
         {/* Unified Enterprise Cloud Connectors Hub & Upload Panel (Manager+ Only) */}
-        {!rolesLoaded && authLoading ? (
+        {!mounted || (!rolesLoaded && authLoading) ? (
           <div className="bg-white rounded-3xl border border-slate-200/90 p-8 text-center text-xs text-slate-400">
             <RefreshCw className="w-5 h-5 mx-auto animate-spin text-indigo-600 mb-2" />
             Verifying workspace permissions...
           </div>
-        ) : isManagerOrAbove ? (
+        ) : hydratedManagerOrAbove ? (
           <>
             <UnifiedConnectorsHub
-              isAdminOrAbove={isAdminOrAbove}
+              isAdminOrAbove={hydratedAdminOrAbove}
               onIngestionTriggered={() => fetchDocuments(1, searchQuery, statusFilter, sourceFilter)}
               onErrorToast={(msg) => setErrorToast(msg)}
               onSuccessToast={(msg) => setSuccessToast(msg)}
@@ -1433,6 +1580,7 @@ export default function CoachUploadsPage() {
                           setInspectDoc(doc)
                           setInspectDrawerTab("overview")
                           loadChunksForInspection(doc.id)
+                          if (hydratedManagerOrAbove) loadDocPermissions(doc.id)
                         }}
                       >
                         <td className="py-4 px-6">
@@ -1518,6 +1666,19 @@ export default function CoachUploadsPage() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {hydratedManagerOrAbove && (
+                              <button
+                                onClick={() => {
+                                  setInspectDoc(doc)
+                                  setInspectDrawerTab("permissions")
+                                  loadDocPermissions(doc.id)
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                                title="Manage Shared Permissions"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDownloadOriginal(doc.id)}
                               className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition"
@@ -1525,7 +1686,7 @@ export default function CoachUploadsPage() {
                             >
                               <Download className="w-4 h-4" />
                             </button>
-                            {isAdminOrAbove && (
+                            {hydratedAdminOrAbove && (
                               <button
                                 onClick={() => handleDelete(doc.id, doc.file_name)}
                                 disabled={isDeleting === doc.id}
@@ -1753,11 +1914,143 @@ export default function CoachUploadsPage() {
                 >
                   Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? inspectDoc.parsed_metadata?.total_chunks ?? inspectDoc.parsed_metadata?.chunk_count ?? chunksForInspect.length})
                 </button>
+                {hydratedManagerOrAbove && (
+                  <button
+                    onClick={() => {
+                      setInspectDrawerTab("permissions")
+                      loadDocPermissions(inspectDoc.id)
+                    }}
+                    className={`py-3 border-b-2 transition flex items-center gap-1.5 ${
+                      inspectDrawerTab === "permissions"
+                        ? "border-emerald-600 text-emerald-600"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Permissions ({docPermissions.length})
+                  </button>
+                )}
               </div>
 
               {/* Drawer Body */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {inspectDrawerTab === "overview" ? (
+                {inspectDrawerTab === "permissions" ? (
+                  <div className="space-y-5">
+                    <form onSubmit={handleGrantDocShare} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                      <div className="text-xs font-bold text-slate-800">Grant or Deny Access</div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                          Target Team, Department, or User
+                        </label>
+                        <select
+                          value={docShareSubjectKey}
+                          onChange={e => setDocShareSubjectKey(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="">Select target...</option>
+                          {docShareTargets.map(t => (
+                            <option key={`${t.subject_type}:${t.id}`} value={`${t.subject_type}:${t.id}`}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={docShareRelation}
+                          onChange={e => setDocShareRelation(e.target.value as "viewer" | "deny_viewer")}
+                          className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="viewer">Allow Querying (Viewer)</option>
+                          <option value="deny_viewer">Explicit Deny Override</option>
+                        </select>
+                        <button
+                          type="submit"
+                          disabled={!docShareSubjectKey || savingDocShare}
+                          className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition disabled:opacity-50"
+                        >
+                          {savingDocShare ? "Applying..." : "Apply"}
+                        </button>
+                      </div>
+                    </form>
+
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Active Shared Permissions ({docPermissions.length})
+                        </span>
+                        {loadingDocPerms && <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />}
+                      </div>
+
+                      {docPermissions.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          No explicit document-level shares added yet.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {docPermissions.map(perm => {
+                            const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+                            const isDeny = perm.relation === "deny_viewer" || perm.relation === "deny"
+                            const isRevoking = revokingDocPermKey === rowKey
+                            return (
+                              <div
+                                key={rowKey}
+                                className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-2xs"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                      isDeny ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
+                                    }`}
+                                  >
+                                    {perm.subject_type === "department" ? (
+                                      <Building2 className="w-4 h-4" />
+                                    ) : perm.subject_type === "team" ? (
+                                      <Users className="w-4 h-4" />
+                                    ) : (
+                                      <UserCheck className="w-4 h-4" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                                      <span className="truncate">{perm.subject_name}</span>
+                                      <span
+                                        className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                          isDeny ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                                        }`}
+                                      >
+                                        {perm.relation_label}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate">
+                                      <span className="capitalize">{perm.subject_type}</span>
+                                      {perm.subject_detail && perm.subject_detail.toLowerCase() !== perm.subject_type.toLowerCase()
+                                        ? ` · ${perm.subject_detail}`
+                                        : ""}
+                                    </div>
+                                  </div>
+                                </div>
+                                {perm.revocable ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeDocShare(perm)}
+                                    disabled={isRevoking}
+                                    className="px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition disabled:opacity-50 flex-shrink-0"
+                                  >
+                                    {isRevoking ? "Revoking..." : "Revoke"}
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 px-2">{perm.grant_source}</span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : inspectDrawerTab === "overview" ? (
                   <>
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                       <div className="text-slate-500 font-medium">Status & Verification</div>

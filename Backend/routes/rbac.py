@@ -13,7 +13,7 @@ Provides:
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from utils.auth import RequestAuth, get_request_auth_required
@@ -270,10 +270,158 @@ async def list_share_targets(
     return {"teams": teams, "users": users_list}
 
 
+def _fetch_and_enrich_shares(company_id: str, object_type: str, object_id: str) -> List[Dict[str, Any]]:
+    """
+    Fetches explicit ReBAC tuples for a container or document and enriches them with
+    human-readable target names, emails, and permission labels for quick identification & revocation.
+    """
+    cid = str(company_id)
+    try:
+        tup_res = (
+            supabase_admin.table("rebac_tuples")
+            .select("id, object_type, object_id, relation, subject_type, subject_id, grant_source, expires_at, created_at")
+            .eq("company_id", cid)
+            .eq("object_type", object_type)
+            .eq("object_id", str(object_id))
+            .execute()
+        )
+        tuples = getattr(tup_res, "data", None) or []
+    except Exception as tbl_err:
+        if is_missing_schema_error(tbl_err):
+            return []
+        print(f"[RBAC] Fetch shares warning for {object_type}:{object_id}: {tbl_err}")
+        return []
+
+    if not tuples:
+        return []
+
+    dept_ids = {str(t["subject_id"]) for t in tuples if t.get("subject_type") == "department" and t.get("subject_id")}
+    team_ids = {str(t["subject_id"]) for t in tuples if t.get("subject_type") == "team" and t.get("subject_id")}
+    user_ids = {str(t["subject_id"]) for t in tuples if t.get("subject_type") == "user" and t.get("subject_id")}
+
+    dept_map: Dict[str, str] = {}
+    team_map: Dict[str, str] = {}
+    user_map: Dict[str, Dict[str, str]] = {}
+
+    if dept_ids:
+        try:
+            f_res = (
+                supabase_admin.table("functions")
+                .select("function_id, function_name")
+                .eq("company_id", cid)
+                .in_("function_id", list(dept_ids))
+                .execute()
+            )
+            for row in (getattr(f_res, "data", None) or []):
+                dept_map[str(row["function_id"])] = row.get("function_name") or "Department"
+        except Exception:
+            pass
+
+    if team_ids:
+        try:
+            sf_res = (
+                supabase_admin.table("sub_functions")
+                .select("sub_function_id, sub_function_name")
+                .in_("sub_function_id", list(team_ids))
+                .execute()
+            )
+            for row in (getattr(sf_res, "data", None) or []):
+                team_map[str(row["sub_function_id"])] = row.get("sub_function_name") or "Team"
+        except Exception:
+            pass
+
+    if user_ids:
+        try:
+            u_res = (
+                supabase_admin.table("users")
+                .select("user_id, name, email")
+                .eq("company_id", cid)
+                .in_("user_id", list(user_ids))
+                .execute()
+            )
+            for row in (getattr(u_res, "data", None) or []):
+                user_map[str(row["user_id"])] = {
+                    "name": (row.get("name") or "").strip(),
+                    "email": (row.get("email") or "").strip(),
+                }
+        except Exception:
+            pass
+
+    rel_labels = {
+        "viewer": "Allow (Viewer)",
+        "editor": "Editor",
+        "deny_viewer": "Explicit Deny",
+        "deny": "Explicit Deny",
+        "owner": "Owner",
+        "scoped_subject": "Scoped Employee",
+        "shared_with": "Shared",
+    }
+
+    enriched: List[Dict[str, Any]] = []
+    for t in tuples:
+        st = str(t.get("subject_type") or "").lower()
+        sid = str(t.get("subject_id") or "")
+        rel = str(t.get("relation") or "").lower()
+        grant_src = str(t.get("grant_source") or "lucid_manual")
+
+        if st == "department":
+            sname = dept_map.get(sid) or f"Department ({sid[:8]})"
+            sdetail = "Department"
+        elif st == "team":
+            sname = team_map.get(sid) or f"Team ({sid[:8]})"
+            sdetail = "Team"
+        elif st == "user":
+            uinfo = user_map.get(sid) or {}
+            sname = uinfo.get("name") or uinfo.get("email") or f"User ({sid[:8]})"
+            sdetail = uinfo.get("email") or "User"
+        elif st == "company":
+            sname = "Entire Organization"
+            sdetail = "Company-Wide"
+        else:
+            sname = sid
+            sdetail = st.title()
+
+        enriched.append({
+            "id": t.get("id") or f"{object_type}:{object_id}:{st}:{sid}:{rel}",
+            "object_type": object_type,
+            "object_id": str(object_id),
+            "subject_type": st,
+            "subject_id": sid,
+            "subject_name": sname,
+            "subject_detail": sdetail,
+            "relation": rel,
+            "relation_label": rel_labels.get(rel, rel.title()),
+            "grant_source": grant_src,
+            "revocable": grant_src == "lucid_manual",
+            "expires_at": t.get("expires_at"),
+            "created_at": t.get("created_at"),
+        })
+
+    enriched.sort(key=lambda x: (x["relation"] != "deny_viewer", x["subject_type"], x["subject_name"].lower()))
+    return enriched
+
+
+@router.get("/containers/{source_id}/permissions")
+async def get_container_permissions(
+    source_id: str,
+    auth: RequestAuth = Depends(get_request_auth_required),
+):
+    """Returns explicit shared permissions and deny overrides configured on a monitored container."""
+    if not auth.company_id or not auth.user_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+    await _authorize_container_management(auth, source_id)
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "container", source_id)
+    return {
+        "source_id": source_id,
+        "permissions": perms,
+    }
+
+
 @router.post("/containers/{source_id}/share")
 async def share_container(
     source_id: str,
     payload: ShareGrantRequest,
+    background_tasks: BackgroundTasks,
     auth: RequestAuth = Depends(get_request_auth_required),
 ):
     """Grants or denies cross-team / user permissions on a monitored connector container."""
@@ -292,7 +440,8 @@ async def share_container(
         actor_user_id=str(auth.user_id),
         expires_at=payload.expires_at,
     )
-    _audit_rbac_event(
+    background_tasks.add_task(
+        _audit_rbac_event,
         company_id=auth.company_id,
         actor_id=auth.user_id,
         actor_email=auth.email,
@@ -301,12 +450,14 @@ async def share_container(
         target_id=source_id,
         details=payload.model_dump(),
     )
-    return {"success": True, **result}
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "container", source_id)
+    return {"success": True, **result, "permissions": perms}
 
 
 @router.delete("/containers/{source_id}/share")
 async def unshare_container(
     source_id: str,
+    background_tasks: BackgroundTasks,
     subject_type: str = Query(...),
     subject_id: str = Query(...),
     relation: Optional[str] = Query(None),
@@ -325,7 +476,8 @@ async def unshare_container(
         subject_id=subject_id,
         relation=relation.lower() if relation else None,
     )
-    _audit_rbac_event(
+    background_tasks.add_task(
+        _audit_rbac_event,
         company_id=auth.company_id,
         actor_id=auth.user_id,
         actor_email=auth.email,
@@ -334,13 +486,15 @@ async def unshare_container(
         target_id=source_id,
         details={"subject_type": subject_type, "subject_id": subject_id, "relation": relation},
     )
-    return {"success": True, **result}
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "container", source_id)
+    return {"success": True, **result, "permissions": perms}
 
 
 @router.post("/documents/{document_id}/share")
 async def share_document(
     document_id: str,
     payload: ShareGrantRequest,
+    background_tasks: BackgroundTasks,
     auth: RequestAuth = Depends(get_request_auth_required),
 ):
     """Grants or denies access on an individual document (team, user, or deny_viewer)."""
@@ -359,7 +513,8 @@ async def share_document(
         actor_user_id=str(auth.user_id),
         expires_at=payload.expires_at,
     )
-    _audit_rbac_event(
+    background_tasks.add_task(
+        _audit_rbac_event,
         company_id=auth.company_id,
         actor_id=auth.user_id,
         actor_email=auth.email,
@@ -368,12 +523,14 @@ async def share_document(
         target_id=document_id,
         details=payload.model_dump(),
     )
-    return {"success": True, **result}
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "document", document_id)
+    return {"success": True, **result, "permissions": perms}
 
 
 @router.delete("/documents/{document_id}/share")
 async def unshare_document(
     document_id: str,
+    background_tasks: BackgroundTasks,
     subject_type: str = Query(...),
     subject_id: str = Query(...),
     relation: Optional[str] = Query(None),
@@ -391,7 +548,8 @@ async def unshare_document(
         subject_id=subject_id,
         relation=relation.lower() if relation else None,
     )
-    _audit_rbac_event(
+    background_tasks.add_task(
+        _audit_rbac_event,
         company_id=auth.company_id,
         actor_id=auth.user_id,
         actor_email=auth.email,
@@ -400,7 +558,8 @@ async def unshare_document(
         target_id=document_id,
         details={"subject_type": subject_type, "subject_id": subject_id, "relation": relation},
     )
-    return {"success": True, **result}
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "document", document_id)
+    return {"success": True, **result, "permissions": perms}
 
 
 @router.get("/documents/{document_id}/permissions")
@@ -427,12 +586,14 @@ async def get_document_permissions(
         if not is_missing_schema_error(tbl_err):
             raise
         tuples = []
+    perms = _fetch_and_enrich_shares(str(auth.company_id), "document", document_id)
     return {
         "document_id": document_id,
         "sensitivity_tier": doc.get("sensitivity_tier", "internal"),
         "acl_principals": doc.get("acl_principals") or [],
         "deny_principals": doc.get("deny_principals") or [],
         "tuples": tuples,
+        "permissions": perms,
     }
 
 

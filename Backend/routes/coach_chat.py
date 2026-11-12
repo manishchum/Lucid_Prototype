@@ -120,13 +120,27 @@ async def chat_with_coach(
     if not security_ctx.is_active:
         raise HTTPException(status_code=403, detail="Access denied: inactive user cannot query Performance Coach.")
 
-    if payload.target_employee_id and not security_ctx.can_query_employee(payload.target_employee_id):
+    # Normalize self-targeting requests (including callers passing their own Firebase UID
+    # instead of Supabase UUID). Leaving effective_target_employee_id as None for self
+    # ensures Zanzibar Pre-Retrieval ACL can return team/org/connector docs too.
+    effective_target_employee_id = payload.target_employee_id
+    if effective_target_employee_id:
+        raw_target = str(effective_target_employee_id).strip()
+        caller_claim_ids = {
+            str(auth.claims.get(k)).strip()
+            for k in ("uid", "user_id", "sub")
+            if isinstance(auth.claims, dict) and auth.claims.get(k)
+        }
+        if raw_target == str(user_id) or raw_target in caller_claim_ids:
+            effective_target_employee_id = None
+
+    if effective_target_employee_id and not security_ctx.can_query_employee(effective_target_employee_id):
         _audit_coach_query(
             company_id=company_id,
             auth=auth,
             action="COACH_CROSS_USER_QUERY_BLOCKED",
             details={
-                "target_employee_id": payload.target_employee_id,
+                "target_employee_id": effective_target_employee_id,
                 "caller_role_level": security_ctx.role_level,
             },
             status="FAILED",
@@ -139,7 +153,6 @@ async def chat_with_coach(
     sec_dict = security_ctx.to_cache_dict()
     # Automatically resolve the authenticated user's name so "my performance" binds to them
     resolved_employee_name = _resolve_user_name(user_id, auth, payload.target_employee_name)
-    resolved_employee_id = payload.target_employee_id or user_id
 
     # Ensure conversation thread exists for history
     conv_id = payload.conversation_id
@@ -158,7 +171,7 @@ async def chat_with_coach(
             user_query=query,
             company_id=company_id,
             user_id=user_id,
-            target_employee_id=payload.target_employee_id,
+            target_employee_id=effective_target_employee_id,
             target_employee_name=payload.target_employee_name,
             security_ctx=sec_dict,
         )
@@ -169,7 +182,7 @@ async def chat_with_coach(
             details={
                 "intent": result.get("intent"),
                 "role_level": security_ctx.role_level,
-                "target_employee_id": payload.target_employee_id,
+                "target_employee_id": effective_target_employee_id,
                 "target_employee_name": resolved_employee_name,
                 "citations_count": len(result.get("citations") or []),
             },
@@ -217,7 +230,7 @@ async def chat_with_coach(
                 user_query=query,
                 company_id=company_id,
                 user_id=user_id,
-                target_employee_id=payload.target_employee_id,
+                target_employee_id=effective_target_employee_id,
                 target_employee_name=payload.target_employee_name,
                 security_ctx=sec_dict,
             )
@@ -229,7 +242,7 @@ async def chat_with_coach(
                 details={
                     "intent": result.get("intent"),
                     "role_level": security_ctx.role_level,
-                    "target_employee_id": payload.target_employee_id,
+                    "target_employee_id": effective_target_employee_id,
                     "target_employee_name": resolved_employee_name,
                     "citations_count": len(result.get("citations") or []),
                     "stream": True,

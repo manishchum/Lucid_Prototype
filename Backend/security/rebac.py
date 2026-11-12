@@ -110,6 +110,21 @@ def invalidate_company_security_cache(company_id: str) -> None:
         delete_cache_pattern(f"acl:principals:{company_id}:*")
     except Exception as e:
         print(f"[REBAC] Company cache invalidation warning for {company_id}: {e}")
+    # Also clear in-memory Coach schema & document listing L1 caches for immediate UI/Chat reflection
+    try:
+        from coach.schema_inspector import _SCHEMA_CACHE
+        prefix = f"{company_id}:"
+        for k in [k for k in list(_SCHEMA_CACHE.keys()) if str(k).startswith(prefix)]:
+            _SCHEMA_CACHE.pop(k, None)
+    except Exception:
+        pass
+    try:
+        from routes.coach_upload import _COACH_DOCS_L1_CACHE
+        prefix = f"docs_list:{company_id}:"
+        for k in [k for k in list(_COACH_DOCS_L1_CACHE.keys()) if str(k).startswith(prefix)]:
+            _COACH_DOCS_L1_CACHE.pop(k, None)
+    except Exception:
+        pass
 
 
 def is_missing_schema_error(exc: Exception) -> bool:
@@ -451,6 +466,103 @@ def upsert_rebac_tuples(tuples: List[Dict[str, Any]]) -> None:
         print(f"[REBAC] Upsert tuple warning: {e}")
 
 
+def _compute_doc_acl_from_inputs(
+    doc: Dict[str, Any],
+    cid: str,
+    integ_by_id: Dict[str, Dict[str, Any]],
+    doc_tuples: List[Dict[str, Any]],
+    container_tuples: List[Dict[str, Any]],
+    integ_tuples: List[Dict[str, Any]],
+) -> Tuple[List[str], List[str]]:
+    """Pure in-memory Zanzibar ACL evaluator for a document and its parent container/integration inputs."""
+    allow: Set[str] = {f"role:{cid}:admin_plus"}
+    deny: Set[str] = set()
+
+    author_id = doc.get("author_user_id") or doc.get("uploaded_by")
+    if author_id:
+        allow.add(f"user:{author_id}")
+
+    target_emp_id = doc.get("target_employee_id")
+    is_private_note = bool(doc.get("is_private_manager_note"))
+    if target_emp_id and not is_private_note:
+        # Allows the employee (self) AND their manager chain to read manager-authored feedback
+        allow.add(f"scoped_emp:{target_emp_id}")
+
+    integration_id = str(doc.get("source_integration_id") or "")
+    integ = integ_by_id.get(integration_id) if integration_id else None
+    if integ:
+        owner_id = integ.get("owner_user_id")
+        vis_mode = integ.get("visibility_mode") or "acl_sync"
+        if owner_id:
+            allow.add(f"user:{owner_id}")
+            if integ.get("connection_scope") == "team":
+                allow.add(f"mgr_tree:{owner_id}")
+        if integ.get("assigned_team_id") and vis_mode in ("team_only", "acl_sync"):
+            allow.add(f"team:{integ['assigned_team_id']}")
+        if vis_mode == "company_wide":
+            allow.add(f"company:{cid}")
+
+    inherit_blocked = any(
+        t.get("relation") == "restrict_inheritance" and _is_not_expired(t.get("expires_at"))
+        for t in doc_tuples
+    )
+    all_tuples = list(doc_tuples)
+    if not inherit_blocked:
+        all_tuples.extend(container_tuples)
+        all_tuples.extend(integ_tuples)
+
+    for t in all_tuples:
+        if not _is_not_expired(t.get("expires_at")):
+            continue
+        rel = str(t.get("relation") or "").lower()
+        token = _subject_to_principal_token(t.get("subject_type"), t.get("subject_id"))
+        if not token:
+            continue
+        if rel in ("deny_viewer", "deny"):
+            deny.add(token)
+        elif rel in ("owner", "editor", "viewer", "scoped_subject", "shared_with"):
+            allow.add(token)
+
+    return sorted(allow - deny), sorted(deny)
+
+
+def _apply_spreadsheet_row_acls(
+    db: Any,
+    rows: List[Dict[str, Any]],
+    doc_acl_map: Dict[str, Tuple[List[str], List[str]]],
+) -> None:
+    """Batch-updates coach_spreadsheet_rows preserving per-row target_employee_id isolation."""
+    if not rows:
+        return
+    # Group row IDs by exact (acl_tuple, deny_tuple) to minimize HTTP update calls
+    row_groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = {}
+    for r in rows:
+        doc_id = str(r.get("document_id") or "")
+        if doc_id not in doc_acl_map:
+            continue
+        acl_list, deny_list = doc_acl_map[doc_id]
+        emp = r.get("target_employee_id")
+        if emp:
+            non_scoped_allow = [
+                p for p in acl_list
+                if not p.startswith("scoped_emp:") and not p.startswith("team:") and not p.startswith("company:")
+            ]
+            row_acl = tuple(sorted(set(non_scoped_allow + [f"scoped_emp:{emp}"]) - set(deny_list)))
+        else:
+            row_acl = tuple(acl_list)
+        key = (row_acl, tuple(deny_list))
+        row_groups.setdefault(key, []).append(r["id"])
+
+    for (row_acl, row_deny), r_ids in row_groups.items():
+        acl_val = list(row_acl)
+        deny_val = list(row_deny)
+        for i in range(0, len(r_ids), 200):
+            db.table("coach_spreadsheet_rows").update({
+                "acl_principals": acl_val,
+                "deny_principals": deny_val,
+            }).in_("id", r_ids[i:i + 200]).execute()
+
+
 def recompute_document_acl(document_id: str, company_id: Optional[str] = None) -> Tuple[List[str], List[str]]:
     """
     Walks the Zanzibar ReBAC graph for a document (direct grants + container inheritance +
@@ -486,55 +598,28 @@ def recompute_document_acl(document_id: str, company_id: Optional[str] = None) -
         return [], []
 
     cid = str(company_id or doc["company_id"])
-    allow: Set[str] = {f"role:{cid}:admin_plus"}
-    deny: Set[str] = set()
 
-    author_id = doc.get("author_user_id") or doc.get("uploaded_by")
-    if author_id:
-        allow.add(f"user:{author_id}")
-
-    target_emp_id = doc.get("target_employee_id")
-    is_private_note = bool(doc.get("is_private_manager_note"))
-    if target_emp_id and not is_private_note:
-        # Allows the employee (self) AND their manager chain to read manager-authored feedback
-        allow.add(f"scoped_emp:{target_emp_id}")
-
-    # Collect tuples on document + parent container + integration
-    object_targets: List[Tuple[str, str]] = [("document", str(document_id))]
-    if doc.get("source_container_id"):
-        object_targets.append(("container", str(doc["source_container_id"])))
-    if doc.get("source_integration_id"):
-        object_targets.append(("integration", str(doc["source_integration_id"])))
-
-    # Also check integration metadata for team/visibility settings
-    integration_id = doc.get("source_integration_id")
+    integ_by_id: Dict[str, Dict[str, Any]] = {}
+    integration_id = str(doc.get("source_integration_id") or "")
     if integration_id:
         try:
             int_res = (
                 db.table("company_integrations")
-                .select("owner_user_id, connection_scope, assigned_team_id, visibility_mode")
+                .select("id, owner_user_id, connection_scope, assigned_team_id, visibility_mode")
                 .eq("id", integration_id)
                 .maybe_single()
                 .execute()
             )
             integ = getattr(int_res, "data", None)
             if integ:
-                owner_id = integ.get("owner_user_id")
-                vis_mode = integ.get("visibility_mode") or "acl_sync"
-                if owner_id:
-                    allow.add(f"user:{owner_id}")
-                    if integ.get("connection_scope") == "team":
-                        allow.add(f"mgr_tree:{owner_id}")
-                if integ.get("assigned_team_id") and vis_mode in ("team_only", "acl_sync"):
-                    allow.add(f"team:{integ['assigned_team_id']}")
-                if vis_mode == "company_wide":
-                    allow.add(f"company:{cid}")
+                integ_by_id[integration_id] = integ
         except Exception:
             pass
 
-    # Query rebac_tuples for document, container, and integration
+    doc_tuples: List[Dict[str, Any]] = []
+    container_tuples: List[Dict[str, Any]] = []
+    integ_tuples: List[Dict[str, Any]] = []
     try:
-        # Check if document blocks inheritance via restricted flag
         doc_tuples_res = (
             db.table("rebac_tuples")
             .select("*")
@@ -549,38 +634,39 @@ def recompute_document_acl(document_id: str, company_id: Optional[str] = None) -
             t.get("relation") == "restrict_inheritance" and _is_not_expired(t.get("expires_at"))
             for t in doc_tuples
         )
-
-        all_tuples = list(doc_tuples)
         if not inherit_blocked:
-            for obj_type, obj_id in object_targets[1:]:
-                t_res = (
+            if doc.get("source_container_id"):
+                c_res = (
                     db.table("rebac_tuples")
                     .select("*")
                     .eq("company_id", cid)
-                    .eq("object_type", obj_type)
-                    .eq("object_id", obj_id)
+                    .eq("object_type", "container")
+                    .eq("object_id", str(doc["source_container_id"]))
                     .execute()
                 )
-                all_tuples.extend(getattr(t_res, "data", None) or [])
-
-        for t in all_tuples:
-            if not _is_not_expired(t.get("expires_at")):
-                continue
-            rel = str(t.get("relation") or "").lower()
-            token = _subject_to_principal_token(t.get("subject_type"), t.get("subject_id"))
-            if not token:
-                continue
-            if rel in ("deny_viewer", "deny"):
-                deny.add(token)
-            elif rel in ("owner", "editor", "viewer", "scoped_subject", "shared_with"):
-                allow.add(token)
+                container_tuples = getattr(c_res, "data", None) or []
+            if integration_id:
+                i_res = (
+                    db.table("rebac_tuples")
+                    .select("*")
+                    .eq("company_id", cid)
+                    .eq("object_type", "integration")
+                    .eq("object_id", integration_id)
+                    .execute()
+                )
+                integ_tuples = getattr(i_res, "data", None) or []
     except Exception as e:
         print(f"[REBAC] Tuple evaluation warning for doc {document_id}: {e}")
 
-    acl_list = sorted(allow - deny)
-    deny_list = sorted(deny)
+    acl_list, deny_list = _compute_doc_acl_from_inputs(
+        doc=doc,
+        cid=cid,
+        integ_by_id=integ_by_id,
+        doc_tuples=doc_tuples,
+        container_tuples=container_tuples,
+        integ_tuples=integ_tuples,
+    )
 
-    # Persist materialized ACLs onto master doc, chunks, and spreadsheet rows
     try:
         db.table("coach_uploaded_documents").update({
             "acl_principals": acl_list,
@@ -592,44 +678,14 @@ def recompute_document_acl(document_id: str, company_id: Optional[str] = None) -
             "deny_principals": deny_list,
         }).eq("document_id", document_id).execute()
 
-        # Spreadsheet rows: preserve row-level target_employee_id scoping when present!
-        # Rows with a specific target_employee_id only grant scoped_emp:<row_emp_id> + managers/owner/admin,
-        # preventing Employee A from reading Employee B's row in a shared team sheet.
         rows_res = (
             db.table("coach_spreadsheet_rows")
-            .select("id, target_employee_id")
+            .select("id, document_id, target_employee_id")
             .eq("document_id", document_id)
             .execute()
         )
         rows = getattr(rows_res, "data", None) or []
-        if rows:
-            # Base doc principals excluding other employees' scoped_emp tokens and generic team tokens for row-specific rows
-            non_scoped_allow = [
-                p for p in acl_list
-                if not p.startswith("scoped_emp:") and not p.startswith("team:") and not p.startswith("company:")
-            ]
-            unscoped_row_ids = [r["id"] for r in rows if not r.get("target_employee_id")]
-            scoped_by_emp: Dict[str, List[str]] = {}
-            for r in rows:
-                emp = r.get("target_employee_id")
-                if emp:
-                    scoped_by_emp.setdefault(str(emp), []).append(r["id"])
-
-            if unscoped_row_ids:
-                for i in range(0, len(unscoped_row_ids), 200):
-                    db.table("coach_spreadsheet_rows").update({
-                        "acl_principals": acl_list,
-                        "deny_principals": deny_list,
-                    }).in_("id", unscoped_row_ids[i:i + 200]).execute()
-
-            for emp_id, r_ids in scoped_by_emp.items():
-                row_acl = sorted(set(non_scoped_allow + [f"scoped_emp:{emp_id}"]) - deny)
-                for i in range(0, len(r_ids), 200):
-                    db.table("coach_spreadsheet_rows").update({
-                        "acl_principals": row_acl,
-                        "deny_principals": deny_list,
-                    }).in_("id", r_ids[i:i + 200]).execute()
-
+        _apply_spreadsheet_row_acls(db, rows, {str(document_id): (acl_list, deny_list)})
     except Exception as upd_err:
         print(f"[REBAC] Materialize update warning for doc {document_id}: {upd_err}")
 
@@ -637,23 +693,145 @@ def recompute_document_acl(document_id: str, company_id: Optional[str] = None) -
 
 
 def recompute_container_documents_acl(company_id: str, container_id: str) -> int:
-    """Recomputes materialized ACLs for all documents belonging to a monitored container."""
+    """
+    Batch-recomputes materialized ACLs for all documents belonging to a monitored container.
+    Executes O(1) batched Supabase queries instead of O(N * 9) sequential per-document roundtrips.
+    """
     db = get_service_supabase_client()
+    cid = str(company_id)
+    cont_id = str(container_id)
     try:
         res = (
             db.table("coach_uploaded_documents")
-            .select("id")
-            .eq("company_id", company_id)
-            .eq("source_container_id", container_id)
+            .select(
+                "id, company_id, uploaded_by, author_user_id, target_employee_id, "
+                "source_integration_id, source_container_id, is_private_manager_note"
+            )
+            .eq("company_id", cid)
+            .eq("source_container_id", cont_id)
             .execute()
         )
     except Exception as e:
         if is_missing_schema_error(e):
             return 0
         raise
+
     docs = getattr(res, "data", None) or []
-    for d in docs:
-        recompute_document_acl(d["id"], company_id=company_id)
+    if not docs:
+        return 0
+
+    doc_ids = [str(d["id"]) for d in docs]
+    integ_ids = sorted({str(d["source_integration_id"]) for d in docs if d.get("source_integration_id")})
+
+    # 1. Fetch container tuples once
+    container_tuples: List[Dict[str, Any]] = []
+    try:
+        c_res = (
+            db.table("rebac_tuples")
+            .select("*")
+            .eq("company_id", cid)
+            .eq("object_type", "container")
+            .eq("object_id", cont_id)
+            .execute()
+        )
+        container_tuples = getattr(c_res, "data", None) or []
+    except Exception as e:
+        print(f"[REBAC] Batch container tuple fetch warning: {e}")
+
+    # 2. Fetch unique parent integration metadata & tuples once
+    integ_by_id: Dict[str, Dict[str, Any]] = {}
+    integ_tuples_by_id: Dict[str, List[Dict[str, Any]]] = {}
+    if integ_ids:
+        try:
+            int_res = (
+                db.table("company_integrations")
+                .select("id, owner_user_id, connection_scope, assigned_team_id, visibility_mode")
+                .in_("id", integ_ids)
+                .execute()
+            )
+            for row in (getattr(int_res, "data", None) or []):
+                integ_by_id[str(row["id"])] = row
+        except Exception:
+            pass
+        try:
+            i_tup_res = (
+                db.table("rebac_tuples")
+                .select("*")
+                .eq("company_id", cid)
+                .eq("object_type", "integration")
+                .in_("object_id", integ_ids)
+                .execute()
+            )
+            for t in (getattr(i_tup_res, "data", None) or []):
+                integ_tuples_by_id.setdefault(str(t.get("object_id") or ""), []).append(t)
+        except Exception:
+            pass
+
+    # 3. Fetch document-level tuples in batched chunks of 200
+    doc_tuples_by_id: Dict[str, List[Dict[str, Any]]] = {}
+    for i in range(0, len(doc_ids), 200):
+        try:
+            dt_res = (
+                db.table("rebac_tuples")
+                .select("*")
+                .eq("company_id", cid)
+                .eq("object_type", "document")
+                .in_("object_id", doc_ids[i:i + 200])
+                .execute()
+            )
+            for t in (getattr(dt_res, "data", None) or []):
+                doc_tuples_by_id.setdefault(str(t.get("object_id") or ""), []).append(t)
+        except Exception as e:
+            print(f"[REBAC] Batch doc tuple fetch warning: {e}")
+
+    # 4. Evaluate ACLs in memory & group documents sharing the exact same materialized principals
+    doc_acl_map: Dict[str, Tuple[List[str], List[str]]] = {}
+    doc_groups: Dict[Tuple[Tuple[str, ...], Tuple[str, ...]], List[str]] = {}
+    for doc in docs:
+        did = str(doc["id"])
+        iid = str(doc.get("source_integration_id") or "")
+        acl_list, deny_list = _compute_doc_acl_from_inputs(
+            doc=doc,
+            cid=cid,
+            integ_by_id=integ_by_id,
+            doc_tuples=doc_tuples_by_id.get(did, []),
+            container_tuples=container_tuples,
+            integ_tuples=integ_tuples_by_id.get(iid, []),
+        )
+        doc_acl_map[did] = (acl_list, deny_list)
+        key = (tuple(acl_list), tuple(deny_list))
+        doc_groups.setdefault(key, []).append(did)
+
+    # 5. Bulk update documents & chunks per distinct ACL signature
+    try:
+        for (acl_tup, deny_tup), group_ids in doc_groups.items():
+            acl_val = list(acl_tup)
+            deny_val = list(deny_tup)
+            for i in range(0, len(group_ids), 200):
+                batch_ids = group_ids[i:i + 200]
+                db.table("coach_uploaded_documents").update({
+                    "acl_principals": acl_val,
+                    "deny_principals": deny_val,
+                }).in_("id", batch_ids).execute()
+                db.table("coach_document_chunks").update({
+                    "acl_principals": acl_val,
+                    "deny_principals": deny_val,
+                }).in_("document_id", batch_ids).execute()
+
+        # 6. Fetch & batch-update any spreadsheet rows across all container docs
+        all_rows: List[Dict[str, Any]] = []
+        for i in range(0, len(doc_ids), 200):
+            rr = (
+                db.table("coach_spreadsheet_rows")
+                .select("id, document_id, target_employee_id")
+                .in_("document_id", doc_ids[i:i + 200])
+                .execute()
+            )
+            all_rows.extend(getattr(rr, "data", None) or [])
+        _apply_spreadsheet_row_acls(db, all_rows, doc_acl_map)
+    except Exception as upd_err:
+        print(f"[REBAC] Batch materialize warning for container {cont_id}: {upd_err}")
+
     return len(docs)
 
 

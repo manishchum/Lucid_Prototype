@@ -297,6 +297,46 @@ def test_coach_chat_endpoint_enforces_cross_user_403_and_logs_audit():
         assert mock_audit.call_args[1]["action"] == "COACH_CROSS_USER_QUERY_BLOCKED"
 
 
+def test_coach_chat_allows_self_firebase_uid_normalization():
+    """POST /api/coach/chat normalizes caller's own Firebase UID / UUID target_employee_id to self (None) without 403."""
+    test_app = FastAPI()
+    test_app.include_router(coach_chat_router)
+    test_app.dependency_overrides[get_request_auth_required] = lambda: RequestAuth(
+        user_id=EMP_A1_ID,
+        company_id=COMPANY_ID,
+        email="empA1@lucid.work",
+        source="test",
+        claims={"uid": "firebase-uid-empA1"},
+    )
+
+    emp_ctx = UserSecurityContext(
+        user_id=EMP_A1_ID,
+        company_id=COMPANY_ID,
+        email="empA1@lucid.work",
+        role_level=1,
+        role_name="USER",
+        is_active=True,
+        principals=[f"user:{EMP_A1_ID}", "team:teamA"],
+        managed_employee_ids=[],
+    )
+
+    with patch("routes.coach_chat.resolve_user_principals", return_value=emp_ctx), \
+         patch("routes.coach_chat.create_conversation", return_value={"id": "conv-1"}), \
+         patch("routes.coach_chat.append_messages_to_conversation"), \
+         patch("routes.coach_chat._audit_coach_query"), \
+         patch("routes.coach_chat.execute_coach_agent", return_value={
+             "intent": "RAG", "response": "Ok", "citations": []
+         }) as mock_exec:
+        client = TestClient(test_app)
+        res = client.post("/api/coach/chat", json={
+            "query": "What are my company playbooks?",
+            "target_employee_id": "firebase-uid-empA1",
+            "stream": False,
+        })
+        assert res.status_code == 200
+        assert mock_exec.call_args[1]["target_employee_id"] is None
+
+
 def test_external_email_and_id_principal_resolution():
     """Dual-source sync maps external emails/IDs from user_external_identities and company roster cleanly."""
     mock_supa = MagicMock()
@@ -507,5 +547,149 @@ def test_redis_pool_capped_and_closes_cleanly():
 
     assert redis_client.connection_pool.max_connections <= 15
     close_redis_client()
+
+
+def test_coach_permission_introspection_and_rbac_denial_messages():
+    """Low-privilege users get transparent permission summaries and explicit RBAC denials instead of 'No records in spreadsheet'."""
+    from coach.nodes import router_node, synthesizer_node
+
+    emp_sec = UserSecurityContext(
+        user_id=EMP_A1_ID,
+        company_id=COMPANY_ID,
+        email="anshgup.9450@gmail.com",
+        role_level=1,
+        role_name="USER",
+        is_active=True,
+        is_admin=False,
+        is_manager_or_above=False,
+        principals=[f"user:{EMP_A1_ID}", "team:HR", f"company:{COMPANY_ID}"],
+        managed_employee_ids=[],
+        allowed_tiers=["public", "internal"],
+    ).to_cache_dict()
+
+    base_state = {
+        "company_id": COMPANY_ID,
+        "user_id": EMP_A1_ID,
+        "target_employee_name": "Nikhil",
+        "security_ctx": emp_sec,
+        "schema_dict": {"has_spreadsheet_data": False, "sheets_count": 0, "all_sheet_names": [], "all_columns": []},
+        "document_catalog": [],
+        "active_integrations": [],
+        "sql_result": None,
+        "rag_chunks": [],
+    }
+
+    # 1. Permission introspection query
+    s1 = {**base_state, "user_query": "what permissions do i have?"}
+    r1 = router_node(s1)
+    assert r1["intent"] == "PERMISSIONS"
+    out1 = synthesizer_node({**s1, **r1})
+    assert "Employee (User)" in out1["final_response"]
+    assert "No documents, spreadsheets" in out1["final_response"]
+
+    # 2. Cross-employee performance query blocked early with clear RBAC explanation
+    s2 = {**base_state, "user_query": "okay tell me about ansh's performance and how many tasks he have completed?"}
+    r2 = router_node(s2)
+    assert r2["intent"] == "PERMISSION_DENIED"
+    out2 = synthesizer_node({**s2, **r2})
+    assert "Permission Denied" in out2["final_response"]
+    assert "Cross-Employee" in out2["final_response"]
+
+    # 3. Company-wide employee count query with no authorized records returns org restriction notice
+    s3 = {**base_state, "user_query": "can you tell me how many employees are there in this company?"}
+    out3 = synthesizer_node({**s3, "intent": "SQL"})
+    assert "Permission Denied" in out3["final_response"]
+    assert "Organization-Wide Data Restricted" in out3["final_response"]
+
+    # 4. General data query with zero shared docs/sheets returns access-restricted notice instead of spreadsheet prompt
+    s4 = {**base_state, "user_query": "summarize Q4 revenue targets"}
+    out4 = synthesizer_node({**s4, "intent": "RAG"})
+    assert "Access Restricted" in out4["final_response"]
+
+
+def test_batched_recompute_container_documents_acl_and_permissions_listing():
+    """recompute_container_documents_acl batches DB reads/writes cleanly and /containers/{id}/permissions enriches targets."""
+    from security.rebac import recompute_container_documents_acl
+    from routes.rbac import router as rbac_router
+
+    docs = [
+        {"id": "d1", "company_id": COMPANY_ID, "uploaded_by": MGR_A_ID, "source_integration_id": "int-1", "source_container_id": "folder-1"},
+        {"id": "d2", "company_id": COMPANY_ID, "uploaded_by": MGR_A_ID, "source_integration_id": "int-1", "source_container_id": "folder-1"},
+    ]
+    container_tuples = [
+        {"id": "t1", "company_id": COMPANY_ID, "object_type": "container", "object_id": "folder-1", "relation": "viewer", "subject_type": "department", "subject_id": "dept-hr", "grant_source": "lucid_manual"},
+    ]
+    updated_calls = []
+
+    class _FakeTable:
+        def __init__(self, tbl):
+            self.tbl = tbl
+            self.mode = "select"
+            self.payload = None
+            self.filters = []
+
+        def select(self, *a, **kw):
+            self.mode = "select"
+            return self
+
+        def update(self, payload):
+            self.mode = "update"
+            self.payload = payload
+            return self
+
+        def eq(self, k, v):
+            self.filters.append((k, v))
+            return self
+
+        def in_(self, k, vals):
+            self.filters.append((k, vals))
+            return self
+
+        def execute(self):
+            if self.mode == "update":
+                updated_calls.append((self.tbl, self.filters, self.payload))
+                return MagicMock(data=[])
+            if self.tbl == "coach_uploaded_documents":
+                return MagicMock(data=docs)
+            if self.tbl == "rebac_tuples":
+                obj_type = next((v for k, v in self.filters if k == "object_type"), None)
+                if obj_type == "container":
+                    return MagicMock(data=container_tuples)
+                return MagicMock(data=[])
+            if self.tbl == "company_integrations":
+                return MagicMock(data=[{"id": "int-1", "owner_user_id": MGR_A_ID, "connection_scope": "org", "assigned_team_id": None, "visibility_mode": "acl_sync"}])
+            if self.tbl == "functions":
+                return MagicMock(data=[{"function_id": "dept-hr", "function_name": "HR"}])
+            return MagicMock(data=[])
+
+    mock_db = MagicMock()
+    mock_db.table.side_effect = lambda tbl: _FakeTable(tbl)
+
+    with patch("security.rebac.get_service_supabase_client", return_value=mock_db):
+        affected = recompute_container_documents_acl(COMPANY_ID, "folder-1")
+        assert affected == 2
+        # Both docs share identical ACL -> 1 batched doc update + 1 batched chunk update!
+        assert len(updated_calls) == 2
+        assert updated_calls[0][0] == "coach_uploaded_documents"
+        assert updated_calls[1][0] == "coach_document_chunks"
+        assert "team:dept-hr" in updated_calls[0][2]["acl_principals"]
+
+    test_app = FastAPI()
+    test_app.include_router(rbac_router)
+    test_app.dependency_overrides[get_request_auth_required] = lambda: RequestAuth(
+        user_id=MGR_A_ID, company_id=COMPANY_ID, email="mgr@lucid.work", source="test"
+    )
+    with patch("routes.rbac._authorize_container_management", return_value=True), \
+         patch("routes.rbac.supabase_admin", mock_db):
+        client = TestClient(test_app)
+        res = client.get("/api/rbac/containers/folder-1/permissions")
+        assert res.status_code == 200
+        perms = res.json()["permissions"]
+        assert len(perms) == 1
+        assert perms[0]["subject_name"] == "HR"
+        assert perms[0]["subject_type"] == "department"
+        assert perms[0]["revocable"] is True
+
+
 
 

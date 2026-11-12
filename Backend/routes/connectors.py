@@ -186,17 +186,20 @@ async def get_all_connectors_status(
     company_id = auth.company_id
     is_admin = await check_user_permission(auth.user_id, "admin")
 
+    providers = ConnectorRegistry.list_providers()
+    display_map = {p["provider"]: p["display_name"] for p in providers}
+
     all_instances = await ConnectorManager.list_connector_statuses(company_id=company_id)
     visible_instances = []
     for st in all_instances:
         is_owner = str(st.owner_user_id or "") == str(auth.user_id)
         if is_admin or is_owner or st.connection_scope == "org":
             dump = st.model_dump()
+            dump["display_name"] = display_map.get(st.provider, st.provider.replace("_", " ").title())
             dump["is_owner"] = is_owner
             dump["can_manage"] = is_admin or is_owner
             visible_instances.append(dump)
 
-    providers = ConnectorRegistry.list_providers()
     statuses = []
 
     for p in providers:
@@ -783,32 +786,21 @@ async def connector_oauth_callback(
         },
     )
 
-    # 3. Discover default container & trigger initial sync in background
-    async def _post_connect_setup():
+    # 3. Check whether a monitored source is already configured; if not, prompt user in UI
+    needs_source_selection = True
+    if integration_id:
         try:
-            containers = await connector.list_containers(access_token)
-            if containers:
-                first_container = containers[0]
-                await ConnectorManager.select_monitored_container(
-                    company_id=company_id,
-                    container_id=first_container.id,
-                    container_name=first_container.name,
-                    container_path=first_container.path,
-                    container_type=first_container.container_type,
-                    drive_id=first_container.drive_id,
-                    provider=provider,
-                    integration_id=integration_id,
-                )
-                await ConnectorManager.sync_company_files(
-                    company_id,
-                    provider=provider,
-                    integration_id=integration_id,
-                )
-        except Exception as e:
-            print(f"[{provider.upper()} AUTO-SETUP] Note: {e}")
-
-    if background_tasks:
-        background_tasks.add_task(_post_connect_setup)
+            src_chk = (
+                supabase_admin.table("integration_monitored_sources")
+                .select("id")
+                .eq("integration_id", integration_id)
+                .limit(1)
+                .execute()
+            )
+            if getattr(src_chk, "data", None):
+                needs_source_selection = False
+        except Exception:
+            pass
 
     return HTMLResponse(content=f"""
     <!DOCTYPE html>
@@ -818,7 +810,7 @@ async def connector_oauth_callback(
       <div style="background: white; padding: 32px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; max-width: 400px;">
         <h2 style="color: #0f172a; margin-top: 0;">Connected to {connector.display_name}!</h2>
         <p style="color: #64748b; font-size: 14px;">Identity: <strong>{account_identifier}</strong></p>
-        <p style="color: #10b981; font-weight: 600; font-size: 14px;">Closing window and updating your dashboard...</p>
+        <p style="color: #10b981; font-weight: 600; font-size: 14px;">Closing window — choose your folder or channel in the dashboard...</p>
       </div>
       <script>
         if (window.opener) {{
@@ -826,7 +818,8 @@ async def connector_oauth_callback(
             type: "CONNECTOR_OAUTH_SUCCESS",
             provider: "{provider}",
             account: "{account_identifier}",
-            integration_id: "{integration_id or ''}"
+            integration_id: "{integration_id or ''}",
+            needs_source_selection: {"true" if needs_source_selection else "false"}
           }}, "*");
         }}
         setTimeout(() => {{ window.close(); }}, 1200);
@@ -885,6 +878,12 @@ async def select_connector_container(
     Sets the active monitored source for the provider instance and kicks off real-time push watch.
     """
     company_id = auth.company_id
+    if provider == "google_drive" and payload.container_id == "shared_with_me":
+        raise HTTPException(
+            status_code=400,
+            detail="Please open 'Shared with me' and select a specific shared folder rather than the virtual root.",
+        )
+
     target_int_id_req = payload.integration_id or integration_id
     integ = await _verify_integration_management_access(auth, provider, integration_id=target_int_id_req)
     target_int_id = str(integ["id"])

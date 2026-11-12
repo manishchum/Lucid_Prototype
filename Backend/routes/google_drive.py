@@ -166,6 +166,7 @@ def _render_oauth_popup_response(
     email: str = "",
     error: str = "",
     integration_id: Optional[str] = None,
+    needs_source_selection: bool = False,
 ) -> HTMLResponse:
     """Renders a responsive, self-closing HTML page for OAuth popup communication via window.opener.postMessage."""
     safe_email = html_lib.escape(email or "")
@@ -232,7 +233,7 @@ def _render_oauth_popup_response(
     <div class="card">
         <div class="icon">✓</div>
         <h2>Connected Successfully!</h2>
-        <p>Google Drive account <strong>{safe_email}</strong> has been linked. You can select your monitored folder anytime.</p>
+        <p>Google Drive account <strong>{safe_email}</strong> has been linked. {"Select your Drive or folder in the dashboard to begin syncing." if needs_source_selection else "You can change your monitored folder anytime."}</p>
         <button class="btn" onclick="window.close()">Close Window</button>
     </div>
     <script>
@@ -242,7 +243,8 @@ def _render_oauth_popup_response(
                     type: "CONNECTOR_OAUTH_SUCCESS",
                     provider: "google_drive",
                     account: {json.dumps(email)},
-                    integration_id: {json.dumps(integration_id or "")}
+                    integration_id: {json.dumps(integration_id or "")},
+                    needs_source_selection: {json.dumps(needs_source_selection)}
                 }}, "*");
                 window.opener.postMessage({{
                     type: "GOOGLE_DRIVE_OAUTH_SUCCESS",
@@ -547,42 +549,42 @@ async def google_drive_oauth_callback(
             else:
                 raise
 
-        # 7. Ensure monitored folder exists & register push watch channel
+        # 7. Check if user already had a monitored folder configured (e.g. token re-auth).
+        #    On a fresh connect, do NOT auto-create 'Lucid Coach Ingestion' or auto-sync:
+        #    let the user explicitly choose which Drive or Folder to sync in the picker modal.
         folder_id = existing_config.get("folder_id")
         folder_name = existing_config.get("folder_name")
-        if not folder_id:
-            folder_id, folder_name = await ensure_ingestion_folder(access_token, "Lucid Coach Ingestion")
+        needs_source_selection = not bool(folder_id)
+        watch_info: Dict[str, Any] = {}
 
-        watch_info = await register_webhook_watch(access_token, folder_id)
+        if folder_id:
+            watch_info = await register_webhook_watch(access_token, folder_id)
+            config_data = {
+                **existing_config,
+                "folder_id": folder_id,
+                "folder_name": folder_name,
+                "webhook_channel_id": watch_info.get("channel_id"),
+                "webhook_resource_id": watch_info.get("resource_id"),
+                "webhook_expiration": watch_info.get("expiration"),
+                "last_page_token": watch_info.get("start_page_token"),
+            }
+            if integration_id:
+                supabase_admin.table("company_integrations").update({
+                    "config": config_data,
+                    "updated_at": now_iso,
+                }).eq("id", integration_id).execute()
 
-        config_data = {
-            **existing_config,
-            "folder_id": folder_id,
-            "folder_name": folder_name,
-            "webhook_channel_id": watch_info.get("channel_id"),
-            "webhook_resource_id": watch_info.get("resource_id"),
-            "webhook_expiration": watch_info.get("expiration"),
-            "last_page_token": watch_info.get("start_page_token"),
-        }
-
-        if integration_id:
-            supabase_admin.table("company_integrations").update({
-                "config": config_data,
-                "updated_at": now_iso,
-            }).eq("id", integration_id).execute()
-
-            # 8. Upsert monitored root folder into integration_monitored_sources
-            supabase_admin.table("integration_monitored_sources").upsert({
-                "integration_id": integration_id,
-                "company_id": company_id,
-                "source_id": folder_id,
-                "source_type": "folder",
-                "source_name": folder_name,
-                "source_path": f"/{folder_name}",
-                "is_recursive": True,
-                "sync_cursor": watch_info.get("start_page_token"),
-                "updated_at": now_iso,
-            }, on_conflict="integration_id,source_id").execute()
+                supabase_admin.table("integration_monitored_sources").upsert({
+                    "integration_id": integration_id,
+                    "company_id": company_id,
+                    "source_id": folder_id,
+                    "source_type": "folder",
+                    "source_name": folder_name,
+                    "source_path": f"/{folder_name}",
+                    "is_recursive": True,
+                    "sync_cursor": watch_info.get("start_page_token"),
+                    "updated_at": now_iso,
+                }, on_conflict="integration_id,source_id").execute()
 
         # Record primary external identity alias for ACL mapping
         if not uses_legacy_schema and "@" in str(user_email or ""):
@@ -598,23 +600,24 @@ async def google_drive_oauth_callback(
             except Exception:
                 pass
 
-        # Maintain legacy google_drive_integrations best-effort for backwards compatibility
-        try:
-            supabase_admin.table("google_drive_integrations").upsert({
-                "company_id": company_id,
-                "connected_by": user_id,
-                "google_account_email": user_email,
-                "folder_id": folder_id,
-                "folder_name": folder_name,
-                "sync_status": "active",
-                "webhook_channel_id": watch_info.get("channel_id"),
-                "webhook_resource_id": watch_info.get("resource_id"),
-                "webhook_expiration": watch_info.get("expiration"),
-                "last_page_token": watch_info.get("start_page_token"),
-                "updated_at": now_iso,
-            }, on_conflict="company_id").execute()
-        except Exception:
-            pass
+        # Maintain legacy google_drive_integrations best-effort when a folder is already chosen
+        if folder_id:
+            try:
+                supabase_admin.table("google_drive_integrations").upsert({
+                    "company_id": company_id,
+                    "connected_by": user_id,
+                    "google_account_email": user_email,
+                    "folder_id": folder_id,
+                    "folder_name": folder_name,
+                    "sync_status": "active",
+                    "webhook_channel_id": watch_info.get("channel_id"),
+                    "webhook_resource_id": watch_info.get("resource_id"),
+                    "webhook_expiration": watch_info.get("expiration"),
+                    "last_page_token": watch_info.get("start_page_token"),
+                    "updated_at": now_iso,
+                }, on_conflict="company_id").execute()
+            except Exception:
+                pass
 
         _audit_connector_event(
             company_id=company_id,
@@ -627,23 +630,31 @@ async def google_drive_oauth_callback(
                 "connection_scope": connection_scope,
                 "assigned_team_id": assigned_team_id,
                 "visibility_mode": visibility_mode,
+                "needs_source_selection": needs_source_selection,
             },
         )
 
-        print(f"[GOOGLE DRIVE] Organization {company_id} connected Google Drive successfully ({mask_email(user_email)})")
+        print(f"[GOOGLE DRIVE] Organization {company_id} connected Google Drive successfully ({mask_email(user_email)}, needs_source_selection={needs_source_selection})")
 
-        # 9. Trigger immediate initial sync in background for this integration instance
-        if integration_id:
-            background_tasks.add_task(
-                ConnectorManager.sync_company_files,
-                company_id=company_id,
-                provider="google_drive",
-                integration_id=integration_id,
-            )
-        else:
-            background_tasks.add_task(sync_company_drive_files, company_id=company_id)
+        # 9. Only trigger immediate initial sync if a folder was already selected;
+        #    otherwise sync begins when user picks their Drive/Folder in the modal.
+        if folder_id:
+            if integration_id:
+                background_tasks.add_task(
+                    ConnectorManager.sync_company_files,
+                    company_id=company_id,
+                    provider="google_drive",
+                    integration_id=integration_id,
+                )
+            else:
+                background_tasks.add_task(sync_company_drive_files, company_id=company_id)
 
-        return _render_oauth_popup_response(success=True, email=user_email, integration_id=integration_id)
+        return _render_oauth_popup_response(
+            success=True,
+            email=user_email,
+            integration_id=integration_id,
+            needs_source_selection=needs_source_selection,
+        )
 
     except Exception as exc:
         print(f"[GOOGLE DRIVE CALLBACK EXCEPTION] {exc}")

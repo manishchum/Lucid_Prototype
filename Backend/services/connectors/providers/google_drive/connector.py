@@ -251,6 +251,11 @@ class GoogleDriveConnector(BaseConnector):
         if not webhook_url:
             return {}
 
+        webhook_lower = webhook_url.strip().lower()
+        if not webhook_lower.startswith("https://") or "localhost" in webhook_lower or "127.0.0.1" in webhook_lower:
+            print(f"[GOOGLE DRIVE] Skipping push webhook watch for local/non-HTTPS URL ({webhook_url}). Sync Now & scheduled CDC remain active.")
+            return {}
+
         channel_id = str(uuid.uuid4())
 
         # 1. Get initial startPageToken

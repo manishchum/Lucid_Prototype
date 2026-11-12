@@ -74,7 +74,7 @@ interface ConversationSummary {
 
 export default function CoachPage() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, employeeData } = useAuth()
 
   // Onboarding & Profile State
   const [loadingProfile, setLoadingProfile] = useState<boolean>(true)
@@ -420,8 +420,7 @@ export default function CoachPage() {
         body: JSON.stringify({
           query: text,
           conversation_id: activeConversationId || undefined,
-          target_employee_name: user?.name || user?.displayName || undefined,
-          target_employee_id: user?.uid || undefined,
+          target_employee_name: employeeData?.name || user?.displayName || undefined,
           stream: true
         })
       })

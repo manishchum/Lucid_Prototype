@@ -327,6 +327,9 @@ def test_google_drive_callback_multi_instance_and_vault_p_integration_id():
         "visibility_mode": "acl_sync",
     }
 
+    mock_sync = AsyncMock()
+    mock_ensure_folder = AsyncMock(return_value=("folder-123", "Lucid Coach Ingestion"))
+
     with patch("routes.google_drive.verify_and_consume_oauth_state", return_value=state_record), \
          patch("routes.google_drive.check_user_permission", side_effect=_admin_perm), \
          patch("routes.google_drive.supabase_admin", mock_supa), \
@@ -336,15 +339,18 @@ def test_google_drive_callback_multi_instance_and_vault_p_integration_id():
              "expires_in": 3600,
              "account_identifier": "admin@workfloww.ai",
          })), \
-         patch("routes.google_drive.ensure_ingestion_folder", new=AsyncMock(return_value=("folder-123", "Lucid Coach Ingestion"))), \
+         patch("routes.google_drive.ensure_ingestion_folder", new=mock_ensure_folder), \
          patch("routes.google_drive.register_webhook_watch", new=AsyncMock(return_value={"channel_id": "ch-1", "resource_id": "res-1"})), \
-         patch("routes.google_drive.ConnectorManager.sync_company_files", new=AsyncMock()), \
+         patch("routes.google_drive.ConnectorManager.sync_company_files", new=mock_sync), \
          patch("routes.google_drive._audit_connector_event"):
         client = TestClient(app)
         res = client.get("/api/integrations/google-drive/callback?code=auth-code&state=state-1")
 
     assert res.status_code == 200
     assert "CONNECTOR_OAUTH_SUCCESS" in res.text
+    assert "needs_source_selection: true" in res.text
+    mock_ensure_folder.assert_not_awaited()
+    mock_sync.assert_not_awaited()
     assert ("company_integrations", "company_id,provider") not in captured_on_conflicts
     store_calls = [p for fn, p in captured_rpc_calls if fn == "store_integration_tokens"]
     assert len(store_calls) == 1

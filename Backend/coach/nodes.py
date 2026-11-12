@@ -44,6 +44,210 @@ def _get_role_level(state: CoachState) -> int:
     return int(getattr(sec, "role_level", 1))
 
 
+def _get_sec_summary(state: CoachState) -> Dict[str, Any]:
+    sec = state.get("security_ctx")
+    if not sec:
+        return {
+            "has_context": False,
+            "role_level": 3,
+            "role_name": "ADMIN",
+            "is_admin": True,
+            "is_manager_or_above": True,
+            "allowed_tiers": ["public", "internal", "manager_restricted", "confidential", "salary_restricted"],
+            "team_ids": [],
+            "managed_employee_ids": [],
+        }
+    if isinstance(sec, dict):
+        rl = int(sec.get("role_level", 1))
+        return {
+            "has_context": True,
+            "role_level": rl,
+            "role_name": str(sec.get("role_name") or ("ADMIN" if rl >= 3 else "MANAGER" if rl == 2 else "USER")),
+            "is_admin": bool(sec.get("is_admin", rl >= 3)),
+            "is_manager_or_above": bool(sec.get("is_manager_or_above", rl >= 2)),
+            "allowed_tiers": list(sec.get("allowed_tiers") or ["public", "internal"]),
+            "team_ids": list(sec.get("team_ids") or []),
+            "managed_employee_ids": list(sec.get("managed_employee_ids") or []),
+        }
+    rl = int(getattr(sec, "role_level", 1))
+    return {
+        "has_context": True,
+        "role_level": rl,
+        "role_name": str(getattr(sec, "role_name", "USER")),
+        "is_admin": bool(getattr(sec, "is_admin", rl >= 3)),
+        "is_manager_or_above": bool(getattr(sec, "is_manager_or_above", rl >= 2)),
+        "allowed_tiers": list(getattr(sec, "allowed_tiers", ["public", "internal"])),
+        "team_ids": list(getattr(sec, "team_ids", [])),
+        "managed_employee_ids": list(getattr(sec, "managed_employee_ids", [])),
+    }
+
+
+def _detect_restricted_scope_reason(
+    user_query: str,
+    target_emp_name: Optional[str],
+    sec: Dict[str, Any],
+) -> Optional[str]:
+    """
+    Detects whether a non-admin query is asking for organization-wide headcount/rosters
+    or another employee's individual performance data outside the caller's RBAC scope.
+    """
+    if not sec.get("has_context") or sec.get("is_admin"):
+        return None
+
+    q_lower = (user_query or "").lower()
+
+    org_patterns = [
+        r"\bhow\s+many\s+employees\b",
+        r"\btotal\s+(?:number\s+of\s+)?employees\b",
+        r"\bnumber\s+of\s+employees\b",
+        r"\b(?:employee|company|org|staff)\s+(?:headcount|count|roster)\b",
+        r"\bhow\s+many\s+(?:people|staff|members)\s+(?:work|are\s+there)\s+in\s+(?:this|the)\s+company\b",
+        r"\b(?:list|show|give)\s+(?:me\s+)?all\s+employees\b",
+        r"\beveryone(?:'s)?\s+(?:in\s+(?:this|the)\s+company|salary|salaries|compensation|performance)\b",
+        r"\bcompany[-\s]wide\s+(?:salaries|payroll|compensation|headcount)\b",
+    ]
+    if any(re.search(pat, q_lower) for pat in org_patterns):
+        return "ORG_RESTRICTED"
+
+    # Cross-employee check (primarily role_level == 1, or role_level == 2 when retrieval returned empty)
+    self_tokens = {
+        "my", "me", "i", "mine", "our", "your", "his", "her", "their",
+        "he", "she", "they", "who", "what", "which", "this", "that",
+        "team", "company", "organization", "org", "department", "everyone",
+        "anyone", "someone", "any", "all", "sales", "monthly", "weekly",
+        "quarterly", "annual", "recent", "latest", "employee", "employees",
+        "manager", "user", "admin", "today", "q1", "q2", "q3", "q4",
+    }
+    if target_emp_name:
+        self_tokens.update(
+            part.strip().lower()
+            for part in re.split(r"[\s._-]+", target_emp_name)
+            if part.strip()
+        )
+
+    person_patterns = [
+        r"\b([a-zA-Z]{2,30})'s\s+(?:performance|tasks?|sales|numbers|quota|feedback|review|appraisal|metrics|progress|work|goals?|score|standing|completed|pending)\b",
+        r"\b(?:about|for|of)\s+([a-zA-Z]{2,30})(?:'s)?\s+(?:performance|tasks?|sales|feedback|review|appraisal|metrics|progress|goals?|score)\b",
+        r"\bhow\s+(?:is|are|did|has|have)\s+([a-zA-Z]{2,30})\s+(?:doing|performing|completed|pending)\b",
+        r"\bhow\s+many\s+tasks?\s+(?:has|have|did)\s+([a-zA-Z]{2,30})\b",
+        r"\bcompare\s+([a-zA-Z]{2,30})\b",
+    ]
+    for pat in person_patterns:
+        for match in re.finditer(pat, user_query or "", flags=re.IGNORECASE):
+            candidate = (match.group(1) or "").strip().lower()
+            if candidate and candidate not in self_tokens:
+                return "CROSS_USER_RESTRICTED"
+
+    if re.search(r"\btasks?\s+(?:he|she)\b", q_lower) or re.search(
+        r"\b(?:another\s+employee|other\s+employees?|a\s+colleague|peer(?:'s)?|someone\s+else(?:'s)?)\s+(?:performance|tasks?|metrics|feedback|salary)\b",
+        q_lower,
+    ):
+        return "CROSS_USER_RESTRICTED"
+
+    return None
+
+
+def _role_display_label(sec: Dict[str, Any]) -> str:
+    rl = sec.get("role_level", 1)
+    if rl >= 4:
+        return "Super Admin"
+    if rl == 3:
+        return "Admin"
+    if rl == 2:
+        return "Manager"
+    return "Employee (User)"
+
+
+def _format_permissions_response(state: CoachState, sec: Dict[str, Any]) -> Dict[str, Any]:
+    role_label = _role_display_label(sec)
+    rl = sec.get("role_level", 1)
+    tiers = ", ".join(sec.get("allowed_tiers") or ["public", "internal"])
+    doc_catalog = state.get("document_catalog") or []
+    schema_dict = state.get("schema_dict") or {}
+    active_integrations = state.get("active_integrations") or []
+    sheet_count = schema_dict.get("sheets_count", 0)
+    managed_count = len(sec.get("managed_employee_ids") or [])
+
+    if rl >= 3:
+        can_query = (
+            "- Organization-wide spreadsheets, uploaded documents, and connected cloud integrations.\n"
+            "- Employee performance metrics, team comparisons, and administrative analytics within your sensitivity policy."
+        )
+        restricted = "- Explicit access-denied documents or external data outside this company."
+    elif rl == 2:
+        can_query = (
+            f"- Your own performance records and metrics.\n"
+            f"- Performance records for your reporting subtree (**{managed_count}** direct/indirect report(s)).\n"
+            "- Documents, spreadsheets, and connector folders shared with you, your assigned team(s), or company-wide."
+        )
+        restricted = (
+            "- Private performance records or manager notes belonging to employees outside your reporting line.\n"
+            "- Company-wide executive/salary-restricted datasets or unshared team folders."
+        )
+    else:
+        can_query = (
+            "- Your own individual performance metrics, targets, and coaching feedback.\n"
+            "- Company-wide or team-shared documents, spreadsheets, and connector folders explicitly shared with your account or team."
+        )
+        restricted = (
+            "- Other employees' individual performance data, tasks, or private reviews.\n"
+            "- Organization-wide employee counts/rosters, confidential manager notes, and salary-restricted datasets.\n"
+            "- Unshared team drives, private folders, or connectors not granted to your user/team."
+        )
+
+    if doc_catalog or sheet_count > 0 or active_integrations:
+        kb_summary = (
+            f"- Accessible Documents: **{len(doc_catalog)}**\n"
+            f"- Accessible Spreadsheet Sheets: **{sheet_count}**\n"
+            f"- Accessible Connectors: **{len(active_integrations)}**"
+        )
+    else:
+        kb_summary = (
+            "- No documents, spreadsheets, or shared connector sources are currently accessible to your account or team. "
+            "Ask your **Manager** or **Workspace Admin** to share the relevant files or team folders with you."
+        )
+
+    return {
+        "final_response": (
+            f"**Your Performance Coach Access & Permissions:**\n\n"
+            f"**Current Role:** {role_label} (Allowed Sensitivity Tiers: `{tiers}`)\n\n"
+            f"**What You Can Query:**\n{can_query}\n\n"
+            f"**What Is Restricted:**\n{restricted}\n\n"
+            f"**Currently Accessible Knowledge Base:**\n{kb_summary}"
+        ),
+        "citations": [],
+    }
+
+
+def _format_permission_denied_response(reason: str, state: CoachState, sec: Dict[str, Any]) -> Dict[str, Any]:
+    role_label = _role_display_label(sec)
+    if reason == "CROSS_USER_RESTRICTED":
+        msg = (
+            f"**Permission Denied — Cross-Employee Access Restricted**\n\n"
+            f"Under your current role (**{role_label}**), you do not have permission to view another employee's individual performance data, tasks, or private review records.\n\n"
+            "You can query your own performance metrics as well as documents or folders explicitly shared with your account or team."
+        )
+    elif reason == "ORG_RESTRICTED":
+        msg = (
+            f"**Permission Denied — Organization-Wide Data Restricted**\n\n"
+            f"Under your current role (**{role_label}**), you do not have permission to query company-wide employee counts, organization rosters, or cross-department headcount records.\n\n"
+            "Company-wide workforce metrics require **Admin** permissions or an explicitly shared org-wide report."
+        )
+    elif reason == "NO_SHARED_DATA":
+        msg = (
+            f"**Access Restricted — No Shared Data Available**\n\n"
+            f"Your account (**{role_label}**) does not currently have permission to access any company spreadsheets, documents, or shared connector folders.\n\n"
+            "Please contact your **Manager** or **Workspace Admin** to share the required documents, team folders, or spreadsheets with your user account or team."
+        )
+    else:
+        msg = (
+            f"**No Authorized Records Found**\n\n"
+            f"No matching records were found within the documents and spreadsheets you currently have permission to access under your **{role_label}** scope.\n\n"
+            "This information may belong to another team, a restricted sensitivity tier, or an unshared folder. If you require access, please contact your **Manager** or **Workspace Admin**."
+        )
+    return {"final_response": msg, "citations": []}
+
+
 # ============================================================================
 # 1. INTROSPECTION NODE
 # ============================================================================
@@ -161,6 +365,30 @@ def router_node(state: CoachState) -> Dict[str, Any]:
 
     if any(t in greeting_tokens for t in thanks) and len(greeting_tokens) <= 4:
         return {"intent": "GENERAL", "routing_reason": "Conversational gratitude."}
+
+    sec = _get_sec_summary(state)
+
+    # Heuristic fast-path 0C: Permission & Access Scope Introspection
+    permission_triggers = [
+        "what permissions", "my permissions", "permissions do i have",
+        "what access do i", "my access", "what can i access",
+        "which documents can i access", "what am i allowed",
+        "am i authorized", "check my permissions", "show my permissions",
+        "why don't i have access", "why dont i have access", "why am i restricted",
+    ]
+    if any(p in q_lower for p in permission_triggers):
+        return {"intent": "PERMISSIONS", "routing_reason": "User asked about their RBAC role, permissions, and accessible knowledge scope."}
+
+    # Heuristic fast-path 0D: Early RBAC deflection for explicit cross-employee queries by standard users
+    if sec["has_context"] and sec["role_level"] < 2:
+        restricted_reason = _detect_restricted_scope_reason(
+            user_query, state.get("target_employee_name"), sec
+        )
+        if restricted_reason == "CROSS_USER_RESTRICTED":
+            return {
+                "intent": "PERMISSION_DENIED",
+                "routing_reason": "Standard user lacks permission to query another employee's individual performance data.",
+            }
 
     # Heuristic fast-path 1: Catalog inventory queries
     if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets", "what integrations", "connected integrations", "connected tools", "connected sources", "what connectors"]):
@@ -463,6 +691,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
     rag_chunks = state.get("rag_chunks", [])
     doc_catalog = state.get("document_catalog", [])
     role_level = _get_role_level(state)
+    sec = _get_sec_summary(state)
 
     # Case 0: Guardrail Triggered or Out-of-Scope Deflection
     if state.get("guardrail_triggered") or intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
@@ -481,10 +710,22 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             "citations": []
         }
 
+    # Case 0B: Permissions Introspection & RBAC Denial
+    if intent == "PERMISSIONS":
+        return _format_permissions_response(state, sec)
+
+    if intent == "PERMISSION_DENIED":
+        restricted_reason = _detect_restricted_scope_reason(
+            user_query, state.get("target_employee_name"), sec
+        ) or "CROSS_USER_RESTRICTED"
+        return _format_permission_denied_response(restricted_reason, state, sec)
+
     # Case A: Document & Connected Integrations Catalog Intent
     if intent == "CATALOG":
         active_integrations = state.get("active_integrations", [])
         if not doc_catalog and not active_integrations:
+            if sec["has_context"] and not sec["is_admin"]:
+                return _format_permission_denied_response("NO_SHARED_DATA", state, sec)
             return {"final_response": "No documents, spreadsheets, or cloud integrations are currently connected for your company."}
 
         lines = ["### Uploaded Knowledge Base & Connected Integrations\n"]
@@ -579,6 +820,25 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         return {
             "final_response": "Hello! I am your Performance Coach. How can I assist you with your sales or team data today?"
         }
+
+    # Empty / Unauthorized Data Retrieval Guard for non-admins:
+    # Avoid misleading "No records found in uploaded spreadsheet... upload updated records" when user lacks permissions.
+    if (
+        sec["has_context"]
+        and not sec["is_admin"]
+        and intent in ["SQL", "RAG", "HYBRID"]
+        and not sql_result
+        and not rag_chunks
+    ):
+        restricted_reason = _detect_restricted_scope_reason(
+            user_query, state.get("target_employee_name"), sec
+        )
+        if restricted_reason:
+            return _format_permission_denied_response(restricted_reason, state, sec)
+        schema_dict = state.get("schema_dict") or {}
+        if not schema_dict.get("has_spreadsheet_data") and not doc_catalog:
+            return _format_permission_denied_response("NO_SHARED_DATA", state, sec)
+        return _format_permission_denied_response("NO_AUTHORIZED_RECORDS", state, sec)
 
     # Build Context Blocks
     context_sections = []

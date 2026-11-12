@@ -354,7 +354,15 @@ class ConnectorManager:
             "updated_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", integration_id).execute()
 
-        # Update or insert monitored source
+        # Update or insert monitored source (replace prior sources on this integration instance
+        # so switching folders does not keep syncing stale/legacy containers alongside the new selection)
+        try:
+            supabase_admin.table("integration_monitored_sources").delete().eq(
+                "integration_id", integration_id
+            ).neq("source_id", container_id).execute()
+        except Exception as del_err:
+            print(f"[{provider.upper()}] Note cleaning previous monitored sources: {del_err}")
+
         source_row = {
             "integration_id": integration_id,
             "company_id": company_id,
@@ -980,6 +988,14 @@ class ConnectorManager:
             supabase_admin.rpc("delete_integration_tokens", del_args).execute()
 
         now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Clear monitored sources so reconnecting prompts fresh Drive/Folder selection
+        try:
+            supabase_admin.table("integration_monitored_sources").delete().eq(
+                "integration_id", target_int_id
+            ).execute()
+        except Exception as ms_err:
+            print(f"[{provider.upper()} DISCONNECT] Note clearing monitored sources: {ms_err}")
 
         # Update company_integrations
         supabase_admin.table("company_integrations").update({
