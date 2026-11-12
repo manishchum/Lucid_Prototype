@@ -7,6 +7,7 @@ with self-healing error correction support.
 
 import json
 import re
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 from config import OPENAI_API_KEY, GEMINI_API_KEY
 from utils.supabase_client import supabase_admin
@@ -82,14 +83,21 @@ CRITICAL RULES:
    - Text fields: `(row_data->>'Column Name')`
    - Case-insensitive text search: `(row_data->>'Column Name') ILIKE '%term%'`
 3. CRITICAL DATE FORMAT RULES:
-   - Carefully inspect the 'Sample row_data JSONB' in the schema to see how dates are stored in the table (e.g., DD.MM.YY like '02.04.26', DD/MM/YYYY like '02/04/2026', or YYYY-MM-DD like '2026-04-02').
+   - Only add a DATE filter (e.g. `Date = ...` or `to_date(...)`) if the user's question EXPLICITLY asks for a specific date, month, or time period (e.g. "on October 15", "last month", "in Q3").
+   - NEVER invent or add a date filter for general questions like "how am I doing", "what is my performance", or "who are the top performers".
+   - When a specific date is requested, carefully inspect the 'Sample row_data JSONB' in the schema to see how dates are stored in the table (e.g., DD.MM.YY like '02.04.26', DD/MM/YYYY like '02/04/2026', or YYYY-MM-DD like '2026-04-02').
    - Match the exact date format found in the table. For example, if dates in the table are formatted as DD.MM.YY (like '02.04.26'):
      Match the exact string or multiple variations:
      `coalesce(row_data->>'Date', row_data->>'DATE', row_data->>'Follow Up Date', '') IN ('02.04.26', '2.04.26', '2026-04-02')`
      OR `coalesce(row_data->>'Date', row_data->>'DATE') ILIKE '%02.04.26%'`
    - NEVER use raw `::date = 'YYYY-MM-DD'` on dot-separated dates like '02.04.26' because PostgreSQL's default DateStyle will misinterpret day vs month or fail.
-4. If filtering by a specific employee, check both:
-   `employee_name ILIKE '%Name%' OR (row_data->>'Employee Name') ILIKE '%Name%' OR (row_data->>'User Name') ILIKE '%Name%'`
+4. EMPLOYEE & PERSON NAME FILTERING (CRITICAL):
+   - When filtering for an employee or salesperson (e.g. 'Riya', 'Riya Jhamb', 'Arjun Mehta'):
+   - Spreadsheets very frequently store employees by FIRST NAME ONLY (e.g. 'Riya'), or first name + initial ('Riya J'), or full name ('Riya Jhamb').
+   - If a full name is provided or asked (e.g. 'Riya Jhamb'), ALWAYS filter using the FIRST NAME: `ILIKE '%Riya%'` (or `(col ILIKE '%Riya Jhamb%' OR col ILIKE '%Riya%')`).
+   - Check all likely employee columns:
+     `employee_name ILIKE '%<FirstName>%' OR (row_data->>'Salesperson') ILIKE '%<FirstName>%' OR (row_data->>'Employee Name') ILIKE '%<FirstName>%' OR (row_data->>'Name') ILIKE '%<FirstName>%' OR (row_data->>'Employee') ILIKE '%<FirstName>%'`
+   - NEVER filter strictly on the full multi-word string (`ILIKE '%Riya Jhamb%'`) alone, because if the spreadsheet stores only 'Riya', a full-name filter will return 0 rows! Matching on the first name `ILIKE '%Riya%'` safely matches both 'Riya' and 'Riya Jhamb'.
 5. ENTITY & DIMENSION INQUIRIES ("insights of...", "details of...", "performance of...", "list of..."):
    - When the user asks for insights, details, or breakdown of a specific entity (e.g. account, client, licensee, store, branch, product, employee, or location):
      a) Identify the matching column in the provided schema (e.g., 'Licensee Name', 'Employee Name', 'Store Name', 'Customer Name', 'ASE', 'Depot', etc.).
@@ -127,10 +135,15 @@ def generate_coach_sql(
     """
     system_instruction = SQL_SYSTEM_PROMPT.replace("{company_id}", company_id)
 
+    current_dt = datetime.utcnow()
+    today_str = current_dt.strftime("%A, %B %d, %Y")
+    current_month_str = current_dt.strftime("%B %Y")
+
     prompt_parts = [
         schema_prompt,
         "",
-        f"User Question: {user_query}"
+        f"User Question: {user_query}",
+        f"\nTEMPORAL CONTEXT: Today's real-world date is {today_str} (Current Month: {current_month_str})."
     ]
 
     # Detect date patterns in user query (e.g. "02.04.26", "2026-04-02", "02/04/2026")
@@ -144,8 +157,36 @@ def generate_coach_sql(
             "In your WHERE clause, match the exact format used in the table (e.g. coalesce(row_data->>'DATE', row_data->>'Date') = '02.04.26' OR ... ILIKE '%02.04.26%'). Do NOT use raw ::date = 'YYYY-MM-DD'."
         )
 
-    if target_employee_name:
-        prompt_parts.append(f"Target Employee Context: {target_employee_name}")
+    if target_employee_name and target_employee_name.strip():
+        clean_emp = target_employee_name.strip()
+        name_parts = clean_emp.split()
+        first_name = name_parts[0] if name_parts else clean_emp
+        is_first_person = bool(re.search(r"\b(my|i|me|mine|myself|our|we)\b", user_query, re.IGNORECASE))
+        mentions_user_name = bool(re.search(rf"\b({re.escape(first_name)}|{re.escape(clean_emp)})\b", user_query, re.IGNORECASE))
+
+        prompt_parts.append(
+            f"\nAUTHENTICATED USER / EMPLOYEE CONTEXT:\n"
+            f"- User Asking the Question: '{clean_emp}' (First Name: '{first_name}')\n"
+            f"- SPREADSHEET NAME MATCHING RULE:\n"
+            f"  Spreadsheets often record employees by FIRST NAME ONLY ('{first_name}') or full name ('{clean_emp}').\n"
+            f"  Therefore, ALWAYS filter on the first name: `ILIKE '%{first_name}%'` (or `ILIKE '%{clean_emp}%' OR ... ILIKE '%{first_name}%'`).\n"
+            f"  NEVER require the full surname ('{clean_emp}') alone, as spreadsheets containing only '{first_name}' will return 0 rows!"
+        )
+
+        if is_first_person or mentions_user_name:
+            prompt_parts.append(
+                f"\nCRITICAL PERSONAL RECORD FILTERING ('my', 'I', 'me', '{first_name}'):\n"
+                f"- The user is asking about personal performance ('{clean_emp}' / '{first_name}').\n"
+                f"- YOU MUST FILTER THE SPREADSHEET FOR THIS EMPLOYEE using flexible first-name matching ('{first_name}'):\n"
+                f"  `WHERE company_id = '{company_id}' AND (\n"
+                f"     employee_name ILIKE '%{first_name}%' OR\n"
+                f"     (row_data->>'Salesperson') ILIKE '%{first_name}%' OR\n"
+                f"     (row_data->>'Employee Name') ILIKE '%{first_name}%' OR\n"
+                f"     (row_data->>'Employee') ILIKE '%{first_name}%' OR\n"
+                f"     (row_data->>'Name') ILIKE '%{first_name}%'\n"
+                f"   )`\n"
+                f"- NEVER aggregate across the entire company when the user asks for personal performance!"
+            )
 
     if previous_error and previous_query:
         prompt_parts.extend([

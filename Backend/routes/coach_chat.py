@@ -7,6 +7,7 @@ Provides dual Text-to-SQL + Vector RAG reasoning with optional Server-Sent Event
 import json
 import asyncio
 import functools
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -16,7 +17,20 @@ from utils.auth import RequestAuth, get_request_auth_required
 from utils.supabase_client import supabase_admin
 from security.rebac import resolve_user_principals
 from coach.graph import execute_coach_agent
-from coach.schema_inspector import get_company_spreadsheet_schema, get_company_document_catalog
+from coach.schema_inspector import (
+    get_company_spreadsheet_schema,
+    get_company_document_catalog,
+    get_user_coach_profile,
+    save_user_coach_profile
+)
+from coach.conversation_manager import (
+    list_user_conversations,
+    get_conversation,
+    create_conversation,
+    append_messages_to_conversation,
+    rename_conversation,
+    delete_conversation
+)
 
 router = APIRouter(
     prefix="/api/coach",
@@ -50,7 +64,36 @@ class CoachChatRequest(BaseModel):
     query: str
     target_employee_id: Optional[str] = None
     target_employee_name: Optional[str] = None
+    conversation_id: Optional[str] = None
     stream: bool = False
+
+
+def _resolve_user_name(user_id: Optional[str], auth: RequestAuth, explicit_name: Optional[str] = None) -> str:
+    """
+    Resolves the authenticated employee's display name using DB lookup, Firebase claims, or email fallback.
+    Ensures first-person queries ('my performance', 'how am I doing') correctly bind to the user's name.
+    """
+    if explicit_name and explicit_name.strip():
+        return explicit_name.strip()
+
+    if user_id:
+        try:
+            res = supabase_admin.table("users").select("name").eq("user_id", user_id).limit(1).execute()
+            data = getattr(res, "data", None) or []
+            if data and data[0].get("name"):
+                return str(data[0]["name"]).strip()
+        except Exception as e:
+            print(f"[COACH USER RESOLUTION] Error fetching user name: {e}")
+
+    if auth.claims and isinstance(auth.claims, dict):
+        claim_name = auth.claims.get("name") or auth.claims.get("displayName")
+        if claim_name:
+            return str(claim_name).strip()
+
+    if auth.email:
+        return auth.email.split("@")[0].replace(".", " ").title()
+
+    return ""
 
 
 @router.post("/chat")
@@ -61,6 +104,7 @@ async def chat_with_coach(
     """
     Main intelligence endpoint: executes LangGraph workflow combining
     Text-to-SQL on spreadsheet data and dense vector RAG on qualitative documents.
+    Automatically persists conversation history to public.coach_conversations.
     """
     company_id = auth.company_id
     user_id = auth.user_id
@@ -93,6 +137,20 @@ async def chat_with_coach(
         )
 
     sec_dict = security_ctx.to_cache_dict()
+    # Automatically resolve the authenticated user's name so "my performance" binds to them
+    resolved_employee_name = _resolve_user_name(user_id, auth, payload.target_employee_name)
+    resolved_employee_id = payload.target_employee_id or user_id
+
+    # Ensure conversation thread exists for history
+    conv_id = payload.conversation_id
+    if conv_id:
+        existing_conv = get_conversation(conv_id, user_id=user_id, company_id=company_id)
+        if not existing_conv:
+            new_conv = create_conversation(user_id=user_id, company_id=company_id, title=query[:45])
+            conv_id = str(new_conv.get("id"))
+    else:
+        new_conv = create_conversation(user_id=user_id, company_id=company_id, title=query[:45])
+        conv_id = str(new_conv.get("id"))
 
     # 1. Non-streaming JSON response
     if not payload.stream:
@@ -112,16 +170,34 @@ async def chat_with_coach(
                 "intent": result.get("intent"),
                 "role_level": security_ctx.role_level,
                 "target_employee_id": payload.target_employee_id,
+                "target_employee_name": resolved_employee_name,
                 "citations_count": len(result.get("citations") or []),
             },
         )
+        response_text = result.get("response", "")
+        citations = result.get("citations", [])
+
+        if conv_id:
+            append_messages_to_conversation(
+                conversation_id=conv_id,
+                user_id=user_id,
+                company_id=company_id,
+                new_messages=[
+                    {"role": "user", "content": query, "timestamp": datetime.utcnow().isoformat()},
+                    {"role": "assistant", "content": response_text, "citations": citations, "timestamp": datetime.utcnow().isoformat()}
+                ],
+                auto_title_from_query=query
+            )
+
         return {
             "success": True,
-            "response": result.get("response", ""),
+            "conversation_id": conv_id,
+            "target_employee_name": resolved_employee_name,
+            "response": response_text,
             "intent": result.get("intent", ""),
             "sql_query": result.get("sql_query"),
             "sql_result": result.get("sql_result"),
-            "citations": result.get("citations", []),
+            "citations": citations,
             "error": result.get("error")
         }
 
@@ -154,11 +230,11 @@ async def chat_with_coach(
                     "intent": result.get("intent"),
                     "role_level": security_ctx.role_level,
                     "target_employee_id": payload.target_employee_id,
+                    "target_employee_name": resolved_employee_name,
                     "citations_count": len(result.get("citations") or []),
                     "stream": True,
                 },
             )
-
             intent = result.get("intent")
             sql_query = result.get("sql_query")
             sql_result = result.get("sql_result")
@@ -183,7 +259,20 @@ async def chat_with_coach(
                 yield f"data: {json.dumps({'type': 'token', 'content': token_chunk})}\n\n"
                 await asyncio.sleep(0.03)
 
-            yield f"data: {json.dumps({'type': 'done', 'intent': intent, 'citations_count': len(citations)})}\n\n"
+            # Persist to database thread
+            if conv_id:
+                append_messages_to_conversation(
+                    conversation_id=conv_id,
+                    user_id=user_id,
+                    company_id=company_id,
+                    new_messages=[
+                        {"role": "user", "content": query, "timestamp": datetime.utcnow().isoformat()},
+                        {"role": "assistant", "content": response_text, "citations": citations, "timestamp": datetime.utcnow().isoformat()}
+                    ],
+                    auto_title_from_query=query
+                )
+
+            yield f"data: {json.dumps({'type': 'done', 'intent': intent, 'conversation_id': conv_id, 'citations_count': len(citations)})}\n\n"
 
         except Exception as e:
             print(f"[COACH CHAT SSE] Stream error: {e}")
@@ -227,3 +316,164 @@ async def get_coach_schema_catalog(
         "spreadsheet_schema": schema,
         "document_catalog": catalog
     }
+
+
+class CoachProfilePayload(BaseModel):
+    role_title: Optional[str] = ""
+    stakeholders: Optional[List[str]] = []
+    time_distribution: Optional[Dict[str, Any]] = {}
+    three_year_vision: Optional[str] = ""
+    current_weight: Optional[str] = ""
+    coaching_tone: Optional[str] = "tactical_direct"
+    summary_bio: Optional[str] = ""
+    skipped_onboarding: Optional[bool] = False
+
+    class Config:
+        extra = "allow"
+
+
+@router.get("/profile")
+async def get_coach_profile(
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Fetches personalized coaching profile for the authenticated user."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated user context required.")
+
+    profile = get_user_coach_profile(user_id=user_id, company_id=company_id)
+    return {
+        "success": True,
+        "onboarded": profile is not None and bool(profile.get("onboarded")),
+        "profile": profile
+    }
+
+
+@router.post("/profile")
+async def save_coach_profile(
+    payload: CoachProfilePayload,
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Saves or updates personalized onboarding coaching profile for the authenticated user."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated user context required.")
+
+    saved = save_user_coach_profile(
+        user_id=user_id,
+        company_id=company_id,
+        profile_data=payload.dict()
+    )
+    return {
+        "success": True,
+        "message": "Coaching profile updated successfully.",
+        "profile": saved
+    }
+
+
+# ============================================================================
+# CONVERSATION THREAD HISTORY ENDPOINTS (ChatGPT Style)
+# ============================================================================
+
+class CreateConversationPayload(BaseModel):
+    title: Optional[str] = "New Chat"
+
+
+class RenameConversationPayload(BaseModel):
+    title: str
+
+
+@router.get("/conversations")
+async def list_conversations(
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Lists conversation history threads for the authenticated user."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+
+    threads = list_user_conversations(user_id=user_id, company_id=company_id)
+    return {"success": True, "conversations": threads}
+
+
+@router.post("/conversations")
+async def create_new_conversation(
+    payload: CreateConversationPayload,
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Explicitly creates a new chat thread."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+
+    new_conv = create_conversation(
+        user_id=user_id,
+        company_id=company_id,
+        title=payload.title or "New Chat"
+    )
+    return {"success": True, "conversation": new_conv}
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_single_conversation(
+    conversation_id: str,
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Retrieves full message history for a specific conversation thread."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+
+    conv = get_conversation(conversation_id=conversation_id, user_id=user_id, company_id=company_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    return {"success": True, "conversation": conv}
+
+
+@router.patch("/conversations/{conversation_id}")
+async def rename_thread(
+    conversation_id: str,
+    payload: RenameConversationPayload,
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Renames an existing chat thread."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+
+    ok = rename_conversation(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        company_id=company_id,
+        new_title=payload.title
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation not found or could not be updated.")
+
+    return {"success": True, "message": "Conversation renamed successfully."}
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_thread(
+    conversation_id: str,
+    auth: RequestAuth = Depends(get_request_auth_required)
+):
+    """Deletes a conversation thread and all its messages."""
+    company_id = auth.company_id
+    user_id = auth.user_id
+    if not user_id or not company_id:
+        raise HTTPException(status_code=400, detail="Authenticated context required.")
+
+    ok = delete_conversation(
+        conversation_id=conversation_id,
+        user_id=user_id,
+        company_id=company_id
+    )
+    return {"success": ok}

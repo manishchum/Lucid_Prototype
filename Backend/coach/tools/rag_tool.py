@@ -94,8 +94,31 @@ def search_coach_knowledge(
             "p_allowed_sensitivity_tiers": sec["allowed_tiers"],
         }
 
+        # Validate that target_employee_id is a valid UUID before passing to Postgres uuid[]
+        import uuid
+
+        def _is_valid_uuid(val: Any) -> bool:
+            if not val:
+                return False
+            try:
+                uuid.UUID(str(val))
+                return True
+            except (ValueError, AttributeError, TypeError):
+                return False
+
         if target_employee_id:
-            rpc_params["p_allowed_employee_ids"] = [target_employee_id]
+            cleaned_id = str(target_employee_id).strip()
+            if _is_valid_uuid(cleaned_id):
+                rpc_params["p_allowed_employee_ids"] = [cleaned_id]
+            else:
+                # If target_employee_id is a Firebase UID string, attempt lookup for postgres UUID in users table
+                try:
+                    u_res = supabase_admin.table("users").select("id").eq("user_id", cleaned_id).limit(1).execute()
+                    u_data = getattr(u_res, "data", None) or []
+                    if u_data and u_data[0].get("id") and _is_valid_uuid(u_data[0]["id"]):
+                        rpc_params["p_allowed_employee_ids"] = [str(u_data[0]["id"])]
+                except Exception:
+                    pass
 
         try:
             res = supabase_admin.rpc("match_coach_document_chunks", rpc_params).execute()
@@ -176,35 +199,62 @@ def format_chunks_for_context(chunks: List[Dict[str, Any]]) -> str:
 def extract_citations_from_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Extracts deduplicated, structured citation chips for frontend UI display.
+    Includes verified source text excerpts and proof coordinates.
     """
     citations = []
     seen = set()
 
     for c in chunks:
         cit = c.get("citation") or {}
-        file_name = cit.get("file_name") or "Document"
+        file_name = cit.get("file_name") or c.get("file_name") or "Document"
         page = cit.get("page_number")
         slide = cit.get("slide_number")
         sheet = cit.get("sheet_name")
         row = cit.get("row_number")
         section = cit.get("section_title")
         period = cit.get("eval_period")
+        chunk_idx = c.get("chunk_index", 0)
+        excerpt_text = (c.get("content") or "").strip()
 
-        key = (file_name, page, slide, sheet, row, section)
+        key = (file_name, chunk_idx, page, slide, sheet, row, section)
         if key in seen:
             continue
         seen.add(key)
 
+        coord_parts = []
+        if page:
+            coord_parts.append(f"Page {page}")
+        if slide:
+            coord_parts.append(f"Slide {slide}")
+        if sheet:
+            coord_parts.append(f"Sheet {sheet}")
+        if row:
+            coord_parts.append(f"Row {row}")
+        if section:
+            coord_parts.append(str(section))
+        if period:
+            coord_parts.append(f"Period: {period}")
+
+        location_str = " • ".join(coord_parts) if coord_parts else ""
+        sim = float(c.get("similarity") or 0.0)
+
         citations.append({
+            "document_id": str(c.get("document_id") or ""),
+            "filename": file_name,
             "file_name": file_name,
             "file_type": cit.get("file_type", "doc"),
+            "chunk_index": chunk_idx,
+            "score": round(sim, 3),
+            "similarity": round(sim, 3),
+            "location": location_str,
             "page_number": page,
             "slide_number": slide,
             "sheet_name": sheet,
             "row_number": row,
             "section_title": section,
             "eval_period": period,
-            "similarity": c.get("similarity")
+            "excerpt": excerpt_text,
+            "content": excerpt_text
         })
 
     return citations

@@ -12,6 +12,8 @@ Implements:
 """
 
 import json
+import re
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -21,6 +23,7 @@ from coach.schema_inspector import (
     get_company_spreadsheet_schema,
     get_company_document_catalog,
     get_company_active_integrations,
+    get_user_coach_profile,
     format_schema_for_sql_prompt
 )
 from coach.tools.sql_tool import generate_coach_sql, execute_coach_sql
@@ -45,7 +48,7 @@ def _get_role_level(state: CoachState) -> int:
 # 1. INTROSPECTION NODE
 # ============================================================================
 def introspect_node(state: CoachState) -> Dict[str, Any]:
-    """Fetches available spreadsheet schemas and document catalog for the company."""
+    """Fetches available spreadsheet schemas, document catalog, and user identity."""
     company_id = state.get("company_id", "")
     user_query = state.get("user_query")
     security_ctx = state.get("security_ctx")
@@ -58,6 +61,23 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
     schema_prompt = format_schema_for_sql_prompt(schema_dict, company_id)
     doc_catalog = get_company_document_catalog(company_id, security_ctx=security_ctx)
     active_integrations = get_company_active_integrations(company_id, security_ctx=security_ctx)
+    user_id = state.get("user_id", "")
+    user_profile = get_user_coach_profile(user_id, company_id) if user_id else None
+
+    # Fallback lookup for target employee identity if not explicitly passed
+    # Keep target_emp_id as None unless explicitly scoping to a target employee,
+    # so Zanzibar Pre-Retrieval ACL filtering can still return team/org/shared docs.
+    target_emp_name = state.get("target_employee_name")
+    target_emp_id = state.get("target_employee_id")
+    if not target_emp_name and user_id:
+        try:
+            from utils.supabase_client import supabase_admin
+            res = supabase_admin.table("users").select("name").eq("user_id", user_id).limit(1).execute()
+            data = getattr(res, "data", None) or []
+            if data and data[0].get("name"):
+                target_emp_name = str(data[0]["name"]).strip()
+        except Exception as e:
+            print(f"[COACH INTROSPECT] Error fetching user name: {e}")
 
     return {
         "user_query": user_query or "",
@@ -65,6 +85,9 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
         "schema_prompt": schema_prompt,
         "document_catalog": doc_catalog,
         "active_integrations": active_integrations,
+        "user_profile": user_profile,
+        "target_employee_name": target_emp_name,
+        "target_employee_id": target_emp_id,
         "sql_retry_count": state.get("sql_retry_count", 0),
         "citations": state.get("citations", []),
         "rag_chunks": state.get("rag_chunks", [])
@@ -78,23 +101,23 @@ ROUTER_SYSTEM_PROMPT = """You are a smart, domain-agnostic query classifier for 
 Analyze the user's question, the available spreadsheet schema (sheets & columns), the uploaded document catalog, and the connected cloud integrations.
 Classify the user's intent into EXACTLY ONE of the following categories:
 
-- "SQL": The question asks for data, numbers, calculations, aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, or tabular records for entities, dimensions, or columns present in the Available Columns or Sheets.
-  IMPORTANT: Also classify as "SQL" if the user asks for "insights", "details", "performance", "breakdown", "status", or a list/lookup of any entity, dimension, person, store, account, client, territory, or code that corresponds to the Available Columns or Sheets in the spreadsheet.
-- "RAG": The question strictly asks about:
-  1. Uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or text files found in the Available Documents catalog.
-  2. Communications, meeting transcripts, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads).
+- "SQL": The question strictly asks for concrete numbers, data, calculations, aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, discounts, or tabular records for entities, dimensions, or columns present in the Available Columns or Sheets (e.g. "What are my sales numbers?", "How many cases did I sell?", "What is my discount %?", "Who are the top 5 reps?").
+- "RAG": The question strictly asks about qualitative information, advice, or feedback:
+  1. Uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or appraisal documents found in the Available Documents catalog.
+  2. Communications, meeting transcripts, 1-on-1 notes, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads) (e.g. "What did my manager note in my 1-on-1?", "What are my improvement areas according to the review doc?").
 - "HYBRID": The question requires BOTH tabular spreadsheet data (metrics/numbers/entity performance) AND qualitative document context/reviews from the uploaded document catalog or connected integration streams.
+  CRITICAL: Broad, holistic coaching questions like "How am I doing?", "How is my performance?", "Give me an overview of my performance", or questions evaluating numbers against feedback/targets MUST be classified as "HYBRID" whenever BOTH spreadsheets AND qualitative documents/cloud integrations exist.
 - "CATALOG": The question asks what documents, spreadsheets, files, or cloud integrations are uploaded or connected in the knowledge base.
 - "GENERAL": ONLY for conversational greetings, polite pleasantries (e.g. "Hello", "Hi", "Good morning", "Thank you"), or assistant self-introduction ("Who are you?").
 - "OUT_OF_SCOPE": The question is completely UNRELATED to the company's business data, spreadsheets, uploaded documents, or connected integrations. This covers ANY external topic whatsoever (e.g. movies, entertainment, school/academic math or science formulas, recipes/cooking, consumer shopping advice, sports, gaming, medical/health, travel, news, trivia, or general world knowledge).
 
 DECISION GUIDELINES:
-1. If the question mentions an entity, dimension, or column from the spreadsheet schema -> "SQL".
-2. If the question asks about a document, policy, or file from the uploaded document catalog, OR asks about communications, files, or transcripts from connected cloud integrations (Drive, Zoom, Teams, Slack, Email) -> "RAG".
-3. If both spreadsheet data and qualitative document context are needed -> "HYBRID".
+1. If the question strictly asks for numerical figures, specific column metrics, or mathematical calculations -> "SQL".
+2. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
+3. If the question asks broadly "How am I doing?", "How is my performance?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
 4. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
 5. If it's a polite greeting or gratitude -> "GENERAL".
-6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations (e.g. movies, formulas, shopping, recipes, trivia) -> ALWAYS choose "OUT_OF_SCOPE".
+6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
 
 Return ONLY a JSON object:
 {
@@ -169,6 +192,35 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         if any(kw in q_lower for kw in kws):
             if not active_providers or prov in active_providers:
                 return {"intent": "RAG", "routing_reason": f"Query references connected workplace integration '{prov}'."}
+
+    has_docs_or_connectors = bool(doc_catalog) or bool(active_integrations)
+
+    # Heuristic fast-path 1C: Personal qualitative feedback inquiries (e.g. "my feedback", "my 1-on-1", "manager review", "appraisal")
+    qualitative_terms = ["feedback", "1-on-1", "1 on 1", "one on one", "review notes", "appraisal", "transcript", "evaluation", "blockers", "improvement areas"]
+    is_qualitative_inquiry = any(term in q_lower for term in qualitative_terms)
+    if is_qualitative_inquiry and has_docs_or_connectors:
+        if has_sheets and any(k in q_lower for k in ["number", "sales", "quota", "cases", "target", "metric"]):
+            return {"intent": "HYBRID", "routing_reason": "Query asks for personal qualitative feedback alongside spreadsheet metrics."}
+        return {"intent": "RAG", "routing_reason": "Query asks for personal qualitative feedback from documents or connected integrations."}
+
+    # Heuristic fast-path 1D: Holistic personal performance inquiries (e.g. "how am I doing", "how is my performance", "my standing")
+    is_holistic_personal = (
+        bool(re.search(r"\bhow am i doing\b", q_lower)) or
+        bool(re.search(r"\b(my|i|me)\b.*\b(performance|standing|progress|overview)\b", q_lower)) or
+        bool(re.search(r"\bhow is my performance\b", q_lower))
+    )
+    if is_holistic_personal:
+        if has_sheets and has_docs_or_connectors:
+            return {"intent": "HYBRID", "routing_reason": "Holistic personal performance query: combining spreadsheet metrics with qualitative documents/connectors."}
+        elif has_sheets:
+            return {"intent": "SQL", "routing_reason": "Personal performance query routed to SQL (no qualitative documents or connectors available)."}
+        elif has_docs_or_connectors:
+            return {"intent": "RAG", "routing_reason": "Personal performance query routed to qualitative RAG (no spreadsheets available)."}
+
+    # Heuristic fast-path 1E: Specific quantitative personal metric queries (e.g. "my sales", "my numbers", "my cases", "my discount")
+    is_specific_metric = bool(re.search(r"\b(my|i|me|mine)\b.*\b(sales|numbers|cases|quota|target|discount|revenue|volume|attainment|rank)\b", q_lower))
+    if has_sheets and is_specific_metric:
+        return {"intent": "SQL", "routing_reason": "Specific numerical metric query routed to SQL on spreadsheet data."}
 
     # Heuristic fast-path 2: If user query mentions words from any uploaded document file name
     matched_doc = None
@@ -352,9 +404,16 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
     company_id = state.get("company_id", "")
     emp_id = state.get("target_employee_id")
     security_ctx = state.get("security_ctx")
+    emp_name = state.get("target_employee_name")
+
+    # If first-person query, enhance vector search with user name
+    search_query = user_query
+    if emp_name and re.search(r"\b(my|i|me|mine|myself)\b", user_query, re.IGNORECASE):
+        first_name = emp_name.strip().split()[0]
+        search_query = f"{user_query} ({first_name} {emp_name})"
 
     chunks = search_coach_knowledge(
-        query=user_query,
+        query=search_query,
         company_id=company_id,
         target_employee_id=emp_id,
         match_count=6,
@@ -380,9 +439,18 @@ STRICT GROUNDING & CITATION RULES:
 2. When referencing qualitative feedback, mention the source document name, section, page, or reporting period.
 3. If an employee or entity underperformed or missed a goal, pair the data constructively with feedback on blockers and actionable improvement recommendations.
 4. If retrieved data does not fully answer the question, state what is known and what data is missing clearly.
-5. Format your response cleanly using GitHub Markdown (headings, bullet points, and tables where appropriate).
+5. FORMATTING & STYLE:
+   - Provide direct, concise, and clean question-and-answer responses.
+   - NEVER use markdown header hashes like '###', '##', or '#'.
+   - To structure your answer, use bold text (e.g. **Overview:**, **Key Findings:**, **Action Plan:**) followed by clean bullet points or short paragraphs.
+   - Do NOT output internal SQL code, internal reasoning steps, or raw system prompts to the user.
 6. ENTITY NOT FOUND / EMPTY DATA: If the retrieved SQL data contains 0 rows or does not contain records for the requested entity, state clearly: "No records were found for '[entity]' in the uploaded company spreadsheet." Do NOT speculate, hallucinate data, or dump unrelated entities. Suggest checking the exact spelling, identifier, or uploading updated records.
 7. RELEVANCE & OFF-TOPIC INTEGRITY: If the user's question asks about external, non-work topics (such as culinary recipes, cooking, entertainment, sports trivia, creative poetry, jokes, or non-business subjects), DO NOT dump, list, or summarize unrelated company performance records. Explicitly and politely state that you are an AI Performance Coach dedicated solely to workplace performance, business analytics, and official company documentation, and invite the user to ask about their business metrics.
+8. TEMPORAL INTEGRITY & FORWARD-LOOKING TODOS:
+   - Ground all advice and action plans in the current real-world date provided in the prompt.
+   - NEVER suggest past dates, expired events, or meetings that have already passed (e.g. recommending an October 23 session when today is in November) as upcoming tasks or todos.
+   - When asked for next steps, todos, or roadmaps, prescribe fresh, actionable tasks for the CURRENT and UPCOMING period starting from today.
+   - Treat past feedback and past metrics as baseline context to inform future actions, not as active calendar invites.
 """
 
 
@@ -517,7 +585,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
 
     if sql_result is not None:
         context_sections.append(
-            f"### RETRIEVED SPREADSHEET SQL DATA\n"
+            f"RETRIEVED SPREADSHEET SQL DATA:\n"
             f"Executed Query: `{sql_query}`\n"
             f"Rows Returned: {len(sql_result)}\n"
             f"Data:\n{json.dumps(sql_result, indent=2)}"
@@ -525,7 +593,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
 
     if rag_chunks:
         rag_context = format_chunks_for_context(rag_chunks)
-        context_sections.append(f"### RETRIEVED QUALITATIVE DOCUMENT EXCERPTS\n{rag_context}")
+        context_sections.append(f"RETRIEVED QUALITATIVE DOCUMENT EXCERPTS:\n{rag_context}")
 
     combined_context = "\n\n".join(context_sections) if context_sections else "No relevant database records or document excerpts were retrieved."
 
@@ -533,6 +601,91 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         f"User Question: {user_query}\n\n"
         f"Retrieved Evidence:\n{combined_context}\n\n"
         "Provide a comprehensive, grounded coaching answer."
+    )
+
+    # Condition Synthesizer with User Persona and Tonality Preferences
+    user_profile = state.get("user_profile") or {}
+    persona_system_prompt = SYNTHESIZER_SYSTEM_PROMPT
+    if user_profile and user_profile.get("onboarded") and not user_profile.get("skipped_onboarding"):
+        role_title = (user_profile.get("role_title") or "").strip()
+        stakeholder_list = user_profile.get("stakeholders") or []
+        stakeholders = ", ".join(stakeholder_list) if stakeholder_list else ""
+        tone = user_profile.get("coaching_tone") or "tactical_direct"
+        vision = (user_profile.get("three_year_vision") or "").strip()
+        weight = (user_profile.get("current_weight") or "").strip()
+        bio = (user_profile.get("summary_bio") or "").strip()
+
+        tone_instructions = {
+            "tactical_direct": "Use crisp, action-oriented bullet points, concrete numbers, and immediate tactical next steps. Zero corporate fluff.",
+            "inspiring": "Use an encouraging, energizing tone. Acknowledge wins, frame performance gaps positively, and build momentum.",
+            "thought_partner": "Act as an analytical thought partner. Provide strategic benchmarks, unpack root causes, and ask thoughtful coaching reflection questions."
+        }.get(tone, "")
+
+        persona_parts = []
+        if role_title:
+            role_line = f"- User Role: {role_title}"
+            if stakeholders:
+                role_line += f" (primary stakeholders: {stakeholders})"
+            persona_parts.append(role_line)
+        elif stakeholders:
+            persona_parts.append(f"- Stakeholders Context: {stakeholders}")
+
+        if bio:
+            persona_parts.append(f"- Profile Summary: {bio}")
+        if vision:
+            persona_parts.append(f"- 3-Year Career Aspiration: '{vision}'. Anchor performance insights back to how achieving these targets unlocks this vision.")
+        if weight:
+            persona_parts.append(f"- Current Priority / Friction: '{weight}'. Directly address or alleviate this pressure.")
+        if tone_instructions:
+            persona_parts.append(f"- Preferred Tonality Directive: {tone_instructions}")
+
+        # Dynamically include any custom or newly added onboarding questions
+        standard_keys = {
+            "onboarded", "skipped_onboarding", "role_title", "stakeholders", "coaching_tone",
+            "three_year_vision", "current_weight", "summary_bio",
+            "updated_at", "time_distribution"
+        }
+        custom_fields = [
+            f"  * {k.replace('_', ' ').capitalize()}: {v}"
+            for k, v in user_profile.items()
+            if k not in standard_keys and v
+        ]
+        if custom_fields:
+            persona_parts.append("- Additional Questionnaire Context:\n" + "\n".join(custom_fields))
+
+        if persona_parts:
+            persona_block = "\n\nUSER PERSONALIZATION & COACHING PERSONA:\n" + "\n".join(persona_parts) + "\n"
+            persona_system_prompt += persona_block
+
+    # Inject Authenticated User Identity & Addressing Rules
+    target_emp_name = state.get("target_employee_name")
+    if target_emp_name:
+        first_name = target_emp_name.strip().split()[0]
+        persona_system_prompt += (
+            f"\n\nAUTHENTICATED USER IDENTITY & ADDRESSAL DIRECTIVE:\n"
+            f"- You are speaking directly with '{target_emp_name}'.\n"
+            f"- When the user asks about 'my', 'I', 'me', 'mine', or how they are doing, they are referring to themselves ({target_emp_name}).\n"
+            f"- In the retrieved spreadsheet SQL data and document excerpts, records matching '{target_emp_name}' OR '{first_name}' represent this user's personal metrics.\n"
+            f"- Address them directly and naturally in the second person as 'you' or '{first_name}' (e.g. 'Your total sales this month are...', '{first_name}, you achieved 94% of target...').\n"
+            f"- NEVER refer to the authenticated user in the third person (do NOT say '{target_emp_name} achieved...' or '{target_emp_name} had 12 cases').\n"
+            f"- When the user explicitly asks about someone else or a peer by name, refer to that third party in the third person.\n"
+        )
+
+    # Dynamic Temporal Grounding (Current Date & Forward-Looking Planning)
+    current_dt = datetime.utcnow()
+    today_str = current_dt.strftime("%A, %B %d, %Y")
+    current_month_str = current_dt.strftime("%B %Y")
+
+    persona_system_prompt += (
+        f"\n\nCURRENT DATE & TEMPORAL PLANNING RULES (CRITICAL):\n"
+        f"- Today's Real-World Date: {today_str} (Current Month: {current_month_str}).\n"
+        f"- PAST VS FUTURE TIMELINE:\n"
+        f"  * Any dates, months, or events before {today_str} (e.g. August 2026, October 23, Q2/Q3 2026) are already in the PAST.\n"
+        f"  * NEVER recommend past dates or expired events as upcoming todos or action items (e.g. do NOT say 'Attend Reflection Session on October 23rd' if today is {today_str})!\n"
+        f"- FORWARD-LOOKING TODOS & ACTION PLANS:\n"
+        f"  * When the user asks for 'next steps', 'todos', 'what should I do', or 'action items', prescribe fresh, actionable priorities for {current_month_str} starting from today ({today_str}).\n"
+        f"  * If historical reports (e.g. from August or October) highlight gaps or uncompleted goals, transform those past learnings into active, forward-looking goals for {current_month_str}.\n"
+        f"  * Acknowledge the timeline explicitly (e.g. 'Drawing from your October review notes and August performance baseline, here are your strategic priorities and action items for {current_month_str}:').\n"
     )
 
     # Call LLM for final synthesis
@@ -543,7 +696,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             resp = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": SYNTHESIZER_SYSTEM_PROMPT},
+                    {"role": "system", "content": persona_system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
@@ -561,7 +714,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
 
             client = genai.Client(api_key=GEMINI_API_KEY)
             config = GenerateContentConfig(temperature=0.3, max_output_tokens=900)
-            gemini_prompt = f"{SYNTHESIZER_SYSTEM_PROMPT}\n\n{user_prompt}"
+            gemini_prompt = f"{persona_system_prompt}\n\n{user_prompt}"
             res = client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=gemini_prompt,

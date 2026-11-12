@@ -23,7 +23,7 @@ import {
   Users, BookOpen, Clock, User, ChevronDown,
   Trophy, Target, TrendingUp, Zap, LayoutGrid,
   ShieldCheck, ArrowRight, CheckCircle2, LogOut, Award,
-  Download, Linkedin, X, Mic
+  Download, Linkedin, X, Mic, Sparkles
 } from "lucide-react";
 import { AssignedSprintsSection } from "@/components/assigned-sprints-section";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -1165,6 +1165,15 @@ export default function EmployeeWelcome() {
             </div> */}
 
             <div className="flex items-end gap-3">
+              <Button
+                onClick={() => router.push("/coach")}
+                className="h-10 px-3 shrink-0 rounded-[8px] bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-xs transition-colors"
+                title="Open AI Performance Coach"
+              >
+                <Sparkles className="h-4 w-4 text-indigo-200" />
+                <span className="text-xs font-semibold">AI Coach</span>
+              </Button>
+
               {hasFeature(FEATURES.VOICE_AGENT) && (
                 <Button
                   onClick={() => router.push("/employee/voice-notes")}
@@ -1194,6 +1203,40 @@ export default function EmployeeWelcome() {
           </div>
 
         <div className="grid gap-2 md:gap-4">
+          {/* AI Performance Coach Banner Card */}
+          <Card className="rounded-[8px] border-none shadow-sm bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/50 overflow-hidden border border-indigo-100/70">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-start gap-3.5 min-w-0">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-600 text-white rounded-xl flex items-center justify-center shrink-0 shadow-xs">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                        AI Performance Coach
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">• 100% Private Calibration</span>
+                    </div>
+                    <h3 className={`text-lg sm:text-xl font-bold text-slate-900 mt-0.5 ${cormorant.className}`}>
+                      Your Personal Coaching & Performance Partner
+                    </h3>
+                    <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
+                      Calibrated for your role, weekly goals, and metrics. Ask anything about your target attainment, playbook rules, or time-saving workflows.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push("/coach")}
+                  className="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs sm:text-sm px-4 py-2 sm:py-2.5 flex items-center gap-1.5 shadow-xs"
+                >
+                  <span>Talk to Coach</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Progress Nudge Card */}
           {nudgeMessage && (
             <Card className="rounded-[8px] border-none shadow-sm bg-white overflow-hidden">
