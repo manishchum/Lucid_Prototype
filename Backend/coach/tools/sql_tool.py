@@ -10,6 +10,54 @@ import re
 from typing import Dict, Any, Optional, List
 from config import OPENAI_API_KEY, GEMINI_API_KEY
 from utils.supabase_client import supabase_admin
+from security.pii_firewall import mask_spreadsheet_rows_for_role, allowed_tiers_for_role_level
+from security.rebac import is_missing_schema_error
+
+_RESTRICTED_TABLE_PATTERN = re.compile(
+    r"(?i)\b(FROM|JOIN)\s+([a-zA-Z0-9_]+\.)?(users|roles|user_role_assignments|rebac_tuples|"
+    r"company_integrations|coach_document_chunks|coach_uploaded_documents|audit_logs|user_external_identities|"
+    r"vault|pg_catalog|information_schema)\b"
+)
+
+
+def _extract_sql_sec(security_ctx: Any) -> Dict[str, Any]:
+    if not security_ctx:
+        return {
+            "has_context": False,
+            "is_active": True,
+            "is_admin": False,
+            "role_level": 1,
+            "user_id": "",
+            "email": None,
+            "principals": [],
+            "allowed_tiers": ["public", "internal"],
+            "managed_employee_ids": [],
+        }
+    if isinstance(security_ctx, dict):
+        rl = int(security_ctx.get("role_level", 1))
+        return {
+            "has_context": True,
+            "is_active": bool(security_ctx.get("is_active", True)),
+            "is_admin": bool(security_ctx.get("is_admin", rl >= 3)),
+            "role_level": rl,
+            "user_id": str(security_ctx.get("user_id") or ""),
+            "email": security_ctx.get("email"),
+            "principals": list(security_ctx.get("principals") or []),
+            "allowed_tiers": list(security_ctx.get("allowed_tiers") or allowed_tiers_for_role_level(rl)),
+            "managed_employee_ids": list(security_ctx.get("managed_employee_ids") or []),
+        }
+    rl = int(getattr(security_ctx, "role_level", 1))
+    return {
+        "has_context": True,
+        "is_active": bool(getattr(security_ctx, "is_active", True)),
+        "is_admin": bool(getattr(security_ctx, "is_admin", rl >= 3)),
+        "role_level": rl,
+        "user_id": str(getattr(security_ctx, "user_id", "")),
+        "email": getattr(security_ctx, "email", None),
+        "principals": list(getattr(security_ctx, "principals", [])),
+        "allowed_tiers": list(getattr(security_ctx, "allowed_tiers", allowed_tiers_for_role_level(rl))),
+        "managed_employee_ids": list(getattr(security_ctx, "managed_employee_ids", [])),
+    }
 
 
 SQL_SYSTEM_PROMPT = """You are an expert PostgreSQL Data Engineer and Sales Analytics specialist.
@@ -55,7 +103,7 @@ CRITICAL RULES:
           `((row_data->>'Column') ILIKE '%mandoli%' AND (row_data->>'Column') ILIKE '%manoj%')`
      c) Columns to SELECT: Select key descriptive columns (e.g. item/product, category, location, date) alongside numeric metrics (e.g. cases, quantities, amounts, totals) so comprehensive insights can be provided. Add `LIMIT 50` if returning itemized records.
 6. If the question relates to a specific sheet, include `AND sheet_name = 'Sheet_Name'`.
-7. Strictly generate READ-ONLY queries starting with SELECT. NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
+7. Strictly generate READ-ONLY queries starting with SELECT on `public.coach_spreadsheet_rows` ONLY. NEVER query system or identity/permission tables (`users`, `roles`, `user_role_assignments`, `rebac_tuples`, `company_integrations`, `coach_document_chunks`, `coach_uploaded_documents`, `audit_logs`, `pg_catalog`, `information_schema`). NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
 8. Do NOT add trailing semicolons. Only add LIMIT if the user asks for a top-N ranking (e.g., 'top 5') or itemized entity rows (LIMIT 50); otherwise the execution sandbox automatically handles limits.
 9. Return ONLY valid JSON with keys:
    {
@@ -172,11 +220,25 @@ def generate_coach_sql(
     }
 
 
-def execute_coach_sql(company_id: str, sql_query: str) -> Dict[str, Any]:
+def execute_coach_sql(
+    company_id: str,
+    sql_query: str,
+    security_ctx: Any = None,
+) -> Dict[str, Any]:
     """
-    Executes a generated SQL query via the secure Supabase execute_coach_sql_query RPC.
+    Executes a generated SQL query via the secure Supabase execute_coach_sql_query RPC
+    with Pre-Retrieval ACL filtering and Layer 2 column/row masking.
     Returns structured results: {"success": bool, "rows": list, "error": str, "row_count": int}.
     """
+    sec = _extract_sql_sec(security_ctx)
+    if sec["has_context"] and not sec["is_active"]:
+        return {
+            "success": False,
+            "rows": [],
+            "error": "Access denied: inactive user cannot execute spreadsheet queries.",
+            "row_count": 0
+        }
+
     if not sql_query or not sql_query.strip():
         return {
             "success": False,
@@ -189,6 +251,16 @@ def execute_coach_sql(company_id: str, sql_query: str) -> Dict[str, Any]:
     # Strip any trailing semicolons
     clean_query = clean_query.rstrip(";").strip()
 
+    # Pre-flight block on unauthorized/system tables (allows JSONB keys like row_data->>'Users')
+    restricted_match = _RESTRICTED_TABLE_PATTERN.search(clean_query)
+    if restricted_match:
+        return {
+            "success": False,
+            "rows": [],
+            "error": f"Security Policy Violation: querying restricted table '{restricted_match.group(3)}' is not permitted.",
+            "row_count": 0
+        }
+
     # Pre-flight check: ensure company_id is present
     if company_id not in clean_query:
         # Auto-inject if missing
@@ -200,14 +272,38 @@ def execute_coach_sql(company_id: str, sql_query: str) -> Dict[str, Any]:
     # Strip any trailing LIMIT clause to avoid syntax error in RPCs that wrap queries with `LIMIT 100`
     sanitized_query = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", clean_query)
 
+    rpc_payload: Dict[str, Any] = {
+        "p_company_id": company_id,
+        "p_sql": sanitized_query,
+    }
+    if sec["has_context"]:
+        rpc_payload["p_user_principals"] = sec["principals"]
+        rpc_payload["p_is_admin"] = sec["is_admin"]
+        rpc_payload["p_allowed_sensitivity_tiers"] = sec["allowed_tiers"]
+
     try:
-        res = supabase_admin.rpc(
-            "execute_coach_sql_query",
-            {
-                "p_company_id": company_id,
-                "p_sql": sanitized_query
-            }
-        ).execute()
+        try:
+            res = supabase_admin.rpc(
+                "execute_coach_sql_query",
+                rpc_payload
+            ).execute()
+        except Exception as rpc_err:
+            if not is_missing_schema_error(rpc_err):
+                raise
+            # Legacy RPC signature fallback when 20261112 migration hasn't been applied yet
+            legacy_sql = sanitized_query
+            if sec["has_context"] and not sec["is_admin"]:
+                allowed_ids = [sec["user_id"], *sec["managed_employee_ids"]]
+                safe_ids = ", ".join(f"'{eid}'" for eid in allowed_ids if re.fullmatch(r"[0-9a-fA-F\-]{8,}", str(eid)))
+                emp_filter = f"(target_employee_id IS NULL OR target_employee_id IN ({safe_ids}))" if safe_ids else "target_employee_id IS NULL"
+                if "WHERE" in legacy_sql.upper():
+                    legacy_sql = re.sub(r"(?i)\bWHERE\b", f"WHERE {emp_filter} AND ", legacy_sql, count=1)
+                else:
+                    legacy_sql = f"{legacy_sql} WHERE {emp_filter}"
+            res = supabase_admin.rpc(
+                "execute_coach_sql_query",
+                {"p_company_id": company_id, "p_sql": legacy_sql}
+            ).execute()
 
         data = getattr(res, "data", None)
         if isinstance(data, list):
@@ -216,6 +312,13 @@ def execute_coach_sql(company_id: str, sql_query: str) -> Dict[str, Any]:
             rows = [data]
         else:
             rows = []
+
+        if sec["has_context"] and rows:
+            rows = mask_spreadsheet_rows_for_role(
+                rows,
+                caller_user_id=sec["user_id"],
+                role_level=sec["role_level"],
+            )
 
         return {
             "success": True,

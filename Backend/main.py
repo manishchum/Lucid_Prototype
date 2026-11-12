@@ -62,6 +62,7 @@ from routes.coach_upload import router as coach_upload_router
 from routes.coach_chat import router as coach_chat_router
 from routes.google_drive import router as google_drive_router
 from routes.connectors import router as connectors_router
+from routes.rbac import router as rbac_router
 from routes.audit_logs import router as audit_logs_router
 from roleplay.route import router as roleplay_router, ws_router as roleplay_ws_router
 
@@ -285,21 +286,6 @@ async def trigger_whatsapp_cron():
     from whatsapp.cron import run_whatsapp_cron
     await run_whatsapp_cron()
     return {"success": True, "message": "WhatsApp dispatch cron executed successfully"}
-    # Pre-warm distributed WebSocket Redis Pub/Sub listener
-    try:
-        from utils.websocket_manager import manager
-        await manager.start()
-    except Exception as e:
-        print(f"[Startup] WebSocket manager Redis Pub/Sub initialization notice: {e}")
-
-    # Pre-warm distributed ARQ Redis scheduler pool
-    try:
-        from scheduler import scheduler
-        await scheduler.start()
-    except Exception as e:
-        print(f"[Startup] ARQ Redis scheduler initialization notice: {e}")
-
-    # Leaderboard precomputation is now managed on-demand via Redis Sorted Sets (ZSET)
 
 
 @app.on_event("shutdown")
@@ -319,6 +305,12 @@ async def shutdown_event():
     try:
         from utils.auth_socket_manager import auth_socket_manager
         await auth_socket_manager.stop()
+    except Exception:
+        pass
+
+    try:
+        from utils.redis_client import close_redis_client
+        close_redis_client()
     except Exception:
         pass
 
@@ -455,21 +447,8 @@ app.include_router(coach_upload_router)
 app.include_router(coach_chat_router)
 app.include_router(google_drive_router)
 app.include_router(connectors_router)
+app.include_router(rbac_router)
 app.include_router(audit_logs_router)
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    try:
-        from utils.auth_socket_manager import auth_socket_manager
-        await auth_socket_manager.stop()
-    except Exception:
-        pass
-    try:
-        from utils.websocket_manager import manager as ws_manager
-        await ws_manager.stop()
-    except Exception:
-        pass
 
 
 if __name__ == "__main__":

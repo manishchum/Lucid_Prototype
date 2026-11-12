@@ -28,6 +28,12 @@ from services.connectors.models import (
     SyncItemInfo,
     SyncBatchResult
 )
+from security.rebac import (
+    sync_native_cloud_acls,
+    recompute_document_acl,
+    invalidate_company_security_cache,
+    is_missing_schema_error,
+)
 
 BUCKET_NAME = "coach-documents"
 TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
@@ -51,7 +57,11 @@ class ConnectorManager:
     """Enterprise Manager orchestrating cloud integrations."""
 
     @staticmethod
-    async def get_valid_access_token(company_id: str, provider: str) -> str:
+    async def get_valid_access_token(
+        company_id: str,
+        provider: str,
+        integration_id: Optional[str] = None
+    ) -> str:
         """
         Retrieves a valid access token securely from Supabase Vault via RPC.
         Automatically handles token expiration and rotation using the stored refresh token.
@@ -59,10 +69,21 @@ class ConnectorManager:
         current_time = datetime.now(timezone.utc)
 
         # 1. Fetch decrypted credentials from Supabase Vault
-        token_rpc = supabase_admin.rpc("get_integration_tokens", {
+        rpc_args: Dict[str, Any] = {
             "p_company_id": str(company_id),
             "p_provider": provider
-        }).execute()
+        }
+        if integration_id:
+            rpc_args["p_integration_id"] = str(integration_id)
+
+        try:
+            token_rpc = supabase_admin.rpc("get_integration_tokens", rpc_args).execute()
+        except Exception:
+            # Backwards-compatible fallback if DB migration hasn't added p_integration_id param yet
+            token_rpc = supabase_admin.rpc("get_integration_tokens", {
+                "p_company_id": str(company_id),
+                "p_provider": provider
+            }).execute()
         vault_data = getattr(token_rpc, "data", None) or {}
 
         access_token = vault_data.get("access_token")
@@ -95,47 +116,38 @@ class ConnectorManager:
         new_expires_at = (current_time + timedelta(seconds=expires_in)).isoformat()
 
         # 3. Store updated tokens in Vault
-        supabase_admin.rpc("store_integration_tokens", {
+        store_args: Dict[str, Any] = {
             "p_company_id": str(company_id),
             "p_provider": provider,
             "p_access_token": new_access_token,
             "p_refresh_token": new_refresh_token,
             "p_token_expires_at": new_expires_at
-        }).execute()
+        }
+        if integration_id:
+            store_args["p_integration_id"] = str(integration_id)
+
+        try:
+            supabase_admin.rpc("store_integration_tokens", store_args).execute()
+        except Exception:
+            store_args.pop("p_integration_id", None)
+            supabase_admin.rpc("store_integration_tokens", store_args).execute()
 
         # Update company_integrations token_expires_at
-        supabase_admin.table("company_integrations").update({
+        upd = supabase_admin.table("company_integrations").update({
             "token_expires_at": new_expires_at,
             "updated_at": current_time.isoformat()
-        }).eq("company_id", company_id).eq("provider", provider).execute()
+        })
+        if integration_id:
+            upd = upd.eq("id", integration_id)
+        else:
+            upd = upd.eq("company_id", company_id).eq("provider", provider)
+        upd.execute()
 
         return new_access_token
 
     @staticmethod
-    async def get_connector_status(company_id: str, provider: str = "google_drive") -> ConnectorStatus:
-        """Fetches unified status, monitored container info, and sync metrics."""
-        # 1. Fetch integration row
-        res = (
-            supabase_admin.table("company_integrations")
-            .select("*")
-            .eq("company_id", company_id)
-            .eq("provider", provider)
-            .limit(1)
-            .execute()
-        )
-        integration = res.data[0] if (res and getattr(res, "data", None)) else None
-
-        if not integration or integration.get("status") == "disconnected":
-            return ConnectorStatus(
-                connected=False,
-                provider=provider,
-                company_id=company_id,
-                status="disconnected"
-            )
-
+    def _build_status_from_row(integration: Dict[str, Any], provider: str, company_id: str) -> ConnectorStatus:
         config = integration.get("config") or {}
-
-        # 2. Fetch primary monitored source
         source_res = (
             supabase_admin.table("integration_monitored_sources")
             .select("*")
@@ -145,7 +157,6 @@ class ConnectorManager:
         )
         source = source_res.data[0] if (source_res and getattr(source_res, "data", None)) else None
 
-        # 3. Fetch count of completed items
         items_res = (
             supabase_admin.table("integration_synced_items")
             .select("id", count="exact")
@@ -154,13 +165,17 @@ class ConnectorManager:
             .execute()
         )
         synced_count = items_res.count if (items_res and getattr(items_res, "count", None) is not None) else 0
-
         webhook_active = bool(config.get("webhook_channel_id"))
 
         return ConnectorStatus(
             connected=True,
             provider=provider,
             company_id=company_id,
+            integration_id=str(integration.get("id")),
+            owner_user_id=str(integration.get("owner_user_id") or integration.get("connected_by") or "") or None,
+            connection_scope=integration.get("connection_scope") or "org",
+            assigned_team_id=str(integration.get("assigned_team_id")) if integration.get("assigned_team_id") else None,
+            visibility_mode=integration.get("visibility_mode") or "acl_sync",
             account_identifier=integration.get("account_identifier"),
             status=integration.get("status", "active"),
             monitored_source_id=source.get("source_id") if source else config.get("folder_id"),
@@ -178,6 +193,82 @@ class ConnectorManager:
         )
 
     @staticmethod
+    async def list_connector_statuses(
+        company_id: str,
+        provider: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        include_org_wide: bool = True
+    ) -> List[ConnectorStatus]:
+        """Returns all active connector instances visible to the caller in the company."""
+        q = (
+            supabase_admin.table("company_integrations")
+            .select("*")
+            .eq("company_id", company_id)
+            .neq("status", "disconnected")
+        )
+        if provider:
+            q = q.eq("provider", provider)
+        res = q.order("created_at", desc=True).execute()
+        rows = getattr(res, "data", None) or []
+
+        results: List[ConnectorStatus] = []
+        for row in rows:
+            row_owner = str(row.get("owner_user_id") or row.get("connected_by") or "")
+            scope = row.get("connection_scope") or "org"
+            if owner_user_id:
+                if row_owner != str(owner_user_id) and not (include_org_wide and scope == "org"):
+                    continue
+            results.append(ConnectorManager._build_status_from_row(row, row.get("provider", ""), company_id))
+        return results
+
+    @staticmethod
+    async def get_connector_status(
+        company_id: str,
+        provider: str = "google_drive",
+        integration_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None
+    ) -> ConnectorStatus:
+        """Fetches unified status, monitored container info, and sync metrics."""
+        q = (
+            supabase_admin.table("company_integrations")
+            .select("*")
+            .eq("company_id", company_id)
+            .eq("provider", provider)
+        )
+        if integration_id:
+            q = q.eq("id", integration_id)
+        elif owner_user_id:
+            q = q.eq("owner_user_id", owner_user_id)
+
+        try:
+            res = q.order("updated_at", desc=True).limit(1).execute()
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            legacy_q = (
+                supabase_admin.table("company_integrations")
+                .select("*")
+                .eq("company_id", company_id)
+                .eq("provider", provider)
+            )
+            if integration_id:
+                legacy_q = legacy_q.eq("id", integration_id)
+            elif owner_user_id:
+                legacy_q = legacy_q.eq("connected_by", owner_user_id)
+            res = legacy_q.order("updated_at", desc=True).limit(1).execute()
+        integration = res.data[0] if (res and getattr(res, "data", None)) else None
+
+        if not integration or integration.get("status") == "disconnected":
+            return ConnectorStatus(
+                connected=False,
+                provider=provider,
+                company_id=company_id,
+                status="disconnected"
+            )
+
+        return ConnectorManager._build_status_from_row(integration, provider, company_id)
+
+    @staticmethod
     async def select_monitored_container(
         company_id: str,
         container_id: str,
@@ -186,21 +277,23 @@ class ConnectorManager:
         container_type: str = "folder",
         is_recursive: bool = True,
         drive_id: Optional[str] = None,
-        provider: str = "google_drive"
+        provider: str = "google_drive",
+        integration_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Sets or switches the monitored container for a company.
+        Sets or switches the monitored container for a company/integration.
         Registers real-time push watch channel on the new selection.
         """
         # Fetch integration
-        res = (
+        q = (
             supabase_admin.table("company_integrations")
             .select("*")
             .eq("company_id", company_id)
             .eq("provider", provider)
-            .limit(1)
-            .execute()
         )
+        if integration_id:
+            q = q.eq("id", integration_id)
+        res = q.order("updated_at", desc=True).limit(1).execute()
         integration = res.data[0] if (res and getattr(res, "data", None)) else None
         if not integration:
             raise ValueError(f"No {provider} integration found for organization.")
@@ -210,7 +303,7 @@ class ConnectorManager:
         connector = ConnectorRegistry.get(provider)
 
         # Get access token
-        access_token = await ConnectorManager.get_valid_access_token(company_id, provider)
+        access_token = await ConnectorManager.get_valid_access_token(company_id, provider, integration_id=integration_id)
 
         # Check if monitored folder is changing to preserve previous files
         old_folder_id = config.get("folder_id")
@@ -270,10 +363,19 @@ class ConnectorManager:
             "metadata": {"drive_id": drive_id},
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
-        supabase_admin.table("integration_monitored_sources").upsert(
-            source_row,
-            on_conflict="integration_id,source_id"
-        ).execute()
+        try:
+            supabase_admin.table("integration_monitored_sources").upsert(
+                source_row,
+                on_conflict="integration_id,source_id"
+            ).execute()
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            source_row.pop("sync_cursor", None)
+            supabase_admin.table("integration_monitored_sources").upsert(
+                source_row,
+                on_conflict="integration_id,source_id"
+            ).execute()
 
         # Also keep backwards compatibility with legacy google_drive_integrations table if present
         try:
@@ -299,42 +401,77 @@ class ConnectorManager:
         }
 
     @staticmethod
+    async def _purge_deleted_item(company_id: str, integration_id: str, external_item_id: str, coach_document_id: Optional[str]) -> None:
+        """Removes vector chunks, spreadsheet rows, and ReBAC tuples when a cloud item is deleted or moved out."""
+        try:
+            if coach_document_id:
+                supabase_admin.table("coach_document_chunks").delete().eq("document_id", coach_document_id).execute()
+                supabase_admin.table("coach_spreadsheet_rows").delete().eq("document_id", coach_document_id).execute()
+                try:
+                    supabase_admin.table("rebac_tuples").delete().eq("company_id", company_id).eq("object_type", "document").eq("object_id", str(coach_document_id)).execute()
+                except Exception:
+                    pass
+                try:
+                    supabase_admin.table("coach_uploaded_documents").update({
+                        "status": "deleted",
+                        "acl_principals": [],
+                        "deny_principals": [],
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("id", coach_document_id).execute()
+                except Exception as col_err:
+                    if not is_missing_schema_error(col_err):
+                        raise
+                    supabase_admin.table("coach_uploaded_documents").update({
+                        "status": "deleted",
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("id", coach_document_id).execute()
+
+            supabase_admin.table("integration_synced_items").update({
+                "status": "deleted"
+            }).eq("integration_id", integration_id).eq("external_item_id", external_item_id).execute()
+        except Exception as e:
+            print(f"[CONNECTOR PURGE] Warning purging deleted item {external_item_id}: {e}")
+
+    @staticmethod
     async def sync_company_files(
         company_id: str,
-        provider: str = "google_drive"
+        provider: str = "google_drive",
+        integration_id: Optional[str] = None
     ) -> SyncBatchResult:
         """
-        Main Ingestion Routine:
+        Main Ingestion & CDC Routine:
         1. Reads monitored containers and subtrees.
         2. Downloads files, handles native workspace conversions.
-        3. Checks deduplication (skips unmodified).
+        3. Checks deduplication (skips unmodified content, but still reconciles changed ACLs).
         4. Detects updates: deletes old vector chunks, re-embeds document.
-        5. Detects deletions: removes vector chunks, updates status.
-        6. Updates integration_synced_items and coach_uploaded_documents.
+        5. Detects deletions: purges vector chunks, spreadsheet rows, and ReBAC tuples.
+        6. Syncs native cloud ACLs into Zanzibar ReBAC & materializes `acl_principals`.
         """
         start_time = time.time()
 
         # 1. Fetch integration
-        res = (
+        q = (
             supabase_admin.table("company_integrations")
             .select("*")
             .eq("company_id", company_id)
             .eq("provider", provider)
             .eq("status", "active")
-            .limit(1)
-            .execute()
         )
+        if integration_id:
+            q = q.eq("id", integration_id)
+        res = q.order("updated_at", desc=True).limit(1).execute()
         integration = res.data[0] if (res and getattr(res, "data", None)) else None
         if not integration:
             return SyncBatchResult(
                 provider=provider,
                 company_id=company_id,
+                integration_id=integration_id,
                 status="skipped",
                 message="No active integration found for company."
             )
 
         integration_id = integration["id"]
-        connected_user_id = integration.get("connected_by")
+        connected_user_id = integration.get("owner_user_id") or integration.get("connected_by")
         account_identifier = integration.get("account_identifier")
         config = integration.get("config") or {}
 
@@ -367,7 +504,7 @@ class ConnectorManager:
                 )
 
         connector = ConnectorRegistry.get(provider)
-        access_token = await ConnectorManager.get_valid_access_token(company_id, provider)
+        access_token = await ConnectorManager.get_valid_access_token(company_id, provider, integration_id=integration_id)
 
         synced_count = 0
         updated_count = 0
@@ -396,31 +533,68 @@ class ConnectorManager:
 
             print(f"[{provider.upper()} SYNC] Found {len(items)} eligible file(s) in container '{src.get('source_name')}'")
 
-            # 1. Batch fetch existing synced records to eliminate N individual roundtrips
+            # 1. Batch fetch existing synced records (including metadata for ACL diffing)
             item_ids = [it.item_id for it in items]
             existing_map: Dict[str, Dict[str, Any]] = {}
-            if item_ids:
-                for chunk_idx in range(0, len(item_ids), 150):
-                    chunk = item_ids[chunk_idx:chunk_idx + 150]
-                    try:
-                        ex_res = (
-                            supabase_admin.table("integration_synced_items")
-                            .select("id, status, content_hash, coach_document_id, external_item_id")
-                            .eq("integration_id", integration_id)
-                            .in_("external_item_id", chunk)
-                            .execute()
-                        )
-                        if ex_res and ex_res.data:
-                            for row in ex_res.data:
-                                existing_map[row["external_item_id"]] = row
-                    except Exception as ex_err:
-                        print(f"[{provider.upper()} SYNC] Batch query note: {ex_err}")
+            all_container_synced: List[Dict[str, Any]] = []
+            try:
+                cont_res = (
+                    supabase_admin.table("integration_synced_items")
+                    .select("id, status, content_hash, coach_document_id, external_item_id, metadata")
+                    .eq("integration_id", integration_id)
+                    .eq("source_id", container_id)
+                    .eq("status", "completed")
+                    .execute()
+                )
+                all_container_synced = getattr(cont_res, "data", None) or []
+                for row in all_container_synced:
+                    existing_map[row["external_item_id"]] = row
+            except Exception as ex_err:
+                print(f"[{provider.upper()} SYNC] Container synced fetch note: {ex_err}")
 
-            # 2. Filter out already-indexed unchanged files in memory (O(1) lookup, 0 network latency)
+            # 1B. Detect removed/deleted items in container and purge immediately
+            current_item_id_set = set(item_ids)
+            for prev_row in all_container_synced:
+                ext_id = prev_row.get("external_item_id")
+                if ext_id and ext_id not in current_item_id_set:
+                    await ConnectorManager._purge_deleted_item(
+                        company_id=company_id,
+                        integration_id=integration_id,
+                        external_item_id=ext_id,
+                        coach_document_id=prev_row.get("coach_document_id")
+                    )
+                    deleted_count += 1
+
+            # 2. Filter out already-indexed unchanged files, but reconcile changed native ACLs!
             items_to_process: List[Tuple[Any, Optional[Dict[str, Any]], bool]] = []
             for item in items:
                 existing = existing_map.get(item.item_id)
                 if existing and existing.get("status") == "completed" and existing.get("content_hash") == item.content_hash:
+                    prev_meta = existing.get("metadata") or {}
+                    prev_acls = sorted(set(prev_meta.get("acl_emails") or []))
+                    curr_acls = sorted(set(item.acl_emails or []))
+                    prev_ext_acls = sorted(set(prev_meta.get("member_ids") or prev_meta.get("acl_external_ids") or []))
+                    curr_ext_acls = sorted(set(item.acl_external_ids or []))
+                    if (prev_acls != curr_acls or prev_ext_acls != curr_ext_acls) and existing.get("coach_document_id"):
+                        try:
+                            sync_native_cloud_acls(
+                                company_id=company_id,
+                                provider=provider,
+                                document_id=existing["coach_document_id"],
+                                acl_emails=item.acl_emails,
+                                acl_external_ids=item.acl_external_ids,
+                                owner_email=item.owner_email,
+                                is_restricted_inheritance=item.is_restricted_inheritance,
+                            )
+                            new_meta = dict(prev_meta)
+                            new_meta["acl_emails"] = curr_acls
+                            new_meta["acl_external_ids"] = curr_ext_acls
+                            supabase_admin.table("integration_synced_items").update({
+                                "metadata": new_meta
+                            }).eq("id", existing["id"]).execute()
+                            updated_count += 1
+                        except Exception as acl_err:
+                            print(f"[{provider.upper()} CDC] ACL diff update warning: {acl_err}")
                     skipped_count += 1
                     continue
                 is_update = existing is not None and existing.get("content_hash") != item.content_hash
@@ -524,7 +698,10 @@ class ConnectorManager:
                                 storage_path=storage_path,
                                 file_hash=file_sha,
                                 target_employee_id=resolved_emp_id,
-                                manual_description=f"Auto-imported from {connector.display_name}: {src.get('source_name', 'Folder')}"
+                                manual_description=f"Auto-imported from {connector.display_name}: {src.get('source_name', 'Folder')}",
+                                source_integration_id=integration_id,
+                                source_container_id=container_id,
+                                author_user_id=connected_user_id,
                             )
                             doc_record_id = doc_record["id"]
 
@@ -556,8 +733,30 @@ class ConnectorManager:
                                 except Exception:
                                     pass
 
+                        # Sync native cloud ACLs into Zanzibar ReBAC & materialize acl_principals
+                        try:
+                            acl_emails = item.acl_emails or (item.metadata or {}).get("acl_emails") or (item.metadata or {}).get("detected_participants") or []
+                            acl_ext_ids = item.acl_external_ids or (item.metadata or {}).get("member_ids") or []
+                            sync_native_cloud_acls(
+                                company_id=company_id,
+                                provider=provider,
+                                document_id=doc_record_id,
+                                acl_emails=acl_emails,
+                                acl_external_ids=acl_ext_ids,
+                                owner_email=item.owner_email or (item.metadata or {}).get("owner_email") or (item.metadata or {}).get("host_email"),
+                                is_restricted_inheritance=item.is_restricted_inheritance,
+                            )
+                        except Exception as acl_sync_err:
+                            print(f"[{provider.upper()} SYNC] Native ACL sync warning: {acl_sync_err}")
+                            recompute_document_acl(doc_record_id, company_id=company_id)
+
                         # Record in integration_synced_items
                         now_iso = datetime.now(timezone.utc).isoformat()
+                        item_meta = dict(item.metadata or {})
+                        if item.acl_emails:
+                            item_meta["acl_emails"] = sorted(set(item.acl_emails))
+                        if item.acl_external_ids:
+                            item_meta["acl_external_ids"] = sorted(set(item.acl_external_ids))
                         synced_row = {
                             "integration_id": integration_id,
                             "company_id": company_id,
@@ -572,7 +771,7 @@ class ConnectorManager:
                             "external_modified_time": item.modified_time.isoformat() if item.modified_time else None,
                             "coach_document_id": doc_record_id,
                             "status": "completed",
-                            "metadata": item.metadata,
+                            "metadata": item_meta,
                             "synced_at": now_iso
                         }
                         supabase_admin.table("integration_synced_items").upsert(
@@ -651,17 +850,21 @@ class ConnectorManager:
             except Exception:
                 pass
 
+        if synced_count or updated_count or deleted_count:
+            invalidate_company_security_cache(company_id)
+
         elapsed = time.time() - start_time
         return SyncBatchResult(
             provider=provider,
             company_id=company_id,
+            integration_id=integration_id,
             status="success" if not errors else ("partial" if synced_count > 0 else "error"),
             synced_count=synced_count,
             updated_count=updated_count,
             deleted_count=deleted_count,
             skipped_count=skipped_count,
             errors=errors,
-            message=f"Ingested {synced_count} new file(s), updated {updated_count}, skipped {skipped_count}.",
+            message=f"Ingested {synced_count} new file(s), updated {updated_count}, deleted {deleted_count}, skipped {skipped_count}.",
             duration_seconds=round(elapsed, 2)
         )
 
@@ -697,7 +900,9 @@ class ConnectorManager:
                 continue
 
             try:
-                access_token = await ConnectorManager.get_valid_access_token(item["company_id"], provider)
+                access_token = await ConnectorManager.get_valid_access_token(
+                    item["company_id"], provider, integration_id=item.get("id")
+                )
                 watch_info = await connector.register_watch(access_token, folder_id, webhook_url)
                 if watch_info.get("channel_id"):
                     config.update({
@@ -716,29 +921,41 @@ class ConnectorManager:
         return renewed_count
 
     @staticmethod
-    async def disconnect_integration(company_id: str, provider: str = "google_drive") -> bool:
+    async def disconnect_integration(
+        company_id: str,
+        provider: str = "google_drive",
+        integration_id: Optional[str] = None
+    ) -> bool:
         """Disconnects integration, terminates watch channels, and clears Vault secrets."""
-        res = (
+        q = (
             supabase_admin.table("company_integrations")
             .select("*")
             .eq("company_id", company_id)
             .eq("provider", provider)
-            .limit(1)
-            .execute()
         )
+        if integration_id:
+            q = q.eq("id", integration_id)
+        res = q.order("updated_at", desc=True).limit(1).execute()
         integration = res.data[0] if (res and getattr(res, "data", None)) else None
         if not integration:
             return True
 
+        target_int_id = integration["id"]
         config = integration.get("config") or {}
         channel_id = config.get("webhook_channel_id")
         resource_id = config.get("webhook_resource_id")
 
         try:
-            token_rpc = supabase_admin.rpc("get_integration_tokens", {
+            rpc_args: Dict[str, Any] = {
                 "p_company_id": str(company_id),
-                "p_provider": provider
-            }).execute()
+                "p_provider": provider,
+                "p_integration_id": str(target_int_id)
+            }
+            try:
+                token_rpc = supabase_admin.rpc("get_integration_tokens", rpc_args).execute()
+            except Exception:
+                rpc_args.pop("p_integration_id", None)
+                token_rpc = supabase_admin.rpc("get_integration_tokens", rpc_args).execute()
             access_token = (getattr(token_rpc, "data", None) or {}).get("access_token")
             if access_token and channel_id and resource_id:
                 connector = ConnectorRegistry.get(provider)
@@ -747,10 +964,16 @@ class ConnectorManager:
             print(f"[{provider.upper()} DISCONNECT] Note stopping watch: {e}")
 
         # Delete secrets from Supabase Vault
-        supabase_admin.rpc("delete_integration_tokens", {
+        del_args: Dict[str, Any] = {
             "p_company_id": str(company_id),
-            "p_provider": provider
-        }).execute()
+            "p_provider": provider,
+            "p_integration_id": str(target_int_id)
+        }
+        try:
+            supabase_admin.rpc("delete_integration_tokens", del_args).execute()
+        except Exception:
+            del_args.pop("p_integration_id", None)
+            supabase_admin.rpc("delete_integration_tokens", del_args).execute()
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -759,7 +982,7 @@ class ConnectorManager:
             "status": "disconnected",
             "config": {},
             "updated_at": now_iso
-        }).eq("id", integration["id"]).execute()
+        }).eq("id", target_int_id).execute()
 
         # Update legacy table if Google Drive
         if provider == "google_drive":

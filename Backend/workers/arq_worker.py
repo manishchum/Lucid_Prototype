@@ -43,7 +43,7 @@ redis_settings = RedisSettings(
     conn_retries=5,
     conn_retry_delay=1,
     retry_on_timeout=True,
-    max_connections=50,
+    max_connections=int(os.getenv("ARQ_REDIS_MAX_CONNECTIONS", "4")),
     retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
 )
 
@@ -833,28 +833,86 @@ async def run_leaderboard_refresh(ctx: Optional[dict] = None) -> None:
 
 
 async def run_gdrive_webhook_renewal(ctx: Optional[dict] = None) -> None:
-    """Periodic task to automatically renew Google Drive watch webhooks."""
-    logger.info("[ARQ Worker] Checking expiring Google Drive watch webhooks...")
-    try:
-        from services.google_drive_service import renew_expiring_webhooks
-        renewed = await renew_expiring_webhooks()
-        if renewed:
-            logger.info(f"[ARQ Worker] Renewed {renewed} Google Drive watch channel(s).")
-    except Exception as e:
-        logger.error(f"[ARQ Worker] Error renewing Google Drive webhooks: {e}")
-
-
-async def run_connector_sync_task(ctx: Optional[dict], company_id: str, provider: str = "google_drive") -> dict:
-    """Background ARQ worker task to sync cloud connector files asynchronously."""
-    logger.info(f"[ARQ Worker] Starting async file sync for company {company_id} (provider: {provider})...")
+    """Periodic task to automatically renew expiring watch webhooks across connectors."""
+    logger.info("[ARQ Worker] Checking expiring connector watch webhooks...")
     try:
         from services.connectors import ConnectorManager
-        result = await ConnectorManager.sync_company_files(company_id=company_id, provider=provider)
+        total_renewed = 0
+        for provider in ("google_drive", "google_meet", "onedrive", "gmail"):
+            try:
+                total_renewed += await ConnectorManager.renew_expiring_webhooks(provider=provider)
+            except Exception as prov_err:
+                logger.warning(f"[ARQ Worker] Webhook renewal notice for {provider}: {prov_err}")
+        if total_renewed:
+            logger.info(f"[ARQ Worker] Renewed {total_renewed} connector watch channel(s).")
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error renewing connector webhooks: {e}")
+
+
+async def run_connector_sync_task(
+    ctx: Optional[dict],
+    company_id: str,
+    provider: str = "google_drive",
+    integration_id: Optional[str] = None,
+) -> dict:
+    """Background ARQ worker task to sync cloud connector files asynchronously."""
+    logger.info(
+        f"[ARQ Worker] Starting async file sync for company {company_id} "
+        f"(provider={provider}, integration_id={integration_id})..."
+    )
+    try:
+        from services.connectors import ConnectorManager
+        result = await ConnectorManager.sync_company_files(
+            company_id=company_id,
+            provider=provider,
+            integration_id=integration_id,
+        )
         logger.info(f"[ARQ Worker] Completed sync for company {company_id}: {result.synced_count} new, {result.updated_count} updated.")
         return result.model_dump()
     except Exception as e:
         logger.error(f"[ARQ Worker] Connector sync failed for company {company_id}: {e}")
         return {"status": "error", "message": str(e)}
+
+
+async def run_connector_cdc_task(
+    ctx: Optional[dict],
+    company_id: str,
+    provider: str = "google_drive",
+    integration_id: Optional[str] = None,
+) -> dict:
+    """Background ARQ worker task for webhook-triggered incremental CDC sync."""
+    logger.info(f"[ARQ Worker] Running incremental CDC sync for {provider}/{integration_id or company_id}")
+    try:
+        from services.connectors.cdc_worker import run_incremental_cdc_sync
+        return await run_incremental_cdc_sync(
+            company_id=company_id,
+            provider=provider,
+            integration_id=integration_id,
+        )
+    except Exception as e:
+        logger.error(f"[ARQ Worker] CDC task failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+async def run_cdc_reconciliation(ctx: Optional[dict] = None) -> None:
+    """Periodic 15m CDC reconciliation across active connectors."""
+    try:
+        from services.connectors.cdc_worker import reconcile_all_integrations_cdc
+        res = await reconcile_all_integrations_cdc()
+        logger.info(f"[ARQ Worker] CDC reconciliation finished: {res}")
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error in CDC reconciliation: {e}")
+
+
+async def run_expired_role_sweep(ctx: Optional[dict] = None) -> None:
+    """Periodic cron sweep for expired temporary role assignments and ReBAC shares."""
+    try:
+        from services.connectors.cdc_worker import sweep_expired_role_assignments
+        count = await sweep_expired_role_assignments()
+        if count:
+            logger.info(f"[ARQ Worker] Revoked {count} expired role/share assignment(s).")
+    except Exception as e:
+        logger.error(f"[ARQ Worker] Error in expired role sweep: {e}")
 
 def publish_coach_ingestion_progress(company_id: str, document_id: str, stage: str, percent: int, details: dict = None) -> None:
     """Publishes real-time coach ingestion progress to Redis Pub/Sub."""
@@ -993,8 +1051,14 @@ class WorkerSettings:
         # 5. Precompute company leaderboards into Redis ZSETs (hourly)
         cron(run_leaderboard_refresh, minute={0}),
 
-        # 6. Google Drive watch webhook renewal (hourly at minute 15)
+        # 6. Connector watch webhook renewal (hourly at minute 15)
         cron(run_gdrive_webhook_renewal, minute={15}),
+
+        # 7. Incremental CDC reconciliation across active connectors (every 15m)
+        cron(run_cdc_reconciliation, minute={0, 15, 30, 45}),
+
+        # 8. Temporary role/share expiration sweep (every 15m)
+        cron(run_expired_role_sweep, minute={5, 20, 35, 50}),
     ]
 
     # Callable task functions that can be dynamically enqueued via arq_client.enqueue_job()
@@ -1007,6 +1071,9 @@ class WorkerSettings:
         run_leaderboard_refresh,
         run_gdrive_webhook_renewal,
         run_connector_sync_task,
+        run_connector_cdc_task,
+        run_cdc_reconciliation,
+        run_expired_role_sweep,
         run_coach_document_ingestion_task,
     ]
 

@@ -49,6 +49,7 @@ from utils.arq_client import enqueue_job
 from utils.file_utils import sanitize_filename
 from ingestion.coach_store import create_document_record
 from ingestion.coach_pipeline import run_coach_file_ingestion
+from security.rebac import resolve_user_principals, invalidate_company_security_cache, is_missing_schema_error
 
 router = APIRouter(
     prefix="/api/coach",
@@ -267,8 +268,11 @@ async def check_preflight_conflicts(
     - Detects filename conflicts with modified contents (prompts Overwrite vs Version).
     """
     company_id = auth.company_id
-    if not company_id:
+    if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
+    has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")
+    if not has_perm:
+        raise HTTPException(status_code=403, detail="Permission denied: Only managers and administrators can run preflight checks.")
 
     results = []
     for item in payload.items:
@@ -332,6 +336,7 @@ async def upload_performance_document(
     file: UploadFile = File(...),
     target_employee_id: Optional[str] = Form(None),
     manual_description: Optional[str] = Form(None),
+    is_private_manager_note: bool = Form(False),
     conflict_mode: str = Form("fail_on_conflict"),  # "fail_on_conflict", "overwrite", "version", "skip"
     existing_doc_id: Optional[str] = Form(None),
     auth: RequestAuth = Depends(get_request_auth_required)
@@ -362,6 +367,14 @@ async def upload_performance_document(
         target_employee_id = target_employee_id.strip()
         if target_employee_id.lower() in ("none", "null", "undefined", ""):
             target_employee_id = None
+
+    if target_employee_id:
+        sec_ctx = await resolve_user_principals(user_id, company_id)
+        if not sec_ctx.can_query_employee(target_employee_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Permission denied: You can only scope coaching documents to employees in your reporting hierarchy.",
+            )
 
     if manual_description:
         manual_description = manual_description.strip() or None
@@ -490,7 +503,9 @@ async def upload_performance_document(
             storage_path=storage_path,
             file_hash=file_hash,
             target_employee_id=target_employee_id,
-            manual_description=manual_description
+            manual_description=manual_description,
+            author_user_id=user_id,
+            is_private_manager_note=is_private_manager_note,
         )
         doc_id = doc_record["id"]
 
@@ -564,8 +579,9 @@ async def upload_performance_document(
         }
     )
 
-    # Invalidate document catalog cache for company (L1 + L2)
+    # Invalidate document catalog & security cache for company (L1 + L2)
     invalidate_coach_docs_cached(company_id)
+    invalidate_company_security_cache(company_id)
 
     # Publish initial queued event over SSE
     publish_coach_progress(
@@ -679,18 +695,74 @@ def get_company_coach_stats(company_id: str) -> Dict[str, int]:
     return stats
 
 
+def _doc_visible_to_ctx(doc: Dict[str, Any], sec_ctx) -> bool:
+    if not sec_ctx or not sec_ctx.is_active:
+        return False
+    if doc.get("status") == "deleted":
+        return False
+    tier = doc.get("sensitivity_tier") or "internal"
+    if tier not in set(sec_ctx.allowed_tiers):
+        return False
+    user_p = set(sec_ctx.principals)
+    deny_p = set(doc.get("deny_principals") or [])
+    if deny_p & user_p:
+        return False
+    if sec_ctx.is_admin:
+        return True
+    acl_p = set(doc.get("acl_principals") or [])
+    if acl_p & user_p:
+        return True
+    author_id = str(doc.get("author_user_id") or doc.get("uploaded_by") or "")
+    if author_id and author_id == str(sec_ctx.user_id):
+        return True
+    target_emp = str(doc.get("target_employee_id") or "")
+    if target_emp and not bool(doc.get("is_private_manager_note")):
+        if target_emp == str(sec_ctx.user_id) or target_emp in set(sec_ctx.managed_employee_ids):
+            return True
+    return False
+
+
 @router.get("/stats")
 async def get_coach_stats(
     auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Returns company-wide document and ingestion stats across the entire vault:
-    total documents, completed documents, total vector chunks, and spreadsheet rows.
+    Returns RBAC-scoped document and ingestion stats across documents the caller can access.
     """
     company_id = auth.company_id
-    if not company_id:
+    if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
-    return get_company_coach_stats(company_id)
+    sec_ctx = await resolve_user_principals(auth.user_id, company_id)
+    if sec_ctx.is_admin:
+        return get_company_coach_stats(company_id)
+
+    try:
+        docs_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, uploaded_by, author_user_id, target_employee_id, is_private_manager_note, acl_principals, deny_principals, sensitivity_tier, parsed_metadata")
+            .eq("company_id", company_id)
+            .neq("status", "deleted")
+            .execute()
+        )
+    except Exception as col_err:
+        if not is_missing_schema_error(col_err):
+            raise
+        docs_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, uploaded_by, target_employee_id, parsed_metadata")
+            .eq("company_id", company_id)
+            .neq("status", "deleted")
+            .execute()
+        )
+    visible_docs = [d for d in (getattr(docs_res, "data", None) or []) if _doc_visible_to_ctx(d, sec_ctx)]
+    total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in visible_docs)
+    total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in visible_docs)
+    return {
+        "total_documents": len(visible_docs),
+        "completed_documents": sum(1 for d in visible_docs if d.get("status") == "completed"),
+        "total_chunks": total_chunks,
+        "total_spreadsheet_rows": total_rows,
+    }
 
 
 @router.get("/documents")
@@ -703,96 +775,92 @@ async def list_coach_documents(
     auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Paginated, searchable document catalog with server-side filtering.
+    Paginated, searchable document catalog filtered by caller's Zanzibar ReBAC principals.
     """
     company_id = auth.company_id
-    if not company_id:
+    if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
-    # Fast L1 (Memory) + L2 (Redis) Cache lookup (<1ms response time)
-    cache_key = f"coach_docs:{company_id}:{page}:{limit}:{search or ''}:{status or ''}:{source or ''}"
+    sec_ctx = await resolve_user_principals(auth.user_id, company_id)
+    if not sec_ctx.is_active:
+        return {"documents": [], "total": 0, "page": page, "limit": limit, "total_pages": 1, "stats": {"total_documents": 0, "completed_documents": 0, "total_chunks": 0, "total_spreadsheet_rows": 0}}
+
+    # Cache key includes caller's principals_hash to prevent cross-role cache leakage!
+    cache_key = f"coach_docs:{company_id}:{sec_ctx.principals_hash}:{page}:{limit}:{search or ''}:{status or ''}:{source or ''}"
     cached_data = get_coach_docs_cached(cache_key)
-    if cached_data is not None and "total_rows" in cached_data and "total_chunks" in cached_data:
+    if cached_data is not None and "stats" in cached_data:
         return cached_data
 
-    # Base query
-    query = (
-        supabase_admin.table("coach_uploaded_documents")
-        .select("id, file_name, file_type, file_size_bytes, status, description, manual_description, document_period, error_message, parsed_metadata, created_at, target_employee_id, uploaded_by, version", count="exact")
-        .eq("company_id", company_id)
+    _NEW_DOC_COLS = (
+        "id, file_name, file_type, file_size_bytes, status, description, manual_description, "
+        "document_period, error_message, parsed_metadata, created_at, target_employee_id, "
+        "uploaded_by, author_user_id, is_private_manager_note, acl_principals, deny_principals, "
+        "sensitivity_tier, source_integration_id, source_container_id, version"
+    )
+    _LEGACY_DOC_COLS = (
+        "id, file_name, file_type, file_size_bytes, status, description, manual_description, "
+        "document_period, error_message, parsed_metadata, created_at, target_employee_id, "
+        "uploaded_by, version"
     )
 
-    if search and search.strip():
-        query = query.ilike("file_name", f"%{search.strip()}%")
+    def _build_docs_query(select_cols: str):
+        q = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select(select_cols, count="exact")
+            .eq("company_id", company_id)
+            .neq("status", "deleted")
+        )
+        if search and search.strip():
+            q = q.ilike("file_name", f"%{search.strip()}%")
+        if status and status != "all":
+            q = q.eq("status", status)
+        if source == "gdrive":
+            q = q.ilike("manual_description", "%google drive%")
+        elif source == "manual":
+            q = q.not_.ilike("manual_description", "%google drive%")
+        return q
 
-    if status and status != "all":
-        query = query.eq("status", status)
+    if sec_ctx.is_admin:
+        offset = (page - 1) * limit
+        try:
+            res = _build_docs_query(_NEW_DOC_COLS).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            res = _build_docs_query(_LEGACY_DOC_COLS).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        visible_page = res.data or []
+        total_count = res.count or len(visible_page)
+        stats_payload = get_company_coach_stats(company_id)
+    else:
+        # Filter full authorized subset in Python for exact deny & sensitivity tier semantics
+        try:
+            all_res = _build_docs_query(_NEW_DOC_COLS).order("created_at", desc=True).limit(500).execute()
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            all_res = _build_docs_query(_LEGACY_DOC_COLS).order("created_at", desc=True).limit(500).execute()
+        authorized_docs = [d for d in (getattr(all_res, "data", None) or []) if _doc_visible_to_ctx(d, sec_ctx)]
+        total_count = len(authorized_docs)
+        offset = (page - 1) * limit
+        visible_page = authorized_docs[offset:offset + limit]
+        total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in authorized_docs)
+        total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in authorized_docs)
+        stats_payload = {
+            "total_documents": total_count,
+            "completed_documents": sum(1 for d in authorized_docs if d.get("status") == "completed"),
+            "total_chunks": total_chunks,
+            "total_spreadsheet_rows": total_rows,
+        }
 
-    if source == "gdrive":
-        query = query.ilike("manual_description", "%google drive%")
-    elif source == "manual":
-        query = query.not_.ilike("manual_description", "%google drive%")
-
-    # Calculate pagination offset
-    offset = (page - 1) * limit
-    res = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-
-    total_count = res.count or 0
     total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
-    # Exact aggregate counts for company vault
-    total_spreadsheet_rows = 0
-    total_vector_chunks = 0
-    try:
-        rows_res = (
-            supabase_admin.table("coach_spreadsheet_rows")
-            .select("id", count="exact")
-            .eq("company_id", company_id)
-            .limit(1)
-            .execute()
-        )
-        total_spreadsheet_rows = getattr(rows_res, "count", 0) or 0
-    except Exception as e:
-        print(f"[COACH DOCS] Note querying spreadsheet rows: {e}")
-
-    try:
-        chunks_res = (
-            supabase_admin.table("coach_document_chunks")
-            .select("id", count="exact")
-            .eq("company_id", company_id)
-            .limit(1)
-            .execute()
-        )
-        total_vector_chunks = getattr(chunks_res, "count", 0) or 0
-    except Exception as e:
-        print(f"[COACH DOCS] Note querying vector chunks: {e}")
-
-    # Fallback to sum of parsed_metadata across all company documents if direct table count is 0
-    if total_spreadsheet_rows == 0 or total_vector_chunks == 0:
-        try:
-            meta_res = (
-                supabase_admin.table("coach_uploaded_documents")
-                .select("parsed_metadata")
-                .eq("company_id", company_id)
-                .in_("status", ["completed", "embedding", "COMPLETED"])
-                .execute()
-            )
-            for d in (getattr(meta_res, "data", None) or []):
-                pm = d.get("parsed_metadata") or {}
-                if total_spreadsheet_rows == 0:
-                    total_spreadsheet_rows += (pm.get("spreadsheet_rows_count") or pm.get("total_rows") or pm.get("stored_rows") or 0)
-                if total_vector_chunks == 0:
-                    total_vector_chunks += (pm.get("chunks_count") or pm.get("total_chunks") or pm.get("chunk_count") or 0)
-        except Exception as meta_err:
-            print(f"[COACH DOCS] Note summing metadata: {meta_err}")
-
     catalog_result = {
-        "documents": res.data or [],
+        "documents": visible_page,
         "total": total_count,
         "page": page,
         "limit": limit,
         "total_pages": total_pages,
-        "stats": get_company_coach_stats(company_id)
+        "stats": stats_payload
     }
     set_coach_docs_cached(cache_key, catalog_result, ttl=120)
     return catalog_result
@@ -803,9 +871,9 @@ async def get_coach_document(
     document_id: str,
     auth: RequestAuth = Depends(get_request_auth_required)
 ):
-    """Get status and details of a specific coach document."""
+    """Get status and details of a specific coach document (RBAC verified)."""
     company_id = auth.company_id
-    await _verify_coach_admin_permission(auth.user_id)
+    sec_ctx = await resolve_user_principals(auth.user_id, company_id)
 
     res = (
         supabase_admin.table("coach_uploaded_documents")
@@ -818,6 +886,8 @@ async def get_coach_document(
 
     if not res.data:
         raise HTTPException(status_code=404, detail="Document not found.")
+    if not _doc_visible_to_ctx(res.data, sec_ctx):
+        raise HTTPException(status_code=403, detail="Permission denied: You do not have access to this document.")
 
     return res.data
 
@@ -831,16 +901,31 @@ async def get_document_download_url(
     Generates a secure, temporary (15-minute) signed URL to download or view the original file.
     """
     company_id = auth.company_id
-    doc_res = (
-        supabase_admin.table("coach_uploaded_documents")
-        .select("id, file_name, storage_path")
-        .eq("id", document_id)
-        .eq("company_id", company_id)
-        .maybe_single()
-        .execute()
-    )
+    sec_ctx = await resolve_user_principals(auth.user_id, company_id)
+    try:
+        doc_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, file_name, storage_path, status, uploaded_by, author_user_id, target_employee_id, is_private_manager_note, acl_principals, deny_principals, sensitivity_tier")
+            .eq("id", document_id)
+            .eq("company_id", company_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as col_err:
+        if not is_missing_schema_error(col_err):
+            raise
+        doc_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, file_name, storage_path, status, uploaded_by, target_employee_id")
+            .eq("id", document_id)
+            .eq("company_id", company_id)
+            .maybe_single()
+            .execute()
+        )
     if not doc_res or not getattr(doc_res, "data", None):
         raise HTTPException(status_code=404, detail="Document not found.")
+    if not _doc_visible_to_ctx(doc_res.data, sec_ctx):
+        raise HTTPException(status_code=403, detail="Permission denied: You do not have access to download this document.")
 
     storage_path = doc_res.data.get("storage_path")
     if not storage_path or storage_path.startswith("local_storage/"):
@@ -868,9 +953,35 @@ async def get_document_chunks(
     auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Fetches paginated vector chunks and proof citations for inspection.
+    Fetches paginated vector chunks and proof citations for inspection (RBAC verified).
     """
     company_id = auth.company_id
+    sec_ctx = await resolve_user_principals(auth.user_id, company_id)
+    try:
+        doc_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, uploaded_by, author_user_id, target_employee_id, is_private_manager_note, acl_principals, deny_principals, sensitivity_tier")
+            .eq("id", document_id)
+            .eq("company_id", company_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as col_err:
+        if not is_missing_schema_error(col_err):
+            raise
+        doc_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, uploaded_by, target_employee_id")
+            .eq("id", document_id)
+            .eq("company_id", company_id)
+            .maybe_single()
+            .execute()
+        )
+    if not doc_res or not getattr(doc_res, "data", None):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not _doc_visible_to_ctx(doc_res.data, sec_ctx):
+        raise HTTPException(status_code=403, detail="Permission denied: You do not have access to inspect this document.")
+
     offset = (page - 1) * limit
 
     chunks_res = (
@@ -957,8 +1068,9 @@ async def delete_coach_document(
         details={"storage_path": storage_path}
     )
 
-    # Invalidate document catalog cache for company (L1 + L2)
+    # Invalidate document catalog & security cache for company (L1 + L2)
     invalidate_coach_docs_cached(company_id)
+    invalidate_company_security_cache(company_id)
 
     return {"success": True, "message": f"Document '{file_name}' and all related vector chunks deleted."}
 
@@ -978,8 +1090,11 @@ async def stream_coach_events(
     Eliminates 3.5s interval polling.
     """
     company_id = auth.company_id
-    if not company_id:
+    if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
+    has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")
+    if not has_perm:
+        raise HTTPException(status_code=403, detail="Permission denied: Only managers and administrators can run preflight checks.")
 
     async def event_generator():
         company_key = str(company_id)

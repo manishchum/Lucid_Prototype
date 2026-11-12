@@ -29,6 +29,16 @@ from coach.tools.rag_tool import (
     format_chunks_for_context,
     extract_citations_from_chunks
 )
+from security.pii_firewall import sanitize_final_response
+
+
+def _get_role_level(state: CoachState) -> int:
+    sec = state.get("security_ctx")
+    if not sec:
+        return 3
+    if isinstance(sec, dict):
+        return int(sec.get("role_level", 1))
+    return int(getattr(sec, "role_level", 1))
 
 
 # ============================================================================
@@ -38,15 +48,16 @@ def introspect_node(state: CoachState) -> Dict[str, Any]:
     """Fetches available spreadsheet schemas and document catalog for the company."""
     company_id = state.get("company_id", "")
     user_query = state.get("user_query")
+    security_ctx = state.get("security_ctx")
 
     if not user_query and state.get("messages"):
         last_msg = state["messages"][-1]
         user_query = last_msg.content if isinstance(last_msg, HumanMessage) else str(last_msg)
 
-    schema_dict = get_company_spreadsheet_schema(company_id)
+    schema_dict = get_company_spreadsheet_schema(company_id, security_ctx=security_ctx)
     schema_prompt = format_schema_for_sql_prompt(schema_dict, company_id)
-    doc_catalog = get_company_document_catalog(company_id)
-    active_integrations = get_company_active_integrations(company_id)
+    doc_catalog = get_company_document_catalog(company_id, security_ctx=security_ctx)
+    active_integrations = get_company_active_integrations(company_id, security_ctx=security_ctx)
 
     return {
         "user_query": user_query or "",
@@ -285,8 +296,9 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
     """Executes SQL query via safe execute_coach_sql_query RPC."""
     company_id = state.get("company_id", "")
     sql_query = state.get("sql_query") or ""
+    security_ctx = state.get("security_ctx")
 
-    exec_res = execute_coach_sql(company_id=company_id, sql_query=sql_query)
+    exec_res = execute_coach_sql(company_id=company_id, sql_query=sql_query, security_ctx=security_ctx)
     current_retry = state.get("sql_retry_count", 0)
 
     if exec_res["success"]:
@@ -339,13 +351,15 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
     user_query = state.get("user_query", "")
     company_id = state.get("company_id", "")
     emp_id = state.get("target_employee_id")
+    security_ctx = state.get("security_ctx")
 
     chunks = search_coach_knowledge(
         query=user_query,
         company_id=company_id,
         target_employee_id=emp_id,
         match_count=6,
-        match_threshold=0.20
+        match_threshold=0.20,
+        security_ctx=security_ctx,
     )
     citations = extract_citations_from_chunks(chunks)
 
@@ -380,6 +394,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
     sql_query = state.get("sql_query")
     rag_chunks = state.get("rag_chunks", [])
     doc_catalog = state.get("document_catalog", [])
+    role_level = _get_role_level(state)
 
     # Case 0: Guardrail Triggered or Out-of-Scope Deflection
     if state.get("guardrail_triggered") or intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
@@ -535,7 +550,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                 max_tokens=900
             )
             ans = resp.choices[0].message.content or ""
-            return {"final_response": ans.strip()}
+            return {"final_response": sanitize_final_response(ans.strip(), role_level)}
         except Exception as e:
             print(f"[COACH SYNTHESIZER] OpenAI synthesis failed: {e}")
 
@@ -553,13 +568,14 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                 config=config
             )
             ans = res.text or ""
-            return {"final_response": ans.strip()}
+            return {"final_response": sanitize_final_response(ans.strip(), role_level)}
         except Exception as e:
             print(f"[COACH SYNTHESIZER] Gemini synthesis failed: {e}")
 
     # Fallback if no LLM configured
     if sql_result:
-        return {"final_response": f"Retrieved {len(sql_result)} records from spreadsheet data:\n\n```json\n{json.dumps(sql_result, indent=2)}\n```"}
+        fallback_txt = f"Retrieved {len(sql_result)} records from spreadsheet data:\n\n```json\n{json.dumps(sql_result, indent=2)}\n```"
+        return {"final_response": sanitize_final_response(fallback_txt, role_level)}
     elif rag_chunks:
-        return {"final_response": format_chunks_for_context(rag_chunks)}
+        return {"final_response": sanitize_final_response(format_chunks_for_context(rag_chunks), role_level)}
     return {"final_response": "I was unable to connect to the reasoning model to synthesize an answer."}

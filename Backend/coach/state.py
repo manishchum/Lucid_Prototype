@@ -16,6 +16,7 @@ class CoachState(TypedDict, total=False):
     user_id: str
     target_employee_id: Optional[str]
     target_employee_name: Optional[str]
+    security_ctx: Optional[Dict[str, Any]]
 
     # Introspection State
     schema_dict: Dict[str, Any]

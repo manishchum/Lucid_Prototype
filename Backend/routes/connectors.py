@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from config import FRONTEND_URL
 from utils.auth import RequestAuth, get_request_auth_required
+from utils.db.permissions import check_user_permission
 import hmac
 import hashlib
 from utils.supabase_client import supabase_admin
@@ -25,11 +26,143 @@ from utils.redis_client import redis_client
 from services.connectors import ConnectorManager, ConnectorRegistry
 from services.connectors.providers.slack.client import verify_slack_signature, get_slack_credentials
 from services.connectors.providers.zoom.client import validate_zoom_crc, verify_zoom_signature, get_zoom_credentials
+from security.rebac import is_missing_schema_error
 
 router = APIRouter(
     prefix="/api/connectors",
     tags=["Unified Cloud Connectors"]
 )
+
+
+def _audit_connector_event(
+    company_id: str,
+    actor_id: Optional[str],
+    actor_email: Optional[str],
+    action: str,
+    target_id: Optional[str] = None,
+    target_name: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+    status: str = "SUCCESS",
+) -> None:
+    try:
+        supabase_admin.table("audit_logs").insert({
+            "company_id": str(company_id),
+            "actor_id": str(actor_id) if actor_id else None,
+            "actor_email": actor_email,
+            "action": action,
+            "action_category": "CONNECTOR_RBAC",
+            "target_type": "connector_integration",
+            "target_id": str(target_id) if target_id else None,
+            "target_name": target_name,
+            "details": details or {},
+            "status": status,
+        }).execute()
+    except Exception as e:
+        print(f"[CONNECTOR AUDIT] Note: {e}")
+
+
+async def require_manager_or_above(
+    auth: RequestAuth = Depends(get_request_auth_required),
+) -> RequestAuth:
+    """Enforces Role Level >= 2 (Manager, Admin, Super Admin, Developer) on all connector endpoints."""
+    if not auth.company_id or not auth.user_id:
+        raise HTTPException(status_code=400, detail="Authenticated company_id and user_id are required.")
+
+    has_perm = await check_user_permission(auth.user_id, "manager")
+    if not has_perm:
+        _audit_connector_event(
+            company_id=auth.company_id,
+            actor_id=auth.user_id,
+            actor_email=auth.email,
+            action="CONNECTOR_ACCESS_DENIED",
+            details={"reason": "role_below_manager"},
+            status="FAILED",
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: Only users with Manager role or higher can access or manage ingestion connectors.",
+        )
+    return auth
+
+
+async def _verify_integration_management_access(
+    auth: RequestAuth,
+    provider: str,
+    integration_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Verifies caller has permission to inspect/mutate a connector instance:
+    - Admin+ (level >= 3) can manage any instance in their company.
+    - Manager (level == 2) can only manage instances they own (`owner_user_id` or `connected_by`).
+    """
+    is_admin = await check_user_permission(auth.user_id, "admin")
+    q = (
+        supabase_admin.table("company_integrations")
+        .select("*")
+        .eq("company_id", str(auth.company_id))
+        .eq("provider", provider)
+        .eq("status", "active")
+    )
+    if integration_id:
+        q = q.eq("id", integration_id)
+    elif not is_admin:
+        # Prefer manager's own instance when integration_id is omitted
+        try:
+            own_res = (
+                supabase_admin.table("company_integrations")
+                .select("*")
+                .eq("company_id", str(auth.company_id))
+                .eq("provider", provider)
+                .eq("status", "active")
+                .eq("owner_user_id", str(auth.user_id))
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            own_rows = getattr(own_res, "data", None) or []
+            if own_rows:
+                return own_rows[0]
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            own_res = (
+                supabase_admin.table("company_integrations")
+                .select("*")
+                .eq("company_id", str(auth.company_id))
+                .eq("provider", provider)
+                .eq("status", "active")
+                .eq("connected_by", str(auth.user_id))
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            own_rows = getattr(own_res, "data", None) or []
+            if own_rows:
+                return own_rows[0]
+
+    res = q.order("updated_at", desc=True).limit(1).execute()
+    rows = getattr(res, "data", None) or []
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No active '{provider}' connector integration found.")
+
+    integ = rows[0]
+    owner_id = str(integ.get("owner_user_id") or integ.get("connected_by") or "")
+    if not is_admin and owner_id != str(auth.user_id):
+        _audit_connector_event(
+            company_id=auth.company_id,
+            actor_id=auth.user_id,
+            actor_email=auth.email,
+            action="CONNECTOR_MANAGEMENT_DENIED",
+            target_id=str(integ.get("id")),
+            target_name=provider,
+            details={"owner_user_id": owner_id, "connection_scope": integ.get("connection_scope")},
+            status="FAILED",
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied: Managers can only manage their own connected integrations.",
+        )
+    return integ
 
 
 class SelectContainerRequest(BaseModel):
@@ -39,18 +172,29 @@ class SelectContainerRequest(BaseModel):
     container_type: str = "folder"
     is_recursive: bool = True
     drive_id: Optional[str] = None
+    integration_id: Optional[str] = None
 
 
 @router.get("/status")
 async def get_all_connectors_status(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
     """
-    Returns connection and sync status for all registered cloud providers.
+    Returns connection and sync status for all registered cloud providers and accessible multi-instance connections.
+    Admins see all org instances; Managers see instances they own or org-wide connectors.
     """
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
+    is_admin = await check_user_permission(auth.user_id, "admin")
+
+    all_instances = await ConnectorManager.list_connector_statuses(company_id=company_id)
+    visible_instances = []
+    for st in all_instances:
+        is_owner = str(st.owner_user_id or "") == str(auth.user_id)
+        if is_admin or is_owner or st.connection_scope == "org":
+            dump = st.model_dump()
+            dump["is_owner"] = is_owner
+            dump["can_manage"] = is_admin or is_owner
+            visible_instances.append(dump)
 
     providers = ConnectorRegistry.list_providers()
     statuses = []
@@ -58,54 +202,90 @@ async def get_all_connectors_status(
     for p in providers:
         provider_name = p["provider"]
         try:
-            st = await ConnectorManager.get_connector_status(company_id=company_id, provider=provider_name)
-            statuses.append({
-                "provider": provider_name,
-                "display_name": p["display_name"],
-                "connected": st.connected,
-                "status": st.status,
-                "account_identifier": st.account_identifier,
-                "monitored_source_id": st.monitored_source_id,
-                "monitored_source_name": st.monitored_source_name,
-                "monitored_source_path": st.monitored_source_path,
-                "monitored_source_type": st.monitored_source_type,
-                "is_recursive": st.is_recursive,
-                "webhook_active": st.webhook_active,
-                "last_synced_at": st.last_synced_at,
-                "total_synced_files": st.total_synced_files,
-                "error_message": st.error_message,
-                "connected_at": st.connected_at
-            })
+            matching = [inst for inst in visible_instances if inst["provider"] == provider_name]
+            # Prefer caller's own instance if multiple exist for same provider
+            matching.sort(key=lambda x: (not x.get("is_owner"), x.get("connection_scope") != "org"))
+            if matching:
+                st = matching[0]
+                statuses.append({
+                    "provider": provider_name,
+                    "display_name": p["display_name"],
+                    "integration_id": st.get("integration_id"),
+                    "owner_user_id": st.get("owner_user_id"),
+                    "connection_scope": st.get("connection_scope"),
+                    "assigned_team_id": st.get("assigned_team_id"),
+                    "visibility_mode": st.get("visibility_mode"),
+                    "can_manage": st.get("can_manage", False),
+                    "connected": st.get("connected", False),
+                    "status": st.get("status", "disconnected"),
+                    "account_identifier": st.get("account_identifier"),
+                    "monitored_source_id": st.get("monitored_source_id"),
+                    "monitored_source_name": st.get("monitored_source_name"),
+                    "monitored_source_path": st.get("monitored_source_path"),
+                    "monitored_source_type": st.get("monitored_source_type"),
+                    "is_recursive": st.get("is_recursive", True),
+                    "webhook_active": st.get("webhook_active", False),
+                    "last_synced_at": st.get("last_synced_at"),
+                    "total_synced_files": st.get("total_synced_files", 0),
+                    "error_message": st.get("error_message"),
+                    "connected_at": st.get("connected_at"),
+                })
+            else:
+                statuses.append({
+                    "provider": provider_name,
+                    "display_name": p["display_name"],
+                    "connected": False,
+                    "status": "disconnected",
+                    "can_manage": True,
+                })
         except Exception as e:
             statuses.append({
                 "provider": provider_name,
                 "display_name": p["display_name"],
                 "connected": False,
                 "status": "error",
-                "error_message": str(e)
+                "error_message": str(e),
             })
 
-    return {"connectors": statuses}
+    return {"connectors": statuses, "instances": visible_instances}
 
 
 @router.get("/{provider}/status")
 async def get_single_connector_status(
     provider: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    integration_id: Optional[str] = Query(None),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
-    """Returns detailed status of a specific cloud connector."""
+    """Returns detailed status of a specific cloud connector (or instance)."""
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
-
     if not ConnectorRegistry.is_registered(provider):
         raise HTTPException(status_code=404, detail=f"Provider '{provider}' is not supported.")
 
-    status = await ConnectorManager.get_connector_status(company_id=company_id, provider=provider)
+    is_admin = await check_user_permission(auth.user_id, "admin")
+    all_instances = await ConnectorManager.list_connector_statuses(company_id=company_id, provider=provider)
+    if integration_id:
+        all_instances = [st for st in all_instances if st.integration_id == integration_id]
+    visible = [
+        st for st in all_instances
+        if is_admin or str(st.owner_user_id or "") == str(auth.user_id) or st.connection_scope == "org"
+    ]
+    if visible:
+        visible.sort(key=lambda x: (str(x.owner_user_id or "") != str(auth.user_id), x.connection_scope != "org"))
+        status = visible[0]
+    else:
+        status = await ConnectorManager.get_connector_status(company_id=company_id, provider=provider, integration_id=integration_id)
+        if not is_admin and status.connected and str(status.owner_user_id or "") != str(auth.user_id) and status.connection_scope != "org":
+            return {"connected": False, "provider": provider, "integration": None}
+
     return {
         "connected": status.connected,
         "provider": provider,
         "integration": {
+            "id": status.integration_id,
+            "owner_user_id": status.owner_user_id,
+            "connection_scope": status.connection_scope,
+            "assigned_team_id": status.assigned_team_id,
+            "visibility_mode": status.visibility_mode,
             "account_identifier": status.account_identifier,
             "container_id": status.monitored_source_id,
             "container_name": status.monitored_source_name,
@@ -127,7 +307,14 @@ async def get_single_connector_status(
 _in_memory_oauth_state: Dict[str, Dict[str, Any]] = {}
 
 
-def persist_oauth_state(provider: str, company_id: str, user_id: str, auth_url: str, ttl: int = 900) -> Optional[str]:
+def persist_oauth_state(
+    provider: str,
+    company_id: str,
+    user_id: str,
+    auth_url: str,
+    ttl: int = 900,
+    extra_state: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
     """
     Extracts the nonce / state token from auth_url, persists it in Redis (and memory fallback)
     with a TTL (default 15 mins = 900s) to prevent CSRF, session fixation, and account binding attacks.
@@ -153,7 +340,8 @@ def persist_oauth_state(provider: str, company_id: str, user_id: str, auth_url: 
             "user_id": str(user_id),
             "provider": provider,
             "nonce": nonce,
-            "created_at": time.time()
+            "created_at": time.time(),
+            **(extra_state or {}),
         }
         record_json = json.dumps(state_record)
 
@@ -253,19 +441,48 @@ def verify_and_consume_oauth_state(provider: str, state: Optional[str]) -> Optio
 @router.get("/{provider}/auth-url")
 async def get_connector_auth_url(
     provider: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    connection_scope: str = Query("team", description="org | team | personal"),
+    assigned_team_id: Optional[str] = Query(None),
+    assigned_team_type: Optional[str] = Query(None),
+    visibility_mode: str = Query("acl_sync", description="acl_sync | team_only | company_wide"),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
-    """Generates the OAuth consent URL for the requested cloud provider and persists state server-side."""
+    """Generates the OAuth consent URL for the requested cloud provider and persists RBAC scope server-side."""
     company_id = auth.company_id
     user_id = auth.user_id
-    if not company_id or not user_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id and user_id required.")
+
+    scope_clean = (connection_scope or "team").lower()
+    vis_clean = (visibility_mode or "acl_sync").lower()
+    if scope_clean not in ("org", "team", "personal"):
+        raise HTTPException(status_code=400, detail="connection_scope must be 'org', 'team', or 'personal'.")
+    if vis_clean not in ("acl_sync", "team_only", "company_wide"):
+        raise HTTPException(status_code=400, detail="visibility_mode must be 'acl_sync', 'team_only', or 'company_wide'.")
+
+    # Org-wide / company-wide connections require Admin+
+    if scope_clean == "org" or vis_clean == "company_wide":
+        is_admin = await check_user_permission(user_id, "admin")
+        if not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Only Company Administrators can establish org-wide or company-wide connectors.",
+            )
 
     try:
         connector = ConnectorRegistry.get(provider)
         auth_url = connector.generate_auth_url(company_id=company_id, user_id=user_id)
-        persist_oauth_state(provider=provider, company_id=company_id, user_id=user_id, auth_url=auth_url)
-        return {"provider": provider, "auth_url": auth_url}
+        persist_oauth_state(
+            provider=provider,
+            company_id=company_id,
+            user_id=user_id,
+            auth_url=auth_url,
+            extra_state={
+                "connection_scope": scope_clean,
+                "assigned_team_id": assigned_team_id,
+                "assigned_team_type": assigned_team_type,
+                "visibility_mode": vis_clean,
+            },
+        )
+        return {"provider": provider, "auth_url": auth_url, "connection_scope": scope_clean}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
@@ -284,7 +501,7 @@ async def connector_oauth_callback(
 ):
     """
     Universal OAuth redirect callback.
-    Exchanges code for tokens, encrypts in Supabase Vault, creates integration record,
+    Re-verifies manager+ role, creates multi-instance integration record, encrypts in Vault,
     and returns a postMessage HTML popup response.
     """
     if error:
@@ -369,15 +586,68 @@ async def connector_oauth_callback(
     company_id = state_record.get("company_id")
     user_id = state_record.get("user_id")
 
-    if not company_id:
+    if not company_id or not user_id:
         return HTMLResponse(content=f"""
         <html><body><script>
             if (window.opener) {{
-                window.opener.postMessage({{ type: "CONNECTOR_OAUTH_ERROR", provider: "{provider}", error: "State parameter missing company context." }}, "*");
+                window.opener.postMessage({{ type: "CONNECTOR_OAUTH_ERROR", provider: "{provider}", error: "State parameter missing company or user context." }}, "*");
             }}
             window.close();
         </script><p>Authentication failed: State parameter missing company context.</p></body></html>
         """, status_code=400)
+
+    # Defense-in-depth: verify caller still has Manager+ role at callback time
+    has_perm = await check_user_permission(user_id, "manager")
+    if not has_perm:
+        _audit_connector_event(
+            company_id=company_id,
+            actor_id=user_id,
+            actor_email=None,
+            action="CONNECTOR_OAUTH_CALLBACK_DENIED",
+            target_name=provider,
+            details={"reason": "role_below_manager_at_callback"},
+            status="FAILED",
+        )
+        return HTMLResponse(content=f"""
+        <html><body><script>
+            if (window.opener) {{
+                window.opener.postMessage({{ type: "CONNECTOR_OAUTH_ERROR", provider: "{provider}", error: "Permission denied: Manager role or higher required." }}, "*");
+            }}
+            window.close();
+        </script><p>Permission denied: Manager role or higher required.</p></body></html>
+        """, status_code=403)
+
+    connection_scope = state_record.get("connection_scope") or "team"
+    assigned_team_id = state_record.get("assigned_team_id")
+    assigned_team_type = state_record.get("assigned_team_type")
+    visibility_mode = state_record.get("visibility_mode") or "acl_sync"
+
+    # Re-check Admin role if org scope requested
+    if connection_scope == "org" or visibility_mode == "company_wide":
+        is_admin = await check_user_permission(user_id, "admin")
+        if not is_admin:
+            connection_scope = "team"
+            visibility_mode = "acl_sync"
+
+    # Auto-derive assigned_team_id from manager's function/sub_function if team scope omitted it
+    if connection_scope == "team" and not assigned_team_id:
+        try:
+            u_res = (
+                supabase_admin.table("users")
+                .select("function_id, sub_function_id")
+                .eq("user_id", str(user_id))
+                .maybe_single()
+                .execute()
+            )
+            u_data = getattr(u_res, "data", None) or {}
+            if u_data.get("sub_function_id"):
+                assigned_team_id = str(u_data["sub_function_id"])
+                assigned_team_type = assigned_team_type or "sub_function"
+            elif u_data.get("function_id"):
+                assigned_team_id = str(u_data["function_id"])
+                assigned_team_type = assigned_team_type or "function"
+        except Exception:
+            pass
 
     connector = ConnectorRegistry.get(provider)
 
@@ -400,31 +670,116 @@ async def connector_oauth_callback(
     now_dt = datetime.now(timezone.utc)
     token_expires_at = (now_dt + timedelta(seconds=expires_in)).isoformat()
 
-    # 1. Upsert company_integrations record
+    # 1. Upsert multi-instance company_integrations record
     now_iso = now_dt.isoformat()
     integration_row = {
         "company_id": company_id,
         "provider": provider,
         "status": "active",
         "connected_by": user_id,
+        "owner_user_id": user_id,
+        "connection_scope": connection_scope,
+        "assigned_team_type": assigned_team_type,
+        "assigned_team_id": assigned_team_id,
+        "visibility_mode": visibility_mode,
         "account_identifier": account_identifier,
         "token_expires_at": token_expires_at,
         "config": token_payload.get("extra") or {},
         "updated_at": now_iso
     }
-    supabase_admin.table("company_integrations").upsert(
-        integration_row,
-        on_conflict="company_id,provider"
-    ).execute()
 
-    # 2. Store tokens in Supabase Vault securely
-    supabase_admin.rpc("store_integration_tokens", {
+    try:
+        existing_inst_res = (
+            supabase_admin.table("company_integrations")
+            .select("id")
+            .eq("company_id", company_id)
+            .eq("provider", provider)
+            .eq("owner_user_id", user_id)
+            .eq("account_identifier", account_identifier)
+            .limit(1)
+            .execute()
+        )
+        existing_inst = getattr(existing_inst_res, "data", None) or []
+        if existing_inst:
+            integration_id = str(existing_inst[0]["id"])
+            supabase_admin.table("company_integrations").update(integration_row).eq("id", integration_id).execute()
+        else:
+            ins_res = supabase_admin.table("company_integrations").insert(integration_row).execute()
+            ins_rows = getattr(ins_res, "data", None) or []
+            integration_id = str(ins_rows[0]["id"]) if ins_rows else None
+    except Exception as col_err:
+        if not is_missing_schema_error(col_err):
+            raise
+        legacy_row = {
+            "company_id": company_id,
+            "provider": provider,
+            "status": "active",
+            "connected_by": user_id,
+            "account_identifier": account_identifier,
+            "token_expires_at": token_expires_at,
+            "config": token_payload.get("extra") or {},
+            "updated_at": now_iso,
+        }
+        existing_legacy_res = (
+            supabase_admin.table("company_integrations")
+            .select("id")
+            .eq("company_id", company_id)
+            .eq("provider", provider)
+            .limit(1)
+            .execute()
+        )
+        existing_legacy = getattr(existing_legacy_res, "data", None) or []
+        if existing_legacy:
+            integration_id = str(existing_legacy[0]["id"])
+            supabase_admin.table("company_integrations").update(legacy_row).eq("id", integration_id).execute()
+        else:
+            ins_res = supabase_admin.table("company_integrations").insert(legacy_row).execute()
+            ins_rows = getattr(ins_res, "data", None) or []
+            integration_id = str(ins_rows[0]["id"]) if ins_rows else None
+
+    # Record primary external identity alias for ACL mapping
+    try:
+        if "@" in str(account_identifier):
+            supabase_admin.table("user_external_identities").upsert({
+                "user_id": str(user_id),
+                "company_id": str(company_id),
+                "provider": provider,
+                "external_email": str(account_identifier).strip().lower(),
+                "verified": True,
+                "updated_at": now_iso,
+            }, on_conflict="company_id,provider,user_id").execute()
+    except Exception:
+        pass
+
+    # 2. Store tokens in Supabase Vault securely scoped by integration_id
+    vault_args: Dict[str, Any] = {
         "p_company_id": str(company_id),
         "p_provider": provider,
         "p_access_token": access_token,
         "p_refresh_token": refresh_token or "",
-        "p_token_expires_at": token_expires_at
-    }).execute()
+        "p_token_expires_at": token_expires_at,
+    }
+    if integration_id:
+        vault_args["p_integration_id"] = integration_id
+    try:
+        supabase_admin.rpc("store_integration_tokens", vault_args).execute()
+    except Exception:
+        vault_args.pop("p_integration_id", None)
+        supabase_admin.rpc("store_integration_tokens", vault_args).execute()
+
+    _audit_connector_event(
+        company_id=company_id,
+        actor_id=user_id,
+        actor_email=account_identifier if "@" in str(account_identifier) else None,
+        action="CONNECTOR_CONNECTED",
+        target_id=integration_id,
+        target_name=f"{provider}:{account_identifier}",
+        details={
+            "connection_scope": connection_scope,
+            "assigned_team_id": assigned_team_id,
+            "visibility_mode": visibility_mode,
+        },
+    )
 
     # 3. Discover default container & trigger initial sync in background
     async def _post_connect_setup():
@@ -439,9 +794,14 @@ async def connector_oauth_callback(
                     container_path=first_container.path,
                     container_type=first_container.container_type,
                     drive_id=first_container.drive_id,
-                    provider=provider
+                    provider=provider,
+                    integration_id=integration_id,
                 )
-                await ConnectorManager.sync_company_files(company_id, provider=provider)
+                await ConnectorManager.sync_company_files(
+                    company_id,
+                    provider=provider,
+                    integration_id=integration_id,
+                )
         except Exception as e:
             print(f"[{provider.upper()} AUTO-SETUP] Note: {e}")
 
@@ -463,7 +823,8 @@ async def connector_oauth_callback(
           window.opener.postMessage({{
             type: "CONNECTOR_OAUTH_SUCCESS",
             provider: "{provider}",
-            account: "{account_identifier}"
+            account: "{account_identifier}",
+            integration_id: "{integration_id or ''}"
           }}, "*");
         }}
         setTimeout(() => {{ window.close(); }}, 1200);
@@ -479,18 +840,19 @@ async def list_connector_containers(
     parent_id: Optional[str] = Query(None),
     drive_id: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    integration_id: Optional[str] = Query(None),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
     """
     Returns browseable hierarchy of containers (folders, channels, labels, recordings).
     Supports lazy hierarchical drill-down via parent_id / drive_id.
     """
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id required.")
+    integ = await _verify_integration_management_access(auth, provider, integration_id=integration_id)
+    target_int_id = str(integ["id"])
 
     connector = ConnectorRegistry.get(provider)
-    access_token = await ConnectorManager.get_valid_access_token(company_id, provider)
+    access_token = await ConnectorManager.get_valid_access_token(company_id, provider, integration_id=target_int_id)
 
     try:
         containers = await connector.list_containers(
@@ -501,6 +863,7 @@ async def list_connector_containers(
         )
         return {
             "provider": provider,
+            "integration_id": target_int_id,
             "parent_id": parent_id,
             "containers": [c.model_dump() for c in containers]
         }
@@ -513,14 +876,16 @@ async def select_connector_container(
     provider: str,
     payload: SelectContainerRequest,
     background_tasks: BackgroundTasks,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    integration_id: Optional[str] = Query(None),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
     """
-    Sets the active monitored source for the provider and kicks off real-time push watch.
+    Sets the active monitored source for the provider instance and kicks off real-time push watch.
     """
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id required.")
+    target_int_id_req = payload.integration_id or integration_id
+    integ = await _verify_integration_management_access(auth, provider, integration_id=target_int_id_req)
+    target_int_id = str(integ["id"])
 
     result = await ConnectorManager.select_monitored_container(
         company_id=company_id,
@@ -530,18 +895,31 @@ async def select_connector_container(
         container_type=payload.container_type,
         is_recursive=payload.is_recursive,
         drive_id=payload.drive_id,
-        provider=provider
+        provider=provider,
+        integration_id=target_int_id,
+    )
+
+    _audit_connector_event(
+        company_id=company_id,
+        actor_id=auth.user_id,
+        actor_email=auth.email,
+        action="CONNECTOR_CONTAINER_SELECTED",
+        target_id=target_int_id,
+        target_name=payload.container_name,
+        details={"provider": provider, "container_id": payload.container_id},
     )
 
     # Trigger initial scan in background
     background_tasks.add_task(
         ConnectorManager.sync_company_files,
         company_id=company_id,
-        provider=provider
+        provider=provider,
+        integration_id=target_int_id,
     )
 
     return {
         "success": True,
+        "integration_id": target_int_id,
         "message": f"Successfully monitoring {payload.container_name}. Initial sync initiated.",
         "result": result
     }
@@ -551,18 +929,32 @@ async def select_connector_container(
 async def sync_connector_now(
     provider: str,
     background_tasks: BackgroundTasks,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    integration_id: Optional[str] = Query(None),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
-    """Triggers an on-demand sync run across all monitored sources for the provider."""
+    """Triggers an on-demand sync run across all monitored sources for the provider instance."""
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id required.")
+    integ = await _verify_integration_management_access(auth, provider, integration_id=integration_id)
+    target_int_id = str(integ["id"])
 
-    # Execute sync directly or in background
-    res = await ConnectorManager.sync_company_files(company_id=company_id, provider=provider)
+    res = await ConnectorManager.sync_company_files(
+        company_id=company_id,
+        provider=provider,
+        integration_id=target_int_id,
+    )
+    _audit_connector_event(
+        company_id=company_id,
+        actor_id=auth.user_id,
+        actor_email=auth.email,
+        action="CONNECTOR_SYNC_TRIGGERED",
+        target_id=target_int_id,
+        target_name=provider,
+        details={"synced": res.synced_count, "updated": res.updated_count, "deleted": res.deleted_count},
+    )
     return {
         "success": True,
         "provider": provider,
+        "integration_id": target_int_id,
         "result": res.model_dump()
     }
 
@@ -570,16 +962,30 @@ async def sync_connector_now(
 @router.post("/{provider}/disconnect")
 async def disconnect_connector(
     provider: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    integration_id: Optional[str] = Query(None),
+    auth: RequestAuth = Depends(require_manager_or_above)
 ):
-    """Disconnects provider, cleans Vault tokens, and terminates webhooks."""
+    """Disconnects provider instance, cleans Vault tokens, and terminates webhooks."""
     company_id = auth.company_id
-    if not company_id:
-        raise HTTPException(status_code=400, detail="Authenticated company_id required.")
+    integ = await _verify_integration_management_access(auth, provider, integration_id=integration_id)
+    target_int_id = str(integ["id"])
 
-    success = await ConnectorManager.disconnect_integration(company_id=company_id, provider=provider)
+    success = await ConnectorManager.disconnect_integration(
+        company_id=company_id,
+        provider=provider,
+        integration_id=target_int_id,
+    )
+    _audit_connector_event(
+        company_id=company_id,
+        actor_id=auth.user_id,
+        actor_email=auth.email,
+        action="CONNECTOR_DISCONNECTED",
+        target_id=target_int_id,
+        target_name=provider,
+    )
     return {
         "success": success,
+        "integration_id": target_int_id,
         "message": f"Disconnected {provider} successfully."
     }
 
@@ -665,7 +1071,7 @@ async def connector_webhook_listener(
             pass
 
     has_shared_secret = check_shared_secret(request, provider)
-    target_company_ids: List[str] = []
+    target_targets: List[tuple] = []  # List[(company_id, integration_id)]
 
     # ── 2. Provider-Specific Verification & Tenant Resolution ───────
 
@@ -697,7 +1103,7 @@ async def connector_webhook_listener(
         if not sig_verified and not has_shared_secret:
             raise HTTPException(status_code=401, detail="Invalid or missing Slack webhook signature/secret.")
 
-        # Resolve tenant: team_id
+        # Resolve tenant & integration instance: team_id
         team_id = body_json.get("team_id")
         if not team_id:
             auths = body_json.get("authorizations") or []
@@ -707,7 +1113,7 @@ async def connector_webhook_listener(
         if team_id:
             res = (
                 supabase_admin.table("company_integrations")
-                .select("company_id")
+                .select("id, company_id")
                 .eq("provider", "slack")
                 .eq("status", "active")
                 .filter("config->>team_id", "eq", team_id)
@@ -717,14 +1123,14 @@ async def connector_webhook_listener(
             if not rows:
                 res = (
                     supabase_admin.table("company_integrations")
-                    .select("company_id")
+                    .select("id, company_id")
                     .eq("provider", "slack")
                     .eq("status", "active")
                     .ilike("account_identifier", f"%{team_id}%")
                     .execute()
                 )
                 rows = res.data if (res and getattr(res, "data", None)) else []
-            target_company_ids = [r["company_id"] for r in rows if r.get("company_id")]
+            target_targets = [(r["company_id"], r.get("id")) for r in rows if r.get("company_id")]
 
     # --- ZOOM ---
     elif provider == "zoom":
@@ -771,26 +1177,26 @@ async def connector_webhook_listener(
         if host_email:
             res = (
                 supabase_admin.table("company_integrations")
-                .select("company_id")
+                .select("id, company_id")
                 .eq("provider", "zoom")
                 .eq("status", "active")
                 .eq("account_identifier", host_email)
                 .execute()
             )
             rows = res.data if (res and getattr(res, "data", None)) else []
-            target_company_ids = [r["company_id"] for r in rows if r.get("company_id")]
+            target_targets = [(r["company_id"], r.get("id")) for r in rows if r.get("company_id")]
 
-        if not target_company_ids and account_id:
+        if not target_targets and account_id:
             res = (
                 supabase_admin.table("company_integrations")
-                .select("company_id")
+                .select("id, company_id")
                 .eq("provider", "zoom")
                 .eq("status", "active")
                 .filter("config->>account_id", "eq", account_id)
                 .execute()
             )
             rows = res.data if (res and getattr(res, "data", None)) else []
-            target_company_ids = [r["company_id"] for r in rows if r.get("company_id")]
+            target_targets = [(r["company_id"], r.get("id")) for r in rows if r.get("company_id")]
 
     # --- MICROSOFT GRAPH (OneDrive, Teams) ---
     elif provider in ("onedrive", "teams"):
@@ -801,11 +1207,11 @@ async def connector_webhook_listener(
                 if isinstance(item, dict) and item.get("subscriptionId"):
                     sub_items.append((item.get("subscriptionId"), item.get("clientState")))
 
-        matched_companies = []
+        matched_pairs = []
         for sub_id, client_state in sub_items:
             res = (
                 supabase_admin.table("company_integrations")
-                .select("company_id, config")
+                .select("id, company_id, config")
                 .eq("provider", provider)
                 .eq("status", "active")
                 .filter("config->>webhook_channel_id", "eq", sub_id)
@@ -817,12 +1223,12 @@ async def connector_webhook_listener(
                 stored_client_state = (row.get("config") or {}).get("client_state")
                 if stored_client_state and client_state and not hmac.compare_digest(str(stored_client_state), str(client_state)):
                     continue
-                matched_companies.append(row["company_id"])
+                matched_pairs.append((row["company_id"], row.get("id")))
 
-        if not matched_companies and not has_shared_secret:
+        if not matched_pairs and not has_shared_secret:
             raise HTTPException(status_code=401, detail=f"Unrecognized or inactive {provider} subscription resource.")
 
-        target_company_ids = list(set(matched_companies))
+        target_targets = list(set(matched_pairs))
 
     # --- GOOGLE (Google Drive, Google Meet, Gmail) ---
     elif provider in ("google_drive", "google_meet", "gmail"):
@@ -853,10 +1259,11 @@ async def connector_webhook_listener(
             return Response(content="OK", status_code=200)
 
         matched_company_id = None
+        matched_int_id = None
         if channel_id:
             res = (
                 supabase_admin.table("company_integrations")
-                .select("company_id, status")
+                .select("id, company_id, status")
                 .eq("provider", provider)
                 .eq("status", "active")
                 .filter("config->>webhook_channel_id", "eq", channel_id)
@@ -866,6 +1273,7 @@ async def connector_webhook_listener(
             row = res.data[0] if (res and getattr(res, "data", None)) else None
             if row:
                 matched_company_id = row["company_id"]
+                matched_int_id = row.get("id")
             elif provider == "google_drive":
                 # Fallback check against legacy google_drive_integrations table
                 legacy_res = (
@@ -886,7 +1294,7 @@ async def connector_webhook_listener(
             )
 
         if matched_company_id:
-            target_company_ids = [matched_company_id]
+            target_targets = [(matched_company_id, matched_int_id)]
 
     # --- ANY OTHER REGISTERED PROVIDER ---
     else:
@@ -894,14 +1302,15 @@ async def connector_webhook_listener(
             raise HTTPException(status_code=401, detail=f"Unauthorized webhook for provider '{provider}'.")
 
     # ── 3. Tenant Target Fallback for Authenticated Shared Secret Calls ───
-    if not target_company_ids and has_shared_secret:
+    if not target_targets and has_shared_secret:
         explicit_company_id = (
             request.query_params.get("company_id")
             or request.headers.get("X-Company-ID")
             or body_json.get("company_id")
         )
+        explicit_int_id = request.query_params.get("integration_id") or body_json.get("integration_id")
         if explicit_company_id:
-            target_company_ids = [str(explicit_company_id)]
+            target_targets = [(str(explicit_company_id), str(explicit_int_id) if explicit_int_id else None)]
         else:
             # Shared secret verified, but no specific tenant indicated.
             # Do NOT broadcast to all companies to avoid unintended cross-tenant sync.
@@ -914,7 +1323,7 @@ async def connector_webhook_listener(
                 status_code=200
             )
 
-    if not target_company_ids:
+    if not target_targets:
         return JSONResponse(
             content={
                 "status": "ignored",
@@ -924,9 +1333,13 @@ async def connector_webhook_listener(
             status_code=200
         )
 
-    # ── 4. Debounced Background Sync for Targeted Companies Only ─────
-    for cid in target_company_ids:
-        debounce_key = f"connector_webhook_debounce:{provider}:{cid}"
+    # ── 4. Debounced Background Incremental CDC / Sync ───────────────
+    from services.connectors.cdc_worker import run_incremental_cdc_sync
+
+    unique_company_ids = set()
+    for cid, int_id in target_targets:
+        unique_company_ids.add(cid)
+        debounce_key = f"connector_webhook_debounce:{provider}:{int_id or cid}"
         is_new = True
         try:
             is_new = bool(redis_client.set(debounce_key, "active", ex=5, nx=True))
@@ -935,7 +1348,19 @@ async def connector_webhook_listener(
             is_new = True
 
         if is_new:
-            background_tasks.add_task(ConnectorManager.sync_company_files, company_id=cid, provider=provider)
+            if int_id:
+                background_tasks.add_task(
+                    run_incremental_cdc_sync,
+                    company_id=cid,
+                    provider=provider,
+                    integration_id=int_id,
+                )
+            else:
+                background_tasks.add_task(
+                    ConnectorManager.sync_company_files,
+                    company_id=cid,
+                    provider=provider,
+                )
         else:
             print(f"[{provider.upper()} WEBHOOK] Coalescing burst notification for company {cid}")
 
@@ -943,7 +1368,8 @@ async def connector_webhook_listener(
         content={
             "status": "received",
             "provider": provider,
-            "targeted_companies_count": len(target_company_ids)
+            "targeted_companies_count": len(unique_company_ids),
+            "targeted_integrations_count": len(target_targets),
         },
         status_code=200
     )

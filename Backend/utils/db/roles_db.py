@@ -113,9 +113,11 @@ async def assign_user_role(
 
         try:
             from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
+            from security.rebac import invalidate_user_security_cache
             invalidate_employees_bootstrap_cache(target_company)
             invalidate_user_caches(target_user_id)
             redis_client.delete(f"user_max_role_level:{target_user_id}")
+            invalidate_user_security_cache(target_company, target_user_id)
         except Exception as cache_err:
             print(f"[assign_user_role] Cache invalidation warning: {cache_err}")
 
@@ -272,11 +274,13 @@ async def update_role_assignment(
 
         try:
             from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
+            from security.rebac import invalidate_user_security_cache
             if user_company:
                 invalidate_employees_bootstrap_cache(user_company)
             if target_user_id:
                 invalidate_user_caches(target_user_id)
                 redis_client.delete(f"user_max_role_level:{target_user_id}")
+                invalidate_user_security_cache(user_company, target_user_id)
         except Exception as cache_err:
             print(f"[update_role_assignment] Cache invalidation warning: {cache_err}")
         
@@ -326,11 +330,13 @@ async def revoke_role_assignment(
 
         try:
             from utils.redis_client import invalidate_employees_bootstrap_cache, invalidate_user_caches, redis_client
+            from security.rebac import invalidate_user_security_cache
             if user_company:
                 invalidate_employees_bootstrap_cache(user_company)
             if target_user_id:
                 invalidate_user_caches(target_user_id)
                 redis_client.delete(f"user_max_role_level:{target_user_id}")
+                invalidate_user_security_cache(user_company, target_user_id)
         except Exception as cache_err:
             print(f"[revoke_role_assignment] Cache invalidation warning: {cache_err}")
 

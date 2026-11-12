@@ -369,6 +369,8 @@ class GmailConnector(BaseConnector):
                                 size_bytes=size,
                                 content_hash=c_hash,
                                 parent_container_id=container_id,
+                                acl_emails=list(thread_participants),
+                                owner_email=host_email,
                                 metadata={
                                     "message_id": m_id,
                                     "attachment_id": att_id,
@@ -405,6 +407,8 @@ class GmailConnector(BaseConnector):
                 size_bytes=total_content_len + 1024,
                 content_hash=c_hash,
                 parent_container_id=container_id,
+                acl_emails=list(thread_participants),
+                owner_email=host_email,
                 metadata={
                     "thread_id": th_id,
                     "subject": subject,

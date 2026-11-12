@@ -20,7 +20,12 @@ import {
   MessageSquare,
   Video,
   Mail,
-  Users
+  Users,
+  Share2,
+  Plus,
+  Building2,
+  UserCheck,
+  ShieldAlert
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -28,6 +33,13 @@ const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 export interface ConnectorInfo {
   provider: string
   display_name: string
+  integration_id?: string | null
+  owner_user_id?: string | null
+  connection_scope?: string
+  assigned_team_id?: string | null
+  visibility_mode?: string
+  can_manage?: boolean
+  is_owner?: boolean
   connected: boolean
   status: string
   account_identifier?: string | null
@@ -43,6 +55,13 @@ export interface ConnectorInfo {
   connected_at?: string | null
 }
 
+interface ShareTargetOption {
+  id: string
+  name: string
+  subject_type: "team" | "department" | "user"
+  email?: string
+}
+
 export interface ContainerItemData {
   id: string
   name: string
@@ -56,20 +75,36 @@ export interface ContainerItemData {
 }
 
 interface UnifiedConnectorsHubProps {
+  isAdminOrAbove?: boolean
   onIngestionTriggered?: () => void
   onErrorToast?: (msg: string) => void
   onSuccessToast?: (msg: string) => void
 }
 
 export function UnifiedConnectorsHub({
+  isAdminOrAbove = false,
   onIngestionTriggered,
   onErrorToast,
   onSuccessToast
 }: UnifiedConnectorsHubProps) {
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([])
+  const [instances, setInstances] = useState<ConnectorInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [activeProvider, setActiveProvider] = useState<string>("google_drive")
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+
+  // Connection Scope State
+  const [connectScope, setConnectScope] = useState<"org" | "team" | "personal">(isAdminOrAbove ? "org" : "team")
+  const [connectTeamId, setConnectTeamId] = useState<string>("")
+  const [connectVisibility, setConnectVisibility] = useState<"acl_sync" | "team_only" | "company_wide">("acl_sync")
+
+  // Teams / Users Share Targets
+  const [shareTargets, setShareTargets] = useState<ShareTargetOption[]>([])
+  const [shareModalOpen, setShareModalOpen] = useState(false)
+  const [shareSubjectKey, setShareSubjectKey] = useState("")
+  const [shareRelation, setShareRelation] = useState<"viewer" | "deny_viewer">("viewer")
+  const [savingShare, setSavingShare] = useState(false)
 
   // Universal Container Picker State
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -80,6 +115,10 @@ export function UnifiedConnectorsHub({
   const [savingSelection, setSavingSelection] = useState(false)
   const [breadcrumbs, setBreadcrumbs] = useState<Array<{ id: string | null; name: string; drive_id?: string | null }>>([])
 
+  useEffect(() => {
+    setConnectScope(isAdminOrAbove ? "org" : "team")
+  }, [isAdminOrAbove])
+
   // 1. Fetch All Connectors Status
   const fetchStatus = useCallback(async () => {
     try {
@@ -88,6 +127,7 @@ export function UnifiedConnectorsHub({
       if (res.ok) {
         const data = await res.json()
         setConnectors(data.connectors || [])
+        setInstances(data.instances || [])
       }
     } catch (err) {
       console.warn("[UnifiedConnectorsHub] Failed to fetch statuses:", err)
@@ -96,9 +136,35 @@ export function UnifiedConnectorsHub({
     }
   }, [])
 
+  const fetchShareTargets = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/rbac/teams`)
+      if (res.ok) {
+        const data = await res.json()
+        const merged: ShareTargetOption[] = [
+          ...(data.teams || []).map((t: any) => ({
+            id: t.id,
+            name: `${t.name} (${t.subject_type === "department" ? "Department" : "Team"})`,
+            subject_type: t.subject_type,
+          })),
+          ...(data.users || []).map((u: any) => ({
+            id: u.user_id,
+            name: `${u.name || u.email} (User)`,
+            email: u.email,
+            subject_type: "user" as const,
+          })),
+        ]
+        setShareTargets(merged)
+      }
+    } catch (err) {
+      console.warn("[UnifiedConnectorsHub] Failed to fetch RBAC share targets:", err)
+    }
+  }, [])
+
   useEffect(() => {
     fetchStatus()
-  }, [fetchStatus])
+    fetchShareTargets()
+  }, [fetchStatus, fetchShareTargets])
 
   // Listen for OAuth Popups postMessage
   useEffect(() => {
@@ -125,18 +191,32 @@ export function UnifiedConnectorsHub({
     return () => window.removeEventListener("message", handleMessage)
   }, [fetchStatus, onSuccessToast, onErrorToast, onIngestionTriggered])
 
-  const activeConnector = connectors.find(c => c.provider === activeProvider) || {
+  const providerSummary = connectors.find(c => c.provider === activeProvider) || {
     provider: activeProvider,
     display_name: activeProvider,
     connected: false,
-    status: "disconnected"
+    status: "disconnected",
+    can_manage: true,
   }
+  const providerInstances = instances.filter(i => i.provider === activeProvider)
+  const activeConnector =
+    (selectedIntegrationId
+      ? providerInstances.find(i => i.integration_id === selectedIntegrationId)
+      : providerInstances[0]) || providerSummary
+  const activeIntegrationId = activeConnector.integration_id || null
+  const canManageActive = activeConnector.can_manage !== false
 
   // Handle Connect
   const handleConnect = async (provider: string) => {
     try {
       setActionLoading(prev => ({ ...prev, [provider]: true }))
-      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/auth-url`)
+      const params = new URLSearchParams()
+      params.append("connection_scope", isAdminOrAbove ? connectScope : (connectScope === "org" ? "team" : connectScope))
+      params.append("visibility_mode", connectVisibility)
+      if (connectScope === "team" && connectTeamId) {
+        params.append("assigned_team_id", connectTeamId)
+      }
+      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/auth-url?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         if (data.auth_url) {
@@ -167,10 +247,11 @@ export function UnifiedConnectorsHub({
   }
 
   // Handle Sync Now
-  const handleSyncNow = async (provider: string) => {
+  const handleSyncNow = async (provider: string, integrationId?: string | null) => {
     try {
       setActionLoading(prev => ({ ...prev, [provider]: true }))
-      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/sync-now`, {
+      const qs = integrationId ? `?integration_id=${encodeURIComponent(integrationId)}` : ""
+      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/sync-now${qs}`, {
         method: "POST"
       })
       if (res.ok) {
@@ -190,18 +271,23 @@ export function UnifiedConnectorsHub({
   }
 
   // Handle Disconnect
-  const handleDisconnect = async (provider: string) => {
-    if (!confirm(`Are you sure you want to disconnect ${activeConnector.display_name}? Live ingestion will stop.`)) {
+  const handleDisconnect = async (provider: string, integrationId?: string | null) => {
+    if (!confirm(`Are you sure you want to disconnect this ${activeConnector.display_name} instance? Live ingestion will stop.`)) {
       return
     }
     try {
       setActionLoading(prev => ({ ...prev, [provider]: true }))
-      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/disconnect`, {
+      const qs = integrationId ? `?integration_id=${encodeURIComponent(integrationId)}` : ""
+      const res = await fetchWithAuth(`${API_BASE}/api/connectors/${provider}/disconnect${qs}`, {
         method: "POST"
       })
       if (res.ok) {
         if (onSuccessToast) onSuccessToast(`Disconnected ${activeConnector.display_name}.`)
+        setSelectedIntegrationId(null)
         fetchStatus()
+      } else {
+        const err = await res.json()
+        if (onErrorToast) onErrorToast(err.detail || "Disconnect failed.")
       }
     } catch (err: any) {
       if (onErrorToast) onErrorToast(err.message || "Disconnect failed.")
@@ -211,27 +297,36 @@ export function UnifiedConnectorsHub({
   }
 
   // Open Container Picker
-  const handleOpenPicker = async (provider: string) => {
+  const handleOpenPicker = async (provider: string, integrationId?: string | null) => {
     setPickerOpen(true)
     setSelectedContainer(null)
     setPickerSearch("")
     setBreadcrumbs([{ id: null, name: activeConnector.display_name }])
-    await fetchContainers(provider, null, null)
+    await fetchContainers(provider, null, null, integrationId)
   }
 
-  const fetchContainers = async (provider: string, parentId: string | null = null, driveId: string | null = null) => {
+  const fetchContainers = async (
+    provider: string,
+    parentId: string | null = null,
+    driveId: string | null = null,
+    integrationId: string | null = activeIntegrationId
+  ) => {
     try {
       setPickerLoading(true)
       let url = `${API_BASE}/api/connectors/${provider}/containers`
       const params = new URLSearchParams()
       if (parentId) params.append("parent_id", parentId)
       if (driveId) params.append("drive_id", driveId)
+      if (integrationId) params.append("integration_id", integrationId)
       if (params.toString()) url += `?${params.toString()}`
 
       const res = await fetchWithAuth(url)
       if (res.ok) {
         const data = await res.json()
         setContainers(data.containers || [])
+      } else {
+        const err = await res.json()
+        if (onErrorToast) onErrorToast(err.detail || "Failed to load containers.")
       }
     } catch (err) {
       console.error("[UnifiedConnectorsHub] Failed to fetch containers:", err)
@@ -248,6 +343,7 @@ export function UnifiedConnectorsHub({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          integration_id: activeIntegrationId,
           container_id: selectedContainer.id,
           container_name: selectedContainer.name,
           container_path: selectedContainer.path,
@@ -268,6 +364,45 @@ export function UnifiedConnectorsHub({
       if (onErrorToast) onErrorToast(err.message || "Error saving selection.")
     } finally {
       setSavingSelection(false)
+    }
+  }
+
+  const handleGrantContainerShare = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!activeConnector.monitored_source_id || !shareSubjectKey) return
+    const target = shareTargets.find(t => `${t.subject_type}:${t.id}` === shareSubjectKey)
+    if (!target) return
+
+    try {
+      setSavingShare(true)
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/rbac/containers/${encodeURIComponent(activeConnector.monitored_source_id)}/share`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subject_type: target.subject_type,
+            subject_id: target.id,
+            relation: shareRelation,
+          }),
+        }
+      )
+      if (res.ok) {
+        if (onSuccessToast) {
+          onSuccessToast(
+            `${shareRelation === "deny_viewer" ? "Applied deny override" : "Granted query access"} for ${target.name} on "${activeConnector.monitored_source_name || activeConnector.monitored_source_id}".`
+          )
+        }
+        setShareModalOpen(false)
+        setShareSubjectKey("")
+      } else {
+        const err = await res.json()
+        if (onErrorToast) onErrorToast(err.detail || "Failed to update container permissions.")
+      }
+    } catch (err: any) {
+      if (onErrorToast) onErrorToast(err.message || "Error updating sharing permissions.")
+    } finally {
+      setSavingShare(false)
     }
   }
 
@@ -361,7 +496,10 @@ export function UnifiedConnectorsHub({
           return (
             <button
               key={conn.provider}
-              onClick={() => setActiveProvider(conn.provider)}
+              onClick={() => {
+                setActiveProvider(conn.provider)
+                setSelectedIntegrationId(null)
+              }}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition flex-shrink-0 ${
                 isActive
                   ? "bg-white text-slate-900 shadow-sm border border-slate-200"
@@ -380,6 +518,51 @@ export function UnifiedConnectorsHub({
         })}
       </div>
 
+      {/* Multi-Instance Selector Bar when 1+ instances exist for this provider */}
+      {providerInstances.length > 0 && (
+        <div className="px-6 py-2.5 bg-indigo-50/40 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Connected Accounts:
+            </span>
+            {providerInstances.map(inst => {
+              const selected = inst.integration_id === activeIntegrationId
+              return (
+                <button
+                  key={inst.integration_id || inst.account_identifier}
+                  onClick={() => setSelectedIntegrationId(inst.integration_id || null)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
+                    selected
+                      ? "bg-white text-indigo-700 border-indigo-300 shadow-2xs"
+                      : "bg-white/60 text-slate-600 border-slate-200 hover:bg-white"
+                  }`}
+                >
+                  <span>{inst.account_identifier || "Account"}</span>
+                  <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                    inst.connection_scope === "org"
+                      ? "bg-purple-100 text-purple-700"
+                      : inst.connection_scope === "team"
+                        ? "bg-sky-100 text-sky-700"
+                        : "bg-slate-100 text-slate-600"
+                  }`}>
+                    {inst.connection_scope === "org" ? "Org-Wide" : inst.connection_scope === "team" ? "Team" : "Personal"}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <button
+            onClick={() => handleConnect(activeProvider)}
+            disabled={actionLoading[activeProvider]}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition"
+            title="Connect an additional team or manager instance"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add {connectScope === "org" ? "Org" : connectScope === "team" ? "Team" : "Personal"} Account
+          </button>
+        </div>
+      )}
+
       {/* Active Connector Detail Panel */}
       <div className="p-6 md:p-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -394,10 +577,20 @@ export function UnifiedConnectorsHub({
                   {activeConnector.display_name} Ingestion Engine
                 </h2>
                 {activeConnector.connected ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Live Sync Active
-                  </span>
+                  <>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Live Sync Active
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      {activeConnector.connection_scope === "org" ? <Building2 className="w-3 h-3" /> : <Users className="w-3 h-3" />}
+                      {activeConnector.connection_scope === "org"
+                        ? "Org-Wide"
+                        : activeConnector.connection_scope === "team"
+                          ? "Team Scope"
+                          : "Manager Scope"}
+                    </span>
+                  </>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
                     Disconnected
@@ -407,8 +600,8 @@ export function UnifiedConnectorsHub({
 
               <p className="text-xs text-slate-500 mt-1 max-w-xl">
                 {activeConnector.connected
-                  ? `Documents and updates from ${activeConnector.display_name} are converted and indexed into vector proof chunks automatically.`
-                  : `Connect ${activeConnector.display_name} to continuously auto-ingest documents, discussion digests, and meeting transcripts.`}
+                  ? `Documents and updates from ${activeConnector.display_name} are converted with dual-source ACL enforcement and PII redaction automatically.`
+                  : `Connect ${activeConnector.display_name} to continuously auto-ingest documents, discussion digests, and meeting transcripts with team & role-based permissions.`}
               </p>
             </div>
           </div>
@@ -421,44 +614,115 @@ export function UnifiedConnectorsHub({
                 Checking status...
               </div>
             ) : activeConnector.connected ? (
-              <>
-                <button
-                  onClick={() => handleOpenPicker(activeConnector.provider)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-xs"
-                >
-                  <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
-                  Configure Source
-                </button>
+              canManageActive ? (
+                <>
+                  <button
+                    onClick={() => handleOpenPicker(activeConnector.provider, activeIntegrationId)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:text-indigo-600 hover:border-indigo-200 transition shadow-xs"
+                  >
+                    <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
+                    Configure Source
+                  </button>
 
-                <button
-                  onClick={() => handleSyncNow(activeConnector.provider)}
-                  disabled={actionLoading[activeConnector.provider]}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition shadow-xs disabled:opacity-50"
-                >
-                  <FolderSync className={`w-3.5 h-3.5 ${actionLoading[activeConnector.provider] ? "animate-spin text-indigo-600" : ""}`} />
-                  {actionLoading[activeConnector.provider] ? "Syncing..." : "Sync Now"}
-                </button>
+                  {activeConnector.monitored_source_id && (
+                    <button
+                      onClick={() => setShareModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl hover:bg-emerald-100 transition shadow-xs"
+                      title="Grant or deny cross-team query access on this source"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      Share Source
+                    </button>
+                  )}
 
-                <button
-                  onClick={() => handleDisconnect(activeConnector.provider)}
-                  disabled={actionLoading[activeConnector.provider]}
-                  className="text-xs text-rose-500 hover:text-rose-700 font-medium px-2 py-1.5 rounded-lg hover:bg-rose-50 transition"
-                >
-                  Disconnect
-                </button>
-              </>
+                  <button
+                    onClick={() => handleSyncNow(activeConnector.provider, activeIntegrationId)}
+                    disabled={actionLoading[activeConnector.provider]}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition shadow-xs disabled:opacity-50"
+                  >
+                    <FolderSync className={`w-3.5 h-3.5 ${actionLoading[activeConnector.provider] ? "animate-spin text-indigo-600" : ""}`} />
+                    {actionLoading[activeConnector.provider] ? "Syncing..." : "Sync Now"}
+                  </button>
+
+                  <button
+                    onClick={() => handleDisconnect(activeConnector.provider, activeIntegrationId)}
+                    disabled={actionLoading[activeConnector.provider]}
+                    className="text-xs text-rose-500 hover:text-rose-700 font-medium px-2 py-1.5 rounded-lg hover:bg-rose-50 transition"
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-100 rounded-xl border border-slate-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                  Managed by Org Admin
+                </span>
+              )
             ) : (
-              <button
-                onClick={() => handleConnect(activeConnector.provider)}
-                disabled={actionLoading[activeConnector.provider]}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition disabled:opacity-50"
-              >
-                {getProviderIcon(activeConnector.provider)}
-                <span>Connect {activeConnector.display_name}</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={connectScope}
+                  onChange={e => setConnectScope(e.target.value as any)}
+                  className="px-2.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-none"
+                  title="Connection governance scope"
+                >
+                  {isAdminOrAbove && <option value="org">Scope: Org-Wide</option>}
+                  <option value="team">Scope: My Team</option>
+                  <option value="personal">Scope: Manager Private</option>
+                </select>
+                <button
+                  onClick={() => handleConnect(activeConnector.provider)}
+                  disabled={actionLoading[activeConnector.provider]}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition disabled:opacity-50"
+                >
+                  {getProviderIcon(activeConnector.provider)}
+                  <span>Connect {activeConnector.display_name}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
+
+        {/* Connection Scope Options Bar when adding additional team/manager connections */}
+        {activeConnector.connected && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-600">New Connection Defaults:</span>
+            <select
+              value={connectScope}
+              onChange={e => setConnectScope(e.target.value as any)}
+              className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            >
+              {isAdminOrAbove && <option value="org">Org-Wide (Admin)</option>}
+              <option value="team">Assigned Team</option>
+              <option value="personal">Personal / Manager Subtree</option>
+            </select>
+            {connectScope === "team" && (
+              <select
+                value={connectTeamId}
+                onChange={e => setConnectTeamId(e.target.value)}
+                className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+              >
+                <option value="">Default: My Sub-Function Team</option>
+                {shareTargets
+                  .filter(t => t.subject_type === "team" || t.subject_type === "department")
+                  .map(t => (
+                    <option key={`${t.subject_type}:${t.id}`} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+              </select>
+            )}
+            <select
+              value={connectVisibility}
+              onChange={e => setConnectVisibility(e.target.value as any)}
+              className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            >
+              <option value="acl_sync">ACL Mode: Cloud Permissions + Org Hierarchy</option>
+              <option value="team_only">ACL Mode: Share with Assigned Team</option>
+              {isAdminOrAbove && <option value="company_wide">ACL Mode: Company-Wide (Admin)</option>}
+            </select>
+          </div>
+        )}
 
         {/* Live Metrics Strip when connected */}
         {activeConnector.connected && (
@@ -493,6 +757,87 @@ export function UnifiedConnectorsHub({
           </div>
         )}
       </div>
+
+      {/* Cross-Team / User Container Sharing Modal */}
+      {shareModalOpen && activeConnector.monitored_source_id && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+                  <Share2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Share "{activeConnector.monitored_source_name || "Source"}" Permissions
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Grant cross-team query access (Team A ↔ Team B) or apply explicit deny overrides.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShareModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGrantContainerShare} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Target Team, Department, or User
+                </label>
+                <select
+                  value={shareSubjectKey}
+                  onChange={e => setShareSubjectKey(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Select target...</option>
+                  {shareTargets.map(t => (
+                    <option key={`${t.subject_type}:${t.id}`} value={`${t.subject_type}:${t.id}`}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Permission Rule
+                </label>
+                <select
+                  value={shareRelation}
+                  onChange={e => setShareRelation(e.target.value as "viewer" | "deny_viewer")}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="viewer">Allow Querying (Viewer) — Inherits across folder documents</option>
+                  <option value="deny_viewer">Explicit Deny Override — Blocks even if team/cloud grants access</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShareModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!shareSubjectKey || savingShare}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition disabled:opacity-50"
+                >
+                  {savingShare ? "Applying ACL..." : "Apply Permission Rule"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Universal Container / Channel / Label Picker Modal */}
       {pickerOpen && (

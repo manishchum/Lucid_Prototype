@@ -18,6 +18,8 @@ from ingestion.coach_store import (
     insert_spreadsheet_rows
 )
 from ingestion.embedder import embed_chunks
+from security.pii_firewall import scrub_ingestion_payload
+from security.rebac import recompute_document_acl
 
 
 def run_coach_file_ingestion(
@@ -68,6 +70,16 @@ def run_coach_file_ingestion(
         if not chunks and not spreadsheet_rows:
             raise ValueError(f"No extractable text or data found in '{file_name}'. Ensure document contains readable text.")
 
+        # Step 3.2: Layer 1 PII Redaction Firewall (Pre-Embedding & Pre-Storage Scrub)
+        chunks, spreadsheet_rows, pii_summary = scrub_ingestion_payload(
+            chunks=chunks,
+            spreadsheet_rows=spreadsheet_rows,
+            file_name=file_name
+        )
+        doc_sensitivity_tier = pii_summary.get("document_sensitivity_tier", "internal")
+        if pii_summary.get("layer1_redactions"):
+            print(f"[PII FIREWALL L1] Scrubbed {pii_summary['layer1_redactions']} sensitive tokens in '{file_name}' (tier={doc_sensitivity_tier})")
+
         # Step 3.5: Auto-generate Document Summary & Category Classification using lightweight model
         target_employee_name = None
         if target_employee_id and employee_roster:
@@ -103,7 +115,9 @@ def run_coach_file_ingestion(
             status="embedding",
             description=doc_summary,
             document_period=detected_period,
-            parsed_metadata=parsed_metadata
+            parsed_metadata=parsed_metadata,
+            sensitivity_tier=doc_sensitivity_tier,
+            pii_summary=pii_summary
         )
         _report_progress("embedding", 55, {
             "stage_text": f"Generating vector embeddings for {len(chunks)} chunks",
@@ -138,7 +152,9 @@ def run_coach_file_ingestion(
             )
             print(f"[COACH INGESTION] Inserted {rows_inserted} structured spreadsheet records")
             
-        # Step 7: Mark Completed
+        # Step 7: Materialize Zanzibar ReBAC ACLs & Mark Completed
+        recompute_document_acl(document_id=document_id, company_id=company_id)
+
         parsed_metadata["chunks_count"] = chunks_inserted
         parsed_metadata["spreadsheet_rows_count"] = rows_inserted
         
@@ -147,7 +163,9 @@ def run_coach_file_ingestion(
             status="completed",
             description=doc_summary,
             document_period=detected_period,
-            parsed_metadata=parsed_metadata
+            parsed_metadata=parsed_metadata,
+            sensitivity_tier=doc_sensitivity_tier,
+            pii_summary=pii_summary
         )
         try:
             from routes.coach_upload import invalidate_coach_docs_cached

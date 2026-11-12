@@ -51,12 +51,19 @@ class SyncItemInfo(BaseModel):
     mime_type: Optional[str] = None
     download_url: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Dual-source CDC ACL fields
+    acl_emails: List[str] = Field(default_factory=list)
+    acl_external_ids: List[str] = Field(default_factory=list)
+    owner_email: Optional[str] = None
+    is_restricted_inheritance: bool = False
+    change_type: Literal["upsert", "permission_update", "delete", "move"] = "upsert"
 
 
 class SyncBatchResult(BaseModel):
     """Result of a sync run across monitored sources."""
     provider: str
     company_id: str
+    integration_id: Optional[str] = None
     status: Literal["success", "partial", "error", "skipped"]
     synced_count: int = 0
     updated_count: int = 0
@@ -72,6 +79,11 @@ class ConnectorStatus(BaseModel):
     connected: bool
     provider: str
     company_id: Optional[str] = None
+    integration_id: Optional[str] = None
+    owner_user_id: Optional[str] = None
+    connection_scope: str = "org"
+    assigned_team_id: Optional[str] = None
+    visibility_mode: str = "acl_sync"
     account_identifier: Optional[str] = None
     status: Literal["active", "disconnected", "error", "syncing"] = "disconnected"
     monitored_source_id: Optional[str] = None

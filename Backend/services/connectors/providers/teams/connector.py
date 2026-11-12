@@ -240,6 +240,22 @@ class TeamsConnector(BaseConnector):
                     subject = m.get("subject") or "Teams Meeting"
                     created = m.get("startDateTime")
                     hash_val = hashlib.sha256(f"{m_id}_{created}".encode()).hexdigest()
+                    acl_ext_ids: List[str] = []
+                    acl_emails: List[str] = []
+                    participants = m.get("participants") or {}
+                    org_user = ((participants.get("organizer") or {}).get("identity") or {}).get("user") or {}
+                    if org_user.get("id"):
+                        acl_ext_ids.append(org_user["id"])
+                    if org_user.get("email"):
+                        acl_emails.append(org_user["email"])
+                    for att in participants.get("attendees") or []:
+                        att_user = ((att.get("identity") or {}).get("user") or {})
+                        if att_user.get("id"):
+                            acl_ext_ids.append(att_user["id"])
+                        if att_user.get("email"):
+                            acl_emails.append(att_user["email"])
+                        elif att.get("upn"):
+                            acl_emails.append(att["upn"])
                     items.append(SyncItemInfo(
                         item_id=m_id,
                         item_name=f"{subject}.vtt",
@@ -247,6 +263,9 @@ class TeamsConnector(BaseConnector):
                         size_bytes=1024,
                         content_hash=hash_val,
                         parent_container_id="meetings",
+                        acl_emails=sorted(set(acl_emails)),
+                        acl_external_ids=sorted(set(acl_ext_ids)),
+                        owner_email=org_user.get("email"),
                         metadata={"meeting_id": m_id, "subject": subject}
                     ))
             return items
@@ -257,6 +276,20 @@ class TeamsConnector(BaseConnector):
             team_id, channel_id = parts
         else:
             team_id, channel_id = container_id, "general"
+
+        # Fetch channel members for ACL sync (best-effort)
+        channel_emails: List[str] = []
+        channel_ext_ids: List[str] = []
+        try:
+            mem_res = await execute_teams_api_call("GET", f"/teams/{team_id}/channels/{channel_id}/members", access_token)
+            if mem_res.status_code == 200:
+                for mem in mem_res.json().get("value", []):
+                    if mem.get("email"):
+                        channel_emails.append(mem["email"])
+                    if mem.get("userId"):
+                        channel_ext_ids.append(mem["userId"])
+        except Exception:
+            pass
 
         # Fetch recent messages
         url = f"/teams/{team_id}/channels/{channel_id}/messages?$top=50"
@@ -277,6 +310,8 @@ class TeamsConnector(BaseConnector):
                     size_bytes=len(content_payload),
                     content_hash=content_hash,
                     parent_container_id=container_id,
+                    acl_emails=sorted(set(channel_emails)),
+                    acl_external_ids=sorted(set(channel_ext_ids)),
                     metadata={"team_id": team_id, "channel_id": channel_id, "messages": msgs}
                 ))
 

@@ -634,9 +634,12 @@ async def update_user(
                 invalidate_user_caches,
                 invalidate_company_caches,
             )
+            from security.rebac import invalidate_company_security_cache
             invalidate_employees_bootstrap_cache(target_company)
             invalidate_user_caches(target_user_id)
             invalidate_company_caches(target_company)
+            if target_company:
+                invalidate_company_security_cache(str(target_company))
         except Exception as cache_err:
             print(f"[update_user] Cache invalidation warning: {cache_err}")
 
@@ -691,9 +694,12 @@ async def delete_user(
                 invalidate_user_caches,
                 invalidate_company_caches,
             )
+            from security.rebac import invalidate_company_security_cache
             invalidate_employees_bootstrap_cache(target_company)
             invalidate_user_caches(target_user_id)
             invalidate_company_caches(target_company)
+            if target_company:
+                invalidate_company_security_cache(str(target_company))
         except Exception as cache_err:
             print(f"[delete_user] Cache invalidation warning: {cache_err}")
 

@@ -70,6 +70,10 @@ async def get_google_drive_status(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can inspect connector status.")
+
     status = await ConnectorManager.get_connector_status(company_id=company_id, provider="google_drive")
 
     if not status.connected:
@@ -112,9 +116,9 @@ async def get_google_drive_auth_url(
     if not company_id or not user_id:
         raise HTTPException(status_code=400, detail="Authenticated user and company ID are required.")
 
-    is_admin = await check_user_permission(user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can connect Google Drive.")
+    is_mgr = await check_user_permission(user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can connect Google Drive.")
 
     try:
         url = generate_auth_url(company_id=company_id, user_id=user_id)
@@ -456,9 +460,9 @@ async def get_drive_folders(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
-    is_admin = await check_user_permission(auth.user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can browse drive folders.")
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can browse drive folders.")
 
     cache_key = f"gdrive:contents:{company_id}:{parent_id or 'root'}:{drive_id or 'none'}"
 
@@ -543,9 +547,9 @@ async def get_folder_files(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
-    is_admin = await check_user_permission(auth.user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can preview folder files.")
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can preview folder files.")
 
     cache_key = f"gdrive:files:{company_id}:{folder_id}:{drive_id or 'none'}"
     cached = get_cache(cache_key)
@@ -590,9 +594,9 @@ async def select_monitored_folder(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
-    is_admin = await check_user_permission(auth.user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can change monitored folders.")
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can change monitored folders.")
 
     try:
         # Invalidate folder navigation and files cache on selection
@@ -703,9 +707,9 @@ async def trigger_manual_sync(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
-    is_admin = await check_user_permission(auth.user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can trigger sync.")
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can trigger sync.")
 
     try:
         result = await sync_company_drive_files(company_id=company_id)
@@ -729,9 +733,9 @@ async def disconnect_google_drive(
     if not company_id:
         raise HTTPException(status_code=400, detail="Authenticated company_id is required.")
 
-    is_admin = await check_user_permission(auth.user_id, "admin")
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only company administrators can disconnect integrations.")
+    is_mgr = await check_user_permission(auth.user_id, "manager")
+    if not is_mgr:
+        raise HTTPException(status_code=403, detail="Only managers and administrators can disconnect integrations.")
     try:
         delete_cache_pattern(f"gdrive:contents:{company_id}:*")
         delete_cache_pattern(f"gdrive:files:{company_id}:*")

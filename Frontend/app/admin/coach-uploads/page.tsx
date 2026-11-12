@@ -166,9 +166,11 @@ interface DocumentChunk {
 }
 
 export default function CoachUploadsPage() {
-  const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, rolesLoaded, loading: authLoading } = useAuth()
+  const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers, rolesLoaded, loading: authLoading } = useAuth()
   const companyId = employeeData?.company_id
-  const hasAccess = isAdmin || isSuperAdmin || isDeveloper
+  const isAdminOrAbove = isAdmin || isSuperAdmin || isDeveloper
+  const isManagerOrAbove = isAdminOrAbove || isManager || isManagerofUsers
+  const hasAccess = isManagerOrAbove
 
   // Documents & Pagination State
   const [documents, setDocuments] = useState<CoachDocument[]>([])
@@ -187,6 +189,7 @@ export default function CoachUploadsPage() {
   // Upload Form State (Multi-File)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [targetEmployeeId, setTargetEmployeeId] = useState<string>("")
+  const [isPrivateManagerNote, setIsPrivateManagerNote] = useState<boolean>(false)
   const [manualDescription, setManualDescription] = useState<string>("")
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -327,9 +330,13 @@ export default function CoachUploadsPage() {
   useEffect(() => {
     fetchDocuments(1, searchQuery, statusFilter, sourceFilter)
     fetchStats()
-    fetchEmployees()
-    fetchGDriveStatus()
-  }, [fetchDocuments, fetchStats, fetchEmployees, fetchGDriveStatus])
+    if (rolesLoaded && isManagerOrAbove) {
+      fetchEmployees()
+      fetchGDriveStatus()
+    } else {
+      setGdriveLoading(false)
+    }
+  }, [fetchDocuments, fetchStats, fetchEmployees, fetchGDriveStatus, rolesLoaded, isManagerOrAbove])
 
   // Keep latest search and pagination params in a ref to avoid reconnecting SSE on keystroke
   const fetchParamsRef = useRef({ currentPage, searchQuery, statusFilter, sourceFilter })
@@ -549,6 +556,7 @@ export default function CoachUploadsPage() {
         formData.append("file", file)
         if (targetEmployeeId && targetEmployeeId !== "general") {
           formData.append("target_employee_id", targetEmployeeId)
+          formData.append("is_private_manager_note", isPrivateManagerNote ? "true" : "false")
         }
         if (manualDescription.trim()) {
           formData.append("manual_description", manualDescription.trim())
@@ -575,6 +583,7 @@ export default function CoachUploadsPage() {
       setSelectedFiles([])
       setPreflightConflicts([])
       setTargetEmployeeId("")
+      setIsPrivateManagerNote(false)
       setManualDescription("")
       if (fileInputRef.current) fileInputRef.current.value = ""
 
@@ -1041,7 +1050,7 @@ export default function CoachUploadsPage() {
           </Link>
 
           <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
-            Admin Console • Coach Knowledge Hub
+            {isAdminOrAbove ? "Admin Console" : isManagerOrAbove ? "Manager Console" : "Employee Vault"} • Coach Knowledge Hub
           </span>
         </div>
 
@@ -1129,15 +1138,23 @@ export default function CoachUploadsPage() {
           </div>
         </div>
 
-        {/* Unified Enterprise Cloud Connectors Hub */}
-        <UnifiedConnectorsHub
-          onIngestionTriggered={() => fetchDocuments(1, searchQuery, statusFilter, sourceFilter)}
-          onErrorToast={(msg) => setErrorToast(msg)}
-          onSuccessToast={(msg) => setSuccessToast(msg)}
-        />
+        {/* Unified Enterprise Cloud Connectors Hub & Upload Panel (Manager+ Only) */}
+        {!rolesLoaded && authLoading ? (
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-8 text-center text-xs text-slate-400">
+            <RefreshCw className="w-5 h-5 mx-auto animate-spin text-indigo-600 mb-2" />
+            Verifying workspace permissions...
+          </div>
+        ) : isManagerOrAbove ? (
+          <>
+            <UnifiedConnectorsHub
+              isAdminOrAbove={isAdminOrAbove}
+              onIngestionTriggered={() => fetchDocuments(1, searchQuery, statusFilter, sourceFilter)}
+              onErrorToast={(msg) => setErrorToast(msg)}
+              onSuccessToast={(msg) => setSuccessToast(msg)}
+            />
 
-        {/* Multi-File Upload Card with Drag & Drop */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 md:p-8">
+            {/* Multi-File Upload Card with Drag & Drop */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 md:p-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-indigo-600" />
@@ -1248,8 +1265,21 @@ export default function CoachUploadsPage() {
                   ))}
                 </select>
                 <p className="text-xs text-slate-500 mt-1">
-                  Tagging an employee restricts citation visibility to that employee and their manager.
+                  Tagging an employee scopes citations to that employee and their reporting hierarchy.
                 </p>
+                {targetEmployeeId && (
+                  <label className="mt-2.5 inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isPrivateManagerNote}
+                      onChange={(e) => setIsPrivateManagerNote(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      <strong>Private Manager Note</strong> (hide from employee; visible only to management)
+                    </span>
+                  </label>
+                )}
               </div>
 
               <div>
@@ -1298,6 +1328,21 @@ export default function CoachUploadsPage() {
             )}
           </form>
         </div>
+          </>
+        ) : (
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-6 md:p-8 flex items-start gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center flex-shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Role-Scoped Document Vault</h2>
+              <p className="text-xs text-slate-600 mt-1 max-w-2xl">
+                Connecting cloud ingestion sources and uploading team documents requires a <strong>Manager</strong> or <strong>Administrator</strong> role.
+                You can browse and query all personal coaching feedback, shared manager reviews, and team documents authorized for your account below.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Documents Registry & Live Logs Table */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
@@ -1480,14 +1525,16 @@ export default function CoachUploadsPage() {
                             >
                               <Download className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(doc.id, doc.file_name)}
-                              disabled={isDeleting === doc.id}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
-                              title="Delete Document"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {isAdminOrAbove && (
+                              <button
+                                onClick={() => handleDelete(doc.id, doc.file_name)}
+                                disabled={isDeleting === doc.id}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
+                                title="Delete Document"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

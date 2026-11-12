@@ -216,6 +216,20 @@ class SlackConnector(BaseConnector):
         """
         items: List[SyncItemInfo] = []
 
+        # 0. Fetch channel members for native Slack ACL sync
+        channel_member_ids: List[str] = []
+        try:
+            mem_res = await execute_slack_api_call(
+                "GET",
+                "conversations.members",
+                access_token,
+                params={"channel": container_id, "limit": 500}
+            )
+            if mem_res.status_code == 200:
+                channel_member_ids = mem_res.json().get("members", []) or []
+        except Exception:
+            channel_member_ids = []
+
         # 1. Fetch channel messages
         msg_res = await execute_slack_api_call(
             "GET",
@@ -240,7 +254,8 @@ class SlackConnector(BaseConnector):
                     size_bytes=len(content_payload),
                     content_hash=content_hash,
                     parent_container_id=container_id,
-                    metadata={"messages": messages, "channel_id": container_id}
+                    acl_external_ids=channel_member_ids,
+                    metadata={"messages": messages, "channel_id": container_id, "member_ids": channel_member_ids}
                 ))
 
         # 2. Fetch files shared in the channel
@@ -269,7 +284,8 @@ class SlackConnector(BaseConnector):
                         content_hash=content_hash,
                         parent_container_id=container_id,
                         download_url=url_download,
-                        metadata={"slack_file_id": f_id}
+                        acl_external_ids=channel_member_ids,
+                        metadata={"slack_file_id": f_id, "member_ids": channel_member_ids}
                     ))
 
         return items

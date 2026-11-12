@@ -1,3 +1,4 @@
+import atexit
 import json
 import os
 
@@ -16,10 +17,26 @@ redis_client = redis.Redis(
     password=os.getenv("REDIS_PASSWORD"),
     decode_responses=True,
     ssl=redis_ssl,
-    max_connections=50,
+    max_connections=int(os.getenv("REDIS_MAX_CONNECTIONS", "5")),
     socket_timeout=5.0,
     socket_connect_timeout=3.0,
+    socket_keepalive=True,
+    retry_on_timeout=True,
+    health_check_interval=30,
 )
+
+def close_redis_client() -> None:
+    """Gracefully disconnects idle/pooled Redis sockets on shutdown/reload."""
+    try:
+        redis_client.connection_pool.disconnect(inuse_connections=True)
+    except Exception:
+        pass
+    try:
+        redis_client.close()
+    except Exception:
+        pass
+
+atexit.register(close_redis_client)
 
 try:
     print("Testing Redis connection...")

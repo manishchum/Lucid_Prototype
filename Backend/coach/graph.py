@@ -131,7 +131,8 @@ def execute_coach_agent(
     company_id: str,
     user_id: str = "",
     target_employee_id: str = None,
-    target_employee_name: str = None
+    target_employee_name: str = None,
+    security_ctx: Any = None,
 ) -> Dict[str, Any]:
     """
     Executes the Performance Coach workflow.
@@ -149,12 +150,17 @@ def execute_coach_agent(
             "error": None
         }
 
+    sec_dict = None
+    if security_ctx is not None:
+        sec_dict = security_ctx.to_cache_dict() if hasattr(security_ctx, "to_cache_dict") else dict(security_ctx)
+
     initial_state: CoachState = {
         "user_query": user_query,
         "company_id": company_id,
         "user_id": user_id,
         "target_employee_id": target_employee_id,
         "target_employee_name": target_employee_name,
+        "security_ctx": sec_dict,
         "sql_retry_count": 0,
         "citations": [],
         "rag_chunks": []
