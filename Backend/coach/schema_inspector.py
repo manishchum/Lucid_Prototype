@@ -6,6 +6,7 @@ inventories per company to ground the Text-to-SQL and Vector RAG engines.
 """
 
 import time
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 from utils.supabase_client import supabase_admin
 
@@ -219,6 +220,77 @@ def get_company_active_integrations(company_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"[COACH SCHEMA INSPECTOR] Error fetching integrations catalog: {e}")
         return []
+
+
+def get_user_coach_profile(user_id: str, company_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetches the personalized coaching onboarding profile directly from users.coach_profile.
+    Returns None if the user has not completed onboarding yet or record not found.
+    """
+    if not user_id:
+        return None
+    try:
+        # 1. Lookup by user_id
+        res = (
+            supabase_admin.table("users")
+            .select("coach_profile")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        data = getattr(res, "data", None) or []
+        if not data:
+            # Fallback by id
+            res = (
+                supabase_admin.table("users")
+                .select("coach_profile")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            data = getattr(res, "data", None) or []
+
+        if data:
+            raw_profile = data[0].get("coach_profile")
+            if isinstance(raw_profile, dict) and bool(raw_profile):
+                return raw_profile
+        return None
+    except Exception as e:
+        print(f"[COACH PROFILE] Note fetching user coach profile from users table: {e}")
+        return None
+
+
+def save_user_coach_profile(user_id: str, company_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Saves or updates the personalized coaching profile directly in users.coach_profile JSONB column.
+    Supports dynamic, extensible onboarding questions without requiring future schema changes.
+    """
+    if not user_id:
+        return profile_data
+
+    # Retrieve existing coach_profile or default to empty dict
+    existing = get_user_coach_profile(user_id=user_id, company_id=company_id) or {}
+    updated_profile = {**existing, **profile_data}
+    updated_profile["onboarded"] = True
+    updated_profile["updated_at"] = datetime.utcnow().isoformat()
+
+    try:
+        # Update matching user_id
+        res = (
+            supabase_admin.table("users")
+            .update({"coach_profile": updated_profile})
+            .eq("user_id", user_id)
+            .execute()
+        )
+        data = getattr(res, "data", None) or []
+        if not data:
+            # Fallback update matching id
+            supabase_admin.table("users").update({"coach_profile": updated_profile}).eq("id", user_id).execute()
+
+        return updated_profile
+    except Exception as e:
+        print(f"[COACH PROFILE] Error saving coach profile into users table: {e}")
+        return updated_profile
 
 
 def format_schema_for_sql_prompt(schema_dict: Dict[str, Any], company_id: str) -> str:
