@@ -45,6 +45,15 @@ CREATE INDEX IF NOT EXISTS idx_company_integrations_owner
 -- ============================================================================
 -- 2. MULTI-INSTANCE VAULT RPCs (Keyed by integration_id with legacy fallback)
 -- ============================================================================
+-- Drop legacy 5-arg / 2-arg overloads from 20261028 so PostgREST (PGRST203)
+-- never sees ambiguous candidate functions when p_integration_id is omitted.
+DROP FUNCTION IF EXISTS public.store_integration_tokens(UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ);
+DROP FUNCTION IF EXISTS public.store_integration_tokens(UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ, UUID);
+DROP FUNCTION IF EXISTS public.get_integration_tokens(UUID, TEXT);
+DROP FUNCTION IF EXISTS public.get_integration_tokens(UUID, TEXT, UUID);
+DROP FUNCTION IF EXISTS public.delete_integration_tokens(UUID, TEXT);
+DROP FUNCTION IF EXISTS public.delete_integration_tokens(UUID, TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION public.store_integration_tokens(
     p_company_id UUID,
     p_provider TEXT,

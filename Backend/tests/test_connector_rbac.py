@@ -15,12 +15,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from utils.auth import RequestAuth, get_request_auth_required
 from routes.connectors import router as connectors_router
+from routes.google_drive import router as google_drive_router
 from routes.rbac import router as rbac_router
 from routes.coach_upload import router as coach_upload_router
 
 
 app = FastAPI()
 app.include_router(connectors_router)
+app.include_router(google_drive_router)
 app.include_router(rbac_router)
 app.include_router(coach_upload_router)
 
@@ -253,4 +255,98 @@ def test_rbac_container_share_governance_and_company_wide_guard():
         mock_grant.assert_called_once()
 
     app.dependency_overrides.clear()
+
+
+def test_google_drive_callback_multi_instance_and_vault_p_integration_id():
+    """
+    /api/integrations/google-drive/callback must:
+    - create/update multi-instance company_integrations without on_conflict='company_id,provider'
+    - pass p_integration_id explicitly to store_integration_tokens (avoiding PGRST203 overload ambiguity)
+    - preserve RBAC connection_scope/visibility_mode and post CONNECTOR_OAUTH_SUCCESS to opener
+    """
+    integ_id = str(uuid.uuid4())
+    captured_rpc_calls = []
+    captured_on_conflicts = []
+
+    class _FakeExec:
+        def __init__(self, data):
+            self.data = data
+
+    class _FakeTable:
+        def __init__(self, name):
+            self.name = name
+            self._rows = []
+            self._inserted = None
+
+        def select(self, *args, **kwargs):
+            return self
+
+        def eq(self, *args, **kwargs):
+            return self
+
+        def limit(self, *args, **kwargs):
+            return self
+
+        def maybe_single(self):
+            return self
+
+        def insert(self, payload, **kwargs):
+            self._inserted = payload
+            return self
+
+        def update(self, payload, **kwargs):
+            return self
+
+        def upsert(self, payload, **kwargs):
+            captured_on_conflicts.append((self.name, kwargs.get("on_conflict")))
+            return self
+
+        def execute(self):
+            if self.name == "company_integrations" and self._inserted is not None:
+                return _FakeExec([{"id": integ_id, **self._inserted}])
+            return _FakeExec([])
+
+    def _fake_rpc(fn_name, params):
+        captured_rpc_calls.append((fn_name, dict(params)))
+        m = MagicMock()
+        m.execute.return_value = _FakeExec({"success": True})
+        return m
+
+    mock_supa = MagicMock()
+    mock_supa.table.side_effect = lambda name: _FakeTable(name)
+    mock_supa.rpc.side_effect = _fake_rpc
+
+    async def _admin_perm(uid: str, perm: str):
+        return perm in ("manager", "admin")
+
+    state_record = {
+        "company_id": COMPANY_ID,
+        "user_id": ADMIN_ID,
+        "provider": "google_drive",
+        "connection_scope": "org",
+        "visibility_mode": "acl_sync",
+    }
+
+    with patch("routes.google_drive.verify_and_consume_oauth_state", return_value=state_record), \
+         patch("routes.google_drive.check_user_permission", side_effect=_admin_perm), \
+         patch("routes.google_drive.supabase_admin", mock_supa), \
+         patch("routes.google_drive.exchange_code_for_tokens", new=AsyncMock(return_value={
+             "access_token": "ya29.test",
+             "refresh_token": "1//refresh-test",
+             "expires_in": 3600,
+             "account_identifier": "admin@workfloww.ai",
+         })), \
+         patch("routes.google_drive.ensure_ingestion_folder", new=AsyncMock(return_value=("folder-123", "Lucid Coach Ingestion"))), \
+         patch("routes.google_drive.register_webhook_watch", new=AsyncMock(return_value={"channel_id": "ch-1", "resource_id": "res-1"})), \
+         patch("routes.google_drive.ConnectorManager.sync_company_files", new=AsyncMock()), \
+         patch("routes.google_drive._audit_connector_event"):
+        client = TestClient(app)
+        res = client.get("/api/integrations/google-drive/callback?code=auth-code&state=state-1")
+
+    assert res.status_code == 200
+    assert "CONNECTOR_OAUTH_SUCCESS" in res.text
+    assert ("company_integrations", "company_id,provider") not in captured_on_conflicts
+    store_calls = [p for fn, p in captured_rpc_calls if fn == "store_integration_tokens"]
+    assert len(store_calls) == 1
+    assert store_calls[0].get("p_integration_id") == integ_id
 

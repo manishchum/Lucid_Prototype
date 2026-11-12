@@ -758,14 +758,16 @@ async def connector_oauth_callback(
         "p_access_token": access_token,
         "p_refresh_token": refresh_token or "",
         "p_token_expires_at": token_expires_at,
+        "p_integration_id": integration_id,
     }
-    if integration_id:
-        vault_args["p_integration_id"] = integration_id
     try:
         supabase_admin.rpc("store_integration_tokens", vault_args).execute()
-    except Exception:
-        vault_args.pop("p_integration_id", None)
-        supabase_admin.rpc("store_integration_tokens", vault_args).execute()
+    except Exception as rpc_err:
+        if "PGRST202" in str(rpc_err) or is_missing_schema_error(rpc_err):
+            vault_args.pop("p_integration_id", None)
+            supabase_admin.rpc("store_integration_tokens", vault_args).execute()
+        else:
+            raise
 
     _audit_connector_event(
         company_id=company_id,

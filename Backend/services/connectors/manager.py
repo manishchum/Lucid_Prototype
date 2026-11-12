@@ -71,19 +71,21 @@ class ConnectorManager:
         # 1. Fetch decrypted credentials from Supabase Vault
         rpc_args: Dict[str, Any] = {
             "p_company_id": str(company_id),
-            "p_provider": provider
+            "p_provider": provider,
+            "p_integration_id": str(integration_id) if integration_id else None,
         }
-        if integration_id:
-            rpc_args["p_integration_id"] = str(integration_id)
 
         try:
             token_rpc = supabase_admin.rpc("get_integration_tokens", rpc_args).execute()
-        except Exception:
-            # Backwards-compatible fallback if DB migration hasn't added p_integration_id param yet
-            token_rpc = supabase_admin.rpc("get_integration_tokens", {
-                "p_company_id": str(company_id),
-                "p_provider": provider
-            }).execute()
+        except Exception as rpc_err:
+            if "PGRST202" in str(rpc_err) or is_missing_schema_error(rpc_err):
+                # Backwards-compatible fallback if DB migration hasn't added p_integration_id param yet
+                token_rpc = supabase_admin.rpc("get_integration_tokens", {
+                    "p_company_id": str(company_id),
+                    "p_provider": provider
+                }).execute()
+            else:
+                raise
         vault_data = getattr(token_rpc, "data", None) or {}
 
         access_token = vault_data.get("access_token")
@@ -121,16 +123,18 @@ class ConnectorManager:
             "p_provider": provider,
             "p_access_token": new_access_token,
             "p_refresh_token": new_refresh_token,
-            "p_token_expires_at": new_expires_at
+            "p_token_expires_at": new_expires_at,
+            "p_integration_id": str(integration_id) if integration_id else None,
         }
-        if integration_id:
-            store_args["p_integration_id"] = str(integration_id)
 
         try:
             supabase_admin.rpc("store_integration_tokens", store_args).execute()
-        except Exception:
-            store_args.pop("p_integration_id", None)
-            supabase_admin.rpc("store_integration_tokens", store_args).execute()
+        except Exception as rpc_err:
+            if "PGRST202" in str(rpc_err) or is_missing_schema_error(rpc_err):
+                store_args.pop("p_integration_id", None)
+                supabase_admin.rpc("store_integration_tokens", store_args).execute()
+            else:
+                raise
 
         # Update company_integrations token_expires_at
         upd = supabase_admin.table("company_integrations").update({

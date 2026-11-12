@@ -43,7 +43,7 @@ redis_settings = RedisSettings(
     conn_retries=5,
     conn_retry_delay=1,
     retry_on_timeout=True,
-    max_connections=int(os.getenv("ARQ_REDIS_MAX_CONNECTIONS", "4")),
+    max_connections=int(os.getenv("ARQ_REDIS_MAX_CONNECTIONS", "12")),
     retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
 )
 
@@ -1001,6 +1001,11 @@ async def arq_startup(ctx: dict) -> None:
 
 async def arq_shutdown(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker shutting down gracefully.")
+    try:
+        from utils.redis_client import close_redis_client
+        close_redis_client()
+    except Exception:
+        pass
 
 
 async def poll_whatsapp_dispatches(ctx: Dict[str, Any]) -> None:
@@ -1030,7 +1035,7 @@ class WorkerSettings:
     redis_settings = redis_settings
 
     # Worker concurrency and execution parameters
-    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "20"))
+    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 minutes timeout for heavy jobs (e.g. document ingestion)
     keep_result = 3600
 

@@ -16,6 +16,7 @@ Endpoints:
 
 import os
 import json
+import html as html_lib
 import urllib.parse
 import asyncio
 from datetime import datetime, timezone, timedelta
@@ -33,7 +34,8 @@ from utils.logging import mask_email
 from utils.redis_client import redis_client, get_cache, set_cache, delete_cache_pattern
 
 from services.connectors import ConnectorManager, ConnectorRegistry
-from routes.connectors import persist_oauth_state, verify_and_consume_oauth_state
+from routes.connectors import persist_oauth_state, verify_and_consume_oauth_state, _audit_connector_event
+from security.rebac import is_missing_schema_error
 from services.google_drive_service import (
     generate_auth_url,
     exchange_code_for_tokens,
@@ -105,10 +107,15 @@ async def get_google_drive_status(
 
 @router.get("/auth-url")
 async def get_google_drive_auth_url(
+    connection_scope: str = Query("team", description="org | team | personal"),
+    assigned_team_id: Optional[str] = Query(None),
+    assigned_team_type: Optional[str] = Query(None),
+    visibility_mode: str = Query("acl_sync", description="acl_sync | team_only | company_wide"),
     auth: RequestAuth = Depends(get_request_auth_required)
 ):
     """
-    Generates OAuth2 authorization URL. Only company admins (role level >= 3) are authorized.
+    Generates OAuth2 authorization URL. Only managers and administrators (role level >= 2) are authorized;
+    'org' / 'company_wide' scope requires Administrator (role level >= 3).
     """
     company_id = auth.company_id
     user_id = auth.user_id
@@ -120,16 +127,49 @@ async def get_google_drive_auth_url(
     if not is_mgr:
         raise HTTPException(status_code=403, detail="Only managers and administrators can connect Google Drive.")
 
+    scope_clean = (connection_scope or "team").lower()
+    vis_clean = (visibility_mode or "acl_sync").lower()
+    if scope_clean not in ("org", "team", "personal"):
+        raise HTTPException(status_code=400, detail="connection_scope must be 'org', 'team', or 'personal'.")
+    if vis_clean not in ("acl_sync", "team_only", "company_wide"):
+        raise HTTPException(status_code=400, detail="visibility_mode must be 'acl_sync', 'team_only', or 'company_wide'.")
+
+    if scope_clean == "org" or vis_clean == "company_wide":
+        is_admin = await check_user_permission(user_id, "admin")
+        if not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Only Company Administrators can establish org-wide or company-wide connectors.",
+            )
+
     try:
         url = generate_auth_url(company_id=company_id, user_id=user_id)
-        persist_oauth_state(provider="google_drive", company_id=company_id, user_id=user_id, auth_url=url)
-        return {"success": True, "auth_url": url}
+        persist_oauth_state(
+            provider="google_drive",
+            company_id=company_id,
+            user_id=user_id,
+            auth_url=url,
+            extra_state={
+                "connection_scope": scope_clean,
+                "assigned_team_id": assigned_team_id,
+                "assigned_team_type": assigned_team_type,
+                "visibility_mode": vis_clean,
+            },
+        )
+        return {"success": True, "auth_url": url, "connection_scope": scope_clean}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate authorization URL: {str(e)}")
 
 
-def _render_oauth_popup_response(success: bool, email: str = "", error: str = "") -> HTMLResponse:
+def _render_oauth_popup_response(
+    success: bool,
+    email: str = "",
+    error: str = "",
+    integration_id: Optional[str] = None,
+) -> HTMLResponse:
     """Renders a responsive, self-closing HTML page for OAuth popup communication via window.opener.postMessage."""
+    safe_email = html_lib.escape(email or "")
+    safe_error = html_lib.escape(error or "")
     if success:
         html = f"""<!DOCTYPE html>
 <html>
@@ -192,12 +232,18 @@ def _render_oauth_popup_response(success: bool, email: str = "", error: str = ""
     <div class="card">
         <div class="icon">✓</div>
         <h2>Connected Successfully!</h2>
-        <p>Google Drive account <strong>{email}</strong> has been linked. You can select your monitored folder anytime.</p>
+        <p>Google Drive account <strong>{safe_email}</strong> has been linked. You can select your monitored folder anytime.</p>
         <button class="btn" onclick="window.close()">Close Window</button>
     </div>
     <script>
         try {{
             if (window.opener) {{
+                window.opener.postMessage({{
+                    type: "CONNECTOR_OAUTH_SUCCESS",
+                    provider: "google_drive",
+                    account: {json.dumps(email)},
+                    integration_id: {json.dumps(integration_id or "")}
+                }}, "*");
                 window.opener.postMessage({{
                     type: "GOOGLE_DRIVE_OAUTH_SUCCESS",
                     email: {json.dumps(email)}
@@ -272,12 +318,17 @@ def _render_oauth_popup_response(success: bool, email: str = "", error: str = ""
     <div class="card">
         <div class="icon">✕</div>
         <h2>Connection Failed</h2>
-        <p>{error}</p>
+        <p>{safe_error}</p>
         <button class="btn" onclick="window.close()">Close Window</button>
     </div>
     <script>
         try {{
             if (window.opener) {{
+                window.opener.postMessage({{
+                    type: "CONNECTOR_OAUTH_ERROR",
+                    provider: "google_drive",
+                    error: {json.dumps(error)}
+                }}, "*");
                 window.opener.postMessage({{
                     type: "GOOGLE_DRIVE_OAUTH_ERROR",
                     error: {json.dumps(error)}
@@ -299,7 +350,8 @@ async def google_drive_oauth_callback(
     error: Optional[str] = None
 ):
     """
-    Receives OAuth redirect code from Google, exchanges for tokens, initializes designated folder,
+    Receives OAuth redirect code from Google, exchanges for tokens, upserts multi-instance
+    connector metadata + RBAC scope, encrypts tokens in Vault, initializes designated folder,
     registers watch channel, and returns self-closing popup response.
     """
     if error:
@@ -321,7 +373,58 @@ async def google_drive_oauth_callback(
         if not company_id or not user_id:
             raise ValueError("State payload is missing required company_id or user_id.")
 
-        # 2. Exchange authorization code for tokens
+        # 2. Defense-in-depth: re-verify Manager+ role at callback time
+        has_perm = await check_user_permission(user_id, "manager")
+        if not has_perm:
+            _audit_connector_event(
+                company_id=company_id,
+                actor_id=user_id,
+                actor_email=None,
+                action="CONNECTOR_OAUTH_CALLBACK_DENIED",
+                target_name="google_drive",
+                details={"reason": "role_below_manager_at_callback"},
+                status="FAILED",
+            )
+            return HTMLResponse(
+                content=_render_oauth_popup_response(
+                    success=False,
+                    error="Permission denied: Manager role or higher required.",
+                ).body.decode("utf-8"),
+                status_code=403,
+            )
+
+        extra_nested = state_record.get("extra") if isinstance(state_record.get("extra"), dict) else {}
+        connection_scope = (state_record.get("connection_scope") or extra_nested.get("connection_scope") or "team").lower()
+        assigned_team_id = state_record.get("assigned_team_id") or extra_nested.get("assigned_team_id")
+        assigned_team_type = state_record.get("assigned_team_type") or extra_nested.get("assigned_team_type")
+        visibility_mode = (state_record.get("visibility_mode") or extra_nested.get("visibility_mode") or "acl_sync").lower()
+
+        if connection_scope == "org" or visibility_mode == "company_wide":
+            is_admin = await check_user_permission(user_id, "admin")
+            if not is_admin:
+                connection_scope = "team"
+                visibility_mode = "acl_sync"
+
+        if connection_scope == "team" and not assigned_team_id:
+            try:
+                u_res = (
+                    supabase_admin.table("users")
+                    .select("function_id, sub_function_id")
+                    .eq("user_id", str(user_id))
+                    .maybe_single()
+                    .execute()
+                )
+                u_data = getattr(u_res, "data", None) or {}
+                if u_data.get("sub_function_id"):
+                    assigned_team_id = str(u_data["sub_function_id"])
+                    assigned_team_type = assigned_team_type or "sub_function"
+                elif u_data.get("function_id"):
+                    assigned_team_id = str(u_data["function_id"])
+                    assigned_team_type = assigned_team_type or "function"
+            except Exception:
+                pass
+
+        # 3. Exchange authorization code for tokens
         tokens = await exchange_code_for_tokens(code)
         access_token = tokens.get("access_token")
         refresh_token = tokens.get("refresh_token")
@@ -331,75 +434,143 @@ async def google_drive_oauth_callback(
         if not access_token:
             raise ValueError("Google token response did not contain an access_token.")
 
-        # 3. If Google did not return a refresh_token (re-auth without revoke), reuse stored Vault token
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
+        token_expires_at = (now_dt + timedelta(seconds=expires_in)).isoformat()
+
+        # 4. Find or create multi-instance company_integrations record FIRST to get integration_id
+        integration_id: Optional[str] = None
+        existing_config: Dict[str, Any] = {}
+        uses_legacy_schema = False
+
+        base_row = {
+            "company_id": company_id,
+            "provider": "google_drive",
+            "status": "active",
+            "connected_by": user_id,
+            "owner_user_id": user_id,
+            "connection_scope": connection_scope,
+            "assigned_team_type": assigned_team_type,
+            "assigned_team_id": assigned_team_id,
+            "visibility_mode": visibility_mode,
+            "account_identifier": user_email,
+            "token_expires_at": token_expires_at,
+            "updated_at": now_iso,
+        }
+
+        try:
+            existing_res = (
+                supabase_admin.table("company_integrations")
+                .select("id, config")
+                .eq("company_id", company_id)
+                .eq("provider", "google_drive")
+                .eq("owner_user_id", user_id)
+                .eq("account_identifier", user_email)
+                .limit(1)
+                .execute()
+            )
+            existing_rows = getattr(existing_res, "data", None) or []
+            if existing_rows:
+                integration_id = str(existing_rows[0]["id"])
+                existing_config = (existing_rows[0].get("config") or {})
+                supabase_admin.table("company_integrations").update(base_row).eq("id", integration_id).execute()
+            else:
+                ins_res = supabase_admin.table("company_integrations").insert({**base_row, "config": {}}).execute()
+                ins_rows = getattr(ins_res, "data", None) or []
+                integration_id = str(ins_rows[0]["id"]) if ins_rows else None
+        except Exception as col_err:
+            if not is_missing_schema_error(col_err):
+                raise
+            uses_legacy_schema = True
+            legacy_row = {
+                "company_id": company_id,
+                "provider": "google_drive",
+                "status": "active",
+                "connected_by": user_id,
+                "account_identifier": user_email,
+                "token_expires_at": token_expires_at,
+                "updated_at": now_iso,
+            }
+            existing_legacy_res = (
+                supabase_admin.table("company_integrations")
+                .select("id, config")
+                .eq("company_id", company_id)
+                .eq("provider", "google_drive")
+                .limit(1)
+                .execute()
+            )
+            existing_legacy = getattr(existing_legacy_res, "data", None) or []
+            if existing_legacy:
+                integration_id = str(existing_legacy[0]["id"])
+                existing_config = (existing_legacy[0].get("config") or {})
+                supabase_admin.table("company_integrations").update(legacy_row).eq("id", integration_id).execute()
+            else:
+                ins_res = supabase_admin.table("company_integrations").insert({**legacy_row, "config": {}}).execute()
+                ins_rows = getattr(ins_res, "data", None) or []
+                integration_id = str(ins_rows[0]["id"]) if ins_rows else None
+
+        # 5. If Google did not return a refresh_token (re-auth without revoke), reuse stored Vault token
         if not refresh_token:
-            token_rpc = supabase_admin.rpc("get_integration_tokens", {
+            get_args: Dict[str, Any] = {
                 "p_company_id": str(company_id),
-                "p_provider": "google_drive"
-            }).execute()
+                "p_provider": "google_drive",
+                "p_integration_id": str(integration_id) if integration_id else None,
+            }
+            try:
+                token_rpc = supabase_admin.rpc("get_integration_tokens", get_args).execute()
+            except Exception as rpc_err:
+                if "PGRST202" in str(rpc_err) or is_missing_schema_error(rpc_err):
+                    get_args.pop("p_integration_id", None)
+                    token_rpc = supabase_admin.rpc("get_integration_tokens", get_args).execute()
+                else:
+                    raise
             vault_data = getattr(token_rpc, "data", None) or {}
             if vault_data.get("refresh_token"):
                 refresh_token = vault_data["refresh_token"]
 
-        token_expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
-
-        # 4. Store OAuth tokens securely in Supabase Vault
-        supabase_admin.rpc("store_integration_tokens", {
+        # 6. Store OAuth tokens securely in Supabase Vault (always pass p_integration_id explicitly
+        #    so PostgREST resolves uniquely to the 6-arg RPC and avoids PGRST203 overload ambiguity)
+        store_args: Dict[str, Any] = {
             "p_company_id": str(company_id),
             "p_provider": "google_drive",
             "p_access_token": access_token,
             "p_refresh_token": refresh_token or "",
-            "p_token_expires_at": token_expires_at
-        }).execute()
+            "p_token_expires_at": token_expires_at,
+            "p_integration_id": str(integration_id) if integration_id else None,
+        }
+        try:
+            supabase_admin.rpc("store_integration_tokens", store_args).execute()
+        except Exception as rpc_err:
+            if "PGRST202" in str(rpc_err) or is_missing_schema_error(rpc_err):
+                store_args.pop("p_integration_id", None)
+                supabase_admin.rpc("store_integration_tokens", store_args).execute()
+            else:
+                raise
 
-        # 5. Check if an existing monitored source is already configured
-        existing_res = (
-            supabase_admin.table("company_integrations")
-            .select("id, config")
-            .eq("company_id", company_id)
-            .eq("provider", "google_drive")
-            .limit(1)
-            .execute()
-        )
-        existing_row = existing_res.data[0] if (existing_res and getattr(existing_res, "data", None)) else None
-        existing_config = (existing_row.get("config") if existing_row else {}) or {}
-
+        # 7. Ensure monitored folder exists & register push watch channel
         folder_id = existing_config.get("folder_id")
         folder_name = existing_config.get("folder_name")
-
-        # If no folder configured yet, ensure designated folder exists ("Lucid Coach Ingestion")
         if not folder_id:
             folder_id, folder_name = await ensure_ingestion_folder(access_token, "Lucid Coach Ingestion")
 
-        # 6. Register real-time push watch channel
         watch_info = await register_webhook_watch(access_token, folder_id)
 
         config_data = {
+            **existing_config,
             "folder_id": folder_id,
             "folder_name": folder_name,
             "webhook_channel_id": watch_info.get("channel_id"),
             "webhook_resource_id": watch_info.get("resource_id"),
             "webhook_expiration": watch_info.get("expiration"),
-            "last_page_token": watch_info.get("start_page_token")
+            "last_page_token": watch_info.get("start_page_token"),
         }
 
-        # 7. Upsert into company_integrations
-        upsert_res = supabase_admin.table("company_integrations").upsert({
-            "company_id": company_id,
-            "provider": "google_drive",
-            "status": "active",
-            "connected_by": user_id,
-            "account_identifier": user_email,
-            "token_expires_at": token_expires_at,
-            "config": config_data,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }, on_conflict="company_id,provider").execute()
-
-        integration_id = (upsert_res.data[0]["id"] if upsert_res and getattr(upsert_res, "data", None) else None)
-        if not integration_id and existing_row:
-            integration_id = existing_row["id"]
-
         if integration_id:
+            supabase_admin.table("company_integrations").update({
+                "config": config_data,
+                "updated_at": now_iso,
+            }).eq("id", integration_id).execute()
+
             # 8. Upsert monitored root folder into integration_monitored_sources
             supabase_admin.table("integration_monitored_sources").upsert({
                 "integration_id": integration_id,
@@ -410,10 +581,24 @@ async def google_drive_oauth_callback(
                 "source_path": f"/{folder_name}",
                 "is_recursive": True,
                 "sync_cursor": watch_info.get("start_page_token"),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "updated_at": now_iso,
             }, on_conflict="integration_id,source_id").execute()
 
-        # Also maintain legacy google_drive_integrations for backwards compatibility
+        # Record primary external identity alias for ACL mapping
+        if not uses_legacy_schema and "@" in str(user_email or ""):
+            try:
+                supabase_admin.table("user_external_identities").upsert({
+                    "user_id": str(user_id),
+                    "company_id": str(company_id),
+                    "provider": "google_drive",
+                    "external_email": str(user_email).strip().lower(),
+                    "verified": True,
+                    "updated_at": now_iso,
+                }, on_conflict="company_id,provider,user_id").execute()
+            except Exception:
+                pass
+
+        # Maintain legacy google_drive_integrations best-effort for backwards compatibility
         try:
             supabase_admin.table("google_drive_integrations").upsert({
                 "company_id": company_id,
@@ -426,17 +611,39 @@ async def google_drive_oauth_callback(
                 "webhook_resource_id": watch_info.get("resource_id"),
                 "webhook_expiration": watch_info.get("expiration"),
                 "last_page_token": watch_info.get("start_page_token"),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "updated_at": now_iso,
             }, on_conflict="company_id").execute()
         except Exception:
             pass
 
+        _audit_connector_event(
+            company_id=company_id,
+            actor_id=user_id,
+            actor_email=user_email if "@" in str(user_email or "") else None,
+            action="CONNECTOR_CONNECTED",
+            target_id=integration_id,
+            target_name=f"google_drive:{user_email}",
+            details={
+                "connection_scope": connection_scope,
+                "assigned_team_id": assigned_team_id,
+                "visibility_mode": visibility_mode,
+            },
+        )
+
         print(f"[GOOGLE DRIVE] Organization {company_id} connected Google Drive successfully ({mask_email(user_email)})")
 
-        # 9. Trigger immediate initial sync in background
-        background_tasks.add_task(sync_company_drive_files, company_id=company_id)
+        # 9. Trigger immediate initial sync in background for this integration instance
+        if integration_id:
+            background_tasks.add_task(
+                ConnectorManager.sync_company_files,
+                company_id=company_id,
+                provider="google_drive",
+                integration_id=integration_id,
+            )
+        else:
+            background_tasks.add_task(sync_company_drive_files, company_id=company_id)
 
-        return _render_oauth_popup_response(success=True, email=user_email)
+        return _render_oauth_popup_response(success=True, email=user_email, integration_id=integration_id)
 
     except Exception as exc:
         print(f"[GOOGLE DRIVE CALLBACK EXCEPTION] {exc}")
