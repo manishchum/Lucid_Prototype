@@ -2,6 +2,7 @@
 Distributed ARQ Client & Job Dispatcher for Redis.
 Allows any FastAPI endpoint, service, or background task to enqueue immediate
 or deferred/scheduled jobs into the Redis-backed ARQ queue.
+Provides graceful fallback if the 'arq' package or Redis server is not available.
 """
 
 from __future__ import annotations
@@ -12,8 +13,15 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
-from arq import create_pool
-from arq.connections import ArqRedis, RedisSettings
+try:
+    from arq import create_pool
+    from arq.connections import ArqRedis, RedisSettings
+    ARQ_AVAILABLE = True
+except (ImportError, ModuleNotFoundError):
+    ARQ_AVAILABLE = False
+    create_pool = None
+    ArqRedis = Any  # type: ignore
+    RedisSettings = Any  # type: ignore
 
 logger = logging.getLogger("lucid.arq_client")
 
@@ -21,8 +29,10 @@ _arq_pool: Optional[ArqRedis] = None
 _pool_lock = asyncio.Lock()
 
 
-def get_redis_settings() -> RedisSettings:
+def get_redis_settings() -> Optional[RedisSettings]:
     """Returns RedisSettings configured from environment variables."""
+    if not ARQ_AVAILABLE or RedisSettings is None:
+        return None
     raw_host = os.getenv("REDIS_HOST", "127.0.0.1")
     try:
         import socket
@@ -45,8 +55,10 @@ def get_redis_settings() -> RedisSettings:
     )
 
 
-async def get_arq_pool() -> ArqRedis:
+async def get_arq_pool() -> Optional[ArqRedis]:
     """Returns a shared ArqRedis connection pool instance (thread-safe, async-safe)."""
+    if not ARQ_AVAILABLE or create_pool is None:
+        return None
     global _arq_pool
     if _arq_pool is not None:
         return _arq_pool
@@ -54,8 +66,13 @@ async def get_arq_pool() -> ArqRedis:
     async with _pool_lock:
         if _arq_pool is None:
             settings = get_redis_settings()
-            _arq_pool = await create_pool(settings)
-            logger.info("[ARQ Client] Redis connection pool established.")
+            if settings is not None:
+                try:
+                    _arq_pool = await create_pool(settings)
+                    logger.info("[ARQ Client] Redis connection pool established.")
+                except Exception as e:
+                    logger.warning(f"[ARQ Client] Could not connect to Redis pool: {e}")
+                    return None
         return _arq_pool
 
 
@@ -69,6 +86,7 @@ async def enqueue_job(
 ) -> Optional[Any]:
     """
     Enqueues a job into the distributed Redis queue for background execution by ARQ workers.
+    Falls back gracefully if ARQ or Redis is unavailable.
 
     Args:
         function_name: Name of the registered worker function.
@@ -81,8 +99,14 @@ async def enqueue_job(
     Returns:
         Job object or None if enqueue failed.
     """
+    if not ARQ_AVAILABLE:
+        logger.debug(f"[ARQ Client] 'arq' package not installed. Skipping worker enqueue for '{function_name}'.")
+        return None
+
     try:
         pool = await get_arq_pool()
+        if pool is None:
+            return None
         job = await pool.enqueue_job(
             function_name,
             *args,
@@ -100,6 +124,8 @@ async def enqueue_job(
 
 async def close_arq_pool() -> None:
     """Gracefully closes the ARQ Redis pool on application shutdown."""
+    if not ARQ_AVAILABLE:
+        return
     global _arq_pool
     if _arq_pool is not None:
         try:
