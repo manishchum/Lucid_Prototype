@@ -36,6 +36,8 @@ interface Citation {
   document_id?: string
   filename?: string
   file_name?: string
+  title?: string
+  name?: string
   source_type?: string
   file_type?: string
   chunk_index?: number
@@ -50,6 +52,7 @@ interface Citation {
   eval_period?: string
   excerpt?: string
   content?: string
+  text?: string
 }
 
 interface Message {
@@ -963,7 +966,7 @@ export default function CoachPage() {
                           <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
                             <span className="text-[10px] font-semibold text-slate-400 mr-1">Sources:</span>
                             {message.citations.map((c, cIdx) => {
-                              const displayName = c.filename || c.file_name || `Source ${cIdx + 1}`
+                              const displayName = c.filename || c.file_name || c.title || c.name || `Source ${cIdx + 1}`
                               return (
                                 <button
                                   key={cIdx}
@@ -1090,8 +1093,8 @@ export default function CoachPage() {
                   <FileText className="w-5 h-5" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 truncate" title={activeCitation.filename || activeCitation.file_name}>
-                    {activeCitation.filename || activeCitation.file_name || "Document Citation"}
+                  <h3 className="text-sm font-bold text-slate-900 truncate" title={activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name}>
+                    {activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name || "Document Citation"}
                   </h3>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 font-medium mt-0.5">
                     {activeCitation.location && (
@@ -1118,7 +1121,21 @@ export default function CoachPage() {
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs sm:text-sm text-slate-700 font-sans leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap">
-              {activeCitation.excerpt || activeCitation.content || "No excerpt text available for this citation."}
+              {activeCitation.excerpt || activeCitation.content || activeCitation.text ? (
+                activeCitation.excerpt || activeCitation.content || activeCitation.text
+              ) : (
+                <div className="text-slate-500 space-y-1 py-1">
+                  <p className="font-medium text-slate-700">
+                    Source Document: {activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name || "Uploaded Reference"}
+                  </p>
+                  {activeCitation.location && (
+                    <p className="text-xs text-indigo-600 font-semibold">{activeCitation.location}</p>
+                  )}
+                  <p className="text-xs text-slate-400 pt-1">
+                    Verified grounding evidence retrieved for this response.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end pt-2">

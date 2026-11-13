@@ -12,6 +12,16 @@ from security.rebac import is_missing_schema_error
 supabase = supabase_admin
 
 
+def _clean_uuid(val: Any) -> Optional[str]:
+    """Ensures a value is a valid Postgres UUID string; otherwise returns None."""
+    if not val:
+        return None
+    try:
+        return str(uuid.UUID(str(val).strip()))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def fetch_company_employees(company_id: str) -> List[Dict[str, Any]]:
     """Fetch employee user_id, name, and email for entity resolution."""
     try:
@@ -21,7 +31,17 @@ def fetch_company_employees(company_id: str) -> List[Dict[str, Any]]:
             .eq("company_id", company_id)
             .execute()
         )
-        return getattr(res, "data", None) or []
+        data = getattr(res, "data", None) or []
+        roster = []
+        for u in data:
+            uid = u.get("user_id")
+            roster.append({
+                "id": str(uid) if _clean_uuid(uid) else None,
+                "user_id": str(uid) if _clean_uuid(uid) else uid,
+                "name": u.get("name"),
+                "email": u.get("email")
+            })
+        return roster
     except Exception as e:
         print(f"[COACH STORE] Warning: Could not fetch company employees: {e}")
         return []
@@ -60,7 +80,7 @@ def create_document_record(
         "file_size_bytes": file_size_bytes,
         "storage_path": storage_path,
         "file_hash": file_hash,
-        "target_employee_id": target_employee_id,
+        "target_employee_id": _clean_uuid(target_employee_id),
         "manual_description": manual_description,
         "source_integration_id": source_integration_id,
         "source_container_id": source_container_id,
@@ -158,7 +178,7 @@ def insert_coach_chunks(
         rows.append({
             "document_id": document_id,
             "company_id": company_id,
-            "target_employee_id": chunk_item.get("target_employee_id"),
+            "target_employee_id": _clean_uuid(chunk_item.get("target_employee_id")),
             "chunk_index": idx,
             "chunk_type": chunk_item.get("chunk_type", "text"),
             "content": chunk_item.get("content", ""),

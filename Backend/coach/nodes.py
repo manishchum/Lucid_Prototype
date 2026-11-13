@@ -305,12 +305,12 @@ ROUTER_SYSTEM_PROMPT = """You are a smart, domain-agnostic query classifier for 
 Analyze the user's question, the available spreadsheet schema (sheets & columns), the uploaded document catalog, and the connected cloud integrations.
 Classify the user's intent into EXACTLY ONE of the following categories:
 
-- "SQL": The question strictly asks for concrete numbers, data, calculations, aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, discounts, or tabular records for entities, dimensions, or columns present in the Available Columns or Sheets (e.g. "What are my sales numbers?", "How many cases did I sell?", "What is my discount %?", "Who are the top 5 reps?").
-- "RAG": The question strictly asks about qualitative information, advice, or feedback:
-  1. Uploaded qualitative documents, company policies, manuals, handbooks, strategic plans, guidelines, or appraisal documents found in the Available Documents catalog.
-  2. Communications, meeting transcripts, 1-on-1 notes, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads) (e.g. "What did my manager note in my 1-on-1?", "What are my improvement areas according to the review doc?").
+- "SQL": The question strictly asks for concrete numbers, mathematical aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, discounts, or numerical calculations on columns present in the Available Columns or Sheets (e.g. "What are my sales numbers?", "How many cases did I sell?", "What is my discount %?", "Who are the top 5 reps?").
+- "RAG": The question asks about qualitative information, advice, tasks, or feedback:
+  1. Uploaded qualitative documents, task lists, reminders, todos, action plans, company policies, manuals, handbooks, strategic plans, guidelines, or appraisal documents found in the Available Documents catalog.
+  2. Communications, meeting transcripts, 1-on-1 notes, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads) (e.g. "What are my upcoming tasks?", "What reminders were noted for November?", "What did my manager note in my 1-on-1?", "What are my improvement areas according to the review doc?").
 - "HYBRID": The question requires BOTH tabular spreadsheet data (metrics/numbers/entity performance) AND qualitative document context/reviews from the uploaded document catalog or connected integration streams.
-  CRITICAL: Broad, holistic coaching questions like "How am I doing?", "How is my performance?", "Give me an overview of my performance", or questions evaluating numbers against feedback/targets MUST be classified as "HYBRID" whenever BOTH spreadsheets AND qualitative documents/cloud integrations exist.
+  CRITICAL: Broad, holistic coaching questions or upcoming roadmap inquiries like "What are my upcoming tasks?", "What are my priorities for November?", "How am I doing?", "How is my performance?", "Give me an overview of my performance", or questions evaluating numbers against feedback/targets MUST be classified as "HYBRID" whenever BOTH spreadsheets AND qualitative documents/cloud integrations exist.
 - "CATALOG": The question asks what documents, spreadsheets, files, or cloud integrations are uploaded or connected in the knowledge base.
 - "GENERAL": ONLY for conversational greetings, polite pleasantries (e.g. "Hello", "Hi", "Good morning", "Thank you"), or assistant self-introduction ("Who are you?").
 - "OUT_OF_SCOPE": The question is completely UNRELATED to the company's business data, spreadsheets, uploaded documents, or connected integrations. This covers ANY external topic whatsoever (e.g. movies, entertainment, school/academic math or science formulas, recipes/cooking, consumer shopping advice, sports, gaming, medical/health, travel, news, trivia, or general world knowledge).
@@ -318,7 +318,7 @@ Classify the user's intent into EXACTLY ONE of the following categories:
 DECISION GUIDELINES:
 1. If the question strictly asks for numerical figures, specific column metrics, or mathematical calculations -> "SQL".
 2. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
-3. If the question asks broadly "How am I doing?", "How is my performance?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
+3. If the question asks broadly "How am I doing?", "What are my upcoming tasks/todos?", "What should I focus on this month?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
 4. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
 5. If it's a polite greeting or gratitude -> "GENERAL".
 6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
@@ -343,16 +343,22 @@ def router_node(state: CoachState) -> Dict[str, Any]:
 
     q_lower = user_query.lower()
 
+    def _route(intent: str, reason: str, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        print(f"[COACH ROUTER] Query: '{user_query}' -> Classified Intent: {intent} (Reason: {reason})")
+        res = {"intent": intent, "routing_reason": reason}
+        if extra:
+            res.update(extra)
+        return res
+
     # Heuristic fast-path 0A: Input Safety, Security & Scope Guardrails (< 5ms)
     from coach.guardrails import check_input_guardrails
     guardrail_match = check_input_guardrails(user_query)
     if guardrail_match:
-        return {
-            "intent": guardrail_match["intent"],
-            "routing_reason": guardrail_match["routing_reason"],
-            "final_response": guardrail_match["response"],
-            "guardrail_triggered": True
-        }
+        return _route(
+            guardrail_match["intent"],
+            guardrail_match["routing_reason"],
+            {"final_response": guardrail_match["response"], "guardrail_triggered": True}
+        )
 
     # Heuristic fast-path 0B: Conversational Greetings & Thanks (e.g. "eyy hii", "hello", "thanks")
     clean_greeting = re.sub(r"[^a-zA-Z\s]", "", q_lower).strip()
@@ -361,10 +367,10 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     thanks = {"thanks", "thank", "thx", "appreciate", "grateful"}
 
     if clean_greeting in greetings or (greeting_tokens and greeting_tokens.issubset(greetings | {"there", "coach", "lucid", "assistant", "good", "morning", "afternoon", "evening", "buddy", "bro", "sir"})):
-        return {"intent": "GENERAL", "routing_reason": "Conversational greeting."}
+        return _route("GENERAL", "Conversational greeting.")
 
     if any(t in greeting_tokens for t in thanks) and len(greeting_tokens) <= 4:
-        return {"intent": "GENERAL", "routing_reason": "Conversational gratitude."}
+        return _route("GENERAL", "Conversational gratitude.")
 
     sec = _get_sec_summary(state)
 
@@ -392,7 +398,7 @@ def router_node(state: CoachState) -> Dict[str, Any]:
 
     # Heuristic fast-path 1: Catalog inventory queries
     if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets", "what integrations", "connected integrations", "connected tools", "connected sources", "what connectors"]):
-        return {"intent": "CATALOG", "routing_reason": "User requested document catalog or connected integrations inventory."}
+        return _route("CATALOG", "User requested document catalog or connected integrations inventory.")
 
     # Extract dynamic column match tokens from all_cols
     col_tokens = set()
@@ -419,7 +425,7 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     for prov, kws in connector_keywords.items():
         if any(kw in q_lower for kw in kws):
             if not active_providers or prov in active_providers:
-                return {"intent": "RAG", "routing_reason": f"Query references connected workplace integration '{prov}'."}
+                return _route("RAG", f"Query references connected workplace integration '{prov}'.")
 
     has_docs_or_connectors = bool(doc_catalog) or bool(active_integrations)
 
@@ -428,27 +434,39 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     is_qualitative_inquiry = any(term in q_lower for term in qualitative_terms)
     if is_qualitative_inquiry and has_docs_or_connectors:
         if has_sheets and any(k in q_lower for k in ["number", "sales", "quota", "cases", "target", "metric"]):
-            return {"intent": "HYBRID", "routing_reason": "Query asks for personal qualitative feedback alongside spreadsheet metrics."}
-        return {"intent": "RAG", "routing_reason": "Query asks for personal qualitative feedback from documents or connected integrations."}
+            return _route("HYBRID", "Query asks for personal qualitative feedback alongside spreadsheet metrics.")
+        return _route("RAG", "Query asks for personal qualitative feedback from documents or connected integrations.")
 
-    # Heuristic fast-path 1D: Holistic personal performance inquiries (e.g. "how am I doing", "how is my performance", "my standing")
+    # Heuristic fast-path 1C2: Upcoming Tasks, Todos, Reminders & Action Items
+    # (Forward-looking action items belong to uploaded documents like task lists and connected integrations, not spreadsheets)
+    task_terms = ["task", "tasks", "todo", "todos", "reminder", "reminders", "action item", "action items", "agenda", "deliverable", "deliverables"]
+    is_task_inquiry = any(re.search(rf"\b{re.escape(term)}\b", q_lower) for term in task_terms)
+    if is_task_inquiry and has_docs_or_connectors:
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "percentage", "%"]
+        if has_sheets and any(mw in q_lower for mw in math_words):
+            return _route("HYBRID", "Task query asks for action items alongside quantitative spreadsheet calculations.")
+        return _route("RAG", "Task and reminder query routed to qualitative documents and connected workplace streams.")
+
+    # Heuristic fast-path 1D: Holistic personal performance inquiries (e.g. "how am I doing", "how is my performance", "my performance overview")
     is_holistic_personal = (
-        bool(re.search(r"\bhow am i doing\b", q_lower)) or
-        bool(re.search(r"\b(my|i|me)\b.*\b(performance|standing|progress|overview)\b", q_lower)) or
-        bool(re.search(r"\bhow is my performance\b", q_lower))
+        bool(re.search(r"\bhow am i\b", q_lower)) or
+        bool(re.search(r"\bhow is my\b", q_lower)) or
+        bool(re.search(r"\b(my|i|me|mine)\b.*\b(perf\w*|standing|progress|overview|stats?|numbers?|feedback|review|insights?)\b", q_lower)) or
+        bool(re.search(r"\b(insights?|overview|summary|feedback|review|status)\b.*\b(on|about|for|of)\b.*\b(my|me|mine)\b", q_lower)) or
+        bool(re.search(r"\b(insights?|overview|summary)\b.*\b(my|me|mine)\b", q_lower))
     )
     if is_holistic_personal:
         if has_sheets and has_docs_or_connectors:
-            return {"intent": "HYBRID", "routing_reason": "Holistic personal performance query: combining spreadsheet metrics with qualitative documents/connectors."}
+            return _route("HYBRID", "Holistic personal performance query: combining spreadsheet metrics with qualitative documents/connectors.")
         elif has_sheets:
-            return {"intent": "SQL", "routing_reason": "Personal performance query routed to SQL (no qualitative documents or connectors available)."}
+            return _route("SQL", "Personal performance query routed to SQL (no qualitative documents or connectors available).")
         elif has_docs_or_connectors:
-            return {"intent": "RAG", "routing_reason": "Personal performance query routed to qualitative RAG (no spreadsheets available)."}
+            return _route("RAG", "Personal performance query routed to qualitative RAG (no spreadsheets available).")
 
     # Heuristic fast-path 1E: Specific quantitative personal metric queries (e.g. "my sales", "my numbers", "my cases", "my discount")
     is_specific_metric = bool(re.search(r"\b(my|i|me|mine)\b.*\b(sales|numbers|cases|quota|target|discount|revenue|volume|attainment|rank)\b", q_lower))
     if has_sheets and is_specific_metric:
-        return {"intent": "SQL", "routing_reason": "Specific numerical metric query routed to SQL on spreadsheet data."}
+        return _route("SQL", "Specific numerical metric query routed to SQL on spreadsheet data.")
 
     # Heuristic fast-path 2: If user query mentions words from any uploaded document file name
     matched_doc = None
@@ -463,8 +481,22 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     if matched_doc:
         math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
         if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
-            return {"intent": "HYBRID", "routing_reason": f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns."}
-        return {"intent": "RAG", "routing_reason": f"Query mentions uploaded document '{matched_doc.get('file_name')}'."}
+            return _route("HYBRID", f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns.")
+        return _route("RAG", f"Query mentions uploaded document '{matched_doc.get('file_name')}'.")
+
+    # Heuristic fast-path 2B: Company Policies, Guidelines, Strategy, Tasks & Document Inquiries
+    doc_concept_terms = [
+        "policy", "policies", "guideline", "guidelines", "rule", "rules", "handbook", "manual",
+        "sop", "sops", "procedure", "procedures", "strategy", "roadmap", "plan", "document", "documents",
+        "standard", "standards", "criteria", "instructions", "code of conduct", "onboarding process",
+        "task", "tasks", "todo", "todos", "reminder", "reminders", "action item", "action items",
+        "agenda", "deliverable", "deliverables", "objective", "objectives"
+    ]
+    if any(term in q_lower for term in doc_concept_terms) and has_docs_or_connectors:
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "compare", "rank"]
+        if has_sheets and any(mw in q_lower for mw in math_words):
+            return _route("HYBRID", "Query asks about company policies/guidelines alongside calculations.")
+        return _route("RAG", "Query asks about company policies, guidelines, or qualitative documentation.")
 
     # Heuristic fast-path 3: Schema-Aware Entity & Dimension Detection
     # If the user asks for insights, details, performance, breakdown, list, or status of an entity or column from the spreadsheet:
@@ -475,16 +507,16 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
         is_entity_inquiry = any(p in q_lower for p in entity_inquiry_phrases) or any(mw in q_lower for mw in math_words)
         if is_entity_inquiry:
-            return {"intent": "SQL", "routing_reason": "Query references active spreadsheet columns/entities for data retrieval."}
+            return _route("SQL", "Query references active spreadsheet columns/entities for data retrieval.")
 
     # Heuristic fast-path 4: Informational / Explanation questions (strictly for general documents when no spreadsheet entity is mentioned)
     info_triggers = ["what is", "tell me about", "summary of", "summarize", "explain", "how does", "what are"]
     if any(q_lower.startswith(t) or f" {t} " in q_lower for t in info_triggers) and not query_mentions_column:
-        return {"intent": "RAG", "routing_reason": "Informational query seeking explanation or document knowledge."}
+        return _route("RAG", "Informational query seeking explanation or document knowledge.")
 
     # Heuristic fast-path 5: If company has NO spreadsheets, route to RAG
     if not has_sheets:
-        return {"intent": "RAG", "routing_reason": "No spreadsheets uploaded; defaulting to qualitative RAG."}
+        return _route("RAG", "No spreadsheets uploaded; defaulting to qualitative RAG.")
 
     # Format document catalog for LLM router context
     doc_summaries = []
@@ -533,19 +565,19 @@ def router_node(state: CoachState) -> Dict[str, Any]:
             intent = data.get("intent", "RAG").upper()
             if intent not in ["SQL", "RAG", "HYBRID", "CATALOG", "GENERAL", "OUT_OF_SCOPE"]:
                 intent = "RAG"
-            return {"intent": intent, "routing_reason": data.get("reasoning", "")}
+            return _route(intent, data.get("reasoning", ""))
         except Exception as e:
             print(f"[COACH ROUTER] OpenAI router error: {e}")
 
     # Fallback heuristic: check for hybrid and metric keywords
     if any(w in q_lower for w in ["compare", "versus", "vs ", "who is better", "better", "award"]):
-        return {"intent": "HYBRID", "routing_reason": "Heuristic match for employee comparison & award evaluation."}
+        return _route("HYBRID", "Heuristic match for employee comparison & award evaluation.")
 
     math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
     if any(w in q_lower for w in math_words) or query_mentions_column:
-        return {"intent": "SQL", "routing_reason": "Heuristic match for spreadsheet data or active columns."}
+        return _route("SQL", "Heuristic match for spreadsheet data or active columns.")
 
-    return {"intent": "RAG", "routing_reason": "Defaulted to qualitative RAG."}
+    return _route("RAG", "Defaulted to qualitative RAG.")
 
 
 # ============================================================================
@@ -634,21 +666,28 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
     security_ctx = state.get("security_ctx")
     emp_name = state.get("target_employee_name")
 
-    # If first-person query, enhance vector search with user name
+    # If first-person query, enhance vector search with user name and scope to employee
+    is_personal_query = bool(re.search(r"\b(my|i|me|mine|myself)\b", user_query, re.IGNORECASE))
     search_query = user_query
-    if emp_name and re.search(r"\b(my|i|me|mine|myself)\b", user_query, re.IGNORECASE):
+    if emp_name and is_personal_query:
         first_name = emp_name.strip().split()[0]
         search_query = f"{user_query} ({first_name} {emp_name})"
 
+    # For general company queries (policies, handbook, operational strategy), do NOT restrict target_employee_id
+    scoped_emp_id = emp_id if is_personal_query else None
+
+    print(f"[COACH RAG] Searching vector store with query: '{search_query}' (company: {company_id}, scoped_emp: {scoped_emp_id})")
     chunks = search_coach_knowledge(
         query=search_query,
         company_id=company_id,
-        target_employee_id=emp_id,
-        match_count=6,
+        target_employee_id=scoped_emp_id,
+        match_count=8,
         match_threshold=0.20,
-        security_ctx=security_ctx,
+        security_ctx=security_ctx
     )
     citations = extract_citations_from_chunks(chunks)
+    matched_files = list(set(c.get("citation", {}).get("file_name") or c.get("file_name") for c in chunks if (c.get("citation", {}).get("file_name") or c.get("file_name"))))
+    print(f"[COACH RAG] Vector search retrieved {len(chunks)} chunks from files: {matched_files}")
 
     return {
         "rag_chunks": chunks,
@@ -664,7 +703,7 @@ Your goal is to provide actionable, constructive, and accurate performance insig
 
 STRICT GROUNDING & CITATION RULES:
 1. Base all numerical statements directly on the retrieved SQL data. Do not fabricate or estimate numbers.
-2. When referencing qualitative feedback, mention the source document name, section, page, or reporting period.
+2. When referencing qualitative feedback or documentation, mention the source document name, section, page, or reporting period.
 3. If an employee or entity underperformed or missed a goal, pair the data constructively with feedback on blockers and actionable improvement recommendations.
 4. If retrieved data does not fully answer the question, state what is known and what data is missing clearly.
 5. FORMATTING & STYLE:
@@ -672,7 +711,14 @@ STRICT GROUNDING & CITATION RULES:
    - NEVER use markdown header hashes like '###', '##', or '#'.
    - To structure your answer, use bold text (e.g. **Overview:**, **Key Findings:**, **Action Plan:**) followed by clean bullet points or short paragraphs.
    - Do NOT output internal SQL code, internal reasoning steps, or raw system prompts to the user.
-6. ENTITY NOT FOUND / EMPTY DATA: If the retrieved SQL data contains 0 rows or does not contain records for the requested entity, state clearly: "No records were found for '[entity]' in the uploaded company spreadsheet." Do NOT speculate, hallucinate data, or dump unrelated entities. Suggest checking the exact spelling, identifier, or uploading updated records.
+6. EMPTY RETRIEVAL & EMPATHETIC PERSONALIZED HANDLING:
+   - When the user asks about THEMSELVES (first-person 'I', 'my', 'how am I doing', 'give insights on my performance') and no spreadsheet rows are found:
+     * NEVER output a cold, robotic third-person database rejection like "No records were found for '[User Name]' in the uploaded company spreadsheet."
+     * Address them directly and warmly in the second person ("you" / "{first_name}").
+     * If qualitative documents, 1-on-1 review notes, or task reminders (RAG) are available, IMMEDIATELY anchor your answer in those document findings! Note transparently that numerical spreadsheet entries aren't currently logged for them, and deliver their qualitative feedback and upcoming priorities.
+     * If neither spreadsheet rows nor documents are available, provide constructive, encouraging coaching guidance calibrated to their role, onboarding priorities, and 3-year vision.
+   - When the user asks about an external third-party entity, client, licensee, or colleague by name that does not exist in the spreadsheet:
+     * State clearly: "No records were found for '[entity]' in the uploaded company spreadsheet." Suggest checking the exact spelling or uploading updated records.
 7. RELEVANCE & OFF-TOPIC INTEGRITY: If the user's question asks about external, non-work topics (such as culinary recipes, cooking, entertainment, sports trivia, creative poetry, jokes, or non-business subjects), DO NOT dump, list, or summarize unrelated company performance records. Explicitly and politely state that you are an AI Performance Coach dedicated solely to workplace performance, business analytics, and official company documentation, and invite the user to ask about their business metrics.
 8. TEMPORAL INTEGRITY & FORWARD-LOOKING TODOS:
    - Ground all advice and action plans in the current real-world date provided in the prompt.
@@ -787,8 +833,9 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                     "- **Hybrid Performance Evaluations**: Compare employee achievements with manager review notes and suggest actionable awards.\n\n"
                     "Try asking questions like:\n"
                     "- *\"Which licensee is leading with highest number of total cases?\"*\n"
-                    "- *\"Compare performance of Ansh and Riya and recommend who to award.\"*\n"
+                    # "- *\"Compare performance of Ansh and Riya and recommend who to award.\"*\n"
                     "- *\"What documents are uploaded?\"*"
+                    
                 )
             }
 
