@@ -941,10 +941,11 @@ async def run_coach_document_ingestion_task(
     file_path: str = "",
     file_name: str = "",
     file_type: str = "",
-    target_employee_id: str = None
+    target_employee_id: str = None,
+    is_playbook: bool = False
 ) -> dict:
     """Distributed ARQ worker task for heavy text extraction and vector embedding."""
-    logger.info(f"[ARQ Worker] Starting async document ingestion: doc={document_id}, file={file_name} ({file_type})")
+    logger.info(f"[ARQ Worker] Starting async document ingestion: doc={document_id}, file={file_name} ({file_type}, is_playbook={is_playbook})")
     try:
         from ingestion.coach_pipeline import run_coach_file_ingestion
         
@@ -967,6 +968,7 @@ async def run_coach_document_ingestion_task(
             file_name=file_name,
             file_type=file_type,
             target_employee_id=target_employee_id,
+            is_playbook=is_playbook,
             progress_callback=_on_progress
         )
         return result

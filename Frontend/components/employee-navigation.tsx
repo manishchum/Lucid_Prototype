@@ -109,7 +109,7 @@ const EmployeeNavigation = ({
     if (pathname && pathname.startsWith('/employee/courses')) {
       setCoursesOpen(true);
     }
-    if (pathname && pathname.startsWith("/admin/dashboard")) {
+    if (pathname && (pathname.startsWith("/admin/dashboard") || pathname.startsWith("/admin/coach-uploads") || pathname.startsWith("/admin/career-journeys") || pathname.startsWith("/coach"))) {
       setAdminDropdownOpen(true);
     }
 

@@ -61,15 +61,21 @@ def create_document_record(
     source_container_id: Optional[str] = None,
     author_user_id: Optional[str] = None,
     is_private_manager_note: bool = False,
-    sensitivity_tier: str = "internal"
+    sensitivity_tier: str = "internal",
+    is_playbook: bool = False
 ) -> Dict[str, Any]:
     """Register a new uploaded document in pending state."""
     eff_author = author_user_id or uploaded_by
     initial_acl = [f"role:{company_id}:admin_plus"]
     if eff_author:
         initial_acl.append(f"user:{eff_author}")
-    if target_employee_id and not is_private_manager_note:
+    if target_employee_id and not is_private_manager_note and not is_playbook:
         initial_acl.append(f"scoped_emp:{target_employee_id}")
+    if is_playbook or (not target_employee_id and not is_private_manager_note):
+        initial_acl.append(f"company:{company_id}")
+
+    # Playbooks are company-wide reference guides for all employees
+    eff_target_employee = None if is_playbook else _clean_uuid(target_employee_id)
 
     row = {
         "company_id": company_id,
@@ -80,7 +86,7 @@ def create_document_record(
         "file_size_bytes": file_size_bytes,
         "storage_path": storage_path,
         "file_hash": file_hash,
-        "target_employee_id": _clean_uuid(target_employee_id),
+        "target_employee_id": eff_target_employee,
         "manual_description": manual_description,
         "source_integration_id": source_integration_id,
         "source_container_id": source_container_id,
@@ -89,7 +95,7 @@ def create_document_record(
         "acl_principals": sorted(set(initial_acl)),
         "deny_principals": [],
         "status": "pending",
-        "parsed_metadata": {}
+        "parsed_metadata": {"is_playbook": True, "category": "Playbook"} if is_playbook else {}
     }
     try:
         res = supabase.table("coach_uploaded_documents").insert(row).execute()

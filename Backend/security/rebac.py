@@ -484,9 +484,16 @@ def _compute_doc_acl_from_inputs(
 
     target_emp_id = doc.get("target_employee_id")
     is_private_note = bool(doc.get("is_private_manager_note"))
-    if target_emp_id and not is_private_note:
+    meta = doc.get("parsed_metadata") or {}
+    is_pb = bool(meta.get("is_playbook") or meta.get("category") == "Playbook")
+
+    if target_emp_id and not is_private_note and not is_pb:
         # Allows the employee (self) AND their manager chain to read manager-authored feedback
         allow.add(f"scoped_emp:{target_emp_id}")
+
+    # Company Playbooks and non-private company-wide documents are accessible across the entire company
+    if is_pb or (not target_emp_id and not is_private_note):
+        allow.add(f"company:{cid}")
 
     integration_id = str(doc.get("source_integration_id") or "")
     integ = integ_by_id.get(integration_id) if integration_id else None

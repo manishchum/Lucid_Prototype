@@ -24,19 +24,62 @@ Return ONLY a valid JSON object with these exact keys:
   "key_topics": ["3 to 5 short keyword tags (e.g. 'Quota Achievement', 'Discount %', 'Retailer Visits', 'Communication', 'Objection Handling')"]
 }"""
 
+PLAYBOOK_SYSTEM_PROMPT = """You are an expert sales enablement and operations coach.
+Analyze the provided company playbook, SOP, manual, brochure, or reference guide.
+Extract the structured playbook attributes, category tags, triggers, actionable steps, and impacted KPIs.
+
+Return ONLY a valid JSON object with these exact keys:
+{
+  "summary": "2 to 3 concise sentences summarizing this playbook's methodology and purpose.",
+  "category": "Playbook",
+  "playbook_title": "Clean, human-readable title of this playbook (e.g. 'Choosing which list to call')",
+  "key_topics": ["2 to 4 domain / channel / role tags extracted from the document, e.g. 'Direct · Tele', 'Frontline', 'Distribution', 'Retail', 'Sales SOP'"],
+  "use_when": "A single clear condition describing when to use this playbook (e.g. 'You aren't sure which part of the database to call')",
+  "steps": [
+    {
+      "number": 1,
+      "title": "Short punchy step heading (e.g. 'Start with warm leads')",
+      "description": "Clear actionable instruction (e.g. 'Call marketing leads within 1 hour.')"
+    }
+  ],
+  "kpis_impacted": "Primary metrics or KPIs this moves (e.g. 'Connect rate, leads to conversion')",
+  "reading_time_minutes": 5
+}"""
+
 
 def _heuristic_fallback(
     file_name: str,
     file_type: str,
     chunks: List[Dict[str, Any]],
     parsed_metadata: Dict[str, Any],
-    detected_period: Optional[str] = None
+    detected_period: Optional[str] = None,
+    is_playbook: bool = False
 ) -> Dict[str, Any]:
     """Generates a high-quality heuristic summary and category if LLM API is unavailable."""
     fn_lower = file_name.lower()
     cols = [c.lower() for c in parsed_metadata.get("columns_detected", [])]
     total_rows = parsed_metadata.get("total_rows", 0)
     sheet_names = parsed_metadata.get("sheet_names", [])
+
+    if is_playbook:
+        steps = []
+        for idx, c in enumerate(chunks[:5], 1):
+            txt = c.get("content", "").strip()
+            lines = [l.strip() for l in txt.split("\n") if l.strip()]
+            heading = lines[0] if lines else f"Step {idx}"
+            desc = " ".join(lines[1:3]) if len(lines) > 1 else heading
+            steps.append({"number": idx, "title": heading[:60], "description": desc[:180]})
+        return {
+            "summary": f"Official reference playbook and operating standard for {file_name}.",
+            "category": "Playbook",
+            "playbook_title": file_name.replace("_", " ").rsplit(".", 1)[0],
+            "document_period": detected_period,
+            "key_topics": ["Reference Guide", "Operations"],
+            "use_when": f"Use this playbook when executing {file_name.replace('_', ' ').rsplit('.', 1)[0]} procedures.",
+            "steps": steps,
+            "kpis_impacted": "Process adherence, team consistency",
+            "reading_time_minutes": max(3, len(chunks) * 2),
+        }
 
     # 1. Determine Category
     if any(k in fn_lower or any(k in c for c in cols) for k in ["sales", "kpi", "target", "cases", "quota", "achievement", "retailer", "discount"]):
@@ -90,14 +133,19 @@ def generate_document_summary_and_category(
     chunks: List[Dict[str, Any]],
     spreadsheet_rows: Optional[List[Dict[str, Any]]] = None,
     parsed_metadata: Optional[Dict[str, Any]] = None,
-    target_employee_name: Optional[str] = None
+    target_employee_name: Optional[str] = None,
+    is_playbook: bool = False
 ) -> Dict[str, Any]:
     """
     Auto-generates document summary, category tag, and key topics using a lightweight LLM (gpt-4o-mini / gemini).
+    When is_playbook=True, extracts structured playbook attributes (title, triggers, steps, KPIs, category pills).
     Falls back gracefully to deterministic heuristics if API keys are absent or network calls fail.
     """
     metadata = parsed_metadata or {}
     detected_period = metadata.get("document_period")
+
+    # Select appropriate system prompt based on explicit is_playbook flag
+    active_system_prompt = PLAYBOOK_SYSTEM_PROMPT if is_playbook else SYSTEM_PROMPT
 
     # Assemble representative excerpt (up to ~3,500 characters)
     excerpt_parts = []
@@ -152,24 +200,33 @@ def generate_document_summary_and_category(
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": active_system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.2,
-                max_tokens=300
+                max_tokens=500
             )
             raw_text = response.choices[0].message.content or "{}"
             data = json.loads(raw_text.strip())
             
-            if data.get("summary") and data.get("category"):
-                print(f"[COACH SUMMARIZER] [OK] Successfully generated summary via gpt-4o-mini for '{file_name}' (Category: {data.get('category')})")
-                return {
+            if data.get("summary"):
+                print(f"[COACH SUMMARIZER] [OK] Successfully generated {'playbook' if is_playbook else 'summary'} via gpt-4o-mini for '{file_name}'")
+                result_payload = {
                     "summary": data.get("summary", "").strip(),
-                    "category": data.get("category", "Operational Report").strip(),
+                    "category": "Playbook" if is_playbook else data.get("category", "Operational Report").strip(),
                     "document_period": data.get("document_period") or detected_period,
-                    "key_topics": data.get("key_topics", [])
+                    "key_topics": data.get("key_topics", ["Playbook" if is_playbook else "General"])
                 }
+                if is_playbook:
+                    result_payload.update({
+                        "playbook_title": data.get("playbook_title") or file_name.replace("_", " ").rsplit(".", 1)[0],
+                        "use_when": data.get("use_when") or f"Standard operating reference for {file_name}.",
+                        "steps": data.get("steps") or [],
+                        "kpis_impacted": data.get("kpis_impacted") or "Team execution, process adherence",
+                        "reading_time_minutes": data.get("reading_time_minutes") or 5,
+                    })
+                return result_payload
         except Exception as e:
             print(f"[COACH SUMMARIZER] OpenAI gpt-4o-mini generation failed: {e}")
 
@@ -182,10 +239,10 @@ def generate_document_summary_and_category(
             client = genai.Client(api_key=GEMINI_API_KEY)
             config = GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=300,
+                max_output_tokens=500,
                 response_mime_type="application/json"
             )
-            gemini_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+            gemini_prompt = f"{active_system_prompt}\n\n{user_prompt}"
             res = client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=gemini_prompt,
@@ -193,17 +250,26 @@ def generate_document_summary_and_category(
             )
             raw_text = res.text or "{}"
             data = json.loads(raw_text.strip())
-            if data.get("summary") and data.get("category"):
-                print(f"[COACH SUMMARIZER] [OK] Successfully generated summary via gemini-1.5-flash for '{file_name}'")
-                return {
+            if data.get("summary"):
+                print(f"[COACH SUMMARIZER] [OK] Successfully generated {'playbook' if is_playbook else 'summary'} via gemini-1.5-flash for '{file_name}'")
+                result_payload = {
                     "summary": data.get("summary", "").strip(),
-                    "category": data.get("category", "Operational Report").strip(),
+                    "category": "Playbook" if is_playbook else data.get("category", "Operational Report").strip(),
                     "document_period": data.get("document_period") or detected_period,
-                    "key_topics": data.get("key_topics", [])
+                    "key_topics": data.get("key_topics", ["Playbook" if is_playbook else "General"])
                 }
+                if is_playbook:
+                    result_payload.update({
+                        "playbook_title": data.get("playbook_title") or file_name.replace("_", " ").rsplit(".", 1)[0],
+                        "use_when": data.get("use_when") or f"Standard operating reference for {file_name}.",
+                        "steps": data.get("steps") or [],
+                        "kpis_impacted": data.get("kpis_impacted") or "Team execution, process adherence",
+                        "reading_time_minutes": data.get("reading_time_minutes") or 5,
+                    })
+                return result_payload
         except Exception as e:
             print(f"[COACH SUMMARIZER] Gemini generation failed: {e}")
 
     # 3. Deterministic Heuristic Fallback
-    print(f"[COACH SUMMARIZER] Using rule-based heuristic summary for '{file_name}'")
-    return _heuristic_fallback(file_name, file_type, chunks, metadata, detected_period)
+    print(f"[COACH SUMMARIZER] Using rule-based heuristic summary for '{file_name}' (is_playbook={is_playbook})")
+    return _heuristic_fallback(file_name, file_type, chunks, metadata, detected_period, is_playbook=is_playbook)

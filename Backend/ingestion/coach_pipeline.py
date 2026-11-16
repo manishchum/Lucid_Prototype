@@ -20,6 +20,7 @@ from ingestion.coach_store import (
 from ingestion.embedder import embed_chunks
 from security.pii_firewall import scrub_ingestion_payload
 from security.rebac import recompute_document_acl
+from utils.supabase_client import supabase_admin as supabase
 
 
 def run_coach_file_ingestion(
@@ -29,6 +30,7 @@ def run_coach_file_ingestion(
     file_name: str,
     file_type: str,
     target_employee_id: Optional[str] = None,
+    is_playbook: bool = False,
     progress_callback: Optional[Callable[[str, int, Dict[str, Any]], None]] = None
 ) -> Dict[str, Any]:
     """
@@ -87,22 +89,42 @@ def run_coach_file_ingestion(
             if matched_emp:
                 target_employee_name = matched_emp.get("name")
 
-        print(f"[COACH INGESTION] Auto-generating summary and category classification for '{file_name}'...")
+        # Check if document was explicitly designated as a playbook by manager
+        if not is_playbook:
+            try:
+                doc_rec = supabase.table("coach_uploaded_documents").select("parsed_metadata").eq("id", document_id).maybe_single().execute()
+                if doc_rec and getattr(doc_rec, "data", None):
+                    is_playbook = bool((doc_rec.data.get("parsed_metadata") or {}).get("is_playbook", False))
+            except Exception as pb_chk_err:
+                print(f"[COACH INGESTION] Playbook flag lookup note: {pb_chk_err}")
+
+        print(f"[COACH INGESTION] Auto-generating summary and category classification for '{file_name}' (is_playbook={is_playbook})...")
         summary_res = generate_document_summary_and_category(
             file_name=file_name,
             file_type=file_type,
             chunks=chunks,
             spreadsheet_rows=spreadsheet_rows,
             parsed_metadata=parsed_metadata,
-            target_employee_name=target_employee_name
+            target_employee_name=target_employee_name,
+            is_playbook=is_playbook
         )
         doc_summary = summary_res.get("summary")
         category_tag = summary_res.get("category")
         detected_period = summary_res.get("document_period") or parsed_metadata.get("document_period")
         key_topics = summary_res.get("key_topics", [])
 
-        parsed_metadata["category"] = category_tag
         parsed_metadata["key_topics"] = key_topics
+        parsed_metadata["is_playbook"] = is_playbook
+        if is_playbook:
+            parsed_metadata["category"] = "Playbook"
+            parsed_metadata["playbook_title"] = summary_res.get("playbook_title") or file_name.replace("_", " ").rsplit(".", 1)[0]
+            parsed_metadata["use_when"] = summary_res.get("use_when") or f"Standard operating reference guide for {file_name}."
+            parsed_metadata["steps"] = summary_res.get("steps", [])
+            parsed_metadata["kpis_impacted"] = summary_res.get("kpis_impacted") or "Team execution, process adherence, conversion rate"
+            parsed_metadata["reading_time_minutes"] = summary_res.get("reading_time_minutes", 5)
+            parsed_metadata["category_pills"] = key_topics
+        else:
+            parsed_metadata["category"] = category_tag
         if detected_period:
             parsed_metadata["document_period"] = detected_period
 

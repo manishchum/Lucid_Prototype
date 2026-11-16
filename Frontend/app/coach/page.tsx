@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useRef, useMemo } from "react"
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Cormorant_Garamond } from "next/font/google"
 import {
@@ -22,7 +22,13 @@ import {
   Edit2,
   PanelLeftClose,
   PanelLeft,
-  ChevronRight
+  ChevronRight,
+  BookOpen,
+  ExternalLink,
+  Share2,
+  Search,
+  Clock,
+  MoreVertical
 } from "lucide-react"
 
 import { useAuth } from "@/contexts/auth-context"
@@ -31,6 +37,28 @@ import CoachOnboarding, { CoachProfileData } from "./components/CoachOnboarding"
 
 const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["700"] })
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || ""
+
+interface PlaybookStep {
+  number: number
+  title: string
+  description: string
+}
+
+interface PlaybookItem {
+  id: string
+  title: string
+  file_name: string
+  file_type: string
+  summary: string
+  category_pills: string[]
+  use_when: string
+  steps: PlaybookStep[]
+  kpis_impacted: string
+  reading_time_minutes: number
+  created_at?: string
+  target_employee_id?: string | null
+  target_roles?: string[]
+}
 
 interface Citation {
   document_id?: string
@@ -91,16 +119,31 @@ export default function CoachPage() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [loadingConversations, setLoadingConversations] = useState<boolean>(false)
   const [loadingActiveThread, setLoadingActiveThread] = useState<boolean>(false)
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(true)
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
   const [editTitleValue, setEditTitleValue] = useState<string>("")
+
+  // Right 1/3 Antigravity-style Chat & History State
+  const [showThreadHistory, setShowThreadHistory] = useState<boolean>(false)
+  const [threadSearchQuery, setThreadSearchQuery] = useState<string>("")
+  const [showChatMenu, setShowChatMenu] = useState<boolean>(false)
+  const [mobileTab, setMobileTab] = useState<"playbooks" | "chat">("playbooks")
+  const threadSearchInputRef = useRef<HTMLInputElement>(null)
+  const chatMenuRef = useRef<HTMLDivElement>(null)
 
   // Chat State
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState<string>("")
   const [isSending, setIsSending] = useState<boolean>(false)
-  const [activeCitation, setActiveCitation] = useState<Citation | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  // Playbooks Directory State
+  const [playbooks, setPlaybooks] = useState<PlaybookItem[]>([])
+  const [playbookCategories, setPlaybookCategories] = useState<string[]>([])
+  const [selectedCategory, setSelectedCategory] = useState<string>("All")
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState<string | null>(null)
+  const [loadingPlaybooks, setLoadingPlaybooks] = useState<boolean>(false)
+  const [playbookSearch, setPlaybookSearch] = useState<string>("")
+  const [sharedToast, setSharedToast] = useState<string | null>(null)
 
   // Auto-scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -113,6 +156,21 @@ export default function CoachPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Click outside to close chat options dropdown menu
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (chatMenuRef.current && !chatMenuRef.current.contains(e.target as Node)) {
+        setShowChatMenu(false)
+      }
+    }
+    if (showChatMenu) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [showChatMenu])
 
   // Fetch coaching profile on mount
   useEffect(() => {
@@ -168,8 +226,98 @@ export default function CoachPage() {
     }
   }
 
+  // Fetch Company Playbooks
+  const fetchPlaybooks = useCallback(async () => {
+    try {
+      setLoadingPlaybooks(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/playbooks`)
+      if (res.ok) {
+        const data = await res.json()
+        const fetchedList: PlaybookItem[] = data.playbooks || []
+        setPlaybooks(fetchedList)
+        setPlaybookCategories(data.categories || [])
+        if (fetchedList.length > 0) {
+          setSelectedPlaybookId((prev) => prev || fetchedList[0].id)
+        }
+      }
+    } catch (err) {
+      console.warn("[Coach] Failed to load company playbooks:", err)
+    } finally {
+      setLoadingPlaybooks(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchPlaybooks()
+  }, [fetchPlaybooks])
+
+  // Active Chat Title (for Antigravity header bar)
+  const activeChatTitle = useMemo(() => {
+    if (!activeConversationId) return "Agent performance coach"
+    const found = conversations.find((c) => c.id === activeConversationId)
+    return found?.title || "Agent performance coach"
+  }, [activeConversationId, conversations])
+
+  // Filtered Playbooks based on category & search
+  const filteredPlaybooks = useMemo(() => {
+    return playbooks.filter((pb) => {
+      if (selectedCategory !== "All") {
+        const matchCategory = pb.category_pills.some(
+          (c) => c.toLowerCase() === selectedCategory.toLowerCase()
+        )
+        if (!matchCategory) return false
+      }
+      if (playbookSearch.trim()) {
+        const query = playbookSearch.toLowerCase()
+        const matchTitle = pb.title.toLowerCase().includes(query)
+        const matchSummary = pb.summary.toLowerCase().includes(query)
+        const matchUseWhen = pb.use_when.toLowerCase().includes(query)
+        if (!matchTitle && !matchSummary && !matchUseWhen) return false
+      }
+      return true
+    })
+  }, [playbooks, selectedCategory, playbookSearch])
+
+  const selectedPlaybook = useMemo(() => {
+    return playbooks.find((pb) => pb.id === selectedPlaybookId) || filteredPlaybooks[0] || null
+  }, [playbooks, selectedPlaybookId, filteredPlaybooks])
+
+  const handlePracticePlaybook = (pb: PlaybookItem) => {
+    setShowThreadHistory(false)
+    setMobileTab("chat")
+    const promptText = `I want to practice and review the "${pb.title}" playbook with you. Can you test me with a realistic customer scenario to verify how I apply its steps?`
+    setInputValue(promptText)
+    handleSendMessage(promptText)
+  }
+
+  const handleDownloadPlaybookOriginal = async (docId: string) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/documents/${docId}/download-url`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.download_url) {
+          window.open(data.download_url, "_blank")
+        }
+      }
+    } catch (err) {
+      console.error("[Coach] Failed to open download url:", err)
+    }
+  }
+
+  const handleSharePlaybook = (pb: PlaybookItem) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(
+        `📖 Company Playbook: ${pb.title}\n\nSummary: ${pb.summary}\n\nUse it when: ${pb.use_when}\n\nKPIs: ${pb.kpis_impacted}`
+      )
+      setSharedToast(`Copied "${pb.title}" summary to clipboard!`)
+      setTimeout(() => setSharedToast(null), 3000)
+    }
+  }
+
   // Load a specific conversation thread
   const handleSelectConversation = async (convId: string) => {
+    setShowThreadHistory(false)
+    setMobileTab("chat")
     if (convId === activeConversationId || isSending) return
 
     try {
@@ -200,6 +348,8 @@ export default function CoachPage() {
 
   // Start a fresh chat
   const handleNewChat = () => {
+    setShowThreadHistory(false)
+    setMobileTab("chat")
     if (isSending) return
     setActiveConversationId(null)
     if (profile) {
@@ -357,8 +507,17 @@ export default function CoachPage() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  // Group threads by recency (Today, Yesterday, Previous 7 Days, Older)
-  const groupedConversations = useMemo(() => {
+  // Group threads by recency (Today, Yesterday, Previous 7 Days, Older) with search filter
+  const filteredGroupedConversations = useMemo(() => {
+    const query = threadSearchQuery.trim().toLowerCase()
+    const list = query
+      ? conversations.filter(
+          (c) =>
+            c.title.toLowerCase().includes(query) ||
+            (c.last_message && c.last_message.toLowerCase().includes(query))
+        )
+      : conversations
+
     const groups: { [key: string]: ConversationSummary[] } = {
       Today: [],
       Yesterday: [],
@@ -371,7 +530,7 @@ export default function CoachPage() {
     const yesterdayStart = todayStart - 86400000
     const weekStart = todayStart - 7 * 86400000
 
-    conversations.forEach((c) => {
+    list.forEach((c) => {
       const time = new Date(c.updated_at || c.created_at).getTime()
       if (time >= todayStart) {
         groups["Today"].push(c)
@@ -385,7 +544,7 @@ export default function CoachPage() {
     })
 
     return Object.entries(groups).filter(([_, items]) => items.length > 0)
-  }, [conversations])
+  }, [conversations, threadSearchQuery])
 
   // Handle Send Message with SSE streaming & thread persistence
   const handleSendMessage = async (queryText?: string) => {
@@ -699,455 +858,759 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="h-screen w-full bg-slate-50/70 flex overflow-hidden font-sans">
+    <div className="h-screen w-full bg-slate-100 flex flex-col lg:flex-row overflow-hidden font-sans">
+      {/* MOBILE TAB BAR (< lg screens) */}
+      <div className="lg:hidden shrink-0 bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-around z-20">
+        <button
+          type="button"
+          onClick={() => setMobileTab("playbooks")}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            mobileTab === "playbooks" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Playbooks ({playbooks.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab("chat")}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+            mobileTab === "chat" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Coach Chat</span>
+        </button>
+      </div>
+
       {/* ==================================================================== */}
-      {/* 1. LEFT SIDEBAR: THREAD HISTORY (ChatGPT / Modern Chatbot Style)      */}
+      {/* 1. LEFT 2/3 SECTION: COMPANY PLAYBOOKS (Directory + Reader)          */}
       {/* ==================================================================== */}
-      <aside
+      <section
         className={`${
-          sidebarOpen ? "w-64 sm:w-72" : "w-0 -translate-x-full"
-        } transition-all duration-300 ease-in-out shrink-0 bg-white border-r border-slate-200/90 flex flex-col z-30 h-full overflow-hidden`}
+          mobileTab === "playbooks" ? "flex" : "hidden"
+        } lg:flex lg:w-2/3 h-full flex-col min-w-0 bg-slate-50/70 border-r border-slate-200/90 overflow-hidden`}
       >
-        {/* Sidebar Header */}
-        <div className="p-3.5 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-              <Sparkles className="w-4 h-4" />
+        <div className="flex-1 min-h-0 flex flex-col p-4 sm:p-6 overflow-hidden">
+          {/* Playbooks Top Header */}
+          <div className="shrink-0 space-y-3.5 pb-4 border-b border-slate-200/80">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Playbooks • reference guide • {filteredPlaybooks.length}{" "}
+                  {filteredPlaybooks.length === 1 ? "playbook" : "playbooks"}
+                </div>
+                <h2
+                  className={`text-2xl sm:text-3xl xl:text-4xl font-bold text-slate-900 tracking-tight leading-tight ${cormorant.className}`}
+                >
+                  How each sales model works, step by step.
+                </h2>
+              </div>
+
+              {/* Utility Nav Buttons */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowPersonaModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold shadow-2xs transition"
+                  title="My Coaching Calibration"
+                >
+                  <Settings2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden sm:inline">My Persona</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => router.push("/employee/welcome")}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold shadow-2xs transition"
+                  title="Back to Dashboard"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Dashboard</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={fetchPlaybooks}
+                  disabled={loadingPlaybooks}
+                  className="p-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 text-xs transition"
+                  title="Refresh playbooks"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 text-indigo-600 ${loadingPlaybooks ? "animate-spin" : ""}`} />
+                </button>
+              </div>
             </div>
-            <span className={`text-base font-bold text-slate-900 tracking-tight ${cormorant.className}`}>
-              Coach Threads
-            </span>
+
+            {/* Filter Pills & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory("All")}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition shrink-0 ${
+                    selectedCategory === "All"
+                      ? "bg-slate-900 text-white shadow-2xs"
+                      : "bg-white text-slate-700 border border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  }`}
+                >
+                  All
+                </button>
+                {playbookCategories.map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    onClick={() => setSelectedCategory(category)}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition shrink-0 ${
+                      selectedCategory.toLowerCase() === category.toLowerCase()
+                        ? "bg-slate-900 text-white shadow-2xs"
+                        : "bg-white text-slate-700 border border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+                {profile?.role_title && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory((prev) => (prev === profile.role_title ? "All" : profile.role_title!))
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition shrink-0 border border-dashed ${
+                      selectedCategory === profile.role_title
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                        : "bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50/50"
+                    }`}
+                  >
+                    Only for my role
+                  </button>
+                )}
+              </div>
+
+              {/* Search Playbooks Bar */}
+              <div className="relative min-w-[200px] sm:max-w-xs w-full">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={playbookSearch}
+                  onChange={(e) => setPlaybookSearch(e.target.value)}
+                  placeholder="Search playbooks..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-full text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
+                />
+              </div>
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
-            title="Collapse sidebar"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* New Chat Button */}
-        <div className="p-3">
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="w-full flex items-center justify-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200/80 text-indigo-700 text-xs font-semibold shadow-2xs transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Chat</span>
-          </button>
-        </div>
-
-        {/* Scrollable Conversation Threads List */}
-        <div className="flex-1 overflow-y-auto px-2 py-1 space-y-4">
-          {conversations.length === 0 ? (
-            <div className="text-center py-10 px-3">
-              <MessageSquare className="w-6 h-6 text-slate-300 mx-auto mb-2" />
-              <p className="text-xs text-slate-500 font-medium">No previous conversations yet</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Your chat threads will appear here</p>
+          {/* Playbooks Directory + Reader Content */}
+          {loadingPlaybooks ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-20 text-xs text-slate-400 space-y-2">
+              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <p>Loading company playbooks...</p>
+            </div>
+          ) : playbooks.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8">
+              <div className="bg-white rounded-3xl border border-slate-200/90 p-10 text-center max-w-md mx-auto space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className={`text-xl font-bold text-slate-900 ${cormorant.className}`}>
+                    No Company Playbooks Available Yet
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    Managers can designate company SOPs, manuals, or training documents as playbooks from Admin Uploads. Once marked, they appear here for all employees.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : filteredPlaybooks.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center p-8">
+              <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs">
+                No playbooks match your current filter or search criteria.
+              </div>
             </div>
           ) : (
-            groupedConversations.map(([groupLabel, items]) => (
-              <div key={groupLabel} className="space-y-1">
-                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  {groupLabel}
-                </div>
-
-                {items.map((thread) => {
-                  const isActive = activeConversationId === thread.id
-                  const isEditing = editingThreadId === thread.id
-
+            <div className="flex-1 min-h-0 pt-4 flex gap-5 overflow-hidden">
+              {/* LEFT SUB-COLUMN: Scrollable Directory of Playbooks */}
+              <div className="w-64 sm:w-72 xl:w-80 shrink-0 h-full overflow-y-auto pr-1 space-y-2.5">
+                {filteredPlaybooks.map((pb) => {
+                  const isSelected = pb.id === selectedPlaybook?.id
                   return (
                     <div
-                      key={thread.id}
-                      onClick={() => handleSelectConversation(thread.id)}
-                      className={`group relative flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition cursor-pointer ${
-                        isActive
-                          ? "bg-indigo-50/90 text-indigo-950 font-semibold border border-indigo-200/80 shadow-2xs"
-                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                      key={pb.id}
+                      onClick={() => setSelectedPlaybookId(pb.id)}
+                      className={`w-full text-left p-4 rounded-2xl cursor-pointer transition-all ${
+                        isSelected
+                          ? "bg-slate-900 text-white shadow-sm"
+                          : "bg-white hover:bg-slate-100/90 text-slate-900 border border-slate-200/80 shadow-2xs"
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <MessageSquare
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600"
-                          }`}
-                        />
-
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            autoFocus
-                            value={editTitleValue}
-                            onChange={(e) => setEditTitleValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveRename(thread.id)
-                              if (e.key === "Escape") setEditingThreadId(null)
-                            }}
-                            onBlur={() => handleSaveRename(thread.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full bg-white border border-indigo-300 rounded px-1.5 py-0.5 text-xs text-slate-800 focus:outline-hidden"
-                          />
-                        ) : (
-                          <span className="truncate">{thread.title}</span>
-                        )}
+                      <h4 className="font-semibold text-sm leading-snug">
+                        {pb.title}
+                      </h4>
+                      <div
+                        className={`flex flex-wrap items-center gap-1.5 mt-2 text-xs ${
+                          isSelected ? "text-slate-300" : "text-slate-500"
+                        }`}
+                      >
+                        {pb.category_pills.slice(0, 2).map((cat, idx) => (
+                          <span key={idx}>{cat} •</span>
+                        ))}
+                        <span>{pb.reading_time_minutes || 5} min read</span>
                       </div>
-
-                      {/* Thread Hover Action Buttons */}
-                      {!isEditing && (
-                        <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEditingThreadId(thread.id)
-                              setEditTitleValue(thread.title)
-                            }}
-                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition"
-                            title="Rename thread"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteConversation(thread.id, e)}
-                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
-                            title="Delete thread"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )
                 })}
               </div>
-            ))
-          )}
-        </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-slate-100 space-y-1.5 bg-slate-50/50">
-          <button
-            type="button"
-            onClick={() => setShowPersonaModal(true)}
-            className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition"
-          >
-            <div className="flex items-center gap-2">
-              <Settings2 className="w-3.5 h-3.5 text-indigo-600" />
-              <span>My Persona</span>
-            </div>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-          </button>
+              {/* RIGHT SUB-COLUMN: Playbook Reader / Preview Card */}
+              <div className="flex-1 min-w-0 h-full overflow-y-auto pr-1 pb-6">
+                {selectedPlaybook && (
+                  <div className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-7 shadow-xs space-y-6">
+                    {/* Tags / Badges */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {selectedPlaybook.category_pills.map((pill, idx) => (
+                        <span
+                          key={idx}
+                          className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200/70"
+                        >
+                          {pill}
+                        </span>
+                      ))}
+                      {selectedPlaybook.target_roles?.map((role, idx) => (
+                        <span
+                          key={`role-${idx}`}
+                          className="px-3 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200/70"
+                        >
+                          For {role}
+                        </span>
+                      ))}
+                    </div>
 
-          <button
-            type="button"
-            onClick={() => router.push("/employee/welcome")}
-            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-white border border-transparent hover:border-slate-200 transition"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Dashboard</span>
-          </button>
-        </div>
-      </aside>
+                    {/* Title */}
+                    <h3
+                      className={`text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight ${cormorant.className}`}
+                    >
+                      {selectedPlaybook.title}
+                    </h3>
 
-      {/* ==================================================================== */}
-      {/* 2. MAIN CHAT WORKSPACE (Right Panel)                                 */}
-      {/* ==================================================================== */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50/70">
-        {/* TOP WORKSPACE BAR */}
-        <header className="shrink-0 bg-white/90 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {!sidebarOpen && (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
-                title="Open thread history"
-              >
-                <PanelLeft className="w-4 h-4" />
-              </button>
-            )}
+                    {/* Use it when */}
+                    <div className="text-sm text-slate-700 leading-relaxed">
+                      <span className="font-bold text-slate-900">Use it when: </span>
+                      <span>{selectedPlaybook.use_when || selectedPlaybook.summary}</span>
+                    </div>
 
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className={`text-lg font-bold text-slate-900 tracking-tight leading-none ${cormorant.className}`}>
-                  Performance Coach
-                </h1>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Active
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 hidden sm:block mt-0.5">
-                {profile?.role_title
-                  ? `Calibrated for ${profile.role_title} • Private & confidential`
-                  : "Private & confidential performance coaching partner"}
-              </p>
-            </div>
-          </div>
-
-          {/* Right Action Tools */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold shadow-2xs transition"
-              title="Start a fresh chat"
-            >
-              <Plus className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden sm:inline">New Chat</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (profile) seedWelcomeMessage(profile)
-              }}
-              className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 text-xs transition"
-              title="Reset current chat"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
-
-        {/* MAIN MESSAGES STREAM */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 flex flex-col justify-between">
-          <div className="max-w-3xl w-full mx-auto space-y-5 pb-8">
-            {loadingActiveThread ? (
-              <div className="py-16 text-center text-xs text-slate-400">Loading conversation history...</div>
-            ) : (
-              messages.map((message) => {
-                const isUser = message.role === "user"
-
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex gap-3 sm:gap-4 ${isUser ? "justify-end" : "justify-start"} animate-in fade-in duration-200`}
-                  >
-                    {!isUser && (
-                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
-                        <Sparkles className="w-4 h-4" />
-                      </div>
-                    )}
-
-                    <div className={`max-w-[85%] sm:max-w-[78%] flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-                      {/* Direct Message Bubble */}
-                      <div
-                        className={`rounded-2xl p-4 sm:p-5 shadow-2xs transition-all ${
-                          isUser
-                            ? "bg-indigo-600 text-white font-medium text-xs sm:text-sm rounded-tr-xs"
-                            : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs"
-                        }`}
-                      >
-                        {/* Direct Content */}
-                        {isUser ? (
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        ) : (
-                          <>
-                            {message.content ? (
-                              renderMarkdown(message.content)
-                            ) : message.isStreaming ? (
-                              <div className="flex items-center gap-2 text-xs text-slate-500 py-1">
-                                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
-                                <span>Thinking...</span>
-                              </div>
-                            ) : null}
-                          </>
-                        )}
-
-                        {/* Citations Badges */}
-                        {!isUser && message.citations && message.citations.length > 0 && (
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
-                            <span className="text-[10px] font-semibold text-slate-400 mr-1">Sources:</span>
-                            {message.citations.map((c, cIdx) => {
-                              const displayName = c.filename || c.file_name || c.title || c.name || `Source ${cIdx + 1}`
-                              return (
-                                <button
-                                  key={cIdx}
-                                  type="button"
-                                  onClick={() => setActiveCitation(c)}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100/90 hover:bg-indigo-50 border border-slate-200 text-slate-600 hover:text-indigo-700 text-[10px] font-medium transition shadow-2xs"
-                                  title="Click to view verified excerpt"
-                                >
-                                  <FileText className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                                  <span className="max-w-[150px] truncate">{displayName}</span>
-                                  {c.page_number && <span className="text-slate-400 font-mono text-[9px]">p.{c.page_number}</span>}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
-
-                        {/* Error Banner if any */}
-                        {!isUser && message.error && (
-                          <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-1.5">
-                            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                            <span>{message.error}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions under Assistant bubble */}
-                      {!isUser && !message.isStreaming && message.content && (
-                        <div className="flex items-center gap-2 mt-1 px-1">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyMessage(message.id, message.content)}
-                            className="text-[11px] text-slate-400 hover:text-slate-700 flex items-center gap-1 transition"
+                    {/* Numbered Steps */}
+                    <div className="space-y-4 pt-1">
+                      {selectedPlaybook.steps && selectedPlaybook.steps.length > 0 ? (
+                        selectedPlaybook.steps.map((st, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-start gap-4 pb-4 border-b border-slate-100 last:border-b-0"
                           >
-                            {copiedId === message.id ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-600" />
-                                <span className="text-emerald-600 font-semibold">Copied</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                <span>Copy</span>
-                              </>
-                            )}
-                          </button>
+                            <span className="text-xl sm:text-2xl font-serif text-slate-400 font-bold shrink-0 w-6">
+                              {st.number || idx + 1}
+                            </span>
+                            <div className="space-y-1">
+                              <h5 className="text-sm font-bold text-slate-900">
+                                {st.title}
+                              </h5>
+                              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed whitespace-pre-line">
+                                {st.description}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
+                          {selectedPlaybook.summary}
                         </div>
                       )}
                     </div>
+
+                    {/* KPIs this moves */}
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        KPIs this moves
+                      </div>
+                      <div className="text-xs sm:text-sm font-semibold text-slate-800">
+                        {selectedPlaybook.kpis_impacted || "Connect rate, leads to conversion, quota attainment"}
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePracticePlaybook(selectedPlaybook)}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-slate-900 hover:bg-black text-white text-xs font-bold transition shadow-xs"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Practise this with Coach</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPlaybookOriginal(selectedPlaybook.id)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold transition"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                        <span>View Original Document</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSharePlaybook(selectedPlaybook)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 text-xs font-semibold transition"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Share with my team</span>
+                      </button>
+                    </div>
                   </div>
-                )
-              })
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-        </main>
-
-        {/* BOTTOM INPUT DOCK */}
-        <div className="shrink-0 bg-linear-to-t from-slate-50 via-slate-50/95 to-transparent pb-4 px-4 sm:px-6">
-          <div className="max-w-3xl w-full mx-auto space-y-2.5">
-            {/* Suggestion Chips */}
-            {messages.length <= 2 && (
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                <span className="text-[11px] font-semibold text-slate-400 shrink-0 flex items-center gap-1 pl-1">
-                  <Sparkles className="w-3 h-3 text-indigo-500" />
-                  Suggested:
-                </span>
-                {dynamicSuggestions.map((sug, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => handleSendMessage(sug)}
-                    disabled={isSending}
-                    className="shrink-0 px-3 py-1.5 rounded-full bg-white border border-slate-200/90 text-slate-700 text-xs font-medium hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 shadow-2xs transition disabled:opacity-50"
-                  >
-                    {sug}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Chat Input Container */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-2 sm:p-2.5 flex items-end gap-2 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about your metrics, team rankings, playbooks, or time optimization..."
-                className="flex-1 bg-transparent border-0 resize-none text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden py-1.5 px-2 max-h-32 min-h-[38px]"
-              />
-
-              <button
-                type="button"
-                onClick={() => handleSendMessage()}
-                disabled={isSending || !inputValue.trim()}
-                className="h-9 w-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 shadow-xs transition disabled:opacity-40 disabled:hover:bg-indigo-600"
-                title="Send message"
-              >
-                {isSending ? (
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
                 )}
-              </button>
+              </div>
             </div>
+          )}
+        </div>
+      </section>
 
-            <div className="text-center text-[11px] text-slate-400">
-              Lucid AI Performance Coach • Synthesized using verified business data & authorized playbooks
+      {/* ==================================================================== */}
+      {/* 2. RIGHT 1/3 SECTION: ANTIGRAVITY-STYLE CHAT & THREAD HISTORY        */}
+      {/* ==================================================================== */}
+      <section
+        className={`${
+          mobileTab === "chat" ? "flex" : "hidden"
+        } lg:flex lg:w-1/3 h-full flex-col min-w-0 bg-white overflow-hidden shadow-xs border-l border-slate-200/90`}
+      >
+        {/* Antigravity Header Bar: [ [|]  🔍  Active Title  ⋮  + ] */}
+        <header className="h-12 border-b border-slate-200/80 px-3 flex items-center justify-between bg-white shrink-0 z-20">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+            {/* History Toggle [|] */}
+            <button
+              type="button"
+              onClick={() => setShowThreadHistory(!showThreadHistory)}
+              className={`p-1.5 rounded-lg transition ${
+                showThreadHistory
+                  ? "bg-indigo-50 text-indigo-700"
+                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+              }`}
+              title={showThreadHistory ? "Return to chat" : "Conversation history"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+
+            {/* Search Icon 🔍 */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowThreadHistory(true)
+                setTimeout(() => threadSearchInputRef.current?.focus(), 50)
+              }}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
+              title="Search chat threads"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+
+            {/* Active Thread Title */}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 ml-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="text-xs font-semibold text-slate-800 truncate" title={activeChatTitle}>
+                {showThreadHistory ? "Conversation History" : activeChatTitle}
+              </span>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* CITATION MODAL / DRAWER */}
-      {activeCitation && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100 shrink-0">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-900 truncate" title={activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name}>
-                    {activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name || "Document Citation"}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 font-medium mt-0.5">
-                    {activeCitation.location && (
-                      <span className="text-indigo-600 font-semibold">{activeCitation.location}</span>
-                    )}
-                    <span className="text-slate-400 font-mono">
-                      Chunk #{activeCitation.chunk_index ?? 0}
-                    </span>
-                    {(activeCitation.score !== undefined || activeCitation.similarity !== undefined) && (
-                      <span className="text-emerald-600 font-semibold">
-                        • {(((activeCitation.score ?? activeCitation.similarity ?? 0)) * 100).toFixed(0)}% Match
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+          {/* Right Header Controls: ⋮  + */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Options Dropdown ⋮ */}
+            <div className="relative" ref={chatMenuRef}>
               <button
                 type="button"
-                onClick={() => setActiveCitation(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition shrink-0"
+                onClick={() => setShowChatMenu(!showChatMenu)}
+                className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition"
+                title="Options"
               >
-                <X className="w-4 h-4" />
+                <MoreVertical className="w-4 h-4" />
               </button>
-            </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs sm:text-sm text-slate-700 font-sans leading-relaxed max-h-72 overflow-y-auto whitespace-pre-wrap">
-              {activeCitation.excerpt || activeCitation.content || activeCitation.text ? (
-                activeCitation.excerpt || activeCitation.content || activeCitation.text
-              ) : (
-                <div className="text-slate-500 space-y-1 py-1">
-                  <p className="font-medium text-slate-700">
-                    Source Document: {activeCitation.filename || activeCitation.file_name || activeCitation.title || activeCitation.name || "Uploaded Reference"}
-                  </p>
-                  {activeCitation.location && (
-                    <p className="text-xs text-indigo-600 font-semibold">{activeCitation.location}</p>
-                  )}
-                  <p className="text-xs text-slate-400 pt-1">
-                    Verified grounding evidence retrieved for this response.
-                  </p>
+              {showChatMenu && (
+                <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl border border-slate-200 shadow-lg py-1 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChatMenu(false)
+                      setShowPersonaModal(true)
+                    }}
+                    className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <Settings2 className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Persona Calibration</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChatMenu(false)
+                      if (profile) seedWelcomeMessage(profile)
+                    }}
+                    className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Reset Chat</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowChatMenu(false)
+                      setRetakingOnboarding(true)
+                    }}
+                    className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
+                  >
+                    <Compass className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Retake Questionnaire</span>
+                  </button>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end pt-2">
+            {/* New Chat Button + */}
+            <button
+              type="button"
+              onClick={handleNewChat}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition"
+              title="Start a fresh chat"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </header>
+
+        {/* BODY: Either Thread History OR Messages Stream */}
+        {showThreadHistory ? (
+          /* THREAD HISTORY VIEW */
+          <div className="flex-1 min-h-0 flex flex-col bg-slate-50/50 overflow-hidden">
+            {/* Search Threads Bar */}
+            <div className="p-3 border-b border-slate-200/80 bg-white">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  ref={threadSearchInputRef}
+                  type="text"
+                  value={threadSearchQuery}
+                  onChange={(e) => setThreadSearchQuery(e.target.value)}
+                  placeholder="Search previous chats..."
+                  className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-indigo-500 focus:bg-white transition"
+                />
+                {threadSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setThreadSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* New Chat Action */}
+            <div className="p-3 pb-1">
               <button
                 type="button"
-                onClick={() => setActiveCitation(null)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs"
+                onClick={handleNewChat}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-semibold shadow-2xs transition"
               >
-                Close Preview
+                <Plus className="w-3.5 h-3.5" />
+                <span>New Chat</span>
+              </button>
+            </div>
+
+            {/* Grouped Threads List */}
+            <div className="flex-1 overflow-y-auto px-2.5 py-2 space-y-4">
+              {filteredGroupedConversations.length === 0 ? (
+                <div className="text-center py-12 px-3">
+                  <MessageSquare className="w-6 h-6 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs text-slate-500 font-medium">
+                    {threadSearchQuery ? "No matching conversations" : "No previous conversations yet"}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {threadSearchQuery ? "Try a different search keyword" : "Start a conversation to see history"}
+                  </p>
+                </div>
+              ) : (
+                filteredGroupedConversations.map(([groupLabel, items]) => (
+                  <div key={groupLabel} className="space-y-1">
+                    <div className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      {groupLabel}
+                    </div>
+
+                    {items.map((thread) => {
+                      const isActive = activeConversationId === thread.id
+                      const isEditing = editingThreadId === thread.id
+
+                      return (
+                        <div
+                          key={thread.id}
+                          onClick={() => handleSelectConversation(thread.id)}
+                          className={`group relative flex items-center justify-between px-2.5 py-2 rounded-xl text-xs transition cursor-pointer ${
+                            isActive
+                              ? "bg-indigo-50/90 text-indigo-950 font-semibold border border-indigo-200/80 shadow-2xs"
+                              : "text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/60"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <MessageSquare
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600"
+                              }`}
+                            />
+
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editTitleValue}
+                                onChange={(e) => setEditTitleValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") handleSaveRename(thread.id)
+                                  if (e.key === "Escape") setEditingThreadId(null)
+                                }}
+                                onBlur={() => handleSaveRename(thread.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full bg-white border border-indigo-300 rounded px-1.5 py-0.5 text-xs text-slate-800 focus:outline-hidden"
+                              />
+                            ) : (
+                              <span className="truncate">{thread.title}</span>
+                            )}
+                          </div>
+
+                          {!isEditing && (
+                            <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingThreadId(thread.id)
+                                  setEditTitleValue(thread.title)
+                                }}
+                                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 transition"
+                                title="Rename thread"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteConversation(thread.id, e)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
+                                title="Delete thread"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Thread History Footer */}
+            <div className="p-2.5 border-t border-slate-200/80 bg-white flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={() => setShowPersonaModal(true)}
+                className="flex items-center gap-1.5 text-slate-600 hover:text-indigo-600 font-medium p-1 transition"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                <span>Persona</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowThreadHistory(false)}
+                className="text-indigo-600 hover:text-indigo-800 font-semibold p-1 transition"
+              >
+                Back to Chat →
               </button>
             </div>
           </div>
+        ) : (
+          /* MESSAGES & CHAT STREAM VIEW */
+          <div className="flex-1 min-h-0 flex flex-col justify-between overflow-hidden">
+            {/* Messages Scroll Area */}
+            <main className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4">
+              {loadingActiveThread ? (
+                <div className="py-16 text-center text-xs text-slate-400">Loading conversation history...</div>
+              ) : (
+                messages.map((message) => {
+                  const isUser = message.role === "user"
+
+                  return (
+                    <div
+                      key={message.id}
+                      className={`flex gap-2.5 ${isUser ? "justify-end" : "justify-start"} animate-in fade-in duration-200`}
+                    >
+                      {!isUser && (
+                        <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-1">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+
+                      <div className={`max-w-[88%] flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+                        {/* Message Bubble */}
+                        <div
+                          className={`rounded-2xl p-3.5 sm:p-4 shadow-2xs transition-all ${
+                            isUser
+                              ? "bg-indigo-600 text-white font-medium text-xs sm:text-sm rounded-tr-xs"
+                              : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs"
+                          }`}
+                        >
+                          {isUser ? (
+                            <p className="whitespace-pre-wrap">{message.content}</p>
+                          ) : (
+                            <>
+                              {message.content ? (
+                                renderMarkdown(message.content)
+                              ) : message.isStreaming ? (
+                                <div className="flex items-center gap-2 text-xs text-slate-500 py-1">
+                                  <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
+                                  <span>Thinking...</span>
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+
+                          {/* Sources / Citations: File name only, no modal */}
+                          {!isUser && message.citations && message.citations.length > 0 && (() => {
+                            const uniqueDocNames = Array.from(
+                              new Set(
+                                message.citations
+                                  .map((c) => (c.filename || c.file_name || c.title || c.name || "").trim())
+                                  .filter(Boolean)
+                              )
+                            )
+
+                            if (uniqueDocNames.length === 0) return null
+
+                            return (
+                              <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-slate-400 mr-0.5">Sources:</span>
+                                {uniqueDocNames.map((docName, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[10px] font-medium"
+                                    title={`Source: ${docName}`}
+                                  >
+                                    <FileText className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                                    <span className="max-w-[200px] truncate">{docName}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )
+                          })()}
+
+                          {/* Error banner */}
+                          {!isUser && message.error && (
+                            <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              <span>{message.error}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions under Assistant bubble */}
+                        {!isUser && !message.isStreaming && message.content && (
+                          <div className="flex items-center gap-2 mt-1 px-1">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessage(message.id, message.content)}
+                              className="text-[10px] text-slate-400 hover:text-slate-700 flex items-center gap-1 transition"
+                            >
+                              {copiedId === message.id ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-600 font-semibold">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </main>
+
+            {/* Bottom Input Dock */}
+            <div className="shrink-0 bg-white border-t border-slate-100 p-3 space-y-2">
+              {/* Suggestion Chips */}
+              {messages.length <= 2 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {dynamicSuggestions.map((sug, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleSendMessage(sug)}
+                      disabled={isSending}
+                      className="shrink-0 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200/90 text-slate-700 text-[11px] font-medium hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 transition disabled:opacity-50"
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Chat Input Container */}
+              <div className="bg-slate-50 rounded-2xl border border-slate-200/90 shadow-2xs p-2 flex items-end gap-2 focus-within:border-indigo-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask about targets, playbooks, team performance..."
+                  className="flex-1 bg-transparent border-0 resize-none text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden py-1 px-1.5 max-h-28 min-h-[36px]"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => handleSendMessage()}
+                  disabled={isSending || !inputValue.trim()}
+                  className="h-8 w-8 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 shadow-xs transition disabled:opacity-40 disabled:hover:bg-indigo-600"
+                  title="Send message"
+                >
+                  {isSending ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+
+              <div className="text-center text-[10px] text-slate-400">
+                AI Performance Coach • Grounded in company documents & playbooks
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Toast Notification */}
+      {sharedToast && (
+        <div className="fixed bottom-6 left-6 z-50 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-medium shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{sharedToast}</span>
         </div>
       )}
 

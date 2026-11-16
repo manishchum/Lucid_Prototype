@@ -45,7 +45,8 @@ import {
   Eye,
   Ban,
   Download,
-  Copy
+  Copy,
+  BookOpen
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -217,6 +218,7 @@ export default function CoachUploadsPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [targetEmployeeId, setTargetEmployeeId] = useState<string>("")
   const [isPrivateManagerNote, setIsPrivateManagerNote] = useState<boolean>(false)
+  const [isPlaybook, setIsPlaybook] = useState<boolean>(false)
   const [manualDescription, setManualDescription] = useState<string>("")
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -699,9 +701,12 @@ export default function CoachUploadsPage() {
 
         const formData = new FormData()
         formData.append("file", file)
-        if (targetEmployeeId && targetEmployeeId !== "general") {
+        if (targetEmployeeId && targetEmployeeId !== "general" && !isPlaybook) {
           formData.append("target_employee_id", targetEmployeeId)
           formData.append("is_private_manager_note", isPrivateManagerNote ? "true" : "false")
+        }
+        if (isPlaybook) {
+          formData.append("is_playbook", "true")
         }
         if (manualDescription.trim()) {
           formData.append("manual_description", manualDescription.trim())
@@ -729,6 +734,7 @@ export default function CoachUploadsPage() {
       setPreflightConflicts([])
       setTargetEmployeeId("")
       setIsPrivateManagerNote(false)
+      setIsPlaybook(false)
       setManualDescription("")
       if (fileInputRef.current) fileInputRef.current.value = ""
 
@@ -802,6 +808,27 @@ export default function CoachUploadsPage() {
       setErrorToast(err.message || "Failed to generate download URL.")
     } finally {
       setDownloadingUrl(false)
+    }
+  }
+
+  // Toggle Playbook Designation
+  const handleTogglePlaybook = async (docId: string, currentStatus: boolean) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/documents/${docId}/playbook-toggle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_playbook: !currentStatus })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSuccessToast(data.message || "Playbook designation updated.")
+        fetchDocuments(page, searchQuery, statusFilter, sourceFilter)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to update playbook designation.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to toggle playbook designation.")
     }
   }
 
@@ -1185,21 +1212,21 @@ export default function CoachUploadsPage() {
       <div className="max-w-6xl mx-auto space-y-8">
         
         {/* Top Back Navigation Bar */}
-        <div className="flex items-center justify-between">
-          <Link
+        {/* <div className="flex items-center justify-between"> */}
+          {/* <Link
             href="/employee/welcome"
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200 rounded-lg transition shadow-2xs group"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Lucid</span>
-          </Link>
+          </Link> */}
 
-          <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
+          {/* <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
             {!mounted
               ? "Coach Knowledge Hub"
               : `${hydratedAdminOrAbove ? "Admin Console" : hydratedManagerOrAbove ? "Manager Console" : "Employee Vault"} • Coach Knowledge Hub`}
           </span>
-        </div>
+        </div> */}
 
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1214,22 +1241,22 @@ export default function CoachUploadsPage() {
           </div>
 
           <div className="flex items-center gap-2.5 self-start md:self-auto">
-            <Link
+            {/* <Link
               href="/employee/welcome"
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition shadow-sm group"
             >
               <ArrowLeft className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
               <span>Back to Lucid</span>
-            </Link>
+            </Link> */}
 
-            <button
+            {/* <button
               onClick={() => fetchDocuments(currentPage, searchQuery, statusFilter, sourceFilter)}
               disabled={loading}
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
               Refresh Status
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -1414,7 +1441,30 @@ export default function CoachUploadsPage() {
                 <p className="text-xs text-slate-500 mt-1">
                   Tagging an employee scopes citations to that employee and their reporting hierarchy.
                 </p>
-                {targetEmployeeId && (
+
+                <div className="mt-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className={`w-4 h-4 ${isPlaybook ? "text-indigo-600" : "text-slate-400"}`} />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800">Company Playbook / SOP</p>
+                      <p className="text-[10px] text-slate-500">Expose in Chat Playbooks directory for all employees</p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isPlaybook}
+                    onChange={(e) => {
+                      setIsPlaybook(e.target.checked)
+                      if (e.target.checked) {
+                        setTargetEmployeeId("")
+                        setIsPrivateManagerNote(false)
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                {targetEmployeeId && !isPlaybook && (
                   <label className="mt-2.5 inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1605,6 +1655,12 @@ export default function CoachUploadsPage() {
                                     Google Drive
                                   </span>
                                 )}
+                                {Boolean(meta.is_playbook || meta.category === "Playbook") && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                    <BookOpen className="w-2.5 h-2.5 text-emerald-600" />
+                                    Playbook
+                                  </span>
+                                )}
                               </div>
                               <div className="text-xs text-slate-400 mt-0.5">
                                 {formatBytes(doc.file_size_bytes)}
@@ -1666,6 +1722,26 @@ export default function CoachUploadsPage() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {hydratedManagerOrAbove && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleTogglePlaybook(doc.id, Boolean(meta.is_playbook || meta.category === "Playbook"))
+                                }}
+                                className={`p-1.5 rounded-lg transition ${
+                                  meta.is_playbook || meta.category === "Playbook"
+                                    ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                                    : "text-slate-400 hover:text-indigo-600 hover:bg-slate-100"
+                                }`}
+                                title={
+                                  meta.is_playbook || meta.category === "Playbook"
+                                    ? "Designated as Playbook (click to revoke)"
+                                    : "Designate as Company Playbook"
+                                }
+                              >
+                                <BookOpen className="w-4 h-4" />
+                              </button>
+                            )}
                             {hydratedManagerOrAbove && (
                               <button
                                 onClick={() => {

@@ -1204,7 +1204,7 @@ export default function EmployeeWelcome() {
 
         <div className="grid gap-2 md:gap-4">
           {/* AI Performance Coach Banner Card */}
-          <Card className="rounded-[8px] border-none shadow-sm bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/50 overflow-hidden border border-indigo-100/70">
+          {/* <Card className="rounded-[8px] border-none shadow-sm bg-gradient-to-r from-indigo-50/70 via-white to-purple-50/50 overflow-hidden border border-indigo-100/70">
             <CardContent className="p-4 sm:p-5">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-start gap-3.5 min-w-0">
@@ -1235,7 +1235,7 @@ export default function EmployeeWelcome() {
                 </Button>
               </div>
             </CardContent>
-          </Card>
+          </Card> */}
 
           {/* Progress Nudge Card */}
           {nudgeMessage && (
