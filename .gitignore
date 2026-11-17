@@ -22,3 +22,6 @@ Backend/.cache/
 .agents/*
 
 references/*
+
+Tesseract-OCR/
+/Tesseract-OCR/
