@@ -122,3 +122,42 @@ def insert_usage_log(data: dict):
         .insert(data)
         .execute()
     )
+
+
+# ============================================================
+# CURRENCY EXCHANGE RATES
+# ============================================================
+
+def get_currency_exchange_rate(
+    from_currency: str = "USD",
+    to_currency: str = "INR",
+    year: int | None = None
+) -> str | None:
+    """
+    Fetches the exchange rate for a given currency pair.
+    If 'year' is specified, fetches that exact year's rate.
+    If 'year' is None, returns the latest active rate (ORDER BY year DESC LIMIT 1).
+    """
+    try:
+        query = (
+            supabase
+            .table("currency_exchange_rates")
+            .select("rate, year")
+            .eq("from_currency", from_currency)
+            .eq("to_currency", to_currency)
+            .eq("is_active", True)
+        )
+
+        if year is not None:
+            query = query.eq("year", year)
+        else:
+            query = query.order("year", desc=True)
+
+        response = query.limit(1).maybe_single().execute()
+        data = response.data
+        if data and isinstance(data, dict) and "rate" in data:
+            return str(data["rate"])
+    except Exception:
+        pass
+    return None
+

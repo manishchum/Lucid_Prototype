@@ -19,7 +19,7 @@ interface TrainingModule {
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 const AssessmentContent = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, employeeData, userId: authUserId } = useAuth();
   const [modules, setModules] = useState<TrainingModule[]>([]);
   const searchParams = useSearchParams();
   const [mcqQuestionsByModule, setMcqQuestionsByModule] = useState<Array<{ moduleId: string; title?: string; questions: any[] }>>([]);
@@ -41,7 +41,6 @@ const AssessmentContent = () => {
 
   const router = useRouter();
 
-
   const fetchUserByEmail = async (email: string | undefined | null) => {
     if (!email) return null;
     const res = await fetchWithAuth(`${API_BASE}/api/users/by-email/${encodeURIComponent(email)}`);
@@ -56,158 +55,129 @@ const AssessmentContent = () => {
   };
 
   useEffect(() => {
-    const fetchModules = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        // Get employee's company_id first via backend API
-        let companyId: string | null = null;
-        let fetchedUserId: string | null = null;
-        if (user?.email) {
-          const empData = await fetchUserByEmail(user.email);
-          companyId = empData?.company_id || null;
-          fetchedUserId = empData?.user_id || null;
-          setUserId(fetchedUserId);
-        }
-        if (!companyId) throw new Error("Could not find company for user");
-        // Get modules for this company only
-        const moduleRes = await fetchWithAuth(`${API_BASE}/api/training-modules/company/${encodeURIComponent(companyId)}`,{
-          headers: {'X-User-ID': fetchedUserId || ''}
-        });
-        if (!moduleRes.ok) {
-          const txt = await moduleRes.text().catch(() => "");
-          throw new Error(`Failed to fetch modules: ${moduleRes.status} ${txt}`);
-        }
-        const modulesPayload = await moduleRes.json().catch(() => ({}));
-        setModules(modulesPayload.modules || []);
-        setCompanyId(companyId);
-      } catch (err: any) {
-  setError("Failed to load modules: " + err.message);
-  // Add delay before clearing error
-  setTimeout(() => setError(""), 1200);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchModules();
-  }, [user]);
+    if (authLoading || !user) {
+      return;
+    }
 
-  useEffect(() => {
-    const getMCQQuiz = async () => {
-      if (modules.length === 0) return;
+    let isCancelled = false;
+
+    const loadAssessment = async () => {
       setLoading(true);
       setError("");
+
       try {
-        // Get employee's company_id and id via backend API
-        let companyId: string | null = null;
-        let employeeId: string | null = null;
-        if (user?.email) {
+        // 1. Resolve userId and companyId directly from auth context, with fallback to API if needed
+        let currentUserId = authUserId || employeeData?.user_id || null;
+        let currentCompanyId = employeeData?.company_id || null;
+
+        if ((!currentUserId || !currentCompanyId) && user.email) {
           const empData = await fetchUserByEmail(user.email);
-          companyId = empData?.company_id || null;
-          employeeId = empData?.user_id || null;
+          currentUserId = currentUserId || empData?.user_id || null;
+          currentCompanyId = currentCompanyId || empData?.company_id || null;
         }
-        // console.log("the gpt mcq quiz is called");
-        if (!companyId || !employeeId) throw new Error("Could not find employee or company for user");
-        
-        // Fetch user's learning style
-        let learningStyle: string | null = null;
-        try {
-          const styleRes = await fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${employeeId}`, {
-            headers: { 'X-User-ID': employeeId }
-          });
-          if (styleRes.ok) {
-            const styleJson = await styleRes.json();
-            const learningStyleData = styleJson?.data || styleJson;
-            learningStyle = learningStyleData?.learning_style || 'default';
-          }
-        } catch (styleErr) {
-          console.error('[assessment] error fetching learning style:', styleErr);
-          learningStyle = 'default';
+
+        if (!currentCompanyId) {
+          throw new Error("Could not find company for user");
         }
-        // If a moduleId query param is present, request a per-module quiz.
+
+        setUserId(currentUserId);
+        setCompanyId(currentCompanyId);
+
         const urlModuleId = searchParams.get('moduleId');
-        // console.log("URL Module ID:", urlModuleId);
-        // console.log(urlModuleId);
+
+        // 2. Concurrently fetch modules, learning style, and (if urlModuleId) learning plan
+        const [modulesPayload, styleData, learningPlanData] = await Promise.all([
+          fetchWithAuth(`${API_BASE}/api/training-modules/company/${encodeURIComponent(currentCompanyId)}`, {
+            headers: { 'X-User-ID': currentUserId || '' }
+          }).then(async (res) => {
+            if (!res.ok) {
+              const txt = await res.text().catch(() => "");
+              throw new Error(`Failed to fetch modules: ${res.status} ${txt}`);
+            }
+            return res.json().catch(() => ({}));
+          }),
+
+          currentUserId ? fetchWithAuth(`${API_BASE}/api/learning-style?user_id=${currentUserId}`, {
+            headers: { 'X-User-ID': currentUserId }
+          }).then(async (res) => {
+            if (res.ok) {
+              const json = await res.json();
+              return json?.data || json;
+            }
+            return null;
+          }).catch(() => null) : Promise.resolve(null),
+
+          (urlModuleId && currentUserId)
+            ? fetchWithAuth(
+                `${API_BASE}/api/learning-plans/?user_id=${currentUserId}&module_id=${urlModuleId}`,
+                { headers: { 'X-User-ID': currentUserId } }
+              ).then(async (res) => {
+                if (res.ok) {
+                  const json = await res.json();
+                  return json?.plans?.[0] || null;
+                }
+                return null;
+              }).catch(() => null)
+            : Promise.resolve(null)
+        ]);
+
+        if (isCancelled) return;
+
+        const fetchedModules: TrainingModule[] = modulesPayload.modules || [];
+        setModules(fetchedModules);
+
+        if (fetchedModules.length === 0) {
+          setLoading(false);
+          return;
+        }
+
+        const learningStyle = styleData?.learning_style || 'default';
 
         let isBaselineRequest = false;
-        let res;
-        if (urlModuleId) {
-          // Check if this is a baseline assessment request by looking at learning plan via backend API
-          try {
-            const lpRes = await fetchWithAuth(
-              `${API_BASE}/api/learning-plans/?user_id=${employeeId}&module_id=${urlModuleId}`,
-              { headers: { 'X-User-ID': employeeId } }
-            );
+        let requestBody: any;
 
-            // console.log("Learning Plan Query - User ID:", employeeId, "Module ID:", urlModuleId);
-            
-            if (lpRes.ok) {
-              const lpData = await lpRes.json();
-              const learningPlan = lpData?.plans?.[0] || null;
-              
-              // console.log("Learning Plan Data:", learningPlan);
-              
-              // baseline_assessment is stored as smallint (0 or 1) in database, not boolean
-              if (learningPlan) {
-                // console.log("baseline_assessment value:", learningPlan.baseline_assessment, "type:", typeof learningPlan.baseline_assessment);
-                isBaselineRequest = learningPlan.baseline_assessment === true;
-              }
-            } else {
-              const errorData = await lpRes.json();
-              console.error("Error fetching learning plan:", errorData);
-            }
-            
-            // console.log("Is Baseline Request:", isBaselineRequest);
-          } catch (err) {
-            console.error("Exception while checking learning plan:", err);
-            isBaselineRequest = false;
+        if (urlModuleId) {
+          if (learningPlanData) {
+            isBaselineRequest = learningPlanData.baseline_assessment === true;
           }
-          // console.log(isBaselineRequest)
-          // console.log")
-            // console.log("Inside the if statement for per-module quiz request.");
-          // console.log(urlModuleId)
-          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              moduleIds: [urlModuleId],
-              companyId:companyId, 
-              user_id: employeeId,
-              learningStyle: learningStyle,
-              isBaseline: isBaselineRequest,
-              assessmentType: isBaselineRequest ? 'baseline' : 'module'
-            }),
-          });
+          requestBody = {
+            moduleIds: [urlModuleId],
+            companyId: currentCompanyId,
+            user_id: currentUserId,
+            learningStyle,
+            isBaseline: isBaselineRequest,
+            assessmentType: isBaselineRequest ? 'baseline' : 'module'
+          };
         } else {
-          // Request a baseline quiz for all assigned modules (multi-module baseline)
-          // console.log("Inside the else statement for per-module quiz request.");
-          res = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              moduleIds: modules.map(m => m.module_id), 
-              companyId,
-              user_id: employeeId,
-              learningStyle: learningStyle,
-              isBaseline: true,
-              assessmentType: 'baseline'
-            }),
-          });
+          requestBody = {
+            moduleIds: fetchedModules.map(m => m.module_id),
+            companyId: currentCompanyId,
+            user_id: currentUserId,
+            learningStyle,
+            isBaseline: true,
+            assessmentType: 'baseline'
+          };
         }
-        // console.log(res)
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(`API returned ${res.status}: ${errorText}`);
+
+        const quizRes = await fetchWithAuth(`${API_BASE}/api/gpt-mcq-quiz`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (isCancelled) return;
+
+        if (!quizRes.ok) {
+          const errorText = await quizRes.text();
+          throw new Error(`API returned ${quizRes.status}: ${errorText}`);
         }
-        const d = await res.json();
-        // console.log('[Assessment] Baseline quiz result:', d);
-        
-        // Prefer quizMapping (new backend behavior). Fall back to legacy d.quiz.
+
+        const d = await quizRes.json();
+
         let quizzes = [] as Array<{ moduleId: string; title?: string; questions: any[]; assessmentId?: string }>;
         const mapping = (d && Array.isArray(d.quizMapping)) ? d.quizMapping : null;
 
         if (mapping && mapping.length > 0) {
-          // If moduleId is specified, pick that module's baseline.
           let selected = null as any;
           if (urlModuleId) {
             selected = mapping.find((m: any) => String(m.module_id) === String(urlModuleId)) || null;
@@ -222,7 +192,7 @@ const AssessmentContent = () => {
           if (Array.isArray(selectedQuestions) && selectedQuestions.length > 0) {
             const effectiveModuleId = (urlModuleId && isBaselineRequest) ? 'baseline' : (urlModuleId ? String(urlModuleId) : 'baseline');
             const effectiveTitle = (urlModuleId && !isBaselineRequest)
-              ? (modules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module')
+              ? (fetchedModules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module')
               : 'Baseline Assessment';
 
             quizzes = [{
@@ -233,22 +203,36 @@ const AssessmentContent = () => {
             }];
           }
         } else if (d && d.quiz && Array.isArray(d.quiz) && d.quiz.length > 0) {
-          // Legacy shape
           if (d.assessmentId && urlModuleId) {
-            quizzes = [{ moduleId: String(urlModuleId), title: modules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module', questions: d.quiz, assessmentId: d.assessmentId }];
+            quizzes = [{
+              moduleId: String(urlModuleId),
+              title: fetchedModules.find(m => String(m.module_id) === String(urlModuleId))?.title || 'Module',
+              questions: d.quiz,
+              assessmentId: d.assessmentId
+            }];
           } else {
-            quizzes = [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz }];
+            quizzes = [{ moduleId: 'baseline', title: 'Baseline Assessment', questions: d.quiz, assessmentId: d.assessmentId }];
           }
         }
+
         setMcqQuestionsByModule(quizzes);
       } catch (err: any) {
-        setError("Failed to get quiz: " + err.message);
+        if (!isCancelled) {
+          setError("Failed to load assessment: " + err.message);
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
-    if (modules.length > 0) getMCQQuiz();
-  }, [modules, user, searchParams]);
+
+    loadAssessment();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authLoading, user, employeeData, authUserId, searchParams]);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({
@@ -294,19 +278,14 @@ const AssessmentContent = () => {
     setScore(result.score);
     setLoading(true);
     try {
-      // 1. Fetch employee UUID via backend API
-      let employeeId: string | null = null;
-      if (user?.email) {
+      // 1. Fetch employee UUID via backend API or context
+      let employeeId: string | null = userId || authUserId || employeeData?.user_id || null;
+      if (!employeeId && user?.email) {
         const empData = await fetchUserByEmail(user.email);
-        if (empData?.user_id) {
-          employeeId = empData.user_id;
-        } else {
-          setError("Could not find employee record for this user.");
-          setLoading(false);
-          return;
-        }
-      } else {
-        setError("User email not found.");
+        employeeId = empData?.user_id || null;
+      }
+      if (!employeeId) {
+        setError("Could not find employee record for this user.");
         setLoading(false);
         return;
       }
@@ -325,20 +304,15 @@ const AssessmentContent = () => {
       } else {
         const urlModuleId = searchParams.get('moduleId');
 
-        if (!urlModuleId) {
-          throw new Error('moduleId query param required to resolve baseline assessment');
-        }
-
-        if (!urlModuleId) {
-          throw new Error('moduleId query param required to resolve baseline assessment');
-        }
-
         // Look up baseline assessment via backend API
-        const q = new URLSearchParams({
+        const searchParamsObj: Record<string, string> = {
           type: 'baseline',
           company_id: companyId || '',
-          original_module_id: urlModuleId
-        });
+        };
+        if (urlModuleId) {
+          searchParamsObj.original_module_id = urlModuleId;
+        }
+        const q = new URLSearchParams(searchParamsObj);
         const assessRes = await fetchWithAuth(`${API_BASE}/api/assessments/filter/search?${q.toString()}`, {
           headers: { 'X-User-ID': employeeId || '' }
         });
@@ -359,7 +333,7 @@ const AssessmentContent = () => {
             body: JSON.stringify({
               type: 'baseline',
               company_id: companyId,
-              original_module_id: urlModuleId,
+              original_module_id: urlModuleId || null,
               learning_style: null,
               questions: questionsForModule
             })

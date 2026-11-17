@@ -7,6 +7,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, Optional
+from utils.logging import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +287,7 @@ async def send_welcome_email(
         )
         return {"success": True, "email": recipient_email, "subject": email_payload["subject"]}
     except Exception as exc:
-        logger.error("Failed to send welcome email to %s: %s", recipient_email, exc)
+        logger.error("Failed to send welcome email to %s: %s", mask_email(recipient_email), exc)
         return {"success": False, "email": recipient_email, "error": str(exc)}
 
 
@@ -390,5 +391,5 @@ async def send_sprint_completion_email(
         )
         return {"success": True, "email": recipient_email, "subject": email_payload["subject"]}
     except Exception as exc:
-        logger.error("Failed to send sprint completion email to %s: %s", recipient_email, exc)
+        logger.error("Failed to send sprint completion email to %s: %s", mask_email(recipient_email), exc)
         return {"success": False, "email": recipient_email, "error": str(exc)}

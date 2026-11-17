@@ -345,47 +345,81 @@ async def deactivate_scheduled_whatsapp(
 
 # ── HELPER FUNCTIONS ────────────────────────────────────────────────
 
-async def get_users_for_module(module_id: str) -> Dict[str, Any]:
+async def get_users_for_module(
+    module_id: str,
+    company_id: Optional[str] = None,
+    specific_user_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """
-    Get all active users assigned to a module with their contact info.
+    Get all active users assigned to a module/sprint with their contact info.
+    Restricts strictly to users assigned to this module/sprint in learning_plan.
     Returns: {"data": [{"user_id": "...", "phone_number": "+...", "name": "...", "email": "..."}], "error": None}
     """
     try:
-        # Get user_ids from learning_plan for this module
-        lp_response = (
-            supabase_admin.table("learning_plan")
-            .select("user_id")
-            .eq("module_id", module_id)
-            .execute()
-        )
-        if not lp_response.data:
+        # 1. Resolve sprint (original_module_id) if module_id is a processed_module_id
+        sprint_id = module_id
+        try:
+            pm_resp = (
+                supabase_admin.table("processed_modules")
+                .select("original_module_id")
+                .eq("processed_module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+            if pm_resp.data and pm_resp.data.get("original_module_id"):
+                sprint_id = pm_resp.data.get("original_module_id")
+        except Exception:
+            pass
+
+        # 2. Query learning_plan for this sprint_id or module_id
+        lp_query = supabase_admin.table("learning_plan").select("user_id, status")
+        if sprint_id != module_id:
+            lp_query = lp_query.or_(f"module_id.eq.{sprint_id},module_id.eq.{module_id}")
+        else:
+            lp_query = lp_query.eq("module_id", sprint_id)
+        lp_response = lp_query.execute()
+
+        assigned_user_ids = set()
+        for row in (lp_response.data or []):
+            uid = row.get("user_id")
+            status = str(row.get("status") or "").strip().upper()
+            if uid and status not in ["UNASSIGNED", "CANCELLED", "DELETED"]:
+                assigned_user_ids.add(str(uid))
+
+        passed_ids = set(str(uid) for uid in (specific_user_ids or []) if uid)
+        # Ensure all users assigned to that sprint are included
+        if assigned_user_ids:
+            target_user_ids = list(assigned_user_ids.union(passed_ids))
+        elif passed_ids:
+            target_user_ids = list(passed_ids)
+        else:
             return {"data": [], "error": None}
 
-        user_ids = list({row["user_id"] for row in lp_response.data if row.get("user_id")})
-        if not user_ids:
-            return {"data": [], "error": None}
-
-        # Fetch user details with phone numbers
-        users_response = (
+        # 3. Fetch user details with phone numbers
+        users_query = (
             supabase_admin.table("users")
-            .select("user_id, name, email, phone")
-            .in_("user_id", user_ids)
+            .select("user_id, name, email, phone, company_id")
+            .in_("user_id", target_user_ids)
             .eq("is_active", True)
-            .execute()
         )
-        
-        # Filter for users with valid phone numbers
-        users_with_phone = [
-            {
-                "user_id": user["user_id"],
-                "phone_number": user["phone"],
-                "name": user.get("name", ""),
-                "email": user.get("email", ""),
-            }
-            for user in (users_response.data or [])
-            if user.get("phone")
-        ]
-        
+
+        users_response = users_query.execute()
+
+        # Filter for users with valid phone numbers (10+ digits)
+        users_with_phone = []
+        for user in (users_response.data or []):
+            raw_phone = str(user.get("phone") or "").strip()
+            digits = "".join(filter(str.isdigit, raw_phone))
+            if len(digits) >= 10:
+                full_name = user.get("name") or "Learner"
+                first_name = full_name.strip().split()[0] if full_name.strip() else "Learner"
+                users_with_phone.append({
+                    "user_id": str(user["user_id"]),
+                    "phone_number": raw_phone,
+                    "name": first_name,
+                    "email": user.get("email", ""),
+                })
+
         return {"data": users_with_phone, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}
@@ -394,20 +428,82 @@ async def get_users_for_module(module_id: str) -> Dict[str, Any]:
 async def get_module_content(module_id: str) -> Dict[str, Any]:
     """
     Fetch processed module content (flashcards, audio, video, etc.)
+    Supports querying by processed_module_id OR original_module_id (sprint ID).
+    Resolves dynamic language variants and sprint visuals.
     """
     try:
+        # 1. Try querying by processed_module_id
         response = (
             supabase_admin.table("processed_modules")
             .select(
-                "processed_module_id, original_module_id, title, flashcard_data, audio_url, video_url, mindmap_data, infographic_data"
+                "processed_module_id, original_module_id, title, flashcard_data, audio_url, audio_url_hinglish, video_url, video_url_hinglish, mindmap_data, infographic_data"
             )
             .eq("processed_module_id", module_id)
-            .single()
+            .maybe_single()
             .execute()
         )
+        data = response.data
 
+        # 2. If not found by processed_module_id, check if module_id is an original_module_id (sprint ID)
+        if not data:
+            pm_resp = (
+                supabase_admin.table("processed_modules")
+                .select(
+                    "processed_module_id, original_module_id, title, flashcard_data, audio_url, audio_url_hinglish, video_url, video_url_hinglish, mindmap_data, infographic_data"
+                )
+                .eq("original_module_id", module_id)
+                .order("order_index")
+                .limit(1)
+                .execute()
+            )
+            if pm_resp.data and len(pm_resp.data) > 0:
+                data = pm_resp.data[0]
 
-        print(f"[get_module_content DEBUG] Supabase response: {response}")
-        return {"data": response.data, "error": None}
+        # 3. If still not found, check training_modules
+        if not data:
+            tm_resp = (
+                supabase_admin.table("training_modules")
+                .select("module_id, title, description")
+                .eq("module_id", module_id)
+                .maybe_single()
+                .execute()
+            )
+            if tm_resp.data:
+                data = {
+                    "processed_module_id": tm_resp.data.get("module_id"),
+                    "original_module_id": tm_resp.data.get("module_id"),
+                    "title": tm_resp.data.get("title"),
+                    "flashcard_data": [],
+                    "audio_url": None,
+                    "video_url": None,
+                }
+
+        if not data:
+            return {"data": None, "error": f"Module {module_id} not found"}
+
+        # Resolve primary audio/video URLs (fallback to hinglish or other variants if available)
+        if not data.get("audio_url") and data.get("audio_url_hinglish"):
+            data["audio_url"] = data["audio_url_hinglish"]
+        if not data.get("video_url") and data.get("video_url_hinglish"):
+            data["video_url"] = data["video_url_hinglish"]
+
+        # Fetch sprint image from vectordb_images as dynamic visual fallback
+        orig_id = data.get("original_module_id") or module_id
+        if orig_id:
+            try:
+                img_resp = (
+                    supabase_admin.table("vectordb_images")
+                    .select("image_url")
+                    .eq("module_id", orig_id)
+                    .limit(1)
+                    .execute()
+                )
+                if img_resp.data and len(img_resp.data) > 0:
+                    data["sprint_image_url"] = img_resp.data[0].get("image_url")
+            except Exception:
+                pass
+
+        print(f"[get_module_content DEBUG] Successfully resolved dynamic content for module: {module_id}")
+        return {"data": data, "error": None}
     except Exception as e:
         return {"data": None, "error": str(e)}

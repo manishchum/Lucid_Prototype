@@ -1323,20 +1323,30 @@ async def delete_notification_template(
 
 @router.get("/audit/dispatches")
 async def get_dispatch_audit_logs(
-    limit: int = 30,
-    offset: int = 0,
+    limit: int = Query(default=30, ge=1, le=200, description="Max records to return (1-200)"),
+    offset: int = Query(default=0, ge=0, description="Number of records to skip"),
     is_test: Optional[bool] = None,
     status: Optional[str] = None,
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
 ):
+
+    AUDIT_LOG_COLUMNS = (
+        "id, correlation_id, notification_type, channel, recipient_user_id, "
+        "status, resolved_variables, rendered_title, rendered_body, "
+        "validation_errors, failure_reason, suppression_reason, "
+        "is_test, latency_ms, created_at, users:recipient_user_id(name, email)"
+    )
+
     """Returns dispatch audit logs with resolved variables, lifecycle states, and provider responses."""
     try:
+        safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
         service_client = get_service_supabase_client()
         query = (
             service_client.table("notification_dispatch_audit")
-            .select("*, users:recipient_user_id(name, email)")
+            .select(AUDIT_LOG_COLUMNS)
             .order("created_at", desc=True)
-            .range(offset, offset + limit - 1)
+            .range(safe_offset, safe_offset + safe_limit - 1)
         )
         if is_test is not None:
             query = query.eq("is_test", is_test)

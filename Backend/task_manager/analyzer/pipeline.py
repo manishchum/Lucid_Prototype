@@ -2,12 +2,73 @@ import os
 import json
 import re
 import time
+import inspect
+import asyncio
+import concurrent.futures
 import tempfile
 import httpx
-from google import genai
-from google.genai import types
-from task_manager.analyzer.gemini_usage import extract_gemini_usage
+from typing import List, Dict, Any, Optional
+from ai.ai_gateway import AI
+from ai.types import AIRequest
 from utils.auth_bridge import get_service_supabase_client
+
+
+def _run_coroutine(coro):
+    """
+    Safely executes an async coroutine from either a synchronous thread,
+    within an active asyncio event loop, or in sandbox environments.
+    """
+    if not inspect.iscoroutine(coro):
+        return coro
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+
+    try:
+        return asyncio.run(coro)
+    except Exception:
+        try:
+            coro.send(None)
+        except StopIteration as e:
+            return e.value
+        raise
+
+
+def _parse_json_response(raw_text: Any) -> dict:
+    """
+    Standardize JSON extraction from AI responses (handles raw text, markdown blocks, and embedded objects).
+    """
+    if isinstance(raw_text, dict):
+        return raw_text
+    if not raw_text or not isinstance(raw_text, str):
+        return {}
+
+    text = raw_text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except Exception:
+                pass
+    return {}
 from enum import Enum
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
@@ -100,26 +161,20 @@ TYPE_CONFIGS = {
     }
 }
 
-def generate_task_insights(task_title: str, task_description: str, expected_answer: str | None, analyzing_parameters: str | None, submission_type: str, submission_content: dict | str | list, evaluation_result: dict) -> dict:
+def generate_task_insights(
+    task_title: str,
+    task_description: str,
+    expected_answer: str | None,
+    analyzing_parameters: str | None,
+    submission_type: str,
+    submission_content: dict | str | list,
+    evaluation_result: dict,
+    company_id: str | None = None,
+    user_id: str | None = None,
+) -> dict:
     """
-    Generate business/task outcomes (insights) dynamically using Gemini structured outputs.
+    Generate business/task outcomes (insights) dynamically using AI Gateway feature 'task_insights'.
     """
-    api_key = os.getenv("GEMINI_API_KEY") or ""
-    if not api_key:
-        print("[AI Insights] GEMINI_API_KEY not found. Skipping insights.")
-        return {
-            "summary": "Task submission processed.",
-            "measurable_outcomes": [],
-            "actions_taken": [],
-            "unique_methods": [],
-            "challenges": [],
-            "learnings": [],
-            "missing_information": ["GEMINI_API_KEY not configured."],
-            "extraction_confidence": "low"
-        }
-
-    client = genai.Client(api_key=api_key)
-
     content_str = ""
     stype = str(submission_type).lower()
     if stype == "text":
@@ -155,93 +210,83 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
                         f"   Is Correct: {qa.get('is_correct')}\n"
                     )
 
-    import json
-    evaluation_summary = f"""
-        AI Evaluation Results:
-        Overall Score: {evaluation_result.get("overall_score", 0)}
-        Strengths: {json.dumps(evaluation_result.get("strengths", []), indent=2)}
-        Weaknesses: {json.dumps(evaluation_result.get("weaknesses", []), indent=2)}
-        Detected Issues: {json.dumps(evaluation_result.get("detected_issues", []), indent=2)}
-        Improvement Points: {json.dumps(evaluation_result.get("improvement_points", []), indent=2)}
-        Metrics: {json.dumps(evaluation_result.get("metrics", {}), indent=2)}
-    """
-    
+    evaluation_summary = f"""AI Evaluation Results:
+Overall Score: {evaluation_result.get("overall_score", 0)}
+Strengths: {json.dumps(evaluation_result.get("strengths", []), indent=2)}
+Weaknesses: {json.dumps(evaluation_result.get("weaknesses", []), indent=2)}
+Detected Issues: {json.dumps(evaluation_result.get("detected_issues", []), indent=2)}
+Improvement Points: {json.dumps(evaluation_result.get("improvement_points", []), indent=2)}
+Metrics: {json.dumps(evaluation_result.get("metrics", {}), indent=2)}"""
+
     try:
         sub_enum = SubmissionType(stype)
     except ValueError:
         sub_enum = SubmissionType.TEXT
-        
+
     config = TYPE_CONFIGS.get(sub_enum, TYPE_CONFIGS[SubmissionType.TEXT])
 
-    prompt = f"""
-    You are an AI task analyst and expert Enterprise AI Coaching Assistant.
-    Your task is to extract BUSINESS outcomes and manager-ready coaching insights from the employee submission.
-    Ignore AI quality metrics, CLIP scores, audio quality, and visual scores. Focus on employee performance.
-
-    Task: {task_title}
-    Description: {task_description}
-    Expected Answer/Behavior: {expected_answer or "N/A"}
-    Analyzing Parameters (Evaluation Criteria): {analyzing_parameters or "N/A"}
-    Submission Type: {stype.upper()}
-
-    ANALYSIS FOCUS:
-    You must ONLY analyze the following criteria relevant to this submission type:
-    {config['analysis_focus']}
-
-    SCHEMA MAPPING INSTRUCTIONS:
-    Map your findings into the JSON output according to these exact rules:
-    {config['schema_mapping']}
-
-    STRICT CONSTRAINTS:
-    1. NEVER invent or hallucinate information.
-    2. Metrics need exact evidence from the submission.
-    3. If information for a field cannot be inferred, you MUST return an empty array [].
-    4. Do NOT write "Missing", "Not applicable", or "None found" inside the array.
-    5. For AUDIO submissions, the transcript is generated by ASR and may contain minor typos. Focus on the semantic meaning.
-
-    SUBMISSION CONTENT:
-    {content_str}
-
-    {evaluation_summary}
-    """
+    variables = {
+        "task_title": task_title or "Untitled Task",
+        "task_description": task_description or "No task description provided.",
+        "expected_answer": expected_answer or "N/A",
+        "analyzing_parameters": analyzing_parameters or "N/A",
+        "submission_type": stype.upper(),
+        "analysis_focus": config["analysis_focus"].strip(),
+        "schema_mapping": config["schema_mapping"].strip(),
+        "submission_content": content_str,
+        "evaluation_summary": evaluation_summary.strip(),
+    }
 
     try:
-        start_time = time.time()
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=TaskInsightsResponse,
-                temperature=0.2
-            )
+        request = AIRequest(
+            feature="task_insights",
+            company_id=company_id or "system",
+            user_id=user_id or "system",
+            route="/api/task-manager/analyzer/pipeline",
+            variables=variables,
+            prompt_type="default",
+            response_format="json",
+            generation_config={
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+            },
         )
-        end_time = time.time()
+        ai_resp = _run_coroutine(AI.execute(request))
+        raw_content = getattr(ai_resp, "content", None) or ""
+        insights = _parse_json_response(raw_content)
 
-        usage = extract_gemini_usage(response, "gemini-2.5-flash", start_time, end_time)
-        print(f"\n========== GEMINI USAGE: pipeline.py (generate_task_insights) ==========")
-        print(f"Model: {usage['model']} | Duration: {usage['duration_ms']}ms")
-        print(f"Tokens: Input {usage['prompt_tokens']} | Output {usage['output_tokens']} | Total {usage['total_tokens']}")
-        if usage['pricing_available']:
-            print(f"Cost: ${usage['total_cost_usd']} | INR ₹{usage['total_cost_inr']}")
-        print("========================================================================\n")
+        if not insights:
+            raise RuntimeError("Empty or non-JSON insights output returned by AI Gateway")
 
-        text = response.text.strip()
-        insights = json.loads(text)
-        
-        expected_keys = ["summary", "measurable_outcomes", "actions_taken", "unique_methods", "challenges", "learnings", "missing_information", "extraction_confidence"]
+        expected_keys = [
+            "summary",
+            "measurable_outcomes",
+            "actions_taken",
+            "unique_methods",
+            "challenges",
+            "learnings",
+            "missing_information",
+            "extraction_confidence",
+        ]
         for key in expected_keys:
             if key not in insights:
-                if key in ["actions_taken", "unique_methods", "challenges", "learnings", "missing_information", "measurable_outcomes"]:
+                if key in [
+                    "actions_taken",
+                    "unique_methods",
+                    "challenges",
+                    "learnings",
+                    "missing_information",
+                    "measurable_outcomes",
+                ]:
                     insights[key] = []
                 elif key == "extraction_confidence":
                     insights[key] = "high"
                 else:
                     insights[key] = ""
-                    
+
         return insights
     except Exception as e:
-        print(f"[AI Insights] Failed to generate/parse insights: {e}")
+        print(f"[AI Insights] Failed to generate/parse insights via AI Gateway: {e}")
         return {
             "summary": "Task submission processed.",
             "measurable_outcomes": [],
@@ -249,8 +294,8 @@ def generate_task_insights(task_title: str, task_description: str, expected_answ
             "unique_methods": [],
             "challenges": [],
             "learnings": [],
-            "missing_information": ["AI insights generation or parsing failed."],
-            "extraction_confidence": "low"
+            "missing_information": [f"AI insights generation or parsing failed: {e}"],
+            "extraction_confidence": "low",
         }
 
 def _ensure_local_media_file(input_path_or_url: str, submission_id: str, default_ext: str = "") -> tuple:
@@ -343,6 +388,13 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
     table_name = "child_task_submissions" if is_bundle_submission else "task_submissions"
     db = get_service_supabase_client()
 
+    sub_user_id = None
+    try:
+        sub_res = db.table(table_name).select("user_id").eq("submission_id", submission_id).maybe_single().execute()
+        sub_user_id = sub_res.data.get("user_id") if sub_res and sub_res.data else None
+    except Exception as e:
+        print(f"[AI Background] Error fetching user_id for submission {submission_id}: {e}")
+
     # 1. Update analysis_status to 'processing'
     try:
         db.table(table_name).update({"analysis_status": "processing"}).eq("submission_id", submission_id).execute()
@@ -377,7 +429,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 task_description=task.get("description", ""),
                 expected_answer=task.get("expected_answer"),
                 analyzing_parameters=task.get("analyzing_parameters"),
-                employee_response=input_data  # text_response
+                employee_response=input_data,  # text_response
+                company_id=company_id,
+                user_id=sub_user_id
             )
             extracted_content["raw_employee_response"] = input_data
             text_inputs_for_insights = input_data
@@ -412,7 +466,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             result = analyze_image(
                 image_path=local_image_path,
                 instruction=task.get("description", ""),
-                analyzing_parameters=task.get("analyzing_parameters")
+                analyzing_parameters=task.get("analyzing_parameters"),
+                company_id=company_id,
+                user_id=sub_user_id
             )
 
             if is_temp_image and os.path.exists(local_image_path):
@@ -512,7 +568,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
                 expected_answer=task.get("expected_answer"),
-                analyzing_parameters=task.get("analyzing_parameters")
+                analyzing_parameters=task.get("analyzing_parameters"),
+                company_id=company_id,
+                user_id=sub_user_id
             )
 
             # Clean up temp files
@@ -552,7 +610,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
                 video_path=local_video_path,
                 task_title=task.get("title", ""),
                 task_description=task.get("description", ""),
-                expected_answer=task.get("expected_answer")
+                expected_answer=task.get("expected_answer"),
+                company_id=company_id,
+                user_id=sub_user_id
             )
 
             if is_temp_video and os.path.exists(local_video_path):
@@ -622,7 +682,9 @@ def run_ai_pipeline_bg(submission_id: str, company_id: str, task_id: str, submis
             analyzing_parameters=task.get("analyzing_parameters"),
             submission_type=stype,
             submission_content=text_inputs_for_insights,
-            evaluation_result=result
+            evaluation_result=result,
+            company_id=company_id,
+            user_id=sub_user_id
         )
 
         # 5. Restructure ai_analysis dict to save both insights and quality analysis, keeping legacy attributes at root

@@ -6,6 +6,9 @@ export type Addon =
   | 'lucid_studio_textual'
   | 'lucid_studio_podcast'
   | 'lucid_studio_video'
+  | 'lucid_studio_video_slides'
+  | 'lucid_studio_video_interactive'
+  | 'interactive_video'
   | 'lucid_studio_mindmap'
   | 'lucid_studio_infographic'
   | 'chat_in_studio'
@@ -68,6 +71,9 @@ export function useFeatureGating() {
       current.has('lucid_studio_textual') ||
       current.has('lucid_studio_podcast') ||
       current.has('lucid_studio_video') ||
+      current.has('lucid_studio_video_slides') ||
+      current.has('lucid_studio_video_interactive') ||
+      current.has('interactive_video') ||
       current.has('lucid_studio_mindmap') ||
       current.has('lucid_studio_infographic') ||
       current.has('lucid_studio_flashcard') ||
@@ -88,6 +94,9 @@ export function useFeatureGating() {
       'lucid_studio_textual',
       'lucid_studio_podcast',
       'lucid_studio_video',
+      'lucid_studio_video_slides',
+      'lucid_studio_video_interactive',
+      'interactive_video',
       'lucid_studio_mindmap',
       'lucid_studio_infographic',
       'lucid_studio_flashcard',
@@ -113,6 +122,9 @@ export function useFeatureGating() {
       'lucid_studio_textual',
       'lucid_studio_podcast',
       'lucid_studio_video',
+      'lucid_studio_video_slides',
+      'lucid_studio_video_interactive',
+      'interactive_video',
       'lucid_studio_mindmap',
       'lucid_studio_infographic',
       'lucid_studio_flashcard',
@@ -121,6 +133,14 @@ export function useFeatureGating() {
 
     if (hasLucidChild) {
       effectiveAddons.add('lucid_studio');
+    }
+
+    if (
+      effectiveAddons.has('lucid_studio_video_slides') ||
+      effectiveAddons.has('lucid_studio_video_interactive') ||
+      effectiveAddons.has('interactive_video')
+    ) {
+      effectiveAddons.add('lucid_studio_video');
     }
 
     const hasChatChild = (['chat_in_studio_textual', 'chat_in_studio_speech'] as Addon[]).some((addon) => effectiveAddons.has(addon));
@@ -177,6 +197,15 @@ export function useFeatureGating() {
       'lucidStudioTextual': { requiredAddons: ['lucid_studio_textual'] },
       'lucidStudioPodcast': { requiredAddons: ['lucid_studio_podcast'] },
       'lucidStudioVideo': { requiredAddons: ['lucid_studio_video'] },
+      'lucidStudioVideoSlides': { requiredAddons: ['lucid_studio_video_slides'] },
+      'lucidStudioVideoInteractive': {
+        requiredAddons: ['lucid_studio_video_interactive', 'interactive_video'],
+        requiresAnyAddon: true,
+      },
+      'interactiveVideo': {
+        requiredAddons: ['interactive_video', 'lucid_studio_video_interactive'],
+        requiresAnyAddon: true,
+      },
       'lucidStudioMindmap': { requiredAddons: ['lucid_studio_mindmap'] },
       'lucidStudioInfographic': { requiredAddons: ['lucid_studio_infographic'] },
       'lucidStudioFlashcards': {

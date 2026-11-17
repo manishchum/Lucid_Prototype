@@ -12,6 +12,7 @@ from utils.db.whatsapp_db import (
 )
 from whatsapp.service import whatsapp_service
 from whatsapp.formatter import formatter
+from utils.logging import mask_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -159,34 +160,34 @@ class WhatsAppCronWorker:
         dispatch_id = dispatch.get("whatsapp_dispatch_id")
         user_id = dispatch.get("user_id")
         phone_number = dispatch.get("phone_number")
+        masked_phone = mask_phone_number(phone_number)
         
         try:
-            logger.info(f"📞 Sending to {phone_number} (user: {user_id})")
+            logger.info(f"📞 Sending to {masked_phone} (user: {user_id})")
             
             # Build message content
             message_body = scheduled_msg.get("message_body", "")
             media_url = scheduled_msg.get("media_url")
             media_type = scheduled_msg.get("media_type")
             
-            # Send based on media type
-            result = None
-            if media_type == "image":
-                result = await self.service.send_image_message(
-                    phone_number, media_url, message_body
-                )
-            elif media_type == "audio":
-                result = await self.service.send_audio_message(phone_number, media_url)
-            elif media_type == "video":
-                result = await self.service.send_video_message(
-                    phone_number, media_url, message_body
-                )
-            elif media_type == "document":
-                result = await self.service.send_document_message(
-                    phone_number, media_url, message_body
-                )
-            else:
-                # Default to text message
-                result = await self.service.send_text_message(phone_number, message_body)
+            # Resolve user name for template personalization (value1)
+            user_name = "Learner"
+            if user_id:
+                try:
+                    from utils.supabase_client import supabase_admin
+                    u_resp = supabase_admin.table("users").select("name").eq("user_id", user_id).maybe_single().execute()
+                    if u_resp.data and u_resp.data.get("name"):
+                        user_name = u_resp.data["name"].split()[0]
+                except Exception as ex:
+                    logger.debug(f"Could not resolve name for user {user_id}: {ex}")
+
+            result = await self.service.send_template_message(
+                recipient_phone=phone_number,
+                user_name=user_name,
+                message_body=message_body,
+                media_url=media_url,
+                media_type=media_type,
+            )
             
             # Update dispatch status
             if result.get("success"):
@@ -195,7 +196,7 @@ class WhatsAppCronWorker:
                     "sent",
                     whatsapp_message_id=result.get("message_id"),
                 )
-                logger.info(f"✅ Message sent to {phone_number}")
+                logger.info(f"✅ Message sent to {masked_phone}")
             else:
                 error_msg = result.get("error", "Unknown error")
                 retry_count = dispatch.get("retry_count", 0)
@@ -213,7 +214,7 @@ class WhatsAppCronWorker:
                     logger.error(f"❌ Failed permanently: {error_msg}")
         
         except Exception as e:
-            logger.error(f"❌ Exception sending to {phone_number}: {str(e)}")
+            logger.error(f"❌ Exception sending to {masked_phone}: {str(e)}")
             await update_dispatch_status(
                 dispatch_id, "failed", error_message=str(e)
             )

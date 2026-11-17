@@ -15,6 +15,15 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+from utils.logging.sanitizer import (
+    mask_email,
+    mask_phone_number,
+    sanitize_text,
+    sanitize_header_field,
+    sanitize_headers,
+    setup_logging_sanitizer,
+)
+
 
 class ErrorLogger:
     """Utility class for structured error logging."""

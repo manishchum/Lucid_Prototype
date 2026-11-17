@@ -1601,15 +1601,80 @@ async def POST(req: Request):
             moduleId
         )
 
+        # ------------------------------------------------------------------
+        # Day 9: Smart Multi-Tenant Video Dispatcher
+        # ------------------------------------------------------------------
+        from interactive_video.document_parser import parse_document_context
+        ctx = await parse_document_context(moduleId)
+
+        # Allow explicit override from body if present, else check company subscription_addons
+        force_interactive = body.get("force_interactive")
+        if force_interactive is not None:
+            has_interactive = bool(force_interactive)
+        else:
+            has_interactive = (
+                "lucid_studio_video_interactive" in ctx.subscription_addons
+                or "interactive_video" in ctx.subscription_addons
+            )
+
+        if has_interactive:
+            print(f"[GPT-VIDEO] Multi-tenant dispatch -> Interactive Video Pipeline (Module: {ctx.processed_module_id})")
+            from interactive_video.pipeline import run_pipeline
+
+            # Create job record for status tracking
+            job_resp = supabase_admin.table("interactive_video_jobs").insert({
+                "processed_module_id": ctx.processed_module_id,
+                "status": "pending",
+                "current_worker": 1
+            }).execute()
+            job_id = job_resp.data[0]["id"] if job_resp.data else str(uuid_lib.uuid4())
+
+            success = await run_pipeline(job_id, ctx.processed_module_id)
+            if not success:
+                raise Exception("Interactive video pipeline failed to generate video course")
+
+            # Fetch published URLs from interactive_video_courses or processed_modules
+            course_resp = supabase_admin.table("interactive_video_courses").select("manifest").eq("processed_module_id", ctx.processed_module_id).maybe_single().execute()
+            manifest = course_resp.data.get("manifest", {}) if course_resp.data else {}
+            video_en = manifest.get("video_url") or ""
+            video_hi = manifest.get("video_url_hinglish") or ""
+
+            if not video_en:
+                pm_resp = supabase_admin.table("processed_modules").select("video_url, video_url_hinglish").eq("processed_module_id", ctx.processed_module_id).maybe_single().execute()
+                if pm_resp.data:
+                    video_en = pm_resp.data.get("video_url") or ""
+                    video_hi = pm_resp.data.get("video_url_hinglish") or ""
+
+            # Exact response contract expected by worker and employee module pages
+            return JSONResponse({
+                "videoUrl": video_en,
+                "videoUrls": {
+                    "en": video_en,
+                    "hi": video_hi,
+                    "hinglish": video_hi,
+                },
+                "videoUrlHinglish": video_hi,
+                "video_url": video_en,
+                "video_url_hinglish": video_hi,
+                "interactive": True,
+                "course_id": manifest.get("course_id")
+            })
+
+        print(f"[GPT-VIDEO] Multi-tenant dispatch -> Standard Slides Video Engine (Module: {moduleId})")
         urls = await generateVideo(moduleId)
 
+        main_url = urls.get("videoUrl") or ""
+        urls_dict = urls.get("videoUrls", {})
+        hi_url = urls_dict.get("hinglish") or urls_dict.get("hi") or ""
+
+        # Exact response contract expected by worker and employee module pages
         return JSONResponse({
-            "videoUrl": urls.get("videoUrl"),
-            "videoUrls": urls.get("videoUrls", {}),
-            "videoUrlHinglish": urls.get(
-                "videoUrls",
-                {}
-            ).get("hinglish")
+            "videoUrl": main_url,
+            "videoUrls": urls_dict,
+            "videoUrlHinglish": hi_url,
+            "video_url": main_url,
+            "video_url_hinglish": hi_url,
+            "interactive": False
         })
 
     except Exception as e:
@@ -1625,3 +1690,4 @@ async def POST(req: Request):
             },
             status_code=500
         )
+

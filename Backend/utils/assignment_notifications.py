@@ -228,7 +228,26 @@ async def send_assignment_notification_email(
                         )
                         messaging.send(fcm_message)
                     except Exception as fcm_err:
-                        logger.warning("[FCM] Error sending push notification: %s", fcm_err)
+                        err_msg = str(fcm_err)
+                        logger.warning("[FCM] Error sending push notification to %s: %s", recipient_user_id, err_msg)
+                        invalid_token_signatures = [
+                            "unregistered",
+                            "notregistered",
+                            "not registered",
+                            "invalid-registration-token",
+                            "invalid registration token",
+                            "not a valid fcm registration token",
+                            "not a valid",
+                            "invalid token",
+                            "senderidmismatch",
+                            "invalid_argument",
+                        ]
+                        if any(sig in err_msg.lower() for sig in invalid_token_signatures):
+                            try:
+                                supabase.table("users").update({"fcm_token": None}).eq("user_id", recipient_user_id).execute()
+                                logger.info(f"[FCM] Purged stale/invalid FCM token for user {recipient_user_id}")
+                            except Exception:
+                                pass
         except Exception as notif_err:
             logger.error("Failed to create in-app notification for %s: %s", recipient_user_id, notif_err)
 

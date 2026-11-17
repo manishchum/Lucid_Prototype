@@ -156,26 +156,11 @@ def is_valid_uuid(val: any) -> bool:
     if not val or not isinstance(val, str):
         return False
     return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", val, re.I))
-# from utils.supabase_client import supabase
 from fastapi import HTTPException
 from utils.auth_bridge import get_service_supabase_client
 from utils.db.permissions import check_user_permission, check_company_access
 from utils.exceptions import AuthorizationError, NotFoundError
 from utils.redis_client import get_cache, set_cache, delete_cache_pattern, redis_client, invalidate_dashboard_cache
-# from audio_analysis.scoring import generate_audio_score
-# from audio_analysis.services.acoustic_analysis import analyze_audio_features
-# from audio_analysis.services.gemini_audio import analyze_audio_with_gemini
-# from audio_analysis.services.speech_quality import analyze_speech_quality
-# from video_analysis.services.video_analyzer import analyze_video
-
-
-# def _gemini_model():
-#     api_key = os.getenv("GEMINI_API_KEY") or ""
-#     if not api_key:
-#         return None
-
-#     genai.configure(api_key=api_key)
-#     return genai.GenerativeModel("gemini-1.5-flash")
 
 
 def _normalize_submission_format(raw_submission_format) -> list:
@@ -2177,11 +2162,13 @@ async def reassign_task_assignment(
 
 from typing import Optional
 
+import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id, require_addon
 from utils.exceptions import ApiException
 
+logger = logging.getLogger("lucid.task_manager")
 router = APIRouter(dependencies=[Depends(require_addon("task_management"))])
 
 
@@ -2197,14 +2184,10 @@ async def list_tasks(
     except ApiException:
         raise
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
-        try:
-            headers = {k: v for k, v in request.headers.items()}
-        except Exception:
-            headers = {}
-        print("[task-manager] list_tasks exception:\n", tb)
-        print("[task-manager] request headers:", headers)
+        logger.error(
+            f"[task-manager] list_tasks failed for user={auth_ctx.user_id} company={company_id}: {exc}",
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail="Internal Server Error") from exc
 
 

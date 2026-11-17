@@ -4,6 +4,7 @@ import * as React from 'react';
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { fetchWithAuth, getFirebaseIdToken } from '@/lib/fetch-with-auth';
+import { getDeviceId } from '@/lib/device';
 import { useToast } from '@/hooks/use-toast';
 
 export interface NotificationItem {
@@ -43,51 +44,88 @@ const NotificationContext = createContext<NotificationContextType>({
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, rolesLoaded, initialNotificationsData } = useAuth();
   const { toast } = useToast();
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => {
+    return Array.isArray(initialNotificationsData?.items) ? initialNotificationsData.items : [];
+  });
+  const [unreadCount, setUnreadCount] = useState<number>(() => {
+    return typeof initialNotificationsData?.unread_count === "number" ? initialNotificationsData.unread_count : 0;
+  });
+
+  useEffect(() => {
+    if (initialNotificationsData) {
+      if (typeof initialNotificationsData.unread_count === "number") {
+        setUnreadCount(initialNotificationsData.unread_count);
+      }
+      if (Array.isArray(initialNotificationsData.items)) {
+        setNotifications(initialNotificationsData.items);
+      }
+    }
+  }, [initialNotificationsData]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
+
+  const userId = user?.uid;
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef<number>(0);
+  const inFlightUnreadRef = useRef<Promise<void> | null>(null);
+  const inFlightNotificationsRef = useRef<Promise<void> | null>(null);
+  const lastFetchedUserIdRef = useRef<string | null>(null);
 
   const fetchUnreadCount = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/unread-count`);
-      if (res.ok) {
-        const data = await res.json();
-        if (typeof data.unread_count === 'number') {
-          setUnreadCount(data.unread_count);
+    if (!userRef.current?.uid) return;
+    if (inFlightUnreadRef.current) return inFlightUnreadRef.current;
+
+    inFlightUnreadRef.current = (async () => {
+      try {
+        const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/unread-count`);
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.unread_count === 'number') {
+            setUnreadCount(data.unread_count);
+          }
         }
+      } catch (err) {
+        console.warn('[NotificationContext] Failed to fetch unread count:', err);
+      } finally {
+        inFlightUnreadRef.current = null;
       }
-    } catch (err) {
-      console.warn('[NotificationContext] Failed to fetch unread count:', err);
-    }
-  }, [user]);
+    })();
+
+    return inFlightUnreadRef.current;
+  }, []);
 
   const fetchNotifications = useCallback(async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/?limit=40`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.notifications)) {
-          setNotifications(data.notifications);
+    if (!userRef.current?.uid) return;
+    if (inFlightNotificationsRef.current) return inFlightNotificationsRef.current;
+
+    inFlightNotificationsRef.current = (async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetchWithAuth(`${BACKEND_URL}/api/notifications/?limit=40`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.notifications)) {
+            setNotifications(data.notifications);
+          }
         }
+      } catch (err) {
+        console.warn('[NotificationContext] Failed to fetch notifications:', err);
+      } finally {
+        setIsLoading(false);
+        inFlightNotificationsRef.current = null;
       }
-    } catch (err) {
-      console.warn('[NotificationContext] Failed to fetch notifications:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user]);
+    })();
+
+    return inFlightNotificationsRef.current;
+  }, []);
 
   const markAsRead = useCallback(async (id: string) => {
     // Optimistic update
@@ -125,7 +163,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   // Setup WebSocket connection
   const connectWebSocket = useCallback(async () => {
-    if (!user) return;
+    if (!userRef.current?.uid) return;
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -179,12 +217,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             raw.type === 'force_logout' ||
             raw.reason === 'session_replaced'
           ) {
-            const currentDeviceId = typeof window !== 'undefined' ? localStorage.getItem('device_id') : null;
-            const targetPlatform = data.platform || raw.platform || 'web';
-            const keepDeviceId = data.keep_device_id || raw.keep_device_id;
+            const currentDeviceId = getDeviceId();
+            const targetPlatform = String(data.platform || raw.platform || 'web').toLowerCase();
+            const keepDeviceId = data.keep_device_id || raw.keep_device_id || (raw.payload && raw.payload.keep_device_id);
 
-            if (targetPlatform === 'web' && (!keepDeviceId || keepDeviceId !== currentDeviceId)) {
-              console.warn('[NotificationContext] Received force_logout via WebSocket for this device. Logging out silently.');
+            // Platform check: Web clients only react to web displacement events
+            if (targetPlatform !== 'web') {
+              return;
+            }
+
+            // Kept device immunity: The newly logged-in browser device MUST NEVER logout itself
+            if (keepDeviceId && currentDeviceId && keepDeviceId === currentDeviceId) {
+              console.log("[NotificationContext] Ignored displacement: this is the newly kept device", { currentDeviceId });
+              return;
+            }
+
+            // Only displace if keep_device_id is provided and strictly different from this device
+            if (keepDeviceId && currentDeviceId && keepDeviceId !== currentDeviceId) {
+              console.warn(`[NotificationContext] Displacing old session. Current: ${currentDeviceId}, Kept: ${keepDeviceId}`);
               try {
                 ws.close();
               } catch {}
@@ -231,7 +281,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
 
         // Exponential backoff reconnect
-        if (user) {
+        if (userRef.current?.uid) {
           const attempt = reconnectAttemptsRef.current;
           const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
           reconnectAttemptsRef.current += 1;
@@ -244,15 +294,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       console.warn('[NotificationContext] WebSocket init error:', err);
       setConnectionStatus('disconnected');
     }
-  }, [user, toast]);
+  }, [toast]);
 
   // Initial load and WebSocket lifecycle
   useEffect(() => {
-    if (user) {
-      fetchUnreadCount();
-      fetchNotifications();
-      connectWebSocket();
-    } else {
+    if (!userId) {
+      lastFetchedUserIdRef.current = null;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -262,8 +309,26 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setNotifications([]);
       setUnreadCount(0);
       setConnectionStatus('disconnected');
+      return;
     }
 
+    // Wait for unified auth bootstrap (/api/auth/me) to finish before checking notification state
+    if (authLoading || !rolesLoaded) {
+      return;
+    }
+
+    if (lastFetchedUserIdRef.current !== userId) {
+      lastFetchedUserIdRef.current = userId;
+      // Skip redundant HTTP network calls when initialNotificationsData was supplied by /api/auth/me
+      if (!initialNotificationsData) {
+        fetchUnreadCount();
+        fetchNotifications();
+      }
+    }
+    connectWebSocket();
+  }, [userId, authLoading, rolesLoaded, fetchUnreadCount, fetchNotifications, connectWebSocket, initialNotificationsData]);
+
+  useEffect(() => {
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
@@ -272,7 +337,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [user, fetchUnreadCount, fetchNotifications, connectWebSocket]);
+  }, []);
 
   return (
     <NotificationContext.Provider
