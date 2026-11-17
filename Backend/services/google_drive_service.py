@@ -50,7 +50,11 @@ async def get_valid_access_token(integration: Dict[str, Any]) -> str:
     company_id = integration.get("company_id")
     if not company_id:
         raise ValueError("Integration dictionary must contain company_id.")
-    return await ConnectorManager.get_valid_access_token(company_id, "google_drive")
+    return await ConnectorManager.get_valid_access_token(
+        company_id,
+        "google_drive",
+        integration_id=integration.get("id"),
+    )
 
 
 async def ensure_ingestion_folder(access_token: str, folder_name: str = "Lucid Coach Ingestion") -> Tuple[str, str]:

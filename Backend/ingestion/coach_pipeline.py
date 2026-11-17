@@ -10,6 +10,7 @@ import traceback
 from typing import Dict, Any, Optional, Callable
 
 from ingestion.coach_parser import parse_manual_upload
+from ingestion.coach_summarizer import generate_document_summary_and_category
 from ingestion.coach_store import (
     fetch_company_employees,
     update_document_status,
@@ -17,6 +18,9 @@ from ingestion.coach_store import (
     insert_spreadsheet_rows
 )
 from ingestion.embedder import embed_chunks
+from security.pii_firewall import scrub_ingestion_payload
+from security.rebac import recompute_document_acl
+from utils.supabase_client import supabase_admin as supabase
 
 
 def run_coach_file_ingestion(
@@ -26,6 +30,7 @@ def run_coach_file_ingestion(
     file_name: str,
     file_type: str,
     target_employee_id: Optional[str] = None,
+    is_playbook: bool = False,
     progress_callback: Optional[Callable[[str, int, Dict[str, Any]], None]] = None
 ) -> Dict[str, Any]:
     """
@@ -67,13 +72,74 @@ def run_coach_file_ingestion(
         if not chunks and not spreadsheet_rows:
             raise ValueError(f"No extractable text or data found in '{file_name}'. Ensure document contains readable text.")
 
+        # Step 3.2: Layer 1 PII Redaction Firewall (Pre-Embedding & Pre-Storage Scrub)
+        chunks, spreadsheet_rows, pii_summary = scrub_ingestion_payload(
+            chunks=chunks,
+            spreadsheet_rows=spreadsheet_rows,
+            file_name=file_name
+        )
+        doc_sensitivity_tier = pii_summary.get("document_sensitivity_tier", "internal")
+        if pii_summary.get("layer1_redactions"):
+            print(f"[PII FIREWALL L1] Scrubbed {pii_summary['layer1_redactions']} sensitive tokens in '{file_name}' (tier={doc_sensitivity_tier})")
+
+        # Step 3.5: Auto-generate Document Summary & Category Classification using lightweight model
+        target_employee_name = None
+        if target_employee_id and employee_roster:
+            matched_emp = next((e for e in employee_roster if str(e.get("user_id")) == str(target_employee_id)), None)
+            if matched_emp:
+                target_employee_name = matched_emp.get("name")
+
+        # Check if document was explicitly designated as a playbook by manager
+        if not is_playbook:
+            try:
+                doc_rec = supabase.table("coach_uploaded_documents").select("parsed_metadata").eq("id", document_id).maybe_single().execute()
+                if doc_rec and getattr(doc_rec, "data", None):
+                    is_playbook = bool((doc_rec.data.get("parsed_metadata") or {}).get("is_playbook", False))
+            except Exception as pb_chk_err:
+                print(f"[COACH INGESTION] Playbook flag lookup note: {pb_chk_err}")
+
+        print(f"[COACH INGESTION] Auto-generating summary and category classification for '{file_name}' (is_playbook={is_playbook})...")
+        summary_res = generate_document_summary_and_category(
+            file_name=file_name,
+            file_type=file_type,
+            chunks=chunks,
+            spreadsheet_rows=spreadsheet_rows,
+            parsed_metadata=parsed_metadata,
+            target_employee_name=target_employee_name,
+            is_playbook=is_playbook
+        )
+        doc_summary = summary_res.get("summary")
+        category_tag = summary_res.get("category")
+        detected_period = summary_res.get("document_period") or parsed_metadata.get("document_period")
+        key_topics = summary_res.get("key_topics", [])
+
+        parsed_metadata["key_topics"] = key_topics
+        parsed_metadata["is_playbook"] = is_playbook
+        if is_playbook:
+            parsed_metadata["category"] = "Playbook"
+            parsed_metadata["playbook_title"] = summary_res.get("playbook_title") or file_name.replace("_", " ").rsplit(".", 1)[0]
+            parsed_metadata["use_when"] = summary_res.get("use_when") or f"Standard operating reference guide for {file_name}."
+            parsed_metadata["steps"] = summary_res.get("steps", [])
+            parsed_metadata["kpis_impacted"] = summary_res.get("kpis_impacted") or "Team execution, process adherence, conversion rate"
+            parsed_metadata["reading_time_minutes"] = summary_res.get("reading_time_minutes", 5)
+            parsed_metadata["category_pills"] = key_topics
+        else:
+            parsed_metadata["category"] = category_tag
+        if detected_period:
+            parsed_metadata["document_period"] = detected_period
+
         # Step 4: Update metadata immediately and change status to embedding
         parsed_metadata["chunks_count"] = len(chunks)
         parsed_metadata["spreadsheet_rows_count"] = len(spreadsheet_rows)
+        
         update_document_status(
             document_id=document_id,
             status="embedding",
-            parsed_metadata=parsed_metadata
+            description=doc_summary,
+            document_period=detected_period,
+            parsed_metadata=parsed_metadata,
+            sensitivity_tier=doc_sensitivity_tier,
+            pii_summary=pii_summary
         )
         _report_progress("embedding", 55, {
             "stage_text": f"Generating vector embeddings for {len(chunks)} chunks",
@@ -82,7 +148,7 @@ def run_coach_file_ingestion(
         })
         
         text_contents = [c["content"] for c in chunks]
-        print(f"[COACH INGESTION] Generating embeddings for {len(text_contents)} chunks...")
+        print(f"[COACH INGESTION] Generating embeddings for {len(text_contents)} chunks with contextual headers...")
         embeddings = embed_chunks(text_contents)
         
         # Step 5: Store Chunks & Proof Citations in Supabase
@@ -108,15 +174,26 @@ def run_coach_file_ingestion(
             )
             print(f"[COACH INGESTION] Inserted {rows_inserted} structured spreadsheet records")
             
-        # Step 7: Mark Completed
+        # Step 7: Materialize Zanzibar ReBAC ACLs & Mark Completed
+        recompute_document_acl(document_id=document_id, company_id=company_id)
+
         parsed_metadata["chunks_count"] = chunks_inserted
         parsed_metadata["spreadsheet_rows_count"] = rows_inserted
         
         update_document_status(
             document_id=document_id,
             status="completed",
-            parsed_metadata=parsed_metadata
+            description=doc_summary,
+            document_period=detected_period,
+            parsed_metadata=parsed_metadata,
+            sensitivity_tier=doc_sensitivity_tier,
+            pii_summary=pii_summary
         )
+        try:
+            from routes.coach_upload import invalidate_coach_docs_cached
+            invalidate_coach_docs_cached(company_id)
+        except Exception:
+            pass
         
         _report_progress("completed", 100, {
             "stage_text": "Ingestion completed and ready for AI Coach",
@@ -128,6 +205,9 @@ def run_coach_file_ingestion(
         return {
             "document_id": document_id,
             "status": "completed",
+            "category": category_tag,
+            "description": doc_summary,
+            "document_period": detected_period,
             "chunks_count": chunks_inserted,
             "spreadsheet_rows_count": rows_inserted
         }

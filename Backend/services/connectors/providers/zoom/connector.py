@@ -256,6 +256,16 @@ class ZoomConnector(BaseConnector):
                 size = transcript_file.get("file_size", 1024)
                 down_url = transcript_file.get("download_url")
                 content_hash = f"{f_id}_{transcript_file.get('recording_end')}_{size}"
+                host_email = m.get("host_email")
+                acl_emails: List[str] = [host_email] if host_email else []
+                try:
+                    part_res = await execute_zoom_api_call("GET", f"/past_meetings/{m_id}/participants?page_size=50", access_token)
+                    if part_res.status_code == 200:
+                        for p in part_res.json().get("participants", []):
+                            if p.get("user_email"):
+                                acl_emails.append(p["user_email"])
+                except Exception:
+                    pass
 
                 items.append(SyncItemInfo(
                     item_id=f_id,
@@ -265,7 +275,9 @@ class ZoomConnector(BaseConnector):
                     content_hash=content_hash,
                     parent_container_id=container_id,
                     download_url=down_url,
-                    metadata={"meeting_id": m_id, "topic": topic, "file_id": f_id}
+                    acl_emails=sorted(set(acl_emails)),
+                    owner_email=host_email,
+                    metadata={"meeting_id": m_id, "topic": topic, "file_id": f_id, "host_email": host_email}
                 ))
 
         return items

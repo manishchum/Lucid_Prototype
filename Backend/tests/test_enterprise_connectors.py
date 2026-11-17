@@ -245,8 +245,12 @@ def test_content_synthesis_and_download():
             }
         )
         g_content, g_filename, g_ext = await gmail_conn.download_item("dummy_token", gmail_item)
-        assert b"Quarterly Feedback" in g_content
-        assert b"VP Engineering" in g_content
+        assert g_ext == "pdf"
+        import fitz
+        g_doc = fitz.open(stream=g_content, filetype="pdf")
+        g_text = g_doc[0].get_text("text")
+        assert "Quarterly Feedback" in g_text
+        assert "VP Engineering" in g_text
 
     asyncio.run(_test())
     print("[TEST 5 PASSED] Document content synthesis & proof formatting validated across all connectors.")
@@ -365,6 +369,164 @@ Excellent work on closing that deal.
     print("[TEST 7 PASSED] Google Meet enterprise intelligence, transcript parsing, chat appendix & PDF synthesis verified.")
 
 
+# ==============================================================================
+# TEST 8: Gmail Enterprise Intelligence, DLP Redaction, & Thread Synthesis
+# ==============================================================================
+def test_gmail_enterprise_intelligence():
+    """
+    Verifies Gmail DLP redaction engine, confidentiality detection,
+    dynamic corporate domain restriction, query generation, MIME extraction,
+    participant matching, and PyMuPDF email thread PDF generation.
+    """
+    from services.connectors.providers.gmail.client import (
+        redact_sensitive_data,
+        is_confidential_email,
+        extract_email_domain,
+        build_gmail_search_query,
+        extract_email_body_from_payload,
+        build_synthesized_email_thread_pdf,
+        match_email_participants_to_employee
+    )
+    import base64
+    import fitz
+
+    # 1. Test DLP Sensitive Data Masking
+    sensitive_sample = (
+        "Hello team, please process refund to card 4111222233334444. "
+        "Also note client SSN is 123-45-6789 and Indian PAN is ABCDE1234F. "
+        "Aadhaar: 1234 5678 9012. Use Bearer <bearer-token> "
+        "and OpenAI key <openai-key>. "
+        "password: SuperSecretPass123! Bank account: 987654321012."
+    )
+    redacted = redact_sensitive_data(sensitive_sample)
+    assert "[REDACTED_CREDIT_CARD]" in redacted
+    assert "4111222233334444" not in redacted
+    assert "[REDACTED_SSN]" in redacted
+    assert "123-45-6789" not in redacted
+    assert "[REDACTED_PAN_ID]" in redacted
+    assert "ABCDE1234F" not in redacted
+    assert "[REDACTED_AADHAAR_ID]" in redacted
+    assert "1234 5678 9012" not in redacted
+    assert "[REDACTED_TOKEN]" in redacted
+    assert "[REDACTED_API_KEY]" in redacted
+    assert "[REDACTED_CREDENTIAL]" in redacted
+    assert "[REDACTED_BANK_ACCOUNT]" in redacted
+
+    # 2. Test Confidentiality Detection
+    conf_headers = {"sensitivity": "Company-Confidential"}
+    is_conf, reason = is_confidential_email(conf_headers, "Quarterly Strategy")
+    assert is_conf is True
+    assert "Sensitivity header" in reason
+
+    tag_headers = {"sensitivity": "Normal"}
+    is_conf_tag, reason_tag = is_confidential_email(tag_headers, "Project Alpha [NDA] Roadmap")
+    assert is_conf_tag is True
+    assert "[nda]" in reason_tag
+
+    normal_headers = {"sensitivity": "normal"}
+    is_normal, _ = is_confidential_email(normal_headers, "Weekly 1-on-1 Feedback Session")
+    assert is_normal is False
+
+    # 3. Test Dynamic Domain Scoping & Search Query Construction
+    corp_domain = extract_email_domain("ansh.gahoi@workfloww.ai")
+    assert corp_domain == "workfloww.ai"
+
+    public_domain = extract_email_domain("user@gmail.com")
+    assert public_domain == "gmail.com"
+
+    query = build_gmail_search_query(
+        domain=corp_domain,
+        allowed_keywords=["1-on-1", "coaching", "feedback"],
+        excluded_keywords=["invoice", "payroll"]
+    )
+    assert "(from:*workfloww.ai OR to:*workfloww.ai)" in query
+    assert '-"invoice"' in query
+    assert '-"payroll"' in query
+    assert '("1-on-1" OR coaching OR feedback)' in query
+    assert "-from:no-reply" in query
+
+    # 4. Test MIME Body Extraction & HTML Sanitization
+    html_sample = """
+    <html>
+      <head><style>body { color: red; }</style></head>
+      <body>
+        <p>Hi Jane,<br/>Here is the <strong>quarterly coaching</strong> feedback summary.</p>
+        <p>Keep up the great progress on the engineering velocity metrics!</p>
+        <a href="https://example.com/unsub">Click here to unsubscribe</a>
+      </body>
+    </html>
+    """
+    encoded_body = base64.urlsafe_b64encode(html_sample.encode("utf-8")).decode("utf-8")
+    payload = {
+        "mimeType": "multipart/alternative",
+        "parts": [
+            {
+                "mimeType": "text/html",
+                "body": {"data": encoded_body}
+            }
+        ]
+    }
+    extracted_text = extract_email_body_from_payload(payload)
+    assert "quarterly coaching" in extracted_text
+    assert "engineering velocity metrics" in extracted_text
+    assert "<style>" not in extracted_text
+    assert "Click here to unsubscribe" not in extracted_text
+
+    # 5. Test Employee Auto-Tagging
+    mock_roster = [
+        {"user_id": "emp-ansh-111", "name": "Ansh Gahoi", "email": "ansh.gahoi@workfloww.ai"},
+        {"user_id": "emp-alex-333", "name": "Alex Mercer", "email": "alex.mercer@workfloww.ai"}
+    ]
+    participants = [
+        "Ansh Gahoi <ansh.gahoi@workfloww.ai>",
+        "Alex Mercer <alex.mercer@workfloww.ai>"
+    ]
+    matched_id = match_email_participants_to_employee(
+        participants=participants,
+        company_employees=mock_roster,
+        host_email="ansh.gahoi@workfloww.ai"
+    )
+    # Must identify coachee Alex Mercer, excluding host Ansh Gahoi
+    assert matched_id == "emp-alex-333"
+
+    # 6. Test PyMuPDF Email Thread PDF Synthesis
+    messages_data = [
+        {
+            "id": "msg_001",
+            "from": "Ansh Gahoi <ansh.gahoi@workfloww.ai>",
+            "date": "Mon, 28 Oct 2026 10:00:00 +0000",
+            "body": "Hi Alex, let's review your goals for Q4. Please check card 4111222233334444.",
+            "attachments": ["Q4_Goals_Draft.docx"]
+        },
+        {
+            "id": "msg_002",
+            "from": "Alex Mercer <alex.mercer@workfloww.ai>",
+            "date": "Mon, 28 Oct 2026 10:15:00 +0000",
+            "body": "Hi Ansh, thanks for the feedback! I've updated the milestones roadmap.",
+            "attachments": []
+        }
+    ]
+    pdf_bytes = build_synthesized_email_thread_pdf(
+        subject="Q4 Coaching & Goals Alignment",
+        date_str="28 Oct 2026",
+        participants=["ansh.gahoi@workfloww.ai", "alex.mercer@workfloww.ai"],
+        messages=messages_data
+    )
+    assert len(pdf_bytes) > 500
+    pdf_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    assert len(pdf_doc) >= 1
+    pdf_text = pdf_doc[0].get_text("text")
+    assert "Gmail Thread Coaching Digest" in pdf_text
+    assert "Q4 Coaching & Goals Alignment" in pdf_text
+    assert "Alex Mercer" in pdf_text
+    assert "Q4_Goals_Draft.docx" in pdf_text
+    # Ensure DLP was applied in the generated PDF text
+    assert "[REDACTED_CREDIT_CARD]" in pdf_text
+    assert "4111222233334444" not in pdf_text
+
+    print("[TEST 8 PASSED] Gmail enterprise intelligence, DLP redaction, and thread PDF synthesis verified.")
+
+
 if __name__ == "__main__":
     test_all_connectors_registered_and_configured()
     test_oauth_auth_url_and_csrf_state_encoding()
@@ -373,6 +535,7 @@ if __name__ == "__main__":
     test_content_synthesis_and_download()
     test_dynamic_webhook_url_resolution()
     test_google_meet_enterprise_intelligence()
+    test_gmail_enterprise_intelligence()
     print("\n==================================================================")
     print("ALL ENTERPRISE CONNECTOR TESTS PASSED SUCCESSFULLY!")
     print("==================================================================")

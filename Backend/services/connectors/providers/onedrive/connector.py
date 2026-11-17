@@ -339,6 +339,31 @@ class OneDriveConnector(BaseConnector):
                                     pass
 
                             rel_path = f"{rel_prefix}/{name}" if rel_prefix else name
+                            owner_email = (
+                                (it.get("createdBy") or {}).get("user", {}).get("email")
+                                or (it.get("lastModifiedBy") or {}).get("user", {}).get("email")
+                            )
+                            acl_emails: List[str] = []
+                            try:
+                                perm_res = await execute_graph_api_call(
+                                    "GET",
+                                    f"/drives/{drive_id}/items/{item_id}/permissions",
+                                    access_token
+                                )
+                                if perm_res.status_code == 200:
+                                    for p in perm_res.json().get("value", []):
+                                        for key in ("grantedTo", "grantedToV2"):
+                                            g = p.get(key) or {}
+                                            u = g.get("user") or g.get("siteUser") or {}
+                                            if u.get("email"):
+                                                acl_emails.append(u["email"])
+                                        for g in (p.get("grantedToIdentities") or []) + (p.get("grantedToIdentitiesV2") or []):
+                                            u = g.get("user") or {}
+                                            if u.get("email"):
+                                                acl_emails.append(u["email"])
+                            except Exception:
+                                pass
+
                             eligible_items.append(SyncItemInfo(
                                 item_id=item_id,
                                 item_name=name,
@@ -349,9 +374,13 @@ class OneDriveConnector(BaseConnector):
                                 relative_path=rel_path,
                                 modified_time=mod_time,
                                 download_url=it.get("@microsoft.graph.downloadUrl"),
+                                acl_emails=sorted(set(acl_emails)),
+                                owner_email=owner_email,
                                 metadata={
                                     "drive_id": drive_id,
-                                    "web_url": it.get("webUrl")
+                                    "web_url": it.get("webUrl"),
+                                    "acl_emails": sorted(set(acl_emails)),
+                                    "owner_email": owner_email,
                                 }
                             ))
 
@@ -393,6 +422,31 @@ class OneDriveConnector(BaseConnector):
                 if ext in ALLOWED_EXTENSIONS or is_deleted:
                     size = it.get("size", 0)
                     content_hash = f"{item_id}_{it.get('lastModifiedDateTime')}_{size}"
+                    owner_email = (
+                        (it.get("createdBy") or {}).get("user", {}).get("email")
+                        or (it.get("lastModifiedBy") or {}).get("user", {}).get("email")
+                    )
+                    acl_emails: List[str] = []
+                    if not is_deleted and item_id:
+                        try:
+                            perm_res = await execute_graph_api_call(
+                                "GET",
+                                f"/drives/{drive_id}/items/{item_id}/permissions",
+                                access_token
+                            )
+                            if perm_res.status_code == 200:
+                                for p in perm_res.json().get("value", []):
+                                    for key in ("grantedTo", "grantedToV2"):
+                                        g = p.get(key) or {}
+                                        u = g.get("user") or g.get("siteUser") or {}
+                                        if u.get("email"):
+                                            acl_emails.append(u["email"])
+                                    for g in (p.get("grantedToIdentities") or []) + (p.get("grantedToIdentitiesV2") or []):
+                                        u = g.get("user") or {}
+                                        if u.get("email"):
+                                            acl_emails.append(u["email"])
+                        except Exception:
+                            pass
                     changed_items.append(SyncItemInfo(
                         item_id=item_id,
                         item_name=name,
@@ -401,7 +455,13 @@ class OneDriveConnector(BaseConnector):
                         content_hash=content_hash,
                         is_deleted=is_deleted,
                         download_url=it.get("@microsoft.graph.downloadUrl"),
-                        metadata={"drive_id": drive_id}
+                        acl_emails=sorted(set(acl_emails)),
+                        owner_email=owner_email,
+                        metadata={
+                            "drive_id": drive_id,
+                            "acl_emails": sorted(set(acl_emails)),
+                            "owner_email": owner_email,
+                        }
                     ))
 
             if "@odata.deltaLink" in body:
