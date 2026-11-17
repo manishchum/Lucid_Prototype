@@ -297,7 +297,10 @@ class GoogleMeetConnector(BaseConnector):
         url = f"{GOOGLE_DRIVE_API_BASE}/files"
         params = {
             "q": q,
-            "fields": "files(id, name, mimeType, modifiedTime, md5Checksum, size, parents)",
+            "fields": (
+                "files(id, name, mimeType, modifiedTime, md5Checksum, size, parents, "
+                "owners(emailAddress), permissions(emailAddress, type, role), inheritedPermissionsDisabled)"
+            ),
             "pageSize": 100,
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true"
@@ -365,6 +368,14 @@ class GoogleMeetConnector(BaseConnector):
             )
             chat_file_id = chat_map.get(name_base)
 
+            owners = [o.get("emailAddress") for o in (f.get("owners") or []) if o.get("emailAddress")]
+            perms = f.get("permissions") or []
+            acl_emails: List[str] = list(owners)
+            for p in perms:
+                if p.get("type") in ("user", "group") and p.get("emailAddress"):
+                    acl_emails.append(p["emailAddress"])
+            is_restricted = bool(f.get("inheritedPermissionsDisabled", False))
+
             items.append(SyncItemInfo(
                 item_id=f_id,
                 item_name=clean_display_name,
@@ -374,11 +385,16 @@ class GoogleMeetConnector(BaseConnector):
                 parent_container_id=container_id,
                 modified_time=mod_time,
                 mime_type=mime,
+                acl_emails=sorted(set(acl_emails)),
+                owner_email=owners[0] if owners else None,
+                is_restricted_inheritance=is_restricted,
                 metadata={
                     "google_file_id": f_id,
                     "is_workspace_doc": is_doc,
                     "original_name": name,
-                    "chat_file_id": chat_file_id
+                    "chat_file_id": chat_file_id,
+                    "acl_emails": sorted(set(acl_emails)),
+                    "owner_email": owners[0] if owners else None,
                 }
             ))
 

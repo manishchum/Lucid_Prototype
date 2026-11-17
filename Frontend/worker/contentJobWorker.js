@@ -149,37 +149,56 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
 }
 
 async function processJobs() {
-  // console.log('Worker started. Polling for jobs every 5 seconds...');
+  console.log('[WORKER] 🚀 contentJobWorker started. Connected to Supabase. Polling for pending jobs every 5s...');
+  let idlePollCount = 0;
+
   while (true) {
-    // console.log('Polling for pending jobs...');
     const { data: jobs, error } = await supabase
       .from('content_jobs')
-      .select('id, module_id')
+      .select('id, module_id, created_at')
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1);
 
     if (error) {
-      console.error('Supabase job fetch error:', error);
+      console.error('[WORKER] ❌ Supabase job fetch error:', error);
       await new Promise(r => setTimeout(r, 5000));
       continue;
     }
 
     if (jobs && jobs.length > 0) {
+      idlePollCount = 0;
       const job = jobs[0];
-      // console.log(`[JOB] Found pending job: id=${job.id}, module_id=${job.module_id}`);
+      console.log(`\n============================================================`);
+      console.log(`[WORKER] 📥 Found pending job: id=${job.id}, module_id=${job.module_id} (created at ${job.created_at})`);
+      
       // Mark as in-progress
-      const { error: updateError } = await supabase.from('content_jobs').update({ status: 'in-progress', updated_at: new Date() }).eq('id', job.id);
+      const { error: updateError } = await supabase
+        .from('content_jobs')
+        .update({ status: 'in-progress', updated_at: new Date() })
+        .eq('id', job.id);
+
       if (updateError) {
-        console.error(`[JOB] Failed to mark job in-progress: id=${job.id}`, updateError);
+        console.error(`[WORKER] ❌ Failed to mark job in-progress: id=${job.id}`, updateError);
         await new Promise(r => setTimeout(r, 5000));
         continue;
       }
+      console.log(`[WORKER] ⏳ Successfully marked job id=${job.id} as 'in-progress' in DB`);
+
       try {
-        const companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
+        console.log(`[WORKER] 🔄 [1/4] Running migrateProcessedModules for module_id=${job.module_id}...`);
+        const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
+        console.log(`[WORKER] ✅ [1/4] Migration result:`, migrateResult);
+
+        let companyAddons = [];
+        try {
+          companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
+        } catch (addonErr) {
+          console.warn(`[WORKER] ⚠️ Could not resolve company subscription addons (defaulting to empty):`, addonErr.message);
+        }
         const enabledAddonSet = new Set(companyAddons);
 
-        // If the company has no Lucid Studio related addons enabled, skip the job entirely.
+        // If the company has no Lucid Studio related addons enabled, skip derived generation.
         const lucidStudioAddonKeys = [
           'lucid_studio_textual',
           'lucid_studio_podcast',
@@ -192,43 +211,47 @@ async function processJobs() {
         const hasLucidStudioAccess = lucidStudioAddonKeys.some((addon) => enabledAddonSet.has(addon));
 
         if (!hasLucidStudioAccess) {
-          console.log(`[JOB] Company for module_id=${job.module_id} has no enabled Lucid Studio addons. Skipping entire job.`);
+          console.log(`[WORKER] ℹ️ Company for module_id=${job.module_id} has no enabled Lucid Studio addons. Completed processed_modules migration and skipping derived studio media.`);
           await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
+          console.log(`[WORKER] ✅ Job id=${job.id} marked as 'completed'.`);
           continue;
         }
 
-        console.log(`[JOB] Running migration for module_id=${job.module_id}`);
-        const migrateResult = await migrateProcessedModules({ moduleId: job.module_id });
-        console.log(migrateResult);
-        console.log(`[JOB] Migration completed:`, migrateResult.message);
-
-        // console.log(`[JOB] Running content generation for module_id=${job.module_id}`);
+        console.log(`[WORKER] 📝 [2/4] Running textual content generation for module_id=${job.module_id}...`);
         const genResult = await generateModuleContent({ moduleId: job.module_id });
-        // console.log(`[JOB] Content generation completed:`, genResult.message);
+        console.log(`[WORKER] ✅ [2/4] Content generation completed:`, genResult?.message || genResult);
 
         // Store initial content history after successful text generation
-        // console.log(`[JOB] Storing initial content history for module_id=${job.module_id}`);
+        console.log(`[WORKER] 📚 [3/4] Storing initial content history for module_id=${job.module_id}...`);
         const historyResult = await storeInitialContentHistory(job.module_id);
         if (historyResult.success) {
-          // console.log(`[JOB] Content history stored: ${historyResult.inserted} entries`);
+          console.log(`[WORKER] ✅ [3/4] Content history stored: ${historyResult.inserted} entries`);
         } else {
-          console.error(`[JOB] Failed to store content history, but job will continue:`, historyResult.error);
+          console.error(`[WORKER] ⚠️ Failed to store content history, but job will continue:`, historyResult.error);
         }
 
         // Generate all derived assets for this specific module before completing the job.
-        try{
-          await runModuleGenerators(job.module_id,enabledAddonSet);
-        }catch(e){
-          // console.log(e)
+        console.log(`[WORKER] 🎨 [4/4] Running derived media generators for module_id=${job.module_id}...`);
+        try {
+          await runModuleGenerators(job.module_id, enabledAddonSet);
+          console.log(`[WORKER] ✅ [4/4] Derived media generation completed.`);
+        } catch (mediaErr) {
+          console.error(`[WORKER] ⚠️ Media generator error (continuing):`, mediaErr.message || mediaErr);
         }
+
         await supabase.from('content_jobs').update({ status: 'completed', updated_at: new Date() }).eq('id', job.id);
-        // console.log(`[JOB] Job completed: id=${job.id}, module_id=${job.module_id}`);
+        console.log(`[WORKER] 🎉 Successfully finished entire pipeline for job id=${job.id}, module_id=${job.module_id}`);
+        console.log(`============================================================\n`);
       } catch (err) {
         await supabase.from('content_jobs').update({ status: 'failed', updated_at: new Date() }).eq('id', job.id);
-        console.error(`[JOB] Job failed: id=${job.id}, module_id=${job.module_id}`, err);
+        console.error(`[WORKER] ❌ Job failed: id=${job.id}, module_id=${job.module_id}`, err);
+        console.log(`============================================================\n`);
       }
     } else {
-      // console.log('No pending jobs found.');
+      idlePollCount++;
+      if (idlePollCount === 1 || idlePollCount % 6 === 0) {
+        console.log(`[WORKER] 💤 Polling content_jobs... (0 pending jobs right now)`);
+      }
     }
     await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
   }

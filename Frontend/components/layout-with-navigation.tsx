@@ -44,7 +44,9 @@ const includedPathPrefixes = [
   "/employee/account",
   "/employee/assessment",
   "/employee/voice-notes",
-  "/employee/gamified-arena"
+  "/employee/gamified-arena",
+  "/admin/coach-uploads"
+  // "/coach"
 ];
 
 // Only show navigation for these route groups

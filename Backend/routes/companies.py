@@ -86,6 +86,8 @@ ALLOWED_ADDONS = {
     "platform_mobile",
     "platform_both",
     "voice_agent",
+    "ai_coach",
+    "coach",
 }
 ALLOWED_LANGUAGE_CODES = {
     "en",
