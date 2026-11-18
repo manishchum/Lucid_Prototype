@@ -682,7 +682,7 @@ class ConnectorManager:
                                 try:
                                     from ingestion.coach_store import fetch_company_employees
                                     roster = fetch_company_employees(company_id)
-                                    if provider == "gmail":
+                                    if provider in ("gmail", "google_calendar"):
                                         from services.connectors.providers.gmail.client import match_email_participants_to_employee
                                         resolved_emp_id = match_email_participants_to_employee(
                                             item.metadata["detected_participants"],

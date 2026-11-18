@@ -26,6 +26,7 @@ from utils.redis_client import redis_client
 from services.connectors import ConnectorManager, ConnectorRegistry
 from services.connectors.providers.slack.client import verify_slack_signature, get_slack_credentials
 from services.connectors.providers.zoom.client import validate_zoom_crc, verify_zoom_signature, get_zoom_credentials
+from services.connectors.providers.hubspot.client import verify_hubspot_signature, get_hubspot_credentials
 from security.rebac import is_missing_schema_error
 
 router = APIRouter(
@@ -1231,8 +1232,8 @@ async def connector_webhook_listener(
 
         target_targets = list(set(matched_pairs))
 
-    # --- GOOGLE (Google Drive, Google Meet, Gmail) ---
-    elif provider in ("google_drive", "google_meet", "gmail"):
+    # --- GOOGLE (Google Drive, Google Meet, Gmail, Google Calendar) ---
+    elif provider in ("google_drive", "google_meet", "gmail", "google_calendar"):
         channel_id = (
             request.headers.get("X-Goog-Channel-ID")
             or request.headers.get("x-goog-channel-id")
@@ -1296,6 +1297,81 @@ async def connector_webhook_listener(
 
         if matched_company_id:
             target_targets = [(matched_company_id, matched_int_id)]
+
+    # --- HUBSPOT CRM ---
+    elif provider == "hubspot":
+        hs_sig = (
+            request.headers.get("X-HubSpot-Signature-v3")
+            or request.headers.get("x-hubspot-signature-v3")
+            or request.headers.get("X-HubSpot-Signature")
+            or request.headers.get("x-hubspot-signature")
+            or ""
+        )
+        hs_ts = (
+            request.headers.get("X-HubSpot-Request-Timestamp")
+            or request.headers.get("x-hubspot-request-timestamp")
+            or ""
+        )
+        hs_secret = os.getenv("HUBSPOT_WEBHOOK_SECRET", "").strip() or os.getenv("HUBSPOT_CLIENT_SECRET", "").strip()
+        if not hs_secret:
+            try:
+                _, _, _, hs_secret = get_hubspot_credentials()
+            except Exception:
+                pass
+
+        sig_verified = False
+        if hs_secret and hs_sig:
+            sig_verified = verify_hubspot_signature(
+                request_body=raw_body,
+                signature=hs_sig,
+                client_secret=hs_secret,
+                timestamp=hs_ts or None,
+                request_url=str(request.url),
+                http_method=request.method
+            )
+
+        if not sig_verified and not has_shared_secret:
+            raise HTTPException(status_code=401, detail="Invalid or missing HubSpot webhook signature/secret.")
+
+        # Resolve tenant via portalId in event payload
+        portal_id = None
+        if isinstance(body_json, list) and len(body_json) > 0 and isinstance(body_json[0], dict):
+            portal_id = str(body_json[0].get("portalId") or "")
+        elif isinstance(body_json, dict):
+            portal_id = str(body_json.get("portalId") or "")
+
+        if portal_id:
+            res = (
+                supabase_admin.table("company_integrations")
+                .select("id, company_id")
+                .eq("provider", "hubspot")
+                .eq("status", "active")
+                .filter("config->>portal_id", "eq", portal_id)
+                .execute()
+            )
+            rows = res.data if (res and getattr(res, "data", None)) else []
+            if not rows:
+                res = (
+                    supabase_admin.table("company_integrations")
+                    .select("id, company_id")
+                    .eq("provider", "hubspot")
+                    .eq("status", "active")
+                    .filter("config->>hub_id", "eq", portal_id)
+                    .execute()
+                )
+                rows = res.data if (res and getattr(res, "data", None)) else []
+            if not rows:
+                res = (
+                    supabase_admin.table("company_integrations")
+                    .select("id, company_id")
+                    .eq("provider", "hubspot")
+                    .eq("status", "active")
+                    .ilike("account_identifier", f"%{portal_id}%")
+                    .execute()
+                )
+                rows = res.data if (res and getattr(res, "data", None)) else []
+
+            target_targets = [(r["company_id"], r.get("id")) for r in rows if r.get("company_id")]
 
     # --- ANY OTHER REGISTERED PROVIDER ---
     else:

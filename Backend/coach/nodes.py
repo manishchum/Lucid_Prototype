@@ -420,7 +420,8 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         "google_meet": ["google meet", "gmeet", "meet call", "meet recording"],
         "teams": ["ms teams", "teams channel", "teams chat", "teams message"],
         "slack": ["slack", "slack channel", "slack message"],
-        "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"]
+        "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"],
+        "hubspot": ["hubspot", "hubspot crm", "deal", "deals", "sales pipeline", "lead", "leads", "crm opportunity", "customer ticket", "support ticket"]
     }
     for prov, kws in connector_keywords.items():
         if any(kw in q_lower for kw in kws):

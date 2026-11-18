@@ -13,7 +13,7 @@ logger = logging.getLogger("lucid.otp_service")
 OTP_TTL_SECONDS = 300            # 5 minutes validity
 COOLDOWN_TTL_SECONDS = 30        # 30 seconds resend cooldown
 MAX_VERIFY_ATTEMPTS = 5          # Max 5 wrong guesses before OTP burn
-HOURLY_RESEND_LIMIT = 3          # Max 3 OTP requests per hour per number
+HOURLY_RESEND_LIMIT = 5          # Max 5 OTP requests per hour per number
 HOURLY_TTL_SECONDS = 3600        # 1 hour limit window
 
 
@@ -374,18 +374,24 @@ async def dispatch_sms_otp(
 ) -> None:
     """
     Dispatches SMS OTP asynchronously:
-    1. First attempts to enqueue into Redis ARQ queue for distributed durable execution.
-    2. If ARQ is unavailable or pool connection fails, seamlessly falls back to FastAPI BackgroundTasks.
+    1. Verifies an active ARQ worker heartbeat exists in Redis before enqueueing to ARQ.
+    2. If no ARQ worker is active or enqueue fails, seamlessly falls back to FastAPI BackgroundTasks.
     """
     normalized_phone = normalize_phone_number(phone)
     masked_phone = mask_phone_number(normalized_phone)
 
     try:
-        from utils.arq_client import enqueue_job
-        job = await enqueue_job("send_sms_otp_task", normalized_phone, otp_code)
-        if job:
-            logger.info(f"[SMS Dispatch] Enqueued ARQ job {job.job_id} for {masked_phone}")
-            return
+        from utils.arq_client import enqueue_job, is_arq_worker_alive
+        if await is_arq_worker_alive():
+            job = await enqueue_job("send_sms_otp_task", normalized_phone, otp_code)
+            if job:
+                logger.info(f"[SMS Dispatch] Enqueued ARQ job {job.job_id} for {masked_phone}")
+                return
+        else:
+            logger.warning(
+                f"[SMS Dispatch] No active ARQ worker heartbeat in Redis for {masked_phone}; "
+                "falling back to FastAPI background_tasks"
+            )
     except Exception as arq_err:
         logger.warning(f"[SMS Dispatch] ARQ enqueue failed or unavailable ({arq_err}); falling back to background_tasks")
 

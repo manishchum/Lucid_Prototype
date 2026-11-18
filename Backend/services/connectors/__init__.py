@@ -23,8 +23,10 @@ from services.connectors.providers.slack import SlackConnector
 from services.connectors.providers.zoom import ZoomConnector
 from services.connectors.providers.google_meet import GoogleMeetConnector
 from services.connectors.providers.gmail import GmailConnector
+from services.connectors.providers.google_calendar import GoogleCalendarConnector
+from services.connectors.providers.hubspot import HubSpotConnector
 
-# Register all 7 enterprise connectors into the central registry
+# Register enterprise connectors into the central registry
 ConnectorRegistry.register(GoogleDriveConnector())
 ConnectorRegistry.register(OneDriveConnector())
 ConnectorRegistry.register(TeamsConnector())
@@ -32,6 +34,8 @@ ConnectorRegistry.register(SlackConnector())
 ConnectorRegistry.register(ZoomConnector())
 ConnectorRegistry.register(GoogleMeetConnector())
 ConnectorRegistry.register(GmailConnector())
+ConnectorRegistry.register(GoogleCalendarConnector())
+ConnectorRegistry.register(HubSpotConnector())
 
 __all__ = [
     "BaseConnector",
@@ -48,5 +52,7 @@ __all__ = [
     "SlackConnector",
     "ZoomConnector",
     "GoogleMeetConnector",
-    "GmailConnector"
+    "GmailConnector",
+    "GoogleCalendarConnector",
+    "HubSpotConnector"
 ]
