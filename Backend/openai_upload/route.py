@@ -792,19 +792,38 @@ async def processAndStoreResults(moduleId: str, message: str, sprint_insights: l
             print(f"[processAndStoreResults] Saved row has gpt_summary: {bool(saved_row.get('gpt_summary'))}")
             print(f"[processAndStoreResults] Saved row has ai_modules: {bool(saved_row.get('ai_modules'))}")
 
+    import time
+    import traceback
+
     baseUrl = os.getenv("NEXT_PUBLIC_BACKEND_URL")
+    print(f"[processAndStoreResults] NEXT_PUBLIC_BACKEND_URL resolved to: '{baseUrl}'")
     if baseUrl:
+        target_url = f"{baseUrl.rstrip('/')}/api/start-content-generation"
+        payload_data = {"moduleId": moduleId}
         try:
-            print(f"[processAndStoreResults] Calling start-content-generation for moduleId: {moduleId}")
-            print(json.dumps({"module_id": moduleId}))
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    f"{baseUrl}/api/start-content-generation",
+            print(f"[processAndStoreResults] Initiating start-content-generation at: {target_url}")
+            print(f"[processAndStoreResults] Request payload: {json.dumps(payload_data)}")
+            t0 = time.time()
+            # Extended timeout of 300s to allow heavy RAG embeddings to finish without premature ReadTimeout
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                resp = await client.post(
+                    target_url,
                     headers={"Content-Type": "application/json"},
-                    content=json.dumps({"moduleId": moduleId})
+                    json=payload_data
                 )
+                elapsed = time.time() - t0
+                print(f"[processAndStoreResults] ✅ start-content-generation completed in {elapsed:.2f}s with status: {resp.status_code}")
+                print(f"[processAndStoreResults] Response text: {resp.text}")
+                if resp.status_code >= 400:
+                    print(f"[processAndStoreResults] ⚠️ start-content-generation returned non-200 status: {resp.status_code}")
         except Exception as e:
-            print("Failed to call start-content-generation:", e)
+            print(f"[processAndStoreResults] ❌ Failed to call start-content-generation:")
+            print(f"  [ERROR TYPE]    {type(e).__name__}")
+            print(f"  [ERROR STR]     {str(e) or '<empty-string-often-read-timeout>'}")
+            print(f"  [ERROR REPR]    {repr(e)}")
+            print(f"  [TRACEBACK]     \n{traceback.format_exc()}")
+    else:
+        print("[processAndStoreResults] ⚠️ NEXT_PUBLIC_BACKEND_URL is not set or empty! Skipping start-content-generation.")
             
         # print(ai_modules)
         # print(ai_topics)

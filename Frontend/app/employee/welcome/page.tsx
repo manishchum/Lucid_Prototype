@@ -1165,14 +1165,16 @@ export default function EmployeeWelcome() {
             </div> */}
 
             <div className="flex items-end gap-3">
-              <Button
-                onClick={() => router.push("/coach")}
-                className="h-10 px-3 shrink-0 rounded-[8px] bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-xs transition-colors"
-                title="Open AI Performance Coach"
-              >
-                <Sparkles className="h-4 w-4 text-indigo-200" />
-                <span className="text-xs font-semibold">AI Coach</span>
-              </Button>
+              {hasFeature(FEATURES.AI_COACH) && (
+                <Button
+                  onClick={() => router.push("/coach")}
+                  className="h-10 px-3 shrink-0 rounded-[8px] bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-xs transition-colors"
+                  title="Open AI Performance Coach"
+                >
+                  <Sparkles className="h-4 w-4 text-indigo-200" />
+                  <span className="text-xs font-semibold">AI Coach</span>
+                </Button>
+              )}
 
               {hasFeature(FEATURES.VOICE_AGENT) && (
                 <Button

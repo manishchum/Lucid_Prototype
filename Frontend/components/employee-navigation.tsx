@@ -375,6 +375,20 @@ const EmployeeNavigation = ({
             </div>
           )}
 
+          {/* AI Performance Coach - gated by ai_coach addon */}
+          {hasFeature(FEATURES.AI_COACH) && (
+            <div className="relative group">
+              <button
+                onClick={() => handleNavigate('/coach')}
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-[12px] transition-all duration-200 ${isActive('/coach') ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#1E293B] hover:bg-slate-50'}`}
+              >
+                <Sparkles size={20} className="shrink-0 text-indigo-600" />
+                {!isCollapsed && <span className="text-[15px] font-bold">AI Coach</span>}
+              </button>
+              {isCollapsed && <NavTooltip label="AI Coach" />}
+            </div>
+          )}
+
           {/* Role Play - gated by role_play addon */}
           {/*{hasFeature(FEATURES.ROLE_PLAY) && (
  <div className="relative group">
@@ -440,7 +454,7 @@ const EmployeeNavigation = ({
                       // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
                       { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                       { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
-                      { href: "/admin/coach-uploads", label: "Coach Ingestion", icon: Database },
+                      ...(hasFeature(FEATURES.AI_COACH) ? [{ href: "/admin/coach-uploads", label: "Coach Ingestion", icon: Database }] : []),
                       { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                       { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
                     ]),

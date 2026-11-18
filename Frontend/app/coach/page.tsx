@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 
 import { useAuth } from "@/contexts/auth-context"
+import { useTenant, FEATURES } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import CoachOnboarding, { CoachProfileData } from "./components/CoachOnboarding"
 
@@ -106,6 +107,7 @@ interface ConversationSummary {
 export default function CoachPage() {
   const router = useRouter()
   const { user, employeeData } = useAuth()
+  const { hasFeature, loadingCompanies, activeCompany } = useTenant()
 
   // Onboarding & Profile State
   const [loadingProfile, setLoadingProfile] = useState<boolean>(true)
@@ -854,6 +856,32 @@ export default function CoachPage() {
           handleSaveProfile(emptyProfile)
         }}
       />
+    )
+  }
+
+  // Feature gating: Check if company has AI Coach enabled
+  if (!loadingCompanies && activeCompany && !hasFeature(FEATURES.AI_COACH)) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50 p-6 font-sans">
+        <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200 p-8 text-center shadow-xs space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold text-slate-900">AI Performance Coach Not Enabled</h3>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              AI Performance Coach is currently disabled for {activeCompany?.name || "your company"}. Please contact your administrator to turn it on from Company Access.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push("/employee/welcome")}
+            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition cursor-pointer"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
     )
   }
 
