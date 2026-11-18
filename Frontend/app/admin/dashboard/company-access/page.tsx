@@ -60,6 +60,8 @@ type AddonKey =
   | "sprintverse"
   | "gamification"
   | "voice_agent"
+  | "ai_coach"
+  | "coach"
 
 type CompanyRecord = {
   company_id: string
@@ -110,15 +112,15 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
   },
   {
     id: "lucid_studio_video_slides",
-    label: "Presentation Video",
-    description: "Standard slide-based presentation video.",
+    label: "Presentation",
+    description: "",
     category: "core",
     parentId: "lucid_studio_video",
   },
   {
     id: "lucid_studio_video_interactive",
-    label: "Interactive Video",
-    description: "Interactive video with structured segments, quizzes, and simulations.",
+    label: "Interactive",
+    description: "",
     category: "core",
     parentId: "lucid_studio_video",
   },
@@ -265,6 +267,12 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     id: "voice_agent",
     label: "Voice Agent",
     description: "Enable Voice Agent on the employee welcome dashboard.",
+    category: "addon",
+  },
+  {
+    id: "ai_coach",
+    label: "AI Performance Coach",
+    description: "Enable AI Performance Coach, private coaching conversations, and Company Playbooks.",
     category: "addon",
   },
 ]
@@ -1121,15 +1129,15 @@ export default function CompanyAccessPage() {
                         {feature.id === "lucid_studio_video" && checked && (
                           <div className="mt-4 pt-4 border-t border-slate-800/80 space-y-2.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                              {/* <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
                                 Video Generation Mode
-                              </span>
-                              <Badge
+                              </span> */}
+                              {/* <Badge
                                 variant="outline"
                                 className="border-cyan-500/30 bg-cyan-950/40 text-[10px] text-cyan-300 font-normal py-0"
                               >
                                 Mutually Exclusive
-                              </Badge>
+                              </Badge> */}
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               {FEATURE_DEFINITIONS.filter(f => f.parentId === "lucid_studio_video" && f.id !== "interactive_video").map(childFeature => {

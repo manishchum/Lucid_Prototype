@@ -29,6 +29,9 @@ SLACK_DEFAULT_SCOPES = [
 
 def get_slack_credentials() -> Tuple[str, str, str, str, str]:
     """Reads Slack App OAuth & Webhook credentials from environment."""
+    from config import ENV_PATH
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
     client_id = os.getenv("SLACK_CLIENT_ID", "").strip()
     client_secret = os.getenv("SLACK_CLIENT_SECRET", "").strip()
     signing_secret = os.getenv("SLACK_SIGNING_SECRET", "").strip()

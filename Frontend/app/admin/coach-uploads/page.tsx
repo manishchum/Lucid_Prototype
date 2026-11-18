@@ -38,12 +38,15 @@ import {
   ShieldCheck,
   ShieldAlert,
   Users,
+  Share2,
+  Building2,
   File as FileIcon,
   Image as ImageIcon,
   Eye,
   Ban,
   Download,
-  Copy
+  Copy,
+  BookOpen
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -165,9 +168,37 @@ interface DocumentChunk {
   created_at: string
 }
 
+interface DocShareTargetOption {
+  id: string
+  name: string
+  subject_type: "team" | "department" | "user"
+}
+
+interface DocPermissionEntry {
+  id: string
+  subject_type: string
+  subject_id: string
+  subject_name: string
+  subject_detail: string
+  relation: string
+  relation_label: string
+  grant_source: string
+  revocable: boolean
+}
+
 export default function CoachUploadsPage() {
-  const { employeeData, user: authUser } = useAuth()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers, rolesLoaded, loading: authLoading } = useAuth()
   const companyId = employeeData?.company_id
+  const isAdminOrAbove = isAdmin || isSuperAdmin || isDeveloper
+  const isManagerOrAbove = isAdminOrAbove || isManager || isManagerofUsers
+  const hasAccess = isManagerOrAbove
+  const hydratedAdminOrAbove = mounted && isAdminOrAbove
+  const hydratedManagerOrAbove = mounted && isManagerOrAbove
 
   // Documents & Pagination State
   const [documents, setDocuments] = useState<CoachDocument[]>([])
@@ -176,10 +207,18 @@ export default function CoachUploadsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalDocuments, setTotalDocuments] = useState(0)
+  const [companyStats, setCompanyStats] = useState<{
+    total_documents: number
+    completed_documents: number
+    total_chunks: number
+    total_spreadsheet_rows: number
+  } | null>(null)
 
   // Upload Form State (Multi-File)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [targetEmployeeId, setTargetEmployeeId] = useState<string>("")
+  const [isPrivateManagerNote, setIsPrivateManagerNote] = useState<boolean>(false)
+  const [isPlaybook, setIsPlaybook] = useState<boolean>(false)
   const [manualDescription, setManualDescription] = useState<string>("")
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -204,12 +243,130 @@ export default function CoachUploadsPage() {
 
   // Inspection Drawer State
   const [inspectDoc, setInspectDoc] = useState<CoachDocument | null>(null)
-  const [inspectDrawerTab, setInspectDrawerTab] = useState<"overview" | "chunks">("overview")
+  const [inspectDrawerTab, setInspectDrawerTab] = useState<"overview" | "chunks" | "permissions">("overview")
   const [chunksForInspect, setChunksForInspect] = useState<DocumentChunk[]>([])
   const [loadingChunks, setLoadingChunks] = useState(false)
   const [chunkSearchQuery, setChunkSearchQuery] = useState("")
+  const [docPermissions, setDocPermissions] = useState<DocPermissionEntry[]>([])
+  const [docShareTargets, setDocShareTargets] = useState<DocShareTargetOption[]>([])
+  const [loadingDocPerms, setLoadingDocPerms] = useState(false)
+  const [docShareSubjectKey, setDocShareSubjectKey] = useState("")
+  const [docShareRelation, setDocShareRelation] = useState<"viewer" | "deny_viewer">("viewer")
+  const [savingDocShare, setSavingDocShare] = useState(false)
+  const [revokingDocPermKey, setRevokingDocPermKey] = useState<string | null>(null)
   const [downloadingUrl, setDownloadingUrl] = useState(false)
   const [isDeleting, setIsDeleting] = useState<string | null>(null)
+
+  const loadDocPermissions = useCallback(async (docId: string) => {
+    try {
+      setLoadingDocPerms(true)
+      const [permRes, teamsRes] = await Promise.all([
+        fetchWithAuth(`${API_BASE}/api/rbac/documents/${encodeURIComponent(docId)}/permissions`),
+        docShareTargets.length === 0
+          ? fetchWithAuth(`${API_BASE}/api/rbac/teams`)
+          : Promise.resolve(null),
+      ])
+      if (permRes.ok) {
+        const permData = await permRes.json()
+        setDocPermissions(Array.isArray(permData.permissions) ? permData.permissions : [])
+      } else {
+        setDocPermissions([])
+      }
+      if (teamsRes && teamsRes.ok) {
+        const data = await teamsRes.json()
+        const merged: DocShareTargetOption[] = [
+          ...(data.teams || []).map((t: any) => ({
+            id: t.id,
+            name: `${t.name} (${t.subject_type === "department" ? "Department" : "Team"})`,
+            subject_type: t.subject_type,
+          })),
+          ...(data.users || []).map((u: any) => ({
+            id: u.user_id,
+            name: `${u.name || u.email} (User)`,
+            subject_type: "user" as const,
+          })),
+        ]
+        setDocShareTargets(merged)
+      }
+    } catch (err) {
+      console.warn("[CoachUploads] Failed to load document permissions:", err)
+    } finally {
+      setLoadingDocPerms(false)
+    }
+  }, [docShareTargets.length])
+
+  const handleGrantDocShare = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inspectDoc || !docShareSubjectKey) return
+    const target = docShareTargets.find(t => `${t.subject_type}:${t.id}` === docShareSubjectKey)
+    if (!target) return
+    try {
+      setSavingDocShare(true)
+      const res = await fetchWithAuth(`${API_BASE}/api/rbac/documents/${encodeURIComponent(inspectDoc.id)}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject_type: target.subject_type,
+          subject_id: target.id,
+          relation: docShareRelation,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setDocPermissions(data.permissions)
+        } else {
+          loadDocPermissions(inspectDoc.id)
+        }
+        setDocShareSubjectKey("")
+        setSuccessToast(`Updated permission for ${target.name} on "${inspectDoc.file_name}".`)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to update document permission.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Error updating document permission.")
+    } finally {
+      setSavingDocShare(false)
+    }
+  }
+
+  const handleRevokeDocShare = async (perm: DocPermissionEntry) => {
+    if (!inspectDoc) return
+    const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+    try {
+      setRevokingDocPermKey(rowKey)
+      const params = new URLSearchParams({
+        subject_type: perm.subject_type,
+        subject_id: perm.subject_id,
+        relation: perm.relation,
+      })
+      const res = await fetchWithAuth(
+        `${API_BASE}/api/rbac/documents/${encodeURIComponent(inspectDoc.id)}/share?${params.toString()}`,
+        { method: "DELETE" }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.permissions)) {
+          setDocPermissions(data.permissions)
+        } else {
+          setDocPermissions(prev =>
+            prev.filter(
+              p => !(p.subject_type === perm.subject_type && p.subject_id === perm.subject_id && p.relation === perm.relation)
+            )
+          )
+        }
+        setSuccessToast(`Revoked permission for ${perm.subject_name}.`)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to revoke permission.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Error revoking document permission.")
+    } finally {
+      setRevokingDocPermKey(null)
+    }
+  }
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -257,6 +414,9 @@ export default function CoachUploadsPage() {
         setTotalDocuments(payload.total || 0)
         setCurrentPage(payload.page || 1)
         setTotalPages(payload.total_pages || 1)
+        if (payload.stats) {
+          setCompanyStats(payload.stats)
+        }
       }
     } catch (err) {
       console.error("[coach-upload] Failed to fetch documents:", err)
@@ -300,12 +460,30 @@ export default function CoachUploadsPage() {
     }
   }, [])
 
+  // Standalone Company Stats Fetcher
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/stats`)
+      if (res.ok) {
+        const data = await res.json()
+        setCompanyStats(data)
+      }
+    } catch (err) {
+      console.warn("[coach-upload] Failed to fetch company stats:", err)
+    }
+  }, [])
+
   // Initial Load
   useEffect(() => {
     fetchDocuments(1, searchQuery, statusFilter, sourceFilter)
-    fetchEmployees()
-    fetchGDriveStatus()
-  }, [fetchDocuments, fetchEmployees, fetchGDriveStatus])
+    fetchStats()
+    if (rolesLoaded && isManagerOrAbove) {
+      fetchEmployees()
+      fetchGDriveStatus()
+    } else {
+      setGdriveLoading(false)
+    }
+  }, [fetchDocuments, fetchStats, fetchEmployees, fetchGDriveStatus, rolesLoaded, isManagerOrAbove])
 
   // Keep latest search and pagination params in a ref to avoid reconnecting SSE on keystroke
   const fetchParamsRef = useRef({ currentPage, searchQuery, statusFilter, sourceFilter })
@@ -523,8 +701,12 @@ export default function CoachUploadsPage() {
 
         const formData = new FormData()
         formData.append("file", file)
-        if (targetEmployeeId && targetEmployeeId !== "general") {
+        if (targetEmployeeId && targetEmployeeId !== "general" && !isPlaybook) {
           formData.append("target_employee_id", targetEmployeeId)
+          formData.append("is_private_manager_note", isPrivateManagerNote ? "true" : "false")
+        }
+        if (isPlaybook) {
+          formData.append("is_playbook", "true")
         }
         if (manualDescription.trim()) {
           formData.append("manual_description", manualDescription.trim())
@@ -551,6 +733,8 @@ export default function CoachUploadsPage() {
       setSelectedFiles([])
       setPreflightConflicts([])
       setTargetEmployeeId("")
+      setIsPrivateManagerNote(false)
+      setIsPlaybook(false)
       setManualDescription("")
       if (fileInputRef.current) fileInputRef.current.value = ""
 
@@ -624,6 +808,27 @@ export default function CoachUploadsPage() {
       setErrorToast(err.message || "Failed to generate download URL.")
     } finally {
       setDownloadingUrl(false)
+    }
+  }
+
+  // Toggle Playbook Designation
+  const handleTogglePlaybook = async (docId: string, currentStatus: boolean) => {
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/documents/${docId}/playbook-toggle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_playbook: !currentStatus })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSuccessToast(data.message || "Playbook designation updated.")
+        fetchDocuments(page, searchQuery, statusFilter, sourceFilter)
+      } else {
+        const err = await res.json()
+        setErrorToast(err.detail || "Failed to update playbook designation.")
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || "Failed to toggle playbook designation.")
     }
   }
 
@@ -991,11 +1196,11 @@ export default function CoachUploadsPage() {
     return matchesSearch && matchesTab
   })
 
-  // Summary Metrics
-  const totalDocs = totalDocuments || documents.length
-  const completedDocs = documents.filter(d => d.status === "completed").length
-  const totalChunks = documents.reduce((acc, d) => acc + (d.parsed_metadata?.chunks_count || 0), 0)
-  const totalRows = documents.reduce((acc, d) => acc + (d.parsed_metadata?.spreadsheet_rows_count || 0), 0)
+  // Summary Metrics: Global company totals from backend, with local fallback
+  const totalDocs = companyStats?.total_documents ?? (totalDocuments || documents.length)
+  const completedDocs = companyStats?.completed_documents ?? documents.filter(d => d.status === "completed").length
+  const totalChunks = companyStats?.total_chunks ?? documents.reduce((acc, d) => acc + (d.parsed_metadata?.chunks_count || 0), 0)
+  const totalRows = companyStats?.total_spreadsheet_rows ?? documents.reduce((acc, d) => acc + (d.parsed_metadata?.spreadsheet_rows_count || 0), 0)
 
   // Filtered Chunks in Drawer
   const filteredChunks = chunksForInspect.filter(c =>
@@ -1007,19 +1212,21 @@ export default function CoachUploadsPage() {
       <div className="max-w-6xl mx-auto space-y-8">
         
         {/* Top Back Navigation Bar */}
-        <div className="flex items-center justify-between">
-          <Link
+        {/* <div className="flex items-center justify-between"> */}
+          {/* <Link
             href="/employee/welcome"
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white hover:text-indigo-600 hover:bg-indigo-50/70 border border-slate-200 rounded-lg transition shadow-2xs group"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
             <span>Back to Lucid</span>
-          </Link>
+          </Link> */}
 
-          <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
-            Admin Console • Coach Knowledge Hub
+          {/* <span className="px-2.5 py-0.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded-full">
+            {!mounted
+              ? "Coach Knowledge Hub"
+              : `${hydratedAdminOrAbove ? "Admin Console" : hydratedManagerOrAbove ? "Manager Console" : "Employee Vault"} • Coach Knowledge Hub`}
           </span>
-        </div>
+        </div> */}
 
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1034,22 +1241,22 @@ export default function CoachUploadsPage() {
           </div>
 
           <div className="flex items-center gap-2.5 self-start md:self-auto">
-            <Link
+            {/* <Link
               href="/employee/welcome"
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition shadow-sm group"
             >
               <ArrowLeft className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-transform group-hover:-translate-x-0.5" />
               <span>Back to Lucid</span>
-            </Link>
+            </Link> */}
 
-            <button
+            {/* <button
               onClick={() => fetchDocuments(currentPage, searchQuery, statusFilter, sourceFilter)}
               disabled={loading}
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-indigo-600" : ""}`} />
               Refresh Status
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -1105,15 +1312,23 @@ export default function CoachUploadsPage() {
           </div>
         </div>
 
-        {/* Unified Enterprise Cloud Connectors Hub */}
-        <UnifiedConnectorsHub
-          onIngestionTriggered={() => fetchDocuments(1, searchQuery, statusFilter, sourceFilter)}
-          onErrorToast={(msg) => setErrorToast(msg)}
-          onSuccessToast={(msg) => setSuccessToast(msg)}
-        />
+        {/* Unified Enterprise Cloud Connectors Hub & Upload Panel (Manager+ Only) */}
+        {!mounted || (!rolesLoaded && authLoading) ? (
+          <div className="bg-white rounded-3xl border border-slate-200/90 p-8 text-center text-xs text-slate-400">
+            <RefreshCw className="w-5 h-5 mx-auto animate-spin text-indigo-600 mb-2" />
+            Verifying workspace permissions...
+          </div>
+        ) : hydratedManagerOrAbove ? (
+          <>
+            <UnifiedConnectorsHub
+              isAdminOrAbove={hydratedAdminOrAbove}
+              onIngestionTriggered={() => fetchDocuments(1, searchQuery, statusFilter, sourceFilter)}
+              onErrorToast={(msg) => setErrorToast(msg)}
+              onSuccessToast={(msg) => setSuccessToast(msg)}
+            />
 
-        {/* Multi-File Upload Card with Drag & Drop */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 md:p-8">
+            {/* Multi-File Upload Card with Drag & Drop */}
+            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 md:p-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-indigo-600" />
@@ -1209,7 +1424,7 @@ export default function CoachUploadsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start pt-2">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Target Scope (Optional)
+                  Target Scope 
                 </label>
                 <select
                   value={targetEmployeeId}
@@ -1224,13 +1439,49 @@ export default function CoachUploadsPage() {
                   ))}
                 </select>
                 <p className="text-xs text-slate-500 mt-1">
-                  Tagging an employee restricts citation visibility to that employee and their manager.
+                  Tagging an employee scopes citations to that employee and their reporting hierarchy.
                 </p>
+
+                <div className="mt-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className={`w-4 h-4 ${isPlaybook ? "text-indigo-600" : "text-slate-400"}`} />
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800">Company Playbook / SOP</p>
+                      <p className="text-[10px] text-slate-500">Expose in Chat Playbooks directory for all employees</p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isPlaybook}
+                    onChange={(e) => {
+                      setIsPlaybook(e.target.checked)
+                      if (e.target.checked) {
+                        setTargetEmployeeId("")
+                        setIsPrivateManagerNote(false)
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  />
+                </div>
+
+                {targetEmployeeId && !isPlaybook && (
+                  <label className="mt-2.5 inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isPrivateManagerNote}
+                      onChange={(e) => setIsPrivateManagerNote(e.target.checked)}
+                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      <strong>Private Manager Note</strong> (hide from employee; visible only to management)
+                    </span>
+                  </label>
+                )}
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Document Description / Notes (Optional)
+                  Document Description
                 </label>
                 <input
                   type="text"
@@ -1240,7 +1491,7 @@ export default function CoachUploadsPage() {
                   className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Enables the AI Coach to quickly identify and route questions to this document.
+                  Give a good detailed description of the document for agent understanding.
                 </p>
               </div>
             </div>
@@ -1274,6 +1525,21 @@ export default function CoachUploadsPage() {
             )}
           </form>
         </div>
+          </>
+        ) : (
+          <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-6 md:p-8 flex items-start gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center flex-shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Role-Scoped Document Vault</h2>
+              <p className="text-xs text-slate-600 mt-1 max-w-2xl">
+                Connecting cloud ingestion sources and uploading team documents requires a <strong>Manager</strong> or <strong>Administrator</strong> role.
+                You can browse and query all personal coaching feedback, shared manager reviews, and team documents authorized for your account below.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Documents Registry & Live Logs Table */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
@@ -1352,8 +1618,8 @@ export default function CoachUploadsPage() {
                 <tbody className="divide-y divide-slate-100">
                   {documents.map((doc) => {
                     const meta = doc.parsed_metadata || {}
-                    const chunksCount = meta.chunks_count ?? 0
-                    const rowsCount = meta.spreadsheet_rows_count ?? 0
+                    const chunksCount = meta.chunks_count ?? meta.total_chunks ?? meta.chunk_count ?? 0
+                    const rowsCount = meta.spreadsheet_rows_count ?? meta.total_rows ?? meta.stored_rows ?? 0
                     const empTarget = employees.find(e => e.user_id === doc.target_employee_id)
 
                     return (
@@ -1364,6 +1630,7 @@ export default function CoachUploadsPage() {
                           setInspectDoc(doc)
                           setInspectDrawerTab("overview")
                           loadChunksForInspection(doc.id)
+                          if (hydratedManagerOrAbove) loadDocPermissions(doc.id)
                         }}
                       >
                         <td className="py-4 px-6">
@@ -1372,7 +1639,7 @@ export default function CoachUploadsPage() {
                               {getFileIcon(doc.file_type)}
                             </div>
                             <div>
-                              <div className="font-semibold text-slate-900 flex items-center gap-2">
+                              <div className="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
                                 {doc.file_name}
                                 <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                                   {doc.file_type}
@@ -1386,6 +1653,12 @@ export default function CoachUploadsPage() {
                                   <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200">
                                     <FolderSync className="w-3 h-3 text-sky-600" />
                                     Google Drive
+                                  </span>
+                                )}
+                                {Boolean(meta.is_playbook || meta.category === "Playbook") && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                    <BookOpen className="w-2.5 h-2.5 text-emerald-600" />
+                                    Playbook
                                   </span>
                                 )}
                               </div>
@@ -1449,6 +1722,39 @@ export default function CoachUploadsPage() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {hydratedManagerOrAbove && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleTogglePlaybook(doc.id, Boolean(meta.is_playbook || meta.category === "Playbook"))
+                                }}
+                                className={`p-1.5 rounded-lg transition ${
+                                  meta.is_playbook || meta.category === "Playbook"
+                                    ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                                    : "text-slate-400 hover:text-indigo-600 hover:bg-slate-100"
+                                }`}
+                                title={
+                                  meta.is_playbook || meta.category === "Playbook"
+                                    ? "Designated as Playbook (click to revoke)"
+                                    : "Designate as Company Playbook"
+                                }
+                              >
+                                <BookOpen className="w-4 h-4" />
+                              </button>
+                            )}
+                            {hydratedManagerOrAbove && (
+                              <button
+                                onClick={() => {
+                                  setInspectDoc(doc)
+                                  setInspectDrawerTab("permissions")
+                                  loadDocPermissions(doc.id)
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                                title="Manage Shared Permissions"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDownloadOriginal(doc.id)}
                               className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition"
@@ -1456,14 +1762,16 @@ export default function CoachUploadsPage() {
                             >
                               <Download className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(doc.id, doc.file_name)}
-                              disabled={isDeleting === doc.id}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
-                              title="Delete Document"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {hydratedAdminOrAbove && (
+                              <button
+                                onClick={() => handleDelete(doc.id, doc.file_name)}
+                                disabled={isDeleting === doc.id}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition disabled:opacity-50"
+                                title="Delete Document"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1680,13 +1988,145 @@ export default function CoachUploadsPage() {
                       : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 >
-                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? 0})
+                  Vector Chunks ({inspectDoc.parsed_metadata?.chunks_count ?? inspectDoc.parsed_metadata?.total_chunks ?? inspectDoc.parsed_metadata?.chunk_count ?? chunksForInspect.length})
                 </button>
+                {hydratedManagerOrAbove && (
+                  <button
+                    onClick={() => {
+                      setInspectDrawerTab("permissions")
+                      loadDocPermissions(inspectDoc.id)
+                    }}
+                    className={`py-3 border-b-2 transition flex items-center gap-1.5 ${
+                      inspectDrawerTab === "permissions"
+                        ? "border-emerald-600 text-emerald-600"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Permissions ({docPermissions.length})
+                  </button>
+                )}
               </div>
 
               {/* Drawer Body */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {inspectDrawerTab === "overview" ? (
+                {inspectDrawerTab === "permissions" ? (
+                  <div className="space-y-5">
+                    <form onSubmit={handleGrantDocShare} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                      <div className="text-xs font-bold text-slate-800">Grant or Deny Access</div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+                          Target Team, Department, or User
+                        </label>
+                        <select
+                          value={docShareSubjectKey}
+                          onChange={e => setDocShareSubjectKey(e.target.value)}
+                          required
+                          className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="">Select target...</option>
+                          {docShareTargets.map(t => (
+                            <option key={`${t.subject_type}:${t.id}`} value={`${t.subject_type}:${t.id}`}>
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={docShareRelation}
+                          onChange={e => setDocShareRelation(e.target.value as "viewer" | "deny_viewer")}
+                          className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="viewer">Allow Querying (Viewer)</option>
+                          <option value="deny_viewer">Explicit Deny Override</option>
+                        </select>
+                        <button
+                          type="submit"
+                          disabled={!docShareSubjectKey || savingDocShare}
+                          className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition disabled:opacity-50"
+                        >
+                          {savingDocShare ? "Applying..." : "Apply"}
+                        </button>
+                      </div>
+                    </form>
+
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          Active Shared Permissions ({docPermissions.length})
+                        </span>
+                        {loadingDocPerms && <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />}
+                      </div>
+
+                      {docPermissions.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          No explicit document-level shares added yet.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {docPermissions.map(perm => {
+                            const rowKey = `${perm.subject_type}:${perm.subject_id}:${perm.relation}`
+                            const isDeny = perm.relation === "deny_viewer" || perm.relation === "deny"
+                            const isRevoking = revokingDocPermKey === rowKey
+                            return (
+                              <div
+                                key={rowKey}
+                                className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-2xs"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                      isDeny ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600"
+                                    }`}
+                                  >
+                                    {perm.subject_type === "department" ? (
+                                      <Building2 className="w-4 h-4" />
+                                    ) : perm.subject_type === "team" ? (
+                                      <Users className="w-4 h-4" />
+                                    ) : (
+                                      <UserCheck className="w-4 h-4" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="text-xs font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                                      <span className="truncate">{perm.subject_name}</span>
+                                      <span
+                                        className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                                          isDeny ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"
+                                        }`}
+                                      >
+                                        {perm.relation_label}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate">
+                                      <span className="capitalize">{perm.subject_type}</span>
+                                      {perm.subject_detail && perm.subject_detail.toLowerCase() !== perm.subject_type.toLowerCase()
+                                        ? ` · ${perm.subject_detail}`
+                                        : ""}
+                                    </div>
+                                  </div>
+                                </div>
+                                {perm.revocable ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRevokeDocShare(perm)}
+                                    disabled={isRevoking}
+                                    className="px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition disabled:opacity-50 flex-shrink-0"
+                                  >
+                                    {isRevoking ? "Revoking..." : "Revoke"}
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 px-2">{perm.grant_source}</span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : inspectDrawerTab === "overview" ? (
                   <>
                     <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
                       <div className="text-slate-500 font-medium">Status & Verification</div>
