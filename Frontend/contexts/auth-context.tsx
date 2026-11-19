@@ -423,63 +423,66 @@ export const updateLastActiveTimestamp = (): void => {
 let hasRegisteredSessionForUser: string | null = null
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
+  // Initialize with SSR-safe defaults so server HTML and initial client hydration render match identically
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState<boolean>(true)
+  const [rolesLoaded, setRolesLoaded] = useState<boolean>(false)
+  const [userRoles, setUserRoles] = useState<string[]>([])
+  const [isAdmin, setIsAdmin] = useState<boolean>(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(false)
+  const [isDeveloper, setIsDeveloper] = useState<boolean>(false)
+  const [isManager, setIsManager] = useState<boolean>(false)
+  const [isManagerofUsers, setIsManagerofUsers] = useState<boolean>(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [employeeData, setEmployeeData] = useState<any | null>(null)
+  const [initialTenantData, setInitialTenantData] = useState<any | null>(null)
+  const [initialNotificationsData, setInitialNotificationsData] = useState<any | null>(null)
+
+  // Hydrate cached browser session immediately after mount (before Firebase resolves)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const pathname = window.location.pathname
+    const isAuthPage =
+      pathname === "/login" ||
+      pathname === "/signup" ||
+      pathname === "/forgot-password"
+
     if (isSessionExpiredDueToInactivity()) {
-      clearManualAuthUser();
-      return null;
+      if (isAuthPage) {
+        clearManualAuthUser()
+      }
+      // On non-auth pages, keep loading=true so onAuthStateChanged triggers logout("inactivity") and redirects with ?reason=inactivity
+      return
     }
-    return (readManualAuthUser() as User) || null
-  })
-  const [loading, setLoading] = useState<boolean>(() => {
+
     const manualUser = readManualAuthUser()
-    if (!manualUser) return false
+    if (!manualUser) {
+      // Keep loading=true until Firebase onAuthStateChanged resolves to prevent premature redirects
+      return
+    }
+
+    setUser(manualUser as User)
+
     const cachedProfile = readCachedProfile()
-    return !cachedProfile?.employeeData
-  })
-  const [rolesLoaded, setRolesLoaded] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.employeeData || p?.userId)
-  })
-  const [userRoles, setUserRoles] = useState<string[]>(() => {
-    const p = readCachedProfile()
-    return p?.userRoles || []
-  })
-  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.isAdmin)
-  })
-  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.isSuperAdmin)
-  })
-  const [isDeveloper, setIsDeveloper] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.isDeveloper)
-  })
-  const [isManager, setIsManager] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.isManager)
-  })
-  const [isManagerofUsers, setIsManagerofUsers] = useState<boolean>(() => {
-    const p = readCachedProfile()
-    return Boolean(p?.isManagerofUsers)
-  })
-  const [userId, setUserId] = useState<string | null>(() => {
-    const p = readCachedProfile()
-    return p?.userId ?? null
-  })
-  const [employeeData, setEmployeeData] = useState<any | null>(() => {
-    const p = readCachedProfile()
-    return p?.employeeData ?? null
-  })
-  const [initialTenantData, setInitialTenantData] = useState<any | null>(() => {
-    const p = readCachedProfile()
-    return p?.tenant ?? null
-  })
-  const [initialNotificationsData, setInitialNotificationsData] = useState<any | null>(() => {
-    const p = readCachedProfile()
-    return p?.notifications ?? null
-  })
+    if (cachedProfile) {
+      setRolesLoaded(Boolean(cachedProfile.employeeData || cachedProfile.userId))
+      setUserRoles(cachedProfile.userRoles || [])
+      setIsAdmin(Boolean(cachedProfile.isAdmin))
+      setIsSuperAdmin(Boolean(cachedProfile.isSuperAdmin))
+      setIsDeveloper(Boolean(cachedProfile.isDeveloper))
+      setIsManager(Boolean(cachedProfile.isManager))
+      setIsManagerofUsers(Boolean(cachedProfile.isManagerofUsers))
+      setUserId(cachedProfile.userId ?? null)
+      setEmployeeData(cachedProfile.employeeData ?? null)
+      setInitialTenantData(cachedProfile.tenant ?? null)
+      setInitialNotificationsData(cachedProfile.notifications ?? null)
+
+      if (cachedProfile.employeeData) {
+        setLoading(false)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === "undefined") return;
