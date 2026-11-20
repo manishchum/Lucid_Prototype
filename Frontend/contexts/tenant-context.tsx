@@ -48,6 +48,7 @@ export type Addon =
   | 'reports'
   | 'gamification'
   | 'voice_agent'
+  | 'demo_multimodal_cap_2'
   | 'ai_coach'
   | 'coach'
 
@@ -79,6 +80,7 @@ export const FEATURES = {
   SPRINTVERSE: "sprintverse",
   GAMIFICATION: "gamification",
   VOICE_AGENT: "voiceAgent",
+  DEMO_MULTIMODAL_CAP_2: "demoMultimodalCap2",
   AI_COACH: "aiCoach",
 } as const
 
@@ -121,6 +123,7 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.SPRINTVERSE]: {requiredAddons : ["sprintverse"]},
   [FEATURES.GAMIFICATION]: { requiredAddons: ["gamification"] },
   [FEATURES.VOICE_AGENT]: { requiredAddons: ["voice_agent"] },
+  [FEATURES.DEMO_MULTIMODAL_CAP_2]: { requiredAddons: ["demo_multimodal_cap_2"] },
   [FEATURES.AI_COACH]: {
     requiredAddons: ["ai_coach", "coach"],
     requiresAnyAddon: true,
@@ -218,6 +221,7 @@ const isAddon = (value: string): value is Addon => {
     "sprintverse",
     "gamification",
     "voice_agent",
+    "demo_multimodal_cap_2",
     "ai_coach",
     "coach",
   ].includes(value)

@@ -23,5 +23,7 @@ Backend/.cache/
 
 references/*
 
+# Knowledge Transfer Handover Suite (Distributed via Email & Google Drive only)
+KT_Handover/
 Tesseract-OCR/
 /Tesseract-OCR/
