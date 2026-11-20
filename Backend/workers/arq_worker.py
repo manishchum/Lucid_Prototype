@@ -1037,7 +1037,7 @@ class WorkerSettings:
     redis_settings = redis_settings
 
     # Worker concurrency and execution parameters
-    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "20"))
+    max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 minutes timeout for heavy jobs (e.g. document ingestion)
     keep_result = 3600
 
