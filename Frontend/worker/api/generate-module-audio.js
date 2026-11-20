@@ -436,6 +436,20 @@ async function fetchNextPendingRow() {
     if (!row.original_module_id) continue;
     if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_podcast'))) continue;
 
+    // Guard for demo cap: only allow the first 2 processed modules of the course
+    if (await moduleSupportsAddon(row.original_module_id, 'demo_multimodal_cap_2')) {
+      const { data: siblings } = await supabase
+        .from('processed_modules')
+        .select('processed_module_id')
+        .eq('original_module_id', row.original_module_id)
+        .order('created_at', { ascending: true })
+        .limit(2);
+      const allowedIds = new Set((siblings || []).map((s) => s.processed_module_id));
+      if (!allowedIds.has(row.processed_module_id)) {
+        continue;
+      }
+    }
+
     const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
     const candidateRow = await fetchRowByProcessedId(row.processed_module_id);
     if (!isEligible(candidateRow, Array.from(allowedLanguages))) continue;
@@ -450,7 +464,7 @@ async function fetchNextPendingRow() {
   return null;
 }
 
-async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null } = {}) {
+async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
     const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
@@ -470,6 +484,11 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
       return { ok: true, skipped: true, reason: 'Podcast addon disabled for this module company' };
     }
 
+    let effectiveMax = maxModules;
+    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
+      effectiveMax = 2;
+    }
+
     const { data, error } = await supabase
       .from('processed_modules')
       .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
@@ -480,12 +499,17 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
       throw new Error(`Module lookup failed: ${error.message}`);
     }
 
-    const rows = [];
+    let rows = [];
     for (const row of (data || [])) {
       const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
       if (isEligible(row, Array.from(allowedLanguages)) || language) {
         rows.push(row);
       }
+    }
+
+    if (typeof effectiveMax === 'number' && effectiveMax > 0 && rows.length > effectiveMax) {
+      console.log(`[AUDIO WORKER] Demo cap active: limiting audio generation to first ${effectiveMax} of ${rows.length} modules.`);
+      rows = rows.slice(0, effectiveMax);
     }
 
     if (rows.length === 0) {

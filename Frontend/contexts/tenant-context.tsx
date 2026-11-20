@@ -48,6 +48,7 @@ export type Addon =
   | 'reports'
   | 'gamification'
   | 'voice_agent'
+  | 'demo_multimodal_cap_2'
 
 // Feature constants - single source of truth for feature names
 export const FEATURES = {
@@ -77,6 +78,7 @@ export const FEATURES = {
   SPRINTVERSE: "sprintverse",
   GAMIFICATION: "gamification",
   VOICE_AGENT: "voiceAgent",
+  DEMO_MULTIMODAL_CAP_2: "demoMultimodalCap2",
 } as const
 
 export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
@@ -118,6 +120,7 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.SPRINTVERSE]: {requiredAddons : ["sprintverse"]},
   [FEATURES.GAMIFICATION]: { requiredAddons: ["gamification"] },
   [FEATURES.VOICE_AGENT]: { requiredAddons: ["voice_agent"] },
+  [FEATURES.DEMO_MULTIMODAL_CAP_2]: { requiredAddons: ["demo_multimodal_cap_2"] },
 }
 
 // Tier hierarchy - which tiers can ACCESS each tier level
@@ -211,6 +214,7 @@ const isAddon = (value: string): value is Addon => {
     "sprintverse",
     "gamification",
     "voice_agent",
+    "demo_multimodal_cap_2",
   ].includes(value)
 }
 

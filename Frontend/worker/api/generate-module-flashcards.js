@@ -290,22 +290,36 @@ async function fetchNextPendingRow() {
     .neq('content', '')
     .or('flashcard_data.is.null,flashcard_data.eq."{}"')
     .order('created_at', { ascending: true })
-    .limit(1);
+    .limit(50);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);
   }
 
-  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
-  if (!row || !isEligible(row) || !row.original_module_id) {
-    return null;
+  const rows = Array.isArray(data) ? data : [];
+
+  for (const row of rows) {
+    if (!isEligible(row) || !row.original_module_id) continue;
+    if (!(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) continue;
+
+    // Guard for demo cap: only allow the first 2 processed modules of the course
+    if (await moduleSupportsAddon(row.original_module_id, 'demo_multimodal_cap_2')) {
+      const { data: siblings } = await supabase
+        .from('processed_modules')
+        .select('processed_module_id')
+        .eq('original_module_id', row.original_module_id)
+        .order('created_at', { ascending: true })
+        .limit(2);
+      const allowedIds = new Set((siblings || []).map((s) => s.processed_module_id));
+      if (!allowedIds.has(row.processed_module_id)) {
+        continue;
+      }
+    }
+
+    return row;
   }
 
-  if (!(await moduleSupportsAddon(row.original_module_id, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
-    return null;
-  }
-
-  return row;
+  return null;
 }
 
 async function fetchRowByProcessedId(processedModuleId) {
@@ -326,7 +340,7 @@ async function fetchRowByProcessedId(processedModuleId) {
   return data;
 }
 
-async function generateModuleFlashcards({ moduleId = null, processedModuleId = null } = {}) {
+async function generateModuleFlashcards({ moduleId = null, processedModuleId = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
     if (!isEligible(row)) {
@@ -345,6 +359,11 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
     }
 
+    let effectiveMax = maxModules;
+    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
+      effectiveMax = 2;
+    }
+
     const { data, error } = await supabase
       .from('processed_modules')
       .select('processed_module_id, original_module_id, title, content, flashcard_data')
@@ -355,7 +374,12 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
       throw new Error(`Module lookup failed: ${error.message}`);
     }
 
-    const rows = (data || []).filter(isEligible);
+    let rows = (data || []).filter(isEligible);
+    if (typeof effectiveMax === 'number' && effectiveMax > 0 && rows.length > effectiveMax) {
+      console.log(`[FLASHCARD WORKER] Demo cap active: limiting flashcard generation to first ${effectiveMax} of ${rows.length} modules.`);
+      rows = rows.slice(0, effectiveMax);
+    }
+
     if (rows.length === 0) {
       return { ok: true, skipped: true, reason: 'No processed modules require flashcard generation for this module_id' };
     }

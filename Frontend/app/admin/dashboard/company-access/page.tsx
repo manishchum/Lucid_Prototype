@@ -60,6 +60,7 @@ type AddonKey =
   | "sprintverse"
   | "gamification"
   | "voice_agent"
+  | "demo_multimodal_cap_2"
 
 type CompanyRecord = {
   company_id: string
@@ -265,6 +266,12 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     id: "voice_agent",
     label: "Voice Agent",
     description: "Enable Voice Agent on the employee welcome dashboard.",
+    category: "addon",
+  },
+  {
+    id: "demo_multimodal_cap_2",
+    label: "Demo Mode (Cap 2 Multimodal Assets)",
+    description: "Generates written content for all modules, but limits video, audio, mindmap, infographic & flashcard generation to the first 2 modules for fast and cost-effective client demos.",
     category: "addon",
   },
 ]

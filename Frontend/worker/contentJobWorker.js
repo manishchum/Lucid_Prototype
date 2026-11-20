@@ -112,7 +112,7 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
   ));
 }
 
-async function runModuleGenerators(moduleId, enabledAddonSet) {
+async function runModuleGenerators(moduleId, enabledAddonSet, maxMultimodalModules = null) {
   const tasks = [
     { name: 'podcast', generator: generateModuleAudio, addon: 'lucid_studio_podcast' },
     { name: 'video', generator: generateModuleVideo, addon: 'lucid_studio_video' },
@@ -133,8 +133,8 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
 
   for (const task of enabledTasks) {
     try {
-      console.log(`[JOB] Running ${task.name} generation for module_id=${moduleId}`);
-      const result = await task.generator({ moduleId });
+      console.log(`[JOB] Running ${task.name} generation for module_id=${moduleId}${maxMultimodalModules ? ` (capped at ${maxMultimodalModules} modules)` : ''}`);
+      const result = await task.generator({ moduleId, maxModules: maxMultimodalModules });
       console.log(`[JOB] ${task.name} generation completed for module_id=${moduleId}:`, result);
     } catch (error) {
       failures.push({ name: task.name, error });
@@ -178,6 +178,12 @@ async function processJobs() {
       try {
         const companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
         const enabledAddonSet = new Set(companyAddons);
+        const isDemoCapped = enabledAddonSet.has('demo_multimodal_cap_2');
+        const maxMultimodal = isDemoCapped ? 2 : null;
+
+        if (isDemoCapped) {
+          console.log(`[JOB] Demo cap (demo_multimodal_cap_2) detected for module_id=${job.module_id}. Limiting multimodal assets to first 2 modules.`);
+        }
 
         // If the company has no Lucid Studio related addons enabled, skip the job entirely.
         const lucidStudioAddonKeys = [
@@ -217,7 +223,7 @@ async function processJobs() {
 
         // Generate all derived assets for this specific module before completing the job.
         try{
-          await runModuleGenerators(job.module_id,enabledAddonSet);
+          await runModuleGenerators(job.module_id, enabledAddonSet, maxMultimodal);
         }catch(e){
           // console.log(e)
         }
