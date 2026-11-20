@@ -60,6 +60,7 @@ type AddonKey =
   | "sprintverse"
   | "gamification"
   | "voice_agent"
+  | "demo_multimodal_cap_2"
   | "ai_coach"
   | "coach"
 
@@ -273,6 +274,12 @@ const FEATURE_DEFINITIONS: FeatureDefinition[] = [
     id: "ai_coach",
     label: "AI Performance Coach",
     description: "Enable AI Performance Coach, private coaching conversations, and Company Playbooks.",
+    category: "addon",
+  },
+  {
+    id: "demo_multimodal_cap_2",
+    label: "Demo Mode (Cap 2 Multimodal Assets)",
+    description: "Generates written content for all modules, but limits video, audio, mindmap, infographic & flashcard generation to the first 2 modules for fast and cost-effective client demos.",
     category: "addon",
   },
 ]

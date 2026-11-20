@@ -91,6 +91,7 @@ from utils.otp_service import (
     dispatch_sms_otp,
 )
 from utils.auth_bridge import BridgeUserContext, mint_supabase_access_token, get_service_supabase_client
+from utils.db.users_db import record_login_in_db
 
 
 class SendOTPRequest(BaseModel):
@@ -124,7 +125,7 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
             detail=f"Please wait {remaining_seconds} seconds before requesting a new OTP."
         )
 
-    # Check 1-hour rate limit (max 3 per hour)
+    # Check 1-hour rate limit (max 5 per hour)
     is_hourly_limit, remaining_hourly_seconds = check_hourly_limit(normalized_phone)
     if is_hourly_limit:
         minutes = max(1, remaining_hourly_seconds // 60)
@@ -139,7 +140,7 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
         user_res = (
             service_client
             .table("users")
-            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, subscription_tier, subscription_addons)")
+            .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, domain, company_logo, subscription_tier, subscription_addons, is_company_active, learning_style)")
             .eq("phone", normalized_phone)
             .limit(1)
             .execute()
@@ -151,11 +152,13 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
             raise HTTPException(status_code=404, detail="Phone number is not registered with Lucid")
         if not user_data.get("is_active"):
             raise HTTPException(status_code=403, detail="User account is deactivated")
-        if not user_data.get("company_id"):
+        company_info = user_data.get("company")
+        if isinstance(company_info, list):
+            company_info = company_info[0] if company_info else None
+        if not user_data.get("company_id") or (isinstance(company_info, dict) and company_info.get("is_company_active") is False):
             raise HTTPException(status_code=403, detail="Company account is not registered or inactive")
 
         # Cache company feature metadata in Redis
-        company_info = user_data.get("company")
         if company_info and user_data.get("company_id"):
             set_cache(f"company_static:{user_data['company_id']}", {"company": company_info}, ttl=3600)
     except HTTPException:
@@ -184,7 +187,7 @@ async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, requ
 
 
 @router.post("/verify-otp")
-async def verify_otp(body: VerifyOTPRequest, request: Request):
+async def verify_otp(body: VerifyOTPRequest, background_tasks: BackgroundTasks, request: Request):
     # Check IP-level distributed rate limit (10 attempts / min per IP) before OTP verification
     client_ip = get_client_ip(request)
     await check_rate_limit(user_id=f"ip:{client_ip}", endpoint="auth-verify-otp")
@@ -230,9 +233,8 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
             user_res = (
                 service_client
                 .table("users")
-                .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, subscription_tier, subscription_addons)")
+                .select("user_id, name, email, phone, company_id, function_id, sub_function_id, manager_id, firebase_uid, is_active, company:companies(company_id, name, domain, company_logo, subscription_tier, subscription_addons, is_company_active, learning_style)")
                 .eq("phone", normalized_phone)
-                .eq("is_active", True)
                 .limit(1)
                 .execute()
             )
@@ -245,6 +247,20 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
         except Exception as exc:
             print(f"[verify-otp] DB user query failed: {exc}")
             raise HTTPException(status_code=500, detail="Failed to fetch user context")
+
+    if user_data.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="User account is deactivated")
+
+    raw_company = user_data.get("company")
+    if isinstance(raw_company, list):
+        raw_company = raw_company[0] if raw_company else None
+    if not raw_company and user_data.get("company_id"):
+        cached_comp = get_cache(f"company_static:{user_data['company_id']}")
+        if cached_comp:
+            raw_company = cached_comp.get("company")
+
+    if not user_data.get("company_id") or (isinstance(raw_company, dict) and raw_company.get("is_company_active") is False):
+        raise HTTPException(status_code=403, detail="Company account is not registered or inactive")
 
     # Ensure Firebase Admin SDK is initialized
     _ensure_firebase_admin_initialized()
@@ -301,16 +317,16 @@ async def verify_otp(body: VerifyOTPRequest, request: Request):
     raw_platform = body.platform or request.headers.get("X-Platform")
     platform = resolve_platform(raw_platform or "mobile", request.headers.get("User-Agent"))
 
-    company_data = user_data.get("company")
-    if not company_data and user_data.get("company_id"):
-        cached_comp = get_cache(f"company_static:{user_data['company_id']}")
-        if cached_comp:
-            company_data = cached_comp.get("company")
+    company_data = raw_company
 
-    if device_id and user_data.get("user_id"):
-        user_id_str = str(user_data["user_id"])
+    user_id_str = str(user_data["user_id"]) if user_data.get("user_id") else None
+    if device_id and user_id_str:
         register_device_session(user_id_str, device_id, platform=platform)
         await auth_socket_manager.notify_session_replaced(user_id_str, device_id, platform=platform)
+
+    if user_id_str:
+        invalidate_auth_me_l1_cache(user_id_str)
+        background_tasks.add_task(record_login_in_db, user_id_str)
 
     return {
         "success": True,
@@ -454,17 +470,19 @@ async def get_current_user_profile(
     now_ts = time.time()
 
     # Fast-Path L1 Cache Hit (< 0.005 ms)
-    # If registration is requested, bypass L1 cache to ensure fresh session setup
+    # If registration is requested, bypass L1 cache to ensure fresh session setup.
+    # For mobile resume/cold-start integrity, always validate session against Redis directly.
+    should_bypass_session_l1 = norm_platform == "mobile"
     if x_register_session != "true":
         cached = _AUTH_ME_L1_CACHE.get(cache_key)
         if cached and (now_ts - cached[0] < 30.0):
             if x_dev_str:
-                validate_device_session(user_id, x_dev_str, platform=norm_platform)
+                validate_device_session(user_id, x_dev_str, platform=norm_platform, bypass_l1=should_bypass_session_l1)
             return cached[1]
 
     # Layer 2: Device Session Integrity & Revocation Verification (Cold Path)
     if x_dev_str and x_register_session != "true":
-        validate_device_session(user_id, x_dev_str, platform=norm_platform)
+        validate_device_session(user_id, x_dev_str, platform=norm_platform, bypass_l1=should_bypass_session_l1)
     elif not x_dev_str and x_register_session != "true":
         # If an active session exists in Redis for this user and platform, enforce device_id
         try:

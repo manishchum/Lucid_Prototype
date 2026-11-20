@@ -86,6 +86,7 @@ ALLOWED_ADDONS = {
     "platform_mobile",
     "platform_both",
     "voice_agent",
+    "demo_multimodal_cap_2",
     "ai_coach",
     "coach",
 }

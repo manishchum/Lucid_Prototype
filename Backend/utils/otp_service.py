@@ -13,21 +13,31 @@ logger = logging.getLogger("lucid.otp_service")
 OTP_TTL_SECONDS = 300            # 5 minutes validity
 COOLDOWN_TTL_SECONDS = 30        # 30 seconds resend cooldown
 MAX_VERIFY_ATTEMPTS = 5          # Max 5 wrong guesses before OTP burn
-HOURLY_RESEND_LIMIT = 3          # Max 3 OTP requests per hour per number
+HOURLY_RESEND_LIMIT = 5          # Max 5 OTP requests per hour per number
 HOURLY_TTL_SECONDS = 3600        # 1 hour limit window
 
 
 def normalize_phone_number(raw_phone: str) -> str:
     """
-    Normalizes phone number to E.164 format (+91XXXXXXXXXX).
+    Normalizes phone number to E.164 format (+<country><number>, defaulting to +91 for local numbers).
     """
-    digits = "".join(filter(str.isdigit, raw_phone))
+    raw = str(raw_phone or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(filter(str.isdigit, raw))
+    if not digits:
+        return ""
+    # Explicit E.164 international prefix: preserve country code cleanly without prepending +91
+    if raw.startswith("+"):
+        return f"+{digits}"
+    if digits.startswith("00") and len(digits) > 4:
+        return f"+{digits[2:]}"
     if digits.startswith("91") and len(digits) == 12:
         return f"+{digits}"
+    if digits.startswith("0") and len(digits) == 11:
+        return f"+91{digits[1:]}"
     if len(digits) == 10:
         return f"+91{digits}"
-    if raw_phone.startswith("+"):
-        return raw_phone
     return f"+91{digits}"
 
 
@@ -50,7 +60,7 @@ def check_resend_cooldown(phone: str) -> Tuple[bool, int]:
 
 def check_hourly_limit(phone: str) -> Tuple[bool, int]:
     """
-    Enforces hourly OTP resend limits (max 3 per hour).
+    Enforces hourly OTP resend limits (max 5 per hour).
     Returns (is_limit_exceeded, remaining_seconds_until_reset).
     """
     normalized_phone = normalize_phone_number(phone)
@@ -373,24 +383,38 @@ async def dispatch_sms_otp(
     background_tasks: Optional[Any] = None,
 ) -> None:
     """
-    Dispatches SMS OTP asynchronously:
-    1. First attempts to enqueue into Redis ARQ queue for distributed durable execution.
-    2. If ARQ is unavailable or pool connection fails, seamlessly falls back to FastAPI BackgroundTasks.
+    Dispatches SMS OTP asynchronously.
+    Executes directly via FastAPI BackgroundTasks (or asyncio.create_task) by default so
+    short-lived 5-minute OTPs are never stranded if no external ARQ worker is running or lags
+    behind batch jobs. Can optionally delegate to ARQ only when OTP_USE_ARQ=true AND an
+    active ARQ worker heartbeat (`arq:queue:health-check`) is present in Redis.
     """
     normalized_phone = normalize_phone_number(phone)
     masked_phone = mask_phone_number(normalized_phone)
 
-    try:
-        from utils.arq_client import enqueue_job
-        job = await enqueue_job("send_sms_otp_task", normalized_phone, otp_code)
-        if job:
-            logger.info(f"[SMS Dispatch] Enqueued ARQ job {job.job_id} for {masked_phone}")
-            return
-    except Exception as arq_err:
-        logger.warning(f"[SMS Dispatch] ARQ enqueue failed or unavailable ({arq_err}); falling back to background_tasks")
+    use_arq = os.getenv("OTP_USE_ARQ", "false").strip().lower() == "true"
+    if use_arq:
+        try:
+            has_worker = bool(redis_client.get("arq:queue:health-check"))
+        except Exception:
+            has_worker = False
 
-    if background_tasks:
+        if has_worker:
+            try:
+                from utils.arq_client import enqueue_job
+                job = await enqueue_job("send_sms_otp_task", normalized_phone, otp_code)
+                if job:
+                    logger.info(f"[SMS Dispatch] Enqueued ARQ job {job.job_id} for {masked_phone}")
+                    return
+            except Exception as arq_err:
+                logger.warning(f"[SMS Dispatch] ARQ enqueue failed ({arq_err}); falling back to background_tasks")
+        else:
+            logger.warning(f"[SMS Dispatch] OTP_USE_ARQ=true but no active ARQ worker heartbeat; falling back to background_tasks for {masked_phone}")
+
+    if background_tasks is not None:
         background_tasks.add_task(send_sms_otp_task, None, normalized_phone, otp_code)
+        logger.info(f"[SMS Dispatch] Scheduled direct background SMS task for {masked_phone}")
     else:
         asyncio.create_task(send_sms_otp_task(None, normalized_phone, otp_code))
+        logger.info(f"[SMS Dispatch] Scheduled asyncio SMS task for {masked_phone}")
 

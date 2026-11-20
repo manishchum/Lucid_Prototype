@@ -43,7 +43,7 @@ redis_settings = RedisSettings(
     conn_retries=5,
     conn_retry_delay=1,
     retry_on_timeout=True,
-    max_connections=int(os.getenv("ARQ_REDIS_MAX_CONNECTIONS", "12")),
+    max_connections=int(os.getenv("ARQ_REDIS_MAX_CONNECTIONS", "50")),
     retry_on_error=[py_redis.exceptions.ConnectionError, ConnectionResetError, OSError],
 )
 
