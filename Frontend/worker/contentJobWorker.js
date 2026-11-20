@@ -122,7 +122,10 @@ async function runModuleGenerators(moduleId, enabledAddonSet, maxMultimodalModul
     { name: 'gamification', generator: generateModuleGamification, addon: 'gamification' },
   ];
 
-  const enabledTasks = tasks.filter((task) => enabledAddonSet.has(task.addon));
+  const enabledTasks = tasks.filter((task) =>
+    enabledAddonSet.has(task.addon) ||
+    (task.addon === 'lucid_studio_flashcard' && enabledAddonSet.has('lucid_studio_flashcards'))
+  );
 
   if (enabledTasks.length === 0) {
     console.log(`[JOB] No enabled Lucid Studio derived generation tasks for module_id=${moduleId}. Skipping derived asset generation.`);
@@ -191,10 +194,16 @@ async function processJobs() {
         console.log(`[WORKER] ✅ [1/4] Migration result:`, migrateResult);
 
         let companyAddons = [];
-        try {
-          companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
-        } catch (addonErr) {
-          console.warn(`[WORKER] ⚠️ Could not resolve company subscription addons (defaulting to empty):`, addonErr.message);
+        let addonFetchAttempts = 0;
+        while (addonFetchAttempts < 3) {
+          try {
+            companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
+            break;
+          } catch (addonErr) {
+            addonFetchAttempts++;
+            console.warn(`[WORKER] ⚠️ Attempt ${addonFetchAttempts}/3 to resolve company subscription addons failed:`, addonErr.message);
+            if (addonFetchAttempts < 3) await new Promise(r => setTimeout(r, 1000));
+          }
         }
         const enabledAddonSet = new Set(companyAddons);
         const isDemoCapped = enabledAddonSet.has('demo_multimodal_cap_2');
@@ -212,6 +221,7 @@ async function processJobs() {
           'lucid_studio_mindmap',
           'lucid_studio_infographic',
           'lucid_studio_flashcard',
+          'lucid_studio_flashcards',
         ];
 
         const hasLucidStudioAccess = lucidStudioAddonKeys.some((addon) => enabledAddonSet.has(addon));
