@@ -24,6 +24,9 @@ ONEDRIVE_SCOPES = [
 
 def get_onedrive_credentials() -> Tuple[str, str, str, str]:
     """Reads Microsoft Azure Entra OAuth credentials from environment."""
+    from config import ENV_PATH
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
     client_id = (os.getenv("ONEDRIVE_CLIENT_ID") or os.getenv("MICROSOFT_CLIENT_ID") or "").strip()
     client_secret = (os.getenv("ONEDRIVE_CLIENT_SECRET") or os.getenv("MICROSOFT_CLIENT_SECRET") or "").strip()
     redirect_uri = (os.getenv("ONEDRIVE_REDIRECT_URI") or os.getenv("MICROSOFT_REDIRECT_URI") or "").strip()

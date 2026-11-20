@@ -251,6 +251,11 @@ class GoogleDriveConnector(BaseConnector):
         if not webhook_url:
             return {}
 
+        webhook_lower = webhook_url.strip().lower()
+        if not webhook_lower.startswith("https://") or "localhost" in webhook_lower or "127.0.0.1" in webhook_lower:
+            print(f"[GOOGLE DRIVE] Skipping push webhook watch for local/non-HTTPS URL ({webhook_url}). Sync Now & scheduled CDC remain active.")
+            return {}
+
         channel_id = str(uuid.uuid4())
 
         # 1. Get initial startPageToken
@@ -352,7 +357,7 @@ class GoogleDriveConnector(BaseConnector):
             query = f"mimeType != 'application/vnd.google-apps.folder' and '{fid}' in parents and trashed = false"
             params: Dict[str, Any] = {
                 "q": query,
-                "fields": "nextPageToken, files(id, name, mimeType, size, md5Checksum, modifiedTime, parents)",
+                "fields": "nextPageToken, files(id, name, mimeType, size, md5Checksum, modifiedTime, parents, owners(emailAddress), permissions(emailAddress, type, role), inheritedPermissionsDisabled)",
                 "pageSize": 100,
                 "supportsAllDrives": "true",
                 "includeItemsFromAllDrives": "true"
@@ -408,6 +413,16 @@ class GoogleDriveConnector(BaseConnector):
                         content_hash = f.get("md5Checksum") or f"gdoc_{mod_str or file_id}"
                         rel_path = f"{folder_rel_path}/{clean_name}".strip("/")
 
+                        owners = f.get("owners") or []
+                        owner_email = owners[0].get("emailAddress") if owners and isinstance(owners[0], dict) else None
+                        perms = f.get("permissions") or []
+                        acl_emails = [
+                            p.get("emailAddress")
+                            for p in perms
+                            if isinstance(p, dict) and p.get("emailAddress") and p.get("type") in ("user", "group", None)
+                        ]
+                        is_restricted = bool(f.get("inheritedPermissionsDisabled"))
+
                         folder_items.append(
                             SyncItemInfo(
                                 item_id=file_id,
@@ -421,10 +436,15 @@ class GoogleDriveConnector(BaseConnector):
                                 is_deleted=False,
                                 is_native_workspace=is_workspace,
                                 mime_type=mime_type,
+                                acl_emails=acl_emails,
+                                owner_email=owner_email,
+                                is_restricted_inheritance=is_restricted,
                                 metadata={
                                     "original_name": raw_name,
                                     "raw_mime": mime_type,
-                                    "parents": f.get("parents", [])
+                                    "parents": f.get("parents", []),
+                                    "acl_emails": acl_emails,
+                                    "owner_email": owner_email,
                                 }
                             )
                         )
@@ -484,7 +504,7 @@ class GoogleDriveConnector(BaseConnector):
 
         params: Dict[str, Any] = {
             "pageToken": page_token,
-            "fields": "nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, trashed, parents, md5Checksum, modifiedTime, size))",
+            "fields": "nextPageToken, newStartPageToken, changes(fileId, removed, file(id, name, mimeType, trashed, parents, md5Checksum, modifiedTime, size, owners(emailAddress), permissions(emailAddress, type, role), inheritedPermissionsDisabled))",
             "pageSize": 100,
             "supportsAllDrives": "true",
             "includeItemsFromAllDrives": "true"
@@ -573,6 +593,16 @@ class GoogleDriveConnector(BaseConnector):
 
                 content_hash = f.get("md5Checksum") or f"gdoc_{mod_str or file_id}"
 
+                owners = f.get("owners") or []
+                owner_email = owners[0].get("emailAddress") if owners and isinstance(owners[0], dict) else None
+                perms = f.get("permissions") or []
+                acl_emails = [
+                    p.get("emailAddress")
+                    for p in perms
+                    if isinstance(p, dict) and p.get("emailAddress") and p.get("type") in ("user", "group", None)
+                ]
+                is_restricted = bool(f.get("inheritedPermissionsDisabled"))
+
                 changed_items.append(
                     SyncItemInfo(
                         item_id=file_id,
@@ -586,7 +616,15 @@ class GoogleDriveConnector(BaseConnector):
                         is_deleted=False,
                         is_native_workspace=is_workspace,
                         mime_type=mime_type,
-                        metadata={"parents": parents, "raw_mime": mime_type}
+                        acl_emails=acl_emails,
+                        owner_email=owner_email,
+                        is_restricted_inheritance=is_restricted,
+                        metadata={
+                            "parents": parents,
+                            "raw_mime": mime_type,
+                            "acl_emails": acl_emails,
+                            "owner_email": owner_email,
+                        }
                     )
                 )
 

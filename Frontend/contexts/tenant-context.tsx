@@ -49,6 +49,8 @@ export type Addon =
   | 'gamification'
   | 'voice_agent'
   | 'demo_multimodal_cap_2'
+  | 'ai_coach'
+  | 'coach'
 
 // Feature constants - single source of truth for feature names
 export const FEATURES = {
@@ -79,6 +81,7 @@ export const FEATURES = {
   GAMIFICATION: "gamification",
   VOICE_AGENT: "voiceAgent",
   DEMO_MULTIMODAL_CAP_2: "demoMultimodalCap2",
+  AI_COACH: "aiCoach",
 } as const
 
 export type FeatureName = typeof FEATURES[keyof typeof FEATURES]
@@ -121,6 +124,10 @@ const FEATURE_CONFIG: Record<FeatureName, { requiredAddons?: Addon[]; requiresAn
   [FEATURES.GAMIFICATION]: { requiredAddons: ["gamification"] },
   [FEATURES.VOICE_AGENT]: { requiredAddons: ["voice_agent"] },
   [FEATURES.DEMO_MULTIMODAL_CAP_2]: { requiredAddons: ["demo_multimodal_cap_2"] },
+  [FEATURES.AI_COACH]: {
+    requiredAddons: ["ai_coach", "coach"],
+    requiresAnyAddon: true,
+  },
 }
 
 // Tier hierarchy - which tiers can ACCESS each tier level
@@ -215,6 +222,8 @@ const isAddon = (value: string): value is Addon => {
     "gamification",
     "voice_agent",
     "demo_multimodal_cap_2",
+    "ai_coach",
+    "coach",
   ].includes(value)
 }
 

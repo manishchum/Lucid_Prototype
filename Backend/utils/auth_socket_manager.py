@@ -53,6 +53,10 @@ class AuthConnectionManager:
             "username": os.getenv("REDIS_USERNAME"),
             "password": os.getenv("REDIS_PASSWORD"),
             "decode_responses": True,
+            "max_connections": int(os.getenv("REDIS_PUBSUB_MAX_CONNECTIONS", "2")),
+            "socket_timeout": 5.0,
+            "socket_connect_timeout": 3.0,
+            "health_check_interval": 30,
         }
         if redis_ssl:
             cfg["ssl"] = True

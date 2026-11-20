@@ -87,6 +87,8 @@ ALLOWED_ADDONS = {
     "platform_both",
     "voice_agent",
     "demo_multimodal_cap_2",
+    "ai_coach",
+    "coach",
 }
 ALLOWED_LANGUAGE_CODES = {
     "en",
