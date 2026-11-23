@@ -148,8 +148,11 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
   }
 }
 
+const MIN_POLL_MS = Number(process.env.CONTENT_WORKER_MIN_POLL_MS || 5000);
+const MAX_POLL_MS = Number(process.env.CONTENT_WORKER_MAX_POLL_MS || 120000);
+
 async function processJobs() {
-  console.log('[WORKER] 🚀 contentJobWorker started. Connected to Supabase. Polling for pending jobs every 5s...');
+  console.log(`[WORKER] 🚀 contentJobWorker started. Connected to Supabase. Polling for pending jobs with exponential backoff (${MIN_POLL_MS / 1000}s to ${MAX_POLL_MS / 1000}s)...`);
   let idlePollCount = 0;
 
   while (true) {
@@ -162,7 +165,9 @@ async function processJobs() {
 
     if (error) {
       console.error('[WORKER] ❌ Supabase job fetch error:', error);
-      await new Promise(r => setTimeout(r, 5000));
+      idlePollCount++;
+      const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idlePollCount), MAX_POLL_MS);
+      await new Promise(r => setTimeout(r, backoff));
       continue;
     }
 
@@ -180,7 +185,7 @@ async function processJobs() {
 
       if (updateError) {
         console.error(`[WORKER] ❌ Failed to mark job in-progress: id=${job.id}`, updateError);
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, MIN_POLL_MS));
         continue;
       }
       console.log(`[WORKER] ⏳ Successfully marked job id=${job.id} as 'in-progress' in DB`);
@@ -249,11 +254,12 @@ async function processJobs() {
       }
     } else {
       idlePollCount++;
-      if (idlePollCount === 1 || idlePollCount % 6 === 0) {
-        console.log(`[WORKER] 💤 Polling content_jobs... (0 pending jobs right now)`);
-      }
+      const nextDelaySec = Math.round(Math.min(MIN_POLL_MS * Math.pow(2, idlePollCount), MAX_POLL_MS) / 1000);
+      console.log(`[WORKER] 💤 Polling content_jobs... (0 pending jobs right now, next check in ${nextDelaySec}s)`);
     }
-    await new Promise(r => setTimeout(r, 5000)); // Poll every 5 seconds
+
+    const backoff = Math.min(MIN_POLL_MS * Math.pow(2, idlePollCount), MAX_POLL_MS);
+    await new Promise(r => setTimeout(r, backoff));
   }
 }
 
