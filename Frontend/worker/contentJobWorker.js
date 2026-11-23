@@ -112,7 +112,7 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
   ));
 }
 
-async function runModuleGenerators(moduleId, enabledAddonSet) {
+async function runModuleGenerators(moduleId, enabledAddonSet, maxMultimodalModules = null) {
   const tasks = [
     { name: 'podcast', generator: generateModuleAudio, addon: 'lucid_studio_podcast' },
     { name: 'video', generator: generateModuleVideo, addon: 'lucid_studio_video' },
@@ -122,7 +122,10 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
     { name: 'gamification', generator: generateModuleGamification, addon: 'gamification' },
   ];
 
-  const enabledTasks = tasks.filter((task) => enabledAddonSet.has(task.addon));
+  const enabledTasks = tasks.filter((task) =>
+    enabledAddonSet.has(task.addon) ||
+    (task.addon === 'lucid_studio_flashcard' && enabledAddonSet.has('lucid_studio_flashcards'))
+  );
 
   if (enabledTasks.length === 0) {
     console.log(`[JOB] No enabled Lucid Studio derived generation tasks for module_id=${moduleId}. Skipping derived asset generation.`);
@@ -133,8 +136,8 @@ async function runModuleGenerators(moduleId, enabledAddonSet) {
 
   for (const task of enabledTasks) {
     try {
-      console.log(`[JOB] Running ${task.name} generation for module_id=${moduleId}`);
-      const result = await task.generator({ moduleId });
+      console.log(`[JOB] Running ${task.name} generation for module_id=${moduleId}${maxMultimodalModules ? ` (capped at ${maxMultimodalModules} modules)` : ''}`);
+      const result = await task.generator({ moduleId, maxModules: maxMultimodalModules });
       console.log(`[JOB] ${task.name} generation completed for module_id=${moduleId}:`, result);
     } catch (error) {
       failures.push({ name: task.name, error });
@@ -196,12 +199,24 @@ async function processJobs() {
         console.log(`[WORKER] ✅ [1/4] Migration result:`, migrateResult);
 
         let companyAddons = [];
-        try {
-          companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
-        } catch (addonErr) {
-          console.warn(`[WORKER] ⚠️ Could not resolve company subscription addons (defaulting to empty):`, addonErr.message);
+        let addonFetchAttempts = 0;
+        while (addonFetchAttempts < 3) {
+          try {
+            companyAddons = await getCompanySubscriptionAddonsForModule(job.module_id);
+            break;
+          } catch (addonErr) {
+            addonFetchAttempts++;
+            console.warn(`[WORKER] ⚠️ Attempt ${addonFetchAttempts}/3 to resolve company subscription addons failed:`, addonErr.message);
+            if (addonFetchAttempts < 3) await new Promise(r => setTimeout(r, 1000));
+          }
         }
         const enabledAddonSet = new Set(companyAddons);
+        const isDemoCapped = enabledAddonSet.has('demo_multimodal_cap_2');
+        const maxMultimodal = isDemoCapped ? 2 : null;
+
+        if (isDemoCapped) {
+          console.log(`[JOB] Demo cap (demo_multimodal_cap_2) detected for module_id=${job.module_id}. Limiting multimodal assets to first 2 modules.`);
+        }
 
         // If the company has no Lucid Studio related addons enabled, skip derived generation.
         const lucidStudioAddonKeys = [
@@ -211,6 +226,7 @@ async function processJobs() {
           'lucid_studio_mindmap',
           'lucid_studio_infographic',
           'lucid_studio_flashcard',
+          'lucid_studio_flashcards',
         ];
 
         const hasLucidStudioAccess = lucidStudioAddonKeys.some((addon) => enabledAddonSet.has(addon));
@@ -238,7 +254,7 @@ async function processJobs() {
         // Generate all derived assets for this specific module before completing the job.
         console.log(`[WORKER] 🎨 [4/4] Running derived media generators for module_id=${job.module_id}...`);
         try {
-          await runModuleGenerators(job.module_id, enabledAddonSet);
+          await runModuleGenerators(job.module_id, enabledAddonSet, maxMultimodal);
           console.log(`[WORKER] ✅ [4/4] Derived media generation completed.`);
         } catch (mediaErr) {
           console.error(`[WORKER] ⚠️ Media generator error (continuing):`, mediaErr.message || mediaErr);
