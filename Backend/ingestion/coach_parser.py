@@ -1175,6 +1175,71 @@ def parse_spreadsheet(
 
 
 # ============================================================================
+# 5. MARKDOWN & TEXT PARSER (For CRM Records, Digests & Markdown Documents)
+# ============================================================================
+def parse_markdown(
+    file_path: str,
+    file_name: str,
+    employee_roster: List[Dict[str, Any]] = None,
+    target_employee_id: Optional[str] = None
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Parses Markdown (.md, .markdown) and Plain Text (.txt) documents into semantic chunks.
+    Preserves document structure, section headers, and associates employee identities.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            raw_text = f.read()
+    except Exception as e:
+        raise ValueError(f"Failed to read file '{file_name}': {e}")
+
+    raw_text = clean_text(raw_text)
+    if not raw_text:
+        return [], None
+
+    chunks = []
+    parent_emp_name = resolve_employee_name(target_employee_id, employee_roster)
+    doc_period = detect_document_period(file_name, raw_text[:1500])
+
+    if target_employee_id:
+        emp_id = target_employee_id
+        emp_name = parent_emp_name
+    else:
+        matched_emp = match_employee_in_text(raw_text, employee_roster, strict_full_name=True)
+        emp_id = matched_emp.get("user_id") if matched_emp else None
+        emp_name = matched_emp.get("name") if matched_emp else None
+
+    # Split into digestible chunks (300 words with 40-word overlap)
+    sub_chunks = chunk_words(raw_text, size=300, overlap=40)
+    for idx, sc in enumerate(sub_chunks, start=1):
+        header = build_contextual_header(
+            file_name=file_name,
+            file_type="md",
+            employee_name=emp_name,
+            period=doc_period,
+            source_coordinate=f"Section {idx}"
+        )
+        chunks.append({
+            "content": f"{header}{sc}",
+            "chunk_type": "text",
+            "target_employee_id": emp_id,
+            "citation": {
+                "file_name": file_name,
+                "file_type": "md",
+                "page_number": idx,
+                "slide_number": None,
+                "sheet_name": None,
+                "row_number": None,
+                "section_title": f"Section {idx}",
+                "evaluator_name": None,
+                "eval_period": doc_period
+            }
+        })
+
+    return chunks, doc_period
+
+
+# ============================================================================
 # MASTER PARSER ROUTER
 # ============================================================================
 def parse_manual_upload(
@@ -1206,5 +1271,9 @@ def parse_manual_upload(
     elif ext in ["xlsx", "xls", "csv"]:
         return parse_spreadsheet(file_path, file_name, ext, employee_roster, target_employee_id=target_employee_id)
         
+    elif ext in ["md", "markdown", "txt"]:
+        chunks, doc_period = parse_markdown(file_path, file_name, employee_roster, target_employee_id=target_employee_id)
+        return chunks, [], {"format": ext, "total_chunks": len(chunks), "document_period": doc_period}
+
     else:
         raise ValueError(f"Unsupported file format for Performance Coach: .{ext}")

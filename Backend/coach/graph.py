@@ -14,6 +14,7 @@ from coach.nodes import (
     sql_executor_node,
     sql_fixer_node,
     rag_node,
+    crm_node,
     synthesizer_node
 )
 from coach.guardrails import check_input_guardrails
@@ -29,38 +30,50 @@ except ImportError:
 # ============================================================================
 # CONDITIONAL ROUTING FUNCTIONS
 # ============================================================================
-def route_from_router(state: CoachState) -> Literal["sql_generator", "rag", "synthesizer"]:
+def route_from_router(state: CoachState) -> Literal["sql_generator", "rag", "crm", "synthesizer"]:
     """Routes based on classified intent."""
     if state.get("guardrail_triggered"):
         return "synthesizer"
     intent = state.get("intent", "GENERAL")
-    if intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
+    if intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE", "PERMISSIONS", "PERMISSION_DENIED"]:
         return "synthesizer"
     if intent in ["SQL", "HYBRID"]:
         return "sql_generator"
+    elif intent == "CRM":
+        return "crm"
     elif intent == "RAG":
         return "rag"
     else:  # "CATALOG", "GENERAL", "OUT_OF_SCOPE"
         return "synthesizer"
 
 
-def route_from_sql_executor(state: CoachState) -> Literal["sql_fixer", "rag", "synthesizer"]:
+def route_from_sql_executor(state: CoachState) -> Literal["sql_fixer", "crm", "rag", "synthesizer"]:
     """
     Self-healing retry edge: If SQL execution failed and retry_count < 2,
-    routes to sql_fixer to correct the query. Otherwise proceeds to RAG (if HYBRID) or synthesizer.
+    routes to sql_fixer to correct the query. Otherwise proceeds to CRM (if HYBRID with CRM terms), RAG (if HYBRID), or synthesizer.
     """
     sql_error = state.get("sql_error")
     retry_count = state.get("sql_retry_count", 0)
     intent = state.get("intent", "")
+    user_q = (state.get("user_query") or "").lower()
 
     # Self-healing retry check (up to 2 retry attempts)
     if sql_error and retry_count < 2:
         return "sql_fixer"
 
-    # If Hybrid query, execute RAG next to collect qualitative excerpts
+    # If Hybrid query, execute CRM or RAG next
     if intent == "HYBRID":
+        if any(k in user_q for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
+            return "crm"
         return "rag"
 
+    return "synthesizer"
+
+
+def route_from_crm(state: CoachState) -> Literal["rag", "synthesizer"]:
+    """If HYBRID intent, proceeds to RAG for document context; otherwise to synthesizer."""
+    if state.get("intent") == "HYBRID":
+        return "rag"
     return "synthesizer"
 
 
@@ -80,6 +93,7 @@ def build_coach_graph():
     workflow.add_node("sql_generator", sql_generator_node)
     workflow.add_node("sql_executor", sql_executor_node)
     workflow.add_node("sql_fixer", sql_fixer_node)
+    workflow.add_node("crm", crm_node)
     workflow.add_node("rag", rag_node)
     workflow.add_node("synthesizer", synthesizer_node)
 
@@ -93,6 +107,7 @@ def build_coach_graph():
         route_from_router,
         {
             "sql_generator": "sql_generator",
+            "crm": "crm",
             "rag": "rag",
             "synthesizer": "synthesizer"
         }
@@ -107,12 +122,23 @@ def build_coach_graph():
         route_from_sql_executor,
         {
             "sql_fixer": "sql_fixer",
+            "crm": "crm",
             "rag": "rag",
             "synthesizer": "synthesizer"
         }
     )
 
-    # 5. RAG to Synthesizer to END
+    # 5. CRM conditional branch (to RAG if HYBRID, else to synthesizer)
+    workflow.add_conditional_edges(
+        "crm",
+        route_from_crm,
+        {
+            "rag": "rag",
+            "synthesizer": "synthesizer"
+        }
+    )
+
+    # 6. RAG to Synthesizer to END
     workflow.add_edge("rag", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
@@ -188,6 +214,9 @@ def execute_coach_agent(
 
     intent = state.get("intent", "GENERAL")
 
+    if intent == "CRM":
+        state.update(crm_node(state))
+
     if intent in ["SQL", "HYBRID"]:
         state.update(sql_generator_node(state))
         state.update(sql_executor_node(state))
@@ -196,6 +225,11 @@ def execute_coach_agent(
         if state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
             state.update(sql_fixer_node(state))
             state.update(sql_executor_node(state))
+
+    if intent == "HYBRID":
+        q_low = user_query.lower()
+        if any(k in q_low for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
+            state.update(crm_node(state))
 
     if intent in ["RAG", "HYBRID"]:
         state.update(rag_node(state))

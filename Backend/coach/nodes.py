@@ -306,6 +306,7 @@ Analyze the user's question, the available spreadsheet schema (sheets & columns)
 Classify the user's intent into EXACTLY ONE of the following categories:
 
 - "SQL": The question strictly asks for concrete numbers, mathematical aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, discounts, or numerical calculations on columns present in the Available Columns or Sheets (e.g. "What are my sales numbers?", "How many cases did I sell?", "What is my discount %?", "Who are the top 5 reps?").
+- "CRM": The question asks about sales pipeline, deals, CRM stages, pipeline health, CRM opportunities, deal amounts, sales cycle, contacts/leads, companies/accounts, sales meeting notes, or customer support tickets from connected CRM systems like HubSpot (e.g. "What is our pipeline summary?", "Show me my open deals", "Which deals are in closed won?", "What deals are closing this month?", "Find contact Maria Johnson", "What are the latest CRM notes for Acme corp?").
 - "RAG": The question asks about qualitative information, advice, tasks, or feedback:
   1. Uploaded qualitative documents, task lists, reminders, todos, action plans, company policies, manuals, handbooks, strategic plans, guidelines, or appraisal documents found in the Available Documents catalog.
   2. Communications, meeting transcripts, 1-on-1 notes, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads) (e.g. "What are my upcoming tasks?", "What reminders were noted for November?", "What did my manager note in my 1-on-1?", "What are my improvement areas according to the review doc?").
@@ -317,15 +318,16 @@ Classify the user's intent into EXACTLY ONE of the following categories:
 
 DECISION GUIDELINES:
 1. If the question strictly asks for numerical figures, specific column metrics, or mathematical calculations -> "SQL".
-2. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
-3. If the question asks broadly "How am I doing?", "What are my upcoming tasks/todos?", "What should I focus on this month?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
-4. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
-5. If it's a polite greeting or gratitude -> "GENERAL".
-6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
+2. If the question asks about sales pipeline, deals, opportunities, CRM stages, contacts, or tickets -> "CRM".
+3. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
+4. If the question asks broadly "How am I doing?", "What are my upcoming tasks/todos?", "What should I focus on this month?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
+5. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
+6. If it's a polite greeting or gratitude -> "GENERAL".
+7. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
 
 Return ONLY a JSON object:
 {
-  "intent": "SQL" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL" | "OUT_OF_SCOPE",
+  "intent": "SQL" | "CRM" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL" | "OUT_OF_SCOPE",
   "reasoning": "1 sentence explanation."
 }"""
 
@@ -410,9 +412,18 @@ def router_node(state: CoachState) -> Dict[str, Any]:
                 if len(part) >= 3 and part not in {"and", "the", "for", "with", "from", "date"}:
                     col_tokens.add(part)
 
-    # Heuristic fast-path 1B: Connected Cloud Integrations detection
+    # Heuristic fast-path 1B: Connected Cloud Integrations & HubSpot CRM detection
     active_integrations = state.get("active_integrations", [])
     active_providers = {i.get("provider", "").lower() for i in active_integrations}
+
+    # HubSpot CRM Live Intelligence Routing
+    hubspot_kws = ["hubspot", "hubspot crm", "deal", "deals", "pipeline", "pipelines", "sales pipeline", "lead", "leads", "crm opportunity", "customer ticket", "support ticket"]
+    if any(re.search(rf"\b{re.escape(kw)}\b", q_lower) for kw in hubspot_kws):
+        if not active_providers or "hubspot" in active_providers:
+            if has_sheets and any(k in q_lower for k in ["sheet", "spreadsheet", "quota", "cases", "excel", "target"]):
+                return _route("HYBRID", "Query asks to compare spreadsheet metrics with live HubSpot CRM records.")
+            return _route("CRM", "Query asks about live HubSpot CRM pipeline, deals, contacts, or tickets.")
+
     connector_keywords = {
         "google_drive": ["google drive", "gdrive", "drive folder", "shared drive", "cloud drive"],
         "onedrive": ["onedrive", "sharepoint"],
@@ -421,7 +432,6 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         "teams": ["ms teams", "teams channel", "teams chat", "teams message"],
         "slack": ["slack", "slack channel", "slack message"],
         "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"],
-        "hubspot": ["hubspot", "hubspot crm", "deal", "deals", "sales pipeline", "lead", "leads", "crm opportunity", "customer ticket", "support ticket"]
     }
     for prov, kws in connector_keywords.items():
         if any(kw in q_lower for kw in kws):
@@ -697,6 +707,180 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
 
 
 # ============================================================================
+# 4B. CRM LIVE INTELLIGENCE NODE (HubSpot FastMCP)
+# ============================================================================
+def _run_async_tool(coro):
+    """Executes an async FastMCP tool within a synchronous LangGraph node."""
+    import asyncio
+    import concurrent.futures
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(asyncio.run, coro).result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+def crm_node(state: CoachState) -> Dict[str, Any]:
+    """
+    LangGraph Node for HubSpot CRM Live Intelligence via In-Process FastMCP.
+    Executes typed tools with Pre-Retrieval Zanzibar ReBAC, structured Redis caching,
+    and Dual-Layer PII Firewall scrubbing.
+    """
+    company_id = state.get("company_id", "")
+    user_query = state.get("user_query", "").strip()
+    security_ctx = state.get("security_ctx")
+
+    from coach.tools.hubspot_mcp import (
+        hubspot_get_pipeline_summary,
+        hubspot_search_deals,
+        hubspot_get_deal,
+        hubspot_search_contacts,
+        hubspot_get_contact,
+        hubspot_search_companies,
+        hubspot_list_engagements,
+        hubspot_search_tickets,
+    )
+
+    q_lower = user_query.lower()
+
+    # If query explicitly requests latest/live data, bust tenant CRM cache for fresh pull
+    if any(w in q_lower for w in ["now", "latest", "refresh", "updated", "update"]):
+        try:
+            from utils.redis_client import delete_cache_pattern
+            delete_cache_pattern(f"hubspot:{company_id}:*")
+        except Exception:
+            pass
+
+    # Determine tool and parameters
+    tool_name = "hubspot_search_deals"
+    tool_args: Dict[str, Any] = {}
+
+    # Helper to clean search query from natural conversational questions
+    def _clean_search_query(raw: str, entity_words: List[str]) -> Optional[str]:
+        q = raw
+        # Remove common question/intent boilerplate
+        boilerplate = [
+            r"show\s+me", r"tell\s+me\s+about", r"who\s+is", r"who\s+are", r"what\s+is", r"what\s+are",
+            r"which", r"do\s+we\s+have", r"do\s+we", r"have", r"are\s+there", r"are", r"is\s+there",
+            r"any", r"all", r"list", r"get", r"find", r"search", r"lookup", r"give\s+me",
+            r"in", r"from", r"hubspot", r"crm", r"our", r"my", r"the", r"us"
+        ] + entity_words
+        pattern = r"(?i)\b(" + "|".join(boilerplate) + r")\b"
+        cleaned = re.sub(pattern, " ", q)
+        cleaned = re.sub(r"[^\w\s@.-]", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned if len(cleaned) >= 2 else None
+
+    # Heuristic matching
+    if any(k in q_lower for k in ["pipeline", "summary", "overview", "funnel", "stages", "pipeline health"]):
+        tool_name = "hubspot_get_pipeline_summary"
+        tool_args = {}
+    elif any(k in q_lower for k in ["contact", "contacts", "lead", "leads", "who is", "email address", "phone number"]):
+        tool_name = "hubspot_search_contacts"
+        clean_q = _clean_search_query(user_query, ["contact", "contacts", "lead", "leads", "person", "people"])
+        tool_args = {"search_query": clean_q, "limit": 25}
+    elif any(k in q_lower for k in ["company", "companies", "account", "accounts", "organization", "domain"]):
+        tool_name = "hubspot_search_companies"
+        clean_q = _clean_search_query(user_query, ["company", "companies", "account", "accounts", "org", "organization", "organizations"])
+        tool_args = {"search_query": clean_q, "limit": 25}
+    elif any(k in q_lower for k in ["ticket", "tickets", "support", "issue", "complaint"]):
+        tool_name = "hubspot_search_tickets"
+        tool_args = {"limit": 25}
+    elif any(k in q_lower for k in ["note", "notes", "call log", "meeting notes", "activity log"]):
+        tool_name = "hubspot_list_engagements"
+        tool_args = {"object_type": "deals", "object_id": "", "limit": 15}
+    else:
+        # Default deal search with stage filter extraction
+        tool_name = "hubspot_search_deals"
+        stage_filter = None
+        if "closed won" in q_lower or "won" in q_lower:
+            stage_filter = "closedwon"
+        elif "closed lost" in q_lower or "lost" in q_lower:
+            stage_filter = "closedlost"
+        tool_args = {"stage": stage_filter, "limit": 50}
+
+    print(f"[COACH CRM NODE] Invoking FastMCP tool '{tool_name}' with args: {tool_args}")
+
+    result: Dict[str, Any] = {}
+    try:
+        if tool_name == "hubspot_get_pipeline_summary":
+            result = _run_async_tool(hubspot_get_pipeline_summary(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                pipeline_id=tool_args.get("pipeline_id")
+            ))
+        elif tool_name == "hubspot_search_deals":
+            result = _run_async_tool(hubspot_search_deals(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                stage=tool_args.get("stage"),
+                pipeline=tool_args.get("pipeline"),
+                min_amount=tool_args.get("min_amount"),
+                max_amount=tool_args.get("max_amount"),
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 50)
+            ))
+        elif tool_name == "hubspot_search_contacts":
+            result = _run_async_tool(hubspot_search_contacts(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        elif tool_name == "hubspot_search_companies":
+            result = _run_async_tool(hubspot_search_companies(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        elif tool_name == "hubspot_search_tickets":
+            result = _run_async_tool(hubspot_search_tickets(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                priority=tool_args.get("priority"),
+                stage=tool_args.get("stage"),
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        else:
+            result = _run_async_tool(hubspot_search_deals(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                limit=50
+            ))
+    except Exception as e:
+        print(f"[COACH CRM NODE] FastMCP execution error: {e}")
+        result = {"error": f"Failed to query HubSpot CRM: {str(e)}"}
+
+    summary = ""
+    if "total_active_pipeline_value" in result:
+        summary = (
+            f"Active Pipeline Value: ${result.get('total_active_pipeline_value'):,.2f} | "
+            f"Total Deals: {result.get('total_deals_count', 0)} | "
+            f"Weighted Value: ${result.get('weighted_pipeline_value', 0):,.2f}"
+        )
+    elif "total_amount_sum" in result:
+        summary = (
+            f"Matched Deals: {result.get('total_deals_matched', 0)} | "
+            f"Total Value: ${result.get('total_amount_sum', 0):,.2f} | "
+            f"Average Deal: ${result.get('average_amount', 0):,.2f}"
+        )
+    elif "total_contacts" in result:
+        summary = f"Total Contacts Found: {result.get('total_contacts', 0)}"
+
+    return {
+        "crm_data": result,
+        "crm_summary": summary,
+        "crm_tool_calls": [{"tool": tool_name, "args": tool_args}]
+    }
+
+
+# ============================================================================
 # 5. SYNTHESIZER NODE
 # ============================================================================
 SYNTHESIZER_SYSTEM_PROMPT = """You are an elite, empathetic, and evidence-driven Executive Sales & Performance Coach.
@@ -726,6 +910,10 @@ STRICT GROUNDING & CITATION RULES:
    - NEVER suggest past dates, expired events, or meetings that have already passed (e.g. recommending an October 23 session when today is in November) as upcoming tasks or todos.
    - When asked for next steps, todos, or roadmaps, prescribe fresh, actionable tasks for the CURRENT and UPCOMING period starting from today.
    - Treat past feedback and past metrics as baseline context to inform future actions, not as active calendar invites.
+9. LIVE CRM PIPELINE & OPPORTUNITY INTELLIGENCE (HubSpot FastMCP):
+   - When live CRM pipeline, deal, contact, or ticket data is retrieved from HubSpot, ground all figures, counts, and stage dollar amounts directly in that retrieved data.
+   - Present pipeline health summaries with neat markdown tables or bullet points (Stage Name, Deal Count, Total Value $, Win Probability).
+   - Detail key deals (Deal Name, Value, Stage, Target Close Date, Owner Name).
 """
 
 
@@ -877,6 +1065,7 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         and intent in ["SQL", "RAG", "HYBRID"]
         and not sql_result
         and not rag_chunks
+        and not state.get("crm_data")
     ):
         restricted_reason = _detect_restricted_scope_reason(
             user_query, state.get("target_employee_name"), sec
@@ -890,6 +1079,15 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
 
     # Build Context Blocks
     context_sections = []
+
+    crm_data = state.get("crm_data")
+    crm_summary = state.get("crm_summary")
+    if crm_data:
+        crm_block = "RETRIEVED LIVE CRM INTELLIGENCE (HubSpot FastMCP):\n"
+        if crm_summary:
+            crm_block += f"Executive Summary: {crm_summary}\n\n"
+        crm_block += f"Data:\n{json.dumps(crm_data, indent=2)}"
+        context_sections.append(crm_block)
 
     if sql_result is not None:
         context_sections.append(

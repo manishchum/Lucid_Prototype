@@ -1416,6 +1416,16 @@ async def connector_webhook_listener(
     unique_company_ids = set()
     for cid, int_id in target_targets:
         unique_company_ids.add(cid)
+
+        # FastMCP CDC Cache Invalidation for HubSpot CRM
+        if provider == "hubspot":
+            try:
+                from utils.redis_client import delete_cache_pattern
+                delete_cache_pattern(f"hubspot:{cid}:*")
+                print(f"[HUBSPOT WEBHOOK] Evicted FastMCP structured cache for company {cid}")
+            except Exception as evict_err:
+                print(f"[HUBSPOT WEBHOOK] Cache eviction note: {evict_err}")
+
         debounce_key = f"connector_webhook_debounce:{provider}:{int_id or cid}"
         is_new = True
         try:
