@@ -405,13 +405,14 @@ def parse_pdf(
         
         # Split long pages into digestible chunks
         sub_chunks = chunk_words(page_text, size=300, overlap=40)
-        for sc in sub_chunks:
+        for sc_idx, sc in enumerate(sub_chunks, 1):
+            source_coord = f"Page {page_num}, Para {sc_idx}" if len(sub_chunks) > 1 else f"Page {page_num}"
             header = build_contextual_header(
                 file_name=file_name,
                 file_type="pdf",
                 employee_name=emp_name,
                 period=doc_period,
-                source_coordinate=f"Page {page_num}"
+                source_coordinate=source_coord
             )
             chunks.append({
                 "content": f"{header}{sc}",
@@ -421,10 +422,11 @@ def parse_pdf(
                     "file_name": file_name,
                     "file_type": "pdf",
                     "page_number": page_num,
+                    "paragraph_number": sc_idx,
                     "slide_number": None,
                     "sheet_name": None,
                     "row_number": None,
-                    "section_title": f"Page {page_num}",
+                    "section_title": source_coord,
                     "evaluator_name": None,
                     "eval_period": doc_period
                 }
@@ -484,7 +486,7 @@ def parse_docx(
         )
         
         sub_chunks = chunk_words(full_text, size=300, overlap=40)
-        for sc in sub_chunks:
+        for sc_idx, sc in enumerate(sub_chunks, 1):
             # Prepend section heading for context preservation if not general
             body_with_ctx = f"[{heading}]\n{sc}" if heading != "General" else sc
             chunks.append({
@@ -495,10 +497,11 @@ def parse_docx(
                     "file_name": file_name,
                     "file_type": "docx",
                     "page_number": None,
+                    "paragraph_number": sc_idx,
                     "slide_number": None,
                     "sheet_name": None,
                     "row_number": None,
-                    "section_title": heading,
+                    "section_title": heading if heading != "General" else f"Paragraph {sc_idx}",
                     "evaluator_name": None,
                     "eval_period": doc_period
                 }

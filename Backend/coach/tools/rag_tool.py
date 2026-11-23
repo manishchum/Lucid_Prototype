@@ -296,10 +296,22 @@ def format_chunks_for_context(chunks: List[Dict[str, Any]]) -> str:
     sections = []
     for idx, c in enumerate(chunks, 1):
         cit = c.get("citation") or {}
-        doc_name = cit.get("file_name") or "Unknown Document"
+        if isinstance(cit, str):
+            try:
+                cit = json.loads(cit)
+            except Exception:
+                cit = {}
+
+        doc_name = cit.get("file_name") or c.get("file_name") or "Unknown Document"
         coord_parts = []
         if cit.get("page_number"):
             coord_parts.append(f"Page {cit['page_number']}")
+        if cit.get("paragraph_number"):
+            coord_parts.append(f"Para {cit['paragraph_number']}")
+        if cit.get("line_range"):
+            coord_parts.append(f"Lines {cit['line_range']}")
+        elif cit.get("line_number"):
+            coord_parts.append(f"Line {cit['line_number']}")
         if cit.get("slide_number"):
             coord_parts.append(f"Slide {cit['slide_number']}")
         if cit.get("sheet_name"):
@@ -307,14 +319,14 @@ def format_chunks_for_context(chunks: List[Dict[str, Any]]) -> str:
         if cit.get("row_number"):
             coord_parts.append(f"Row {cit['row_number']}")
         if cit.get("section_title"):
-            coord_parts.append(cit["section_title"])
+            coord_parts.append(str(cit["section_title"]))
         if cit.get("eval_period"):
             coord_parts.append(f"Period: {cit['eval_period']}")
 
         coord_str = " | ".join(coord_parts) if coord_parts else "General Section"
         similarity = round(c.get("similarity", 0.0) * 100, 1)
 
-        header = f"--- [EXCERPT {idx}] Source: {doc_name} ({coord_str}) [Relevance: {similarity}%] ---"
+        header = f"[SOURCE {idx}] {doc_name} ({coord_str}) [Relevance: {similarity}%]"
         content = c.get("content", "").strip()
         sections.append(f"{header}\n{content}")
 
@@ -324,12 +336,12 @@ def format_chunks_for_context(chunks: List[Dict[str, Any]]) -> str:
 def extract_citations_from_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Extracts deduplicated, structured citation chips for frontend UI display.
-    Includes verified source text excerpts and proof coordinates.
+    Includes verified source text excerpts and proof coordinates (page, paragraph, lines, row).
     """
     citations = []
     seen = set()
 
-    for c in chunks:
+    for idx, c in enumerate(chunks, 1):
         cit = c.get("citation") or {}
         if isinstance(cit, str):
             try:
@@ -339,15 +351,17 @@ def extract_citations_from_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str
 
         file_name = cit.get("file_name") or c.get("file_name") or "Document"
         page = cit.get("page_number")
+        para = cit.get("paragraph_number")
+        line_rng = cit.get("line_range") or (f"Line {cit.get('line_number')}" if cit.get("line_number") else None)
         slide = cit.get("slide_number")
         sheet = cit.get("sheet_name")
         row = cit.get("row_number")
         section = cit.get("section_title")
         period = cit.get("eval_period")
-        chunk_idx = c.get("chunk_index", 0)
+        chunk_idx = c.get("chunk_index", idx)
         excerpt_text = (c.get("content") or "").strip()
 
-        key = (file_name, chunk_idx, page, slide, sheet, row, section)
+        key = (file_name, chunk_idx, page, para, line_rng, slide, sheet, row, section)
         if key in seen:
             continue
         seen.add(key)
@@ -355,21 +369,30 @@ def extract_citations_from_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str
         coord_parts = []
         if page:
             coord_parts.append(f"Page {page}")
+        if para:
+            coord_parts.append(f"Para {para}")
+        if line_rng:
+            coord_parts.append(str(line_rng))
         if slide:
             coord_parts.append(f"Slide {slide}")
         if sheet:
             coord_parts.append(f"Sheet {sheet}")
         if row:
             coord_parts.append(f"Row {row}")
-        if section:
+        if section and str(section).lower() not in [f"page {page}".lower() if page else ""]:
             coord_parts.append(str(section))
         if period:
             coord_parts.append(f"Period: {period}")
 
-        location_str = " • ".join(coord_parts) if coord_parts else ""
+        location_str = " • ".join(coord_parts) if coord_parts else "General Section"
         sim = float(c.get("similarity") or 0.0)
 
+        cleaned_excerpt = excerpt_text
+        if "\n\n" in excerpt_text and excerpt_text.startswith("[Context:"):
+            cleaned_excerpt = excerpt_text.split("\n\n", 1)[1].strip()
+
         citations.append({
+            "index": len(citations) + 1,
             "document_id": str(c.get("document_id") or ""),
             "filename": file_name,
             "file_name": file_name,
@@ -381,14 +404,16 @@ def extract_citations_from_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str
             "similarity": round(sim, 3),
             "location": location_str,
             "page_number": page,
+            "paragraph_number": para,
+            "line_range": line_rng,
             "slide_number": slide,
             "sheet_name": sheet,
             "row_number": row,
             "section_title": section,
             "eval_period": period,
-            "excerpt": excerpt_text,
-            "content": excerpt_text,
-            "text": excerpt_text
+            "excerpt": cleaned_excerpt[:350] + ("..." if len(cleaned_excerpt) > 350 else ""),
+            "content": cleaned_excerpt,
+            "text": cleaned_excerpt
         })
 
     return citations
