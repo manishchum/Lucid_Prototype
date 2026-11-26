@@ -584,18 +584,50 @@ Transcript:
 {transcript}
 """.strip()
 
+        def _validate_daily_report_schema(data: Any) -> Optional[Dict[str, Any]]:
+            if not isinstance(data, dict):
+                return None
+            doc_type = data.get("document_type")
+            if not doc_type or not isinstance(doc_type, str):
+                return None
+            tables = data.get("tables")
+            if not isinstance(tables, list):
+                return None
+            # Validate tables structure
+            cleaned_tables: List[Dict[str, Any]] = []
+            for t in tables:
+                if not isinstance(t, dict):
+                    continue
+                name = str(t.get("name") or "Retailer Updates")
+                cols = t.get("columns")
+                rows = t.get("rows")
+                if not isinstance(cols, list) or not isinstance(rows, list):
+                    continue
+                cleaned_rows: List[List[Any]] = []
+                for r in rows:
+                    if isinstance(r, list):
+                        cleaned_rows.append([str(cell) if cell is not None else "" for cell in r])
+                cleaned_tables.append({
+                    "name": name,
+                    "columns": [str(c) for c in cols],
+                    "rows": cleaned_rows
+                })
+            data["tables"] = cleaned_tables
+            return data
+
         def _run() -> Dict[str, Any]:
-            raw = self._call_model_text(prompt)
+            raw = self._call_model_text(prompt, require_json=True)
             parsed = self._safe_json_loads(raw)
-            if not parsed:
+            validated = _validate_daily_report_schema(parsed) if parsed else None
+            if not validated:
                 # fallback
-                parsed = {
+                validated = {
                     "document_type": "daily_report",
                     "suggested_title": report_title or "Daily Report",
                     "summary": "Could not parse transcript.",
                     "tables": []
                 }
-            return parsed
+            return validated
 
         structured_json = await asyncio.to_thread(_run)
 

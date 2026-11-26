@@ -589,7 +589,8 @@ async def export_manager_team_reports_excel(
         raise HTTPException(status_code=404, detail="Manager report not found for this date. Please generate it first.")
         
     manager_summary = saved_report.get("manager_summary") or {}
-    user_reports = manager_summary.get("user_reports") or []
+    raw_user_reports = manager_summary.get("user_reports")
+    user_reports = raw_user_reports if isinstance(raw_user_reports, list) else []
     
     import openpyxl
     from openpyxl.styles import Font
@@ -598,8 +599,21 @@ async def export_manager_team_reports_excel(
     ws = wb.active
     ws.title = f"Reports - {report_date}"
     
-    if not user_reports:
-        ws.append(["No user reports found for this date."])
+    def append_safe_text_row(worksheet, values: List[Any]) -> None:
+        row_idx = worksheet.max_row + 1
+        for col_idx, val in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            val_str = "" if val is None else str(val)
+            # Prefix leading formula characters if any, and set explicit string cell data_type
+            if val_str and val_str[0] in ("=", "+", "-", "@", "\t", "\r"):
+                val_str = "'" + val_str
+            cell.value = val_str
+            cell.data_type = "s"
+
+    valid_user_reports = [ur for ur in user_reports if isinstance(ur, dict)]
+
+    if not valid_user_reports:
+        append_safe_text_row(ws, ["No user reports found for this date."])
     else:
         # Create headers
         headers = ["User Name", "Retailer Name", "Retailer Category", "Discount (%)", "Sales Target", "Cases", "Follow Up Date", "Person Contacted", "Summary Text"]
@@ -609,29 +623,30 @@ async def export_manager_team_reports_excel(
         for cell in ws[1]:
             cell.font = Font(bold=True)
             
-        for ur in user_reports:
+        for ur in valid_user_reports:
             user_name = ur.get("user_name") or ur.get("user_id") or "Unknown"
             summary = ur.get("summary") or ""
-            table = ur.get("table") or []
+            table = ur.get("table")
+            table_rows = [row for row in table if isinstance(row, list)] if isinstance(table, list) else []
             
             # The table from the model usually includes a header row, e.g., ["Retailer Name", ...]
             # We'll try to determine if the first row is a header and skip it
-            if table:
+            if table_rows:
                 start_idx = 0
-                if len(table) > 0 and len(table[0]) > 0 and "retailer" in str(table[0][0]).lower():
+                if len(table_rows) > 0 and len(table_rows[0]) > 0 and "retailer" in str(table_rows[0][0]).lower():
                     start_idx = 1
                     
                 added_rows = False
-                for row in table[start_idx:]:
+                for row in table_rows[start_idx:]:
                     # pad row to 7 elements
                     row_data = (row + ["", "", "", "", "", "", ""])[:7]
-                    ws.append([user_name] + row_data + [summary if not added_rows else ""])
+                    append_safe_text_row(ws, [user_name] + row_data + [summary if not added_rows else ""])
                     added_rows = True
                     
                 if not added_rows:
-                    ws.append([user_name, "No data", "", "", "", "", "", "", summary])
+                    append_safe_text_row(ws, [user_name, "No data", "", "", "", "", "", "", summary])
             else:
-                ws.append([user_name, "No tabular data", "", "", "", "", "", "", summary])
+                append_safe_text_row(ws, [user_name, "No tabular data", "", "", "", "", "", "", summary])
                 
         # Adjust column widths slightly
         ws.column_dimensions["A"].width = 20
