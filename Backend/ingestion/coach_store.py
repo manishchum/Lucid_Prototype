@@ -220,7 +220,7 @@ def insert_spreadsheet_rows(
     document_id: str,
     company_id: str,
     spreadsheet_rows: List[Dict[str, Any]],
-    batch_size: int = 500,
+    batch_size: int = 200,
     default_acl_principals: Optional[List[str]] = None,
     default_deny_principals: Optional[List[str]] = None
 ) -> int:
