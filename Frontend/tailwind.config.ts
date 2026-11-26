@@ -31,7 +31,7 @@ const config: Config = {
   				foreground: 'hsl(var(--popover-foreground))'
   			},
 			primary: {
-				DEFAULT: 'oklch(var(--primary))',
+				DEFAULT: 'var(--primary)',
 				foreground: 'hsl(var(--primary-foreground))'
 			},
   			secondary: {
@@ -52,7 +52,7 @@ const config: Config = {
   			},
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
-			ring: 'oklch(var(--ring))',
+			ring: 'var(--ring)',
   			chart: {
   				'1': 'hsl(var(--chart-1))',
   				'2': 'hsl(var(--chart-2))',
