@@ -45,7 +45,8 @@ const includedPathPrefixes = [
   "/employee/assessment",
   "/employee/voice-notes",
   "/employee/gamified-arena",
-  "/admin/coach-uploads"
+  "/admin/coach-uploads",
+  "/admin/voice-agents"
   // "/coach"
 ];
 
@@ -113,7 +114,7 @@ const shouldShowNavigation =
         <div className="flex-1">
           {children}
         </div>
-        <Footer />
+        {pathname?.startsWith('/admin/voice-agents') ? null : <Footer />}
       </div>
     );
   }
@@ -145,7 +146,7 @@ const shouldShowNavigation =
       >
         {children}
       </div>
-      <Footer />
+      {pathname?.startsWith('/admin/voice-agents') ? null : <Footer />}
     </div>
   );
 };

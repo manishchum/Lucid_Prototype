@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Home, Menu, X, BarChart3, Users, Upload, Building2, PlayCircle, CheckCircle2, ListChecks, TrendingUp, Settings as SettingsIcon, Zap, UsersRound, LayoutGrid, Play, Check, List, ClipboardCheck, Bell, MessageSquare, Briefcase, Award, Plus, Sparkles, Headset, Send, AudioLines } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { LayoutDashboard, BookOpen, Book, User, FileText, KeyRound, LogOut, Shield, Calendar, Mail, Settings, Folder, Database } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
@@ -109,7 +109,7 @@ const EmployeeNavigation = ({
     if (pathname && pathname.startsWith('/employee/courses')) {
       setCoursesOpen(true);
     }
-    if (pathname && (pathname.startsWith("/admin/dashboard") || pathname.startsWith("/admin/coach-uploads") || pathname.startsWith("/admin/career-journeys") || pathname.startsWith("/coach"))) {
+    if (pathname && (pathname.startsWith("/admin/dashboard") || pathname.startsWith("/admin/coach-uploads") || pathname.startsWith("/admin/career-journeys") || pathname.startsWith("/admin/voice-agents") || pathname.startsWith("/coach"))) {
       setAdminDropdownOpen(true);
     }
 
@@ -454,6 +454,7 @@ const EmployeeNavigation = ({
                       // { href: "/task-manager?create=true", label: "Create Task", icon: Plus },
                       { href: "/admin/dashboard/employees", label: "Assign Sprints", icon: Users },
                       { href: "/admin/dashboard/uploads", label: "Sprint Manager", icon: Upload },
+                      { href: "/admin/voice-agents", label: "Voice Agents", icon: AudioLines, badge: "8" },
                       ...(hasFeature(FEATURES.AI_COACH) ? [{ href: "/admin/coach-uploads", label: "Coach Ingestion", icon: Database }] : []),
                       { href: "/admin/dashboard/human-in-the-loop", label: "Expert in the Loop", icon: ClipboardCheck },
                       { href: "/admin/career-journeys", label: "+SprintVerse", icon: Briefcase },
@@ -462,10 +463,15 @@ const EmployeeNavigation = ({
                     <button
                       key={item.label}
                       onClick={() => handleNavigate(item.href)}
-                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? 'bg-[#F5F8FF] text-[#3B66F5] font-bold' : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
+                      className={`w-full flex items-center gap-3.5 py-2 px-2.5 rounded-[8px] transition-all duration-200 text-[14px] ${isActive(item.href) ? (item.label === 'Voice Agents' ? 'bg-[#3B66F5] text-white font-medium shadow-sm' : 'bg-[#F5F8FF] text-[#3B66F5] font-bold') : 'text-[#64748B] hover:text-[#1E293B] hover:bg-slate-50'}`}
                     >
                       <item.icon size={18} className="shrink-0" />
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate flex-1 text-left">{item.label}</span>
+                      {'badge' in item && (item as any).badge && (
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${isActive(item.href) ? 'bg-white/20 text-white' : 'bg-[#3B66F5] text-white'}`}>
+                          {(item as any).badge}
+                        </span>
+                      )}
                     </button>
                   ))}
                   {/* Dispatch Center Button */}
