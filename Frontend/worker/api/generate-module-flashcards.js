@@ -295,7 +295,6 @@ async function fetchNextPendingRow() {
     .or('flashcard_data.is.null,flashcard_data.eq."{}"')
     .order('created_at', { ascending: true })
     .limit(50);
-    .limit(50);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);
@@ -335,10 +334,6 @@ async function fetchNextPendingRow() {
   }
 
   return null;
-    return row;
-  }
-
-  return null;
 }
 
 async function fetchRowByProcessedId(processedModuleId) {
@@ -360,7 +355,6 @@ async function fetchRowByProcessedId(processedModuleId) {
 }
 
 async function generateModuleFlashcards({ moduleId = null, processedModuleId = null, maxModules = null } = {}) {
-async function generateModuleFlashcards({ moduleId = null, processedModuleId = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
     if (!isEligible(row)) {
@@ -377,11 +371,6 @@ async function generateModuleFlashcards({ moduleId = null, processedModuleId = n
   if (moduleId) {
     if (!(await moduleSupportsAddon(moduleId, ['lucid_studio_flashcard', 'lucid_studio_flashcards']))) {
       return { ok: true, skipped: true, reason: 'Flashcards addon disabled for this module company' };
-    }
-
-    let effectiveMax = maxModules;
-    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
-      effectiveMax = 2;
     }
 
     let effectiveMax = maxModules;
