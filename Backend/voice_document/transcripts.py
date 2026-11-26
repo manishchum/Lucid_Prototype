@@ -589,7 +589,8 @@ async def export_manager_team_reports_excel(
         raise HTTPException(status_code=404, detail="Manager report not found for this date. Please generate it first.")
         
     manager_summary = saved_report.get("manager_summary") or {}
-    user_reports = manager_summary.get("user_reports") or []
+    raw_user_reports = manager_summary.get("user_reports")
+    user_reports = raw_user_reports if isinstance(raw_user_reports, list) else []
     
     import openpyxl
     from openpyxl.styles import Font
@@ -609,7 +610,9 @@ async def export_manager_team_reports_excel(
             cell.value = val_str
             cell.data_type = "s"
 
-    if not user_reports:
+    valid_user_reports = [ur for ur in user_reports if isinstance(ur, dict)]
+
+    if not valid_user_reports:
         append_safe_text_row(ws, ["No user reports found for this date."])
     else:
         # Create headers
@@ -620,20 +623,21 @@ async def export_manager_team_reports_excel(
         for cell in ws[1]:
             cell.font = Font(bold=True)
             
-        for ur in user_reports:
+        for ur in valid_user_reports:
             user_name = ur.get("user_name") or ur.get("user_id") or "Unknown"
             summary = ur.get("summary") or ""
-            table = ur.get("table") or []
+            table = ur.get("table")
+            table_rows = [row for row in table if isinstance(row, list)] if isinstance(table, list) else []
             
             # The table from the model usually includes a header row, e.g., ["Retailer Name", ...]
             # We'll try to determine if the first row is a header and skip it
-            if table:
+            if table_rows:
                 start_idx = 0
-                if len(table) > 0 and len(table[0]) > 0 and "retailer" in str(table[0][0]).lower():
+                if len(table_rows) > 0 and len(table_rows[0]) > 0 and "retailer" in str(table_rows[0][0]).lower():
                     start_idx = 1
                     
                 added_rows = False
-                for row in table[start_idx:]:
+                for row in table_rows[start_idx:]:
                     # pad row to 7 elements
                     row_data = (row + ["", "", "", "", "", "", ""])[:7]
                     append_safe_text_row(ws, [user_name] + row_data + [summary if not added_rows else ""])

@@ -901,7 +901,7 @@ export default function VoiceNotesPage() {
                               </div>
                             ) : null}
 
-                            {managerSummary.user_reports && managerSummary.user_reports.length > 0 ? (
+                            {Array.isArray(managerSummary.user_reports) && managerSummary.user_reports.filter((u: any) => u && typeof u === 'object').length > 0 ? (
                               <div className="mb-4 mt-4">
                                 <div className="text-sm font-semibold mb-3">Consolidated Team Report</div>
                                 <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full">
@@ -909,22 +909,29 @@ export default function VoiceNotesPage() {
                                     <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                                       <tr>
                                         <th className="px-4 py-3 border-b border-r">User Name</th>
-                                        {managerSummary.user_reports.find((u: any) => u.table && u.table.length > 0)?.table[0]?.map((header: string, hIdx: number) => (
-                                          <th key={hIdx} className="px-4 py-3 border-b border-r whitespace-nowrap">{header}</th>
-                                        ))}
+                                        {(() => {
+                                          const firstValid = managerSummary.user_reports.find(
+                                            (u: any) => u && typeof u === 'object' && Array.isArray(u.table) && u.table.length > 0 && Array.isArray(u.table[0])
+                                          );
+                                          const headerRow = firstValid ? firstValid.table[0] : [];
+                                          return headerRow.map((header: any, hIdx: number) => (
+                                            <th key={hIdx} className="px-4 py-3 border-b border-r whitespace-nowrap">{String(header ?? '')}</th>
+                                          ));
+                                        })()}
                                         <th className="px-4 py-3 border-b">Summary</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {managerSummary.user_reports.flatMap((ur: any, uIdx: number) => {
-                                         if (!ur.table || ur.table.length <= 1) return [];
-                                         return ur.table.slice(1).map((row: any[], rIdx: number) => (
+                                         if (!ur || typeof ur !== 'object' || !Array.isArray(ur.table) || ur.table.length <= 1) return [];
+                                         const validDataRows = ur.table.slice(1).filter((row: any) => Array.isArray(row));
+                                         return validDataRows.map((row: any[], rIdx: number) => (
                                            <tr key={`${uIdx}-${rIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
-                                             <td className="px-4 py-3 border-r font-medium text-slate-700 whitespace-nowrap">{ur.user_name || ur.user_id}</td>
+                                             <td className="px-4 py-3 border-r font-medium text-slate-700 whitespace-nowrap">{ur.user_name || ur.user_id || "Unknown"}</td>
                                              {row.map((cell: any, cIdx: number) => (
-                                               <td key={cIdx} className="px-4 py-3 border-r whitespace-nowrap">{cell}</td>
+                                               <td key={cIdx} className="px-4 py-3 border-r whitespace-nowrap">{cell != null ? String(cell) : ""}</td>
                                              ))}
-                                             <td className="px-4 py-3 text-xs text-slate-500 min-w-[200px]" title={ur.summary}>{rIdx === 0 ? ur.summary : ""}</td>
+                                             <td className="px-4 py-3 text-xs text-slate-500 min-w-[200px]" title={ur.summary}>{rIdx === 0 ? (ur.summary || "") : ""}</td>
                                            </tr>
                                          ));
                                       })}
