@@ -206,10 +206,20 @@ class VoiceDocumentAgent:
                 follow_ups.append(sentence.strip())
         return follow_ups
 
-    def _call_model_text(self, prompt: str) -> str:
+    def _call_model_text(self, prompt: str, require_json: bool = False) -> str:
+        try:
+            from google import genai
+            if require_json:
+                config = genai.types.GenerateContentConfig(response_mime_type="application/json")
+            else:
+                config = None
+        except Exception:
+            config = None
+
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt,
+            config=config,
         )
         return (getattr(response, "text", "") or "").strip()
 
@@ -457,6 +467,14 @@ Transcript:
                     }
                 )
 
+            tables = structured_json.get("tables") or []
+            for table in tables:
+                sheets.append({
+                    "name": table.get("name", "Table")[:31], # Excel sheet names are limited to 31 chars
+                    "columns": table.get("columns", []),
+                    "rows": table.get("rows", [])
+                })
+
             if not sheets:
                 sheets.append(
                     {
@@ -526,25 +544,67 @@ Transcript:
         self,
         transcript: str,
         report_title: Optional[str] = None,
-        output_format: str = "docx",
+        output_format: str = "xlsx",
     ) -> Dict[str, Any]:
         if not transcript or not transcript.strip():
             raise RuntimeError("Transcript content is required for daily report generation")
 
-        classification = await self.classify_document(transcript, output_format)
-        document_type = classification.get("document_type") or self._heuristic_classification(transcript, output_format)
-        suggested_title = report_title or classification.get("suggested_title") or self._heuristic_title(transcript, document_type)
+        # Define a specialized prompt to extract tabular daily report
+        prompt = f"""
+You are the VoiceDocumentAgent daily report engine.
 
-        structured_json = await self.structure_document(
-            transcript=transcript,
-            output_format=output_format,
-            document_type=document_type,
-            suggested_title=suggested_title,
-        )
+Extract a tabular daily report from the following transcript.
+The user is talking about their retailer visits/sales interactions. Extract the following fields for each retailer mentioned:
+- Name of retailer
+- Category of retailer
+- Discount offered percentage
+- Sales target to be achieved in next fortnight
+- Cases
+- Follow up date
+- Name of person contacted
+
+Return a JSON with the following structure:
+{{
+  "document_type": "daily_report",
+  "suggested_title": "{report_title or 'Daily Report'}",
+  "summary": "Short summary of the day",
+  "tables": [
+    {{
+      "name": "Retailer Updates",
+      "columns": ["Retailer Name", "Retailer Category", "Discount (%)", "Sales Target", "Cases", "Follow Up Date", "Person Contacted"],
+      "rows": [
+        ["Retailer A", "Category B", "10%", "1000", "5", "2024-01-01", "John Doe"]
+      ]
+    }}
+  ]
+}}
+Ensure the "tables" array has at least one table named "Retailer Updates" containing these specific columns. Do NOT add markdown code blocks like ```json, just return the raw JSON object.
+
+Transcript:
+{transcript}
+""".strip()
+
+        def _run() -> Dict[str, Any]:
+            raw = self._call_model_text(prompt)
+            parsed = self._safe_json_loads(raw)
+            if not parsed:
+                # fallback
+                parsed = {
+                    "document_type": "daily_report",
+                    "suggested_title": report_title or "Daily Report",
+                    "summary": "Could not parse transcript.",
+                    "tables": []
+                }
+            return parsed
+
+        structured_json = await asyncio.to_thread(_run)
+
+        document_type = structured_json.get("document_type", "daily_report")
+        suggested_title = structured_json.get("suggested_title", report_title or "Daily Report")
 
         structured_json["document_type"] = document_type
-        structured_json["suggested_title"] = structured_json.get("suggested_title") or suggested_title
-        structured_json["classification"] = classification
+        structured_json["suggested_title"] = suggested_title
+        structured_json["classification"] = {"document_type": document_type, "suggested_title": suggested_title}
         structured_json["transcript"] = transcript
 
         renderable_content = self.build_renderable_content(structured_json, output_format)

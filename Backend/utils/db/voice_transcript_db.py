@@ -160,7 +160,7 @@ async def fetch_user_profiles(user_ids: List[str]) -> Dict[str, Any]:
             uid = row.get("user_id")
             full = row.get("name")
             if not full:
-                full = row.get("email") or uid
+                full = row.get("email") or "Unknown User"
             profiles.append({"user_id": uid, "full_name": full, "email": row.get("email")})
 
         return {"data": profiles, "error": None}
@@ -367,7 +367,7 @@ async def get_voice_daily_report_by_user_date(
             _get_table(db, "voice_daily_reports").select("report_id, user_id, company_id, report_date, report_title, combined_transcript, summary_text, structured_json, model_used, status, source_transcript_ids, created_at, updated_at, renderable_content").eq("user_id", user_id).eq("report_date", report_date).maybe_single(),
             single=True,
         )
-        if not resp.data:
+        if not resp or not getattr(resp, "data", None):
             return {"data": None, "error": "Voice daily report not found"}
 
         if not await _can_access_record(requesting_user_id, resp.data):
