@@ -479,7 +479,6 @@ async function fetchNextPendingRow() {
 }
 
 async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null, maxModules = null } = {}) {
-async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
     const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
@@ -497,11 +496,6 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
   if (moduleId) {
     if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_podcast'))) {
       return { ok: true, skipped: true, reason: 'Podcast addon disabled for this module company' };
-    }
-
-    let effectiveMax = maxModules;
-    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
-      effectiveMax = 2;
     }
 
     let effectiveMax = maxModules;
@@ -546,11 +540,6 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
       if (isEligible(row, Array.from(allowedLanguages)) || language) {
         rows.push(row);
       }
-    }
-
-    if (typeof effectiveMax === 'number' && effectiveMax > 0 && rows.length > effectiveMax) {
-      console.log(`[AUDIO WORKER] Demo cap active: limiting audio generation to first ${effectiveMax} of ${rows.length} modules.`);
-      rows = rows.slice(0, effectiveMax);
     }
 
     if (rows.length === 0) {

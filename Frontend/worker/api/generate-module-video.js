@@ -293,7 +293,6 @@ async function fetchNextPendingRow() {
     .or('video_url.is.null,video_url.eq.""')
     .order('created_at', { ascending: true })
     .limit(50);
-    .limit(50);
 
   if (error) {
     throw new Error(`Pending row fetch failed: ${error.message}`);
@@ -340,7 +339,6 @@ async function fetchNextPendingRow() {
 }
 
 async function generateModuleVideo({ moduleId = null, processedModuleId = null, maxModules = null } = {}) {
-async function generateModuleVideo({ moduleId = null, processedModuleId = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
     if (!isEligible(row)) {
@@ -357,11 +355,6 @@ async function generateModuleVideo({ moduleId = null, processedModuleId = null, 
   if (moduleId) {
     if (!(await moduleSupportsAddon(moduleId, 'lucid_studio_video'))) {
       return { ok: true, skipped: true, reason: 'Video addon disabled for this module company' };
-    }
-
-    let effectiveMax = maxModules;
-    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
-      effectiveMax = 2;
     }
 
     let effectiveMax = maxModules;
