@@ -34,7 +34,7 @@ export const TabCallHistory: React.FC<TabCallHistoryProps> = ({ agent }) => {
   // Calls scoped to this agent
   const agentCalls = useMemo(() => {
     return callHistory.filter((c) => {
-      if (c.agentId !== agent.id && c.agentName !== agent.name) return false;
+      if (c.agentId !== agent.id) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -45,7 +45,7 @@ export const TabCallHistory: React.FC<TabCallHistoryProps> = ({ agent }) => {
 
       return true;
     });
-  }, [callHistory, agent.id, agent.name, searchQuery]);
+  }, [callHistory, agent.id, searchQuery]);
 
   const toggleAudioReplay = () => {
     setIsPlayingAudio(!isPlayingAudio);

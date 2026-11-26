@@ -146,9 +146,24 @@ export const TabAdvancedSettings: React.FC<TabAdvancedSettingsProps> = ({ agent 
               <textarea
                 rows={10}
                 value={agent.promptRaw || compileStructuredToRaw(agent.promptStructured)}
-                onChange={(e) => updateAgent(agent.id, { promptRaw: e.target.value, hasUnsavedChanges: true })}
-                className="w-full bg-slate-950 text-emerald-400 font-mono text-xs p-3 rounded-lg focus:outline-none"
+                onChange={(e) => {
+                  if (!permissions.canEditPrompts) return;
+                  updateAgent(agent.id, { promptRaw: e.target.value, hasUnsavedChanges: true });
+                }}
+                disabled={!permissions.canEditPrompts}
+                readOnly={!permissions.canEditPrompts}
+                className={`w-full bg-slate-950 font-mono text-xs p-3 rounded-lg focus:outline-none ${
+                  permissions.canEditPrompts
+                    ? 'text-emerald-400'
+                    : 'text-emerald-400/70 cursor-not-allowed opacity-80'
+                }`}
               />
+              {!permissions.canEditPrompts && (
+                <div className="flex items-center gap-1.5 text-[11px] text-amber-500 font-medium">
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>You don&apos;t have permission to edit prompts (read-only mode).</span>
+                </div>
+              )}
             </div>
           )}
         </div>
