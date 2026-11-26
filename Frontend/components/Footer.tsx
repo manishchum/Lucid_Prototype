@@ -3,11 +3,11 @@
 import React from "react"
 import Link from "next/link"
 
+
 interface FooterProps {
   className?: string;
   showPrivacy?: boolean;
 }
-
 const Footer = ({ className = "", showPrivacy = true }: FooterProps) => {
   return (
     <footer className={`w-full bg-transparent py-2.5 px-4 md:px-8 shrink-0 ${className}`}>
@@ -44,3 +44,4 @@ const Footer = ({ className = "", showPrivacy = true }: FooterProps) => {
 }
 
 export default Footer
+

@@ -46,12 +46,17 @@ function renderRenderableContent(renderableContent: any) {
           <div key={`${sheet.name || idx}-${idx}`} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">{sheet.name || `Sheet ${idx + 1}`}</div>
             {sheet.columns?.length ? (
-              <div className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500">{sheet.columns.join(" · ")}</div>
+              <div className="mt-2 text-xs uppercase tracking-[0.2em] text-slate-500 font-medium">Record List</div>
             ) : null}
-            <div className="mt-3 space-y-2 text-sm text-slate-700">
+            <div className="mt-3 space-y-4 text-sm text-slate-700">
               {sheet.rows?.map((row: any[], rowIndex: number) => (
-                <div key={rowIndex} className="rounded-2xl bg-slate-50 p-3">
-                  {row.join(" | ")}
+                <div key={rowIndex} className="rounded-2xl bg-slate-50 p-4 border border-slate-100 flex flex-col gap-2 shadow-sm">
+                  {row.map((cell: any, cellIndex: number) => (
+                    <div key={cellIndex} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 text-sm">
+                      <span className="font-medium text-slate-500 col-span-1">{sheet.columns?.[cellIndex] || `Column ${cellIndex + 1}`}:</span>
+                      <span className="col-span-1 sm:col-span-2 text-slate-900 font-medium break-words">{cell}</span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -83,13 +88,17 @@ function renderRenderableContent(renderableContent: any) {
       ))}
       {renderableContent.tables?.map((table: any, idx: number) => (
         <div key={idx} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="text-sm font-semibold text-slate-900">{table.name || `Table ${idx + 1}`}</div>
-          <div className="mt-2 text-sm text-slate-700">
-            {table.columns?.join(" · ")}
-          </div>
-          <div className="mt-3 space-y-2 text-sm text-slate-700">
+          <div className="text-sm font-semibold text-slate-900 mb-3">{table.name || `Table ${idx + 1}`}</div>
+          <div className="space-y-4 text-sm text-slate-700">
             {table.rows?.map((row: any[], rowIndex: number) => (
-              <div key={rowIndex} className="rounded-2xl bg-slate-50 p-3">{row.join(" | ")}</div>
+              <div key={rowIndex} className="rounded-2xl bg-slate-50 p-4 border border-slate-100 flex flex-col gap-2 shadow-sm">
+                {row.map((cell: any, cellIndex: number) => (
+                  <div key={cellIndex} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2 text-sm">
+                    <span className="font-medium text-slate-500 col-span-1">{table.columns?.[cellIndex] || `Column ${cellIndex + 1}`}:</span>
+                    <span className="col-span-1 sm:col-span-2 text-slate-900 font-medium break-words">{cell}</span>
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
         </div>
@@ -457,6 +466,33 @@ export default function VoiceNotesPage() {
     }
   };
 
+  const handleExportManagerReport = async () => {
+    try {
+      setGeneratingTeamReport(true);
+      const res = await fetchWithAuth(`${API_BASE}/api/voice-transcripts/manager/team-reports/export?report_date=${teamReportDate}`, {
+        method: "GET"
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to export report");
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Team_Report_${teamReportDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast({ title: "Export Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setGeneratingTeamReport(false);
+    }
+  };
+
+
   const openReport = (report: any) => {
     setSelectedReport(report);
     setEditReportTitle(report.report_title || "");
@@ -599,7 +635,7 @@ export default function VoiceNotesPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm min-w-0">
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2 sm:gap-4">
@@ -766,6 +802,15 @@ export default function VoiceNotesPage() {
                     >
                       {generatingTeamReport ? "Generating..." : "Generate Report and send over mail"}
                     </Button>
+                    <Button 
+                      variant="default" 
+                      size="sm" 
+                      onClick={handleExportManagerReport}
+                      disabled={generatingTeamReport || loadingTeamReports || !managerSummary}
+                      className="ml-2 bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      Export Excel
+                    </Button>
                     <label htmlFor="team-report-date" className="text-sm text-slate-600 font-medium ml-4">Select Date:</label>
                     <input 
                       type="date" 
@@ -853,6 +898,46 @@ export default function VoiceNotesPage() {
                                     <li key={i}>{f.text || f}</li>
                                   ))}
                                 </ul>
+                              </div>
+                            ) : null}
+
+                            {Array.isArray(managerSummary.user_reports) && managerSummary.user_reports.filter((u: any) => u && typeof u === 'object').length > 0 ? (
+                              <div className="mb-4 mt-4">
+                                <div className="text-sm font-semibold mb-3">Consolidated Team Report</div>
+                                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm w-full">
+                                  <table className="w-full text-left text-sm text-slate-600 border-collapse">
+                                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                                      <tr>
+                                        <th className="px-4 py-3 border-b border-r">User Name</th>
+                                        {(() => {
+                                          const firstValid = managerSummary.user_reports.find(
+                                            (u: any) => u && typeof u === 'object' && Array.isArray(u.table) && u.table.length > 0 && Array.isArray(u.table[0])
+                                          );
+                                          const headerRow = firstValid ? firstValid.table[0] : [];
+                                          return headerRow.map((header: any, hIdx: number) => (
+                                            <th key={hIdx} className="px-4 py-3 border-b border-r whitespace-nowrap">{String(header ?? '')}</th>
+                                          ));
+                                        })()}
+                                        <th className="px-4 py-3 border-b">Summary</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {managerSummary.user_reports.flatMap((ur: any, uIdx: number) => {
+                                         if (!ur || typeof ur !== 'object' || !Array.isArray(ur.table) || ur.table.length <= 1) return [];
+                                         const validDataRows = ur.table.slice(1).filter((row: any) => Array.isArray(row));
+                                         return validDataRows.map((row: any[], rIdx: number) => (
+                                           <tr key={`${uIdx}-${rIdx}`} className="border-b border-slate-100 hover:bg-slate-50">
+                                             <td className="px-4 py-3 border-r font-medium text-slate-700 whitespace-nowrap">{ur.user_name || ur.user_id || "Unknown"}</td>
+                                             {row.map((cell: any, cIdx: number) => (
+                                               <td key={cIdx} className="px-4 py-3 border-r whitespace-nowrap">{cell != null ? String(cell) : ""}</td>
+                                             ))}
+                                             <td className="px-4 py-3 text-xs text-slate-500 min-w-[200px]" title={ur.summary}>{rIdx === 0 ? (ur.summary || "") : ""}</td>
+                                           </tr>
+                                         ));
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
                               </div>
                             ) : null}
 

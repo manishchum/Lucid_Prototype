@@ -1,8 +1,10 @@
 import datetime
 import json
+import io
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from utils.auth import RequestAuth, get_request_auth_required
@@ -171,7 +173,7 @@ async def generate_daily_report(
         generated = await agent.generate_daily_report(
             combined_transcript,
             report_title=report_title,
-            output_format="docx",
+            output_format="xlsx",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Daily report generation failed: {exc}")
@@ -334,12 +336,13 @@ async def get_manager_team_reports(
     try:
         user_profiles_result = await fetch_user_profiles(team_user_ids)
         profiles = user_profiles_result.get("data") or []
-        user_name_map = {p.get("user_id"): p.get("full_name") for p in profiles}
+        user_name_map = {str(p.get("user_id")): p.get("full_name") for p in profiles}
     except Exception:
         user_name_map = {}
 
     for r in reports:
-        uid = r.get("user_id")
+        uid_raw = r.get("user_id")
+        uid = str(uid_raw) if uid_raw else None
         if uid and uid in user_name_map:
             r["user_name"] = user_name_map.get(uid)
         else:
@@ -391,6 +394,22 @@ async def generate_and_send_manager_report(
     
     report_count = len(reports)
     team_count = len(team_user_ids)
+
+    # Fetch user profiles to include user_name in report generation
+    try:
+        user_profiles_result = await fetch_user_profiles(team_user_ids)
+        profiles = user_profiles_result.get("data") or []
+        user_name_map = {str(p.get("user_id")): p.get("full_name") for p in profiles}
+    except Exception:
+        user_name_map = {}
+
+    for r in reports:
+        uid_raw = r.get("user_id")
+        uid = str(uid_raw) if uid_raw else None
+        if uid and uid in user_name_map:
+            r["user_name"] = user_name_map.get(uid)
+        else:
+            r["user_name"] = None
 
     # Identify team members who did not submit a report
     reported_user_ids = {str(r.get("user_id")) for r in reports if r.get("user_id")}
@@ -444,6 +463,7 @@ async def generate_and_send_manager_report(
             rc = r.get("renderable_content") or {}
             compact_rcs.append({
                 "user_id": r.get("user_id"),
+                "user_name": r.get("user_name"),
                 "report_id": r.get("report_id"),
                 "title": r.get("report_title") or r.get("report_id"),
                 "renderable_content": rc,
@@ -459,7 +479,8 @@ async def generate_and_send_manager_report(
             "  \"top_action_items\": [{\"owner\":\"name\", \"task\":\"...\", \"due_date\":\"YYYY-MM-DD or relative\", \"status\":\"open|closed\", \"user_id\":\"...\", \"report_id\":\"...\", \"source\":\"title\"}],\n"
             "  \"top_risks\": [{\"risk\":\"...\", \"severity\":\"high|medium|low\", \"mitigation\":\"...\", \"user_id\":\"...\", \"report_id\":\"...\"}],\n"
             "  \"follow_ups\": [{\"text\":\"...\", \"user_id\":\"...\", \"report_id\":\"...\"}],\n"
-            "  \"insights\": {\"missing_reports_count\":0, \"open_action_items_count\":0, \"total_risks\":0, \"top_topics\":[\"t1\"]}\n"
+            "  \"insights\": {\"missing_reports_count\":0, \"open_action_items_count\":0, \"total_risks\":0, \"top_topics\":[\"t1\"]},\n"
+            "  \"user_reports\": [{\"user_id\":\"...\", \"user_name\":\"...\", \"table\": [[\"Retailer Name\", \"Retailer Category\", \"Discount (%)\", \"Sales Target\", \"Cases\", \"Follow Up Date\", \"Person Contacted\"], [\"...\", \"...\", \"...\", \"...\", \"...\", \"...\", \"...\"]], \"summary\":\"...\"}]\n"
             "}\n"
             "Constraints:\n"
             "- Return only JSON, no surrounding markdown or explanatory text.\n"
@@ -474,7 +495,7 @@ async def generate_and_send_manager_report(
         )
 
         # Call the model in a thread
-        manager_summary_raw = await __import__("asyncio").to_thread(agent._call_model_text, prompt)
+        manager_summary_raw = await __import__("asyncio").to_thread(agent._call_model_text, prompt, True)
         # Try to parse JSON from model output
         try:
             manager_summary = VoiceDocumentAgent._safe_json_loads(manager_summary_raw) or {"text": manager_summary_raw}
@@ -552,3 +573,102 @@ async def generate_and_send_manager_report(
         
     return {"success": True, "message": f"Report for {report_date} generated, saved, and emailed successfully."}
 
+@router.get("/manager/team-reports/export")
+async def export_manager_team_reports_excel(
+    report_date: Optional[str] = None,
+    auth_ctx: RequestAuth = Depends(get_request_auth_required),
+):
+    """Export the manager team report to an Excel file, date wise and user wise."""
+    if not report_date:
+        report_date = datetime.date.today().isoformat()
+    
+    from utils.db.manager_daily_report_db import get_manager_daily_report_from_db
+    saved_report = await get_manager_daily_report_from_db(auth_ctx.user_id, report_date)
+    
+    if not saved_report:
+        raise HTTPException(status_code=404, detail="Manager report not found for this date. Please generate it first.")
+        
+    manager_summary = saved_report.get("manager_summary") or {}
+    raw_user_reports = manager_summary.get("user_reports")
+    user_reports = raw_user_reports if isinstance(raw_user_reports, list) else []
+    
+    import openpyxl
+    from openpyxl.styles import Font
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Reports - {report_date}"
+    
+    def append_safe_text_row(worksheet, values: List[Any]) -> None:
+        row_idx = worksheet.max_row + 1
+        for col_idx, val in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            val_str = "" if val is None else str(val)
+            # Prefix leading formula characters if any, and set explicit string cell data_type
+            if val_str and val_str[0] in ("=", "+", "-", "@", "\t", "\r"):
+                val_str = "'" + val_str
+            cell.value = val_str
+            cell.data_type = "s"
+
+    valid_user_reports = [ur for ur in user_reports if isinstance(ur, dict)]
+
+    if not valid_user_reports:
+        append_safe_text_row(ws, ["No user reports found for this date."])
+    else:
+        # Create headers
+        headers = ["User Name", "Retailer Name", "Retailer Category", "Discount (%)", "Sales Target", "Cases", "Follow Up Date", "Person Contacted", "Summary Text"]
+        ws.append(headers)
+        
+        # Style headers
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            
+        for ur in valid_user_reports:
+            user_name = ur.get("user_name") or ur.get("user_id") or "Unknown"
+            summary = ur.get("summary") or ""
+            table = ur.get("table")
+            table_rows = [row for row in table if isinstance(row, list)] if isinstance(table, list) else []
+            
+            # The table from the model usually includes a header row, e.g., ["Retailer Name", ...]
+            # We'll try to determine if the first row is a header and skip it
+            if table_rows:
+                start_idx = 0
+                if len(table_rows) > 0 and len(table_rows[0]) > 0 and "retailer" in str(table_rows[0][0]).lower():
+                    start_idx = 1
+                    
+                added_rows = False
+                for row in table_rows[start_idx:]:
+                    # pad row to 7 elements
+                    row_data = (row + ["", "", "", "", "", "", ""])[:7]
+                    append_safe_text_row(ws, [user_name] + row_data + [summary if not added_rows else ""])
+                    added_rows = True
+                    
+                if not added_rows:
+                    append_safe_text_row(ws, [user_name, "No data", "", "", "", "", "", "", summary])
+            else:
+                append_safe_text_row(ws, [user_name, "No tabular data", "", "", "", "", "", "", summary])
+                
+        # Adjust column widths slightly
+        ws.column_dimensions["A"].width = 20
+        ws.column_dimensions["B"].width = 20
+        ws.column_dimensions["C"].width = 20
+        ws.column_dimensions["D"].width = 15
+        ws.column_dimensions["E"].width = 15
+        ws.column_dimensions["F"].width = 10
+        ws.column_dimensions["G"].width = 15
+        ws.column_dimensions["H"].width = 20
+        ws.column_dimensions["I"].width = 40
+        
+    excel_stream = io.BytesIO()
+    wb.save(excel_stream)
+    excel_stream.seek(0)
+    
+    response_headers = {
+        'Content-Disposition': f'attachment; filename="Team_Report_{report_date}.xlsx"'
+    }
+    
+    return StreamingResponse(
+        excel_stream,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers=response_headers
+    )

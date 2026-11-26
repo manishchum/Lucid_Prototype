@@ -195,8 +195,9 @@ function getAudioColumnsForLanguages(languages) {
 
 async function getCompanySubscriptionAddonsForModule(moduleId) {
   if (!moduleId) return new Set();
-  if (moduleAddonCache.has(moduleId)) {
-    return moduleAddonCache.get(moduleId);
+  const cached = moduleAddonCache.get(moduleId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.addons;
   }
 
   const { data: trainingModule, error: trainingError } = await supabase
@@ -206,7 +207,6 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
     .single();
 
   if (trainingError || !trainingModule?.company_id) {
-    moduleAddonCache.set(moduleId, new Set());
     return new Set();
   }
 
@@ -216,13 +216,17 @@ async function getCompanySubscriptionAddonsForModule(moduleId) {
     .eq('company_id', trainingModule.company_id)
     .single();
 
+  if (companyError || !company) {
+    return new Set();
+  }
+
   const addons = new Set(
     (Array.isArray(company?.subscription_addons) ? company.subscription_addons : [])
       .map(normalizeAddonKey)
       .filter(Boolean)
   );
 
-  moduleAddonCache.set(moduleId, addons);
+  moduleAddonCache.set(moduleId, { addons, expiresAt: Date.now() + 60000 });
   return addons;
 }
 
@@ -436,15 +440,25 @@ async function fetchNextPendingRow() {
     if (!row.original_module_id) continue;
     if (!(await moduleSupportsAddon(row.original_module_id, 'lucid_studio_podcast'))) continue;
 
-    // Guard for demo cap: only allow the first 2 processed modules of the course
+    // Guard for demo cap: strictly limit multimodal generation to the first 2 modules of the course
     if (await moduleSupportsAddon(row.original_module_id, 'demo_multimodal_cap_2')) {
       const { data: siblings } = await supabase
         .from('processed_modules')
-        .select('processed_module_id')
+        .select('processed_module_id, order_index, created_at')
         .eq('original_module_id', row.original_module_id)
-        .order('created_at', { ascending: true })
-        .limit(2);
-      const allowedIds = new Set((siblings || []).map((s) => s.processed_module_id));
+        .order('order_index', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      const allSiblings = siblings || [];
+      const uniqueOrderIndices = Array.from(new Set(allSiblings.map((s) => s.order_index).filter((idx) => idx !== null && idx !== undefined)));
+      let allowedIds;
+      if (uniqueOrderIndices.length > 0) {
+        const allowedIndices = new Set(uniqueOrderIndices.sort((a, b) => a - b).slice(0, 2));
+        allowedIds = new Set(allSiblings.filter((s) => allowedIndices.has(s.order_index)).map((s) => s.processed_module_id));
+      } else {
+        allowedIds = new Set(allSiblings.slice(0, 2).map((s) => s.processed_module_id));
+      }
+
       if (!allowedIds.has(row.processed_module_id)) {
         continue;
       }
@@ -464,6 +478,7 @@ async function fetchNextPendingRow() {
   return null;
 }
 
+async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null, maxModules = null } = {}) {
 async function generateModuleAudio({ moduleId = null, processedModuleId = null, language = null, maxModules = null } = {}) {
   if (processedModuleId) {
     const row = await fetchRowByProcessedId(processedModuleId);
@@ -489,18 +504,44 @@ async function generateModuleAudio({ moduleId = null, processedModuleId = null, 
       effectiveMax = 2;
     }
 
+    let effectiveMax = maxModules;
+    if (effectiveMax === null && (await moduleSupportsAddon(moduleId, 'demo_multimodal_cap_2'))) {
+      effectiveMax = 2;
+    }
+
     const { data, error } = await supabase
       .from('processed_modules')
-      .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish')
+      .select('processed_module_id, original_module_id, content, audio_url, audio_url_hinglish, order_index, created_at')
       .eq('original_module_id', moduleId)
+      .order('order_index', { ascending: true })
       .order('created_at', { ascending: true });
 
     if (error) {
       throw new Error(`Module lookup failed: ${error.message}`);
     }
 
-    let rows = [];
-    for (const row of (data || [])) {
+    const allRows = (data || []);
+    allRows.sort((a, b) => {
+      const idxA = a.order_index ?? 0;
+      const idxB = b.order_index ?? 0;
+      if (idxA !== idxB) return idxA - idxB;
+      return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    });
+
+    let targetPool = allRows;
+    if (typeof effectiveMax === 'number' && effectiveMax > 0 && targetPool.length > effectiveMax) {
+      console.log(`[AUDIO WORKER] Demo cap active: restricting audio generation to first ${effectiveMax} modules of course.`);
+      const uniqueOrderIndices = Array.from(new Set(allRows.map((r) => r.order_index).filter((idx) => idx !== null && idx !== undefined)));
+      if (uniqueOrderIndices.length > 0) {
+        const allowedIndices = new Set(uniqueOrderIndices.sort((a, b) => a - b).slice(0, effectiveMax));
+        targetPool = allRows.filter((r) => allowedIndices.has(r.order_index));
+      } else {
+        targetPool = allRows.slice(0, effectiveMax);
+      }
+    }
+
+    const rows = [];
+    for (const row of targetPool) {
       const allowedLanguages = getCompanyAllowedLanguageCodes(Array.from(await getCompanySubscriptionAddonsForModule(row.original_module_id)));
       if (isEligible(row, Array.from(allowedLanguages)) || language) {
         rows.push(row);
