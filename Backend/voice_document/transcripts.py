@@ -598,8 +598,19 @@ async def export_manager_team_reports_excel(
     ws = wb.active
     ws.title = f"Reports - {report_date}"
     
+    def append_safe_text_row(worksheet, values: List[Any]) -> None:
+        row_idx = worksheet.max_row + 1
+        for col_idx, val in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_idx, column=col_idx)
+            val_str = "" if val is None else str(val)
+            # Prefix leading formula characters if any, and set explicit string cell data_type
+            if val_str and val_str[0] in ("=", "+", "-", "@", "\t", "\r"):
+                val_str = "'" + val_str
+            cell.value = val_str
+            cell.data_type = "s"
+
     if not user_reports:
-        ws.append(["No user reports found for this date."])
+        append_safe_text_row(ws, ["No user reports found for this date."])
     else:
         # Create headers
         headers = ["User Name", "Retailer Name", "Retailer Category", "Discount (%)", "Sales Target", "Cases", "Follow Up Date", "Person Contacted", "Summary Text"]
@@ -625,13 +636,13 @@ async def export_manager_team_reports_excel(
                 for row in table[start_idx:]:
                     # pad row to 7 elements
                     row_data = (row + ["", "", "", "", "", "", ""])[:7]
-                    ws.append([user_name] + row_data + [summary if not added_rows else ""])
+                    append_safe_text_row(ws, [user_name] + row_data + [summary if not added_rows else ""])
                     added_rows = True
                     
                 if not added_rows:
-                    ws.append([user_name, "No data", "", "", "", "", "", "", summary])
+                    append_safe_text_row(ws, [user_name, "No data", "", "", "", "", "", "", summary])
             else:
-                ws.append([user_name, "No tabular data", "", "", "", "", "", "", summary])
+                append_safe_text_row(ws, [user_name, "No tabular data", "", "", "", "", "", "", summary])
                 
         # Adjust column widths slightly
         ws.column_dimensions["A"].width = 20
