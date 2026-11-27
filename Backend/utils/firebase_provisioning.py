@@ -25,9 +25,15 @@ def ensure_firebase_user(email: str, display_name: Optional[str], plain_password
 
     try:
         existing_user = firebase_auth.get_user_by_email(normalized_email)
+        # If user already exists in Firebase, update password to plain_password_or_none or DEFAULT_PASSWORD
+        password = plain_password_or_none or DEFAULT_PASSWORD 
+        try:
+            firebase_auth.update_user(existing_user.uid, password=password)
+        except Exception as upd_err:
+            print(f"[ensure_firebase_user] Could not update password for {normalized_email}: {upd_err}")
         return existing_user.uid
     except firebase_auth.UserNotFoundError:
-        password = plain_password_or_none or DEFAULT_PASSWORD
+        password = plain_password_or_none or DEFAULT_PASSWORD 
         try:
             created_user = firebase_auth.create_user(
                 email=normalized_email,

@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth"
+import { signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken, sendPasswordResetEmail } from "firebase/auth"
 import Link from "next/link"
 import { 
   ArrowLeft, 
@@ -145,10 +145,36 @@ function LoginContent() {
     setResetMessage("")
 
     try {
-      const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
+      let firebaseUser = null
+      try {
+        const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
+        firebaseUser = emailAuthResult.user
+      } catch (fbErr: any) {
+        // If Firebase direct authentication fails (e.g. user was provisioned with default password
+        // or password was reset/updated), attempt fallback to backend verification endpoint
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || ""
+        const fallbackRes = await fetch(`${backendUrl}/api/auth/password-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        })
+
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json()
+          if (fallbackData.custom_token) {
+            const customAuthResult = await signInWithCustomToken(auth, fallbackData.custom_token)
+            firebaseUser = customAuthResult.user
+          }
+        }
+
+        if (!firebaseUser) {
+          throw fbErr
+        }
+      }
+
       setBrowserSessionActive()
       updateLastActiveTimestamp()
-      await login(emailAuthResult.user)
+      await login(firebaseUser)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
