@@ -1,25 +1,5 @@
-"use client"
-
-import type React from "react"
-import { useState, useEffect, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken, sendPasswordResetEmail } from "firebase/auth"
-import Link from "next/link"
-import { 
-  ArrowLeft, 
-  Lock, 
-  Mail, 
-  Eye, 
-  EyeOff, 
-  AlertCircle, 
-  CheckCircle2 
-} from "lucide-react"
-import { auth, googleProvider } from "@/lib/firebase"
-import { useAuth, isBrowserSessionActive, setBrowserSessionActive, updateLastActiveTimestamp, clearBrowserSessionActive, clearManualAuthUser } from "@/contexts/auth-context"
-import { signOut } from "firebase/auth"
-import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { Suspense } from "react"
 import { headers } from "next/headers"
-
 import LoginContent from "@/components/auth/LoginContent"
 import { isEYTenant } from "@/lib/tenant"
 import { LoadingProgress } from "@/components/LoadingProgress"
@@ -45,3 +25,4 @@ export default async function LoginPage({
     </Suspense>
   )
 }
+
