@@ -40,11 +40,21 @@ export interface AssessmentParameter {
   feedback: string;
 }
 
+export interface ConversationalMetrics {
+  user_talk_percent: number;
+  ai_talk_percent: number;
+  user_word_count?: number;
+  ai_word_count?: number;
+  words_per_minute?: number;
+  duration_seconds?: number;
+}
+
 export interface AssessmentReport {
   overallScore: number;
   summary: string;
   parameters: AssessmentParameter[];
   recommendations: string[];
+  metrics?: ConversationalMetrics;
 }
 
 export interface Message {
@@ -83,6 +93,18 @@ interface ScenarioData {
 interface UserData {
   user_id: string;
   company_id: string;
+}
+
+interface FetchScenariosResponse {
+  success: boolean;
+  data: any;
+  error?: string;
+}
+
+interface AssignScenarioResponse {
+  success: boolean;
+  data: any;
+  error?: string;
 }
 
 /**
@@ -625,7 +647,8 @@ export async function fetchRoleplayBootstrap() {
 }
 
 export async function finishRoleplaySession(
-    sessionId: string
+    sessionId: string,
+    messages?: Array<{ text: string; sender?: string; role?: string; timestamp?: string }>
 ) {
 
     const response = await fetchWithAuth(
@@ -637,6 +660,7 @@ export async function finishRoleplaySession(
             },
             body: JSON.stringify({
                 session_id: sessionId,
+                messages: messages || [],
             }),
         }
     );

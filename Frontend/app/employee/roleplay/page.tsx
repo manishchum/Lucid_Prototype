@@ -2,7 +2,12 @@
 
 import { useEffect, useState, Suspense, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, Loader2, Edit2, Trash2, UserPlus, Search, X, CheckSquare, Square, Filter, Users, Layers, Building2, Check } from 'lucide-react';
+import { 
+  ChevronLeft, Loader2, Edit2, Trash2, UserPlus, Search, X, 
+  CheckSquare, Square, Filter, Users, Layers, Building2, Check,
+  Sparkles, Plus, Play, ArrowRight, Shield, Award, Clock, Star, 
+  Bot, User as UserIcon, CheckCircle2, SlidersHorizontal, RefreshCw, Compass
+} from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { Scenario, AppScreen, Message } from '@/lib/roleplayApi';
 import { fetchRoleplayBootstrap, deleteCustomScenarioAPI, assignScenarioAPI, finishRoleplaySession } from '@/lib/roleplayApi';
@@ -26,6 +31,14 @@ interface AssessmentReport {
     feedback: string;
   }>;
   recommendations: string[];
+  metrics?: {
+    user_talk_percent: number;
+    ai_talk_percent: number;
+    user_word_count?: number;
+    ai_word_count?: number;
+    words_per_minute?: number;
+    duration_seconds?: number;
+  };
 }
 
 function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, moduleTitle: string, custom: string }> }) {
@@ -68,6 +81,9 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   const [users, setUsers] = useState<any[]>([]);
   const [assignSearchQuery, setAssignSearchQuery] = useState<string>('');
   const [selectedFunctionFilter, setSelectedFunctionFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'customer_service' | 'sales' | 'leadership' | 'custom'>('all');
+  const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Easy' | 'Medium' | 'Hard'>('all');
   // const [companyId, setCompanyId] = useState<string>('');
   // const [userId, setUserId] = useState<string>('');
   const employeeId = userId;
@@ -97,11 +113,29 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
   //   }
   // }, [userId, isAdmin, rolesLoaded, searchParams]); // Depend on both userId and isAdmin
 
+  // Instant scenario hydration from session cache (0ms instant display)
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('cached_roleplay_scenarios');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllScenarios(parsed);
+          setLoadingScenarios(false);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
   const fetchBootstrap = async () => {
     if (!userId || !rolesLoaded) return;
 
-    setLoadingScenarios(true);
+    if (allScenarios.length === 0) {
+      setLoadingScenarios(true);
+    }
 
     const { data, error } =
       await fetchRoleplayBootstrap();
@@ -114,17 +148,22 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
 
     if (data) {
       setAllScenarios(data.scenarios);
+      try {
+        sessionStorage.setItem('cached_roleplay_scenarios', JSON.stringify(data.scenarios));
+      } catch (e) {
+        // ignore
+      }
 
       setFunctions(
-        data.assignmentTargets.functions || []
+        data.assignmentTargets?.functions || []
       );
 
       setSubFunctions(
-        data.assignmentTargets.sub_functions || []
+        data.assignmentTargets?.sub_functions || []
       );
 
       setUsers(
-        data.assignmentTargets.users || []
+        data.assignmentTargets?.users || []
       );
     }
 
@@ -293,7 +332,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     }
 
     try {
-      const { error } = await deleteCustomScenarioAPI(scenario.scenario_id, userId, companyId);
+      const { error } = await deleteCustomScenarioAPI(scenario.scenario_id, userId || '', companyId);
       
       if (error) {
         console.error('Error deleting scenario:', error);
@@ -380,7 +419,7 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
         assignmentType,
         selectedTargets,
         companyId,
-        userId
+        userId || ''
       );
 
       if (error) {
@@ -494,7 +533,8 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           data: assessment,
           error,
       } = await finishRoleplaySession(
-          sessionId!
+          sessionId!,
+          messages
       );
 
       if (error) {
@@ -551,6 +591,13 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
     setConversationHistory([]);
     setAssessmentReport(null);
     setCurrentScreen('scenarioSelection');
+    setError(null);
+  };
+
+  const handleRetakeRoleplay = () => {
+    setConversationHistory([]);
+    setAssessmentReport(null);
+    setCurrentScreen('config');
     setError(null);
   };
 
@@ -629,130 +676,357 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
           />
         )}
 
-        {currentScreen === 'scenarioSelection' && (
-          <div>
-            <div className="bg-white rounded-xl shadow-sm p-6 sm:p-8 border border-slate-200 mb-4">
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
-                Choose Your <span className="text-purple-600">Role-Play</span> Scenario
-              </h2>
-              <p className="text-slate-600">
-                Select a scenario to start practicing your skills
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {loadingScenarios ? (
-                <div className="col-span-2 text-center text-slate-500">Loading scenarios...</div>
-              ) : allScenarios.length === 0 ? (
-                <div className="col-span-2 text-center text-slate-500">No scenarios found.</div>
-              ) : allScenarios.map((scenario) => (
-                <Card
-                  key={scenario.scenario_id}
-                  className={`cursor-pointer p-6 hover:border-blue-400 hover:shadow-lg transition-all relative ${
-                    selectedScenario?.scenario_id === scenario.scenario_id
-                      ? 'border-2 border-blue-500 shadow-lg'
-                      : 'border border-slate-200'
-                  }`}
-                  onClick={() => handleScenarioSelect(scenario)}
-                >
-                  {/* Edit, Delete, and Assign buttons for custom scenarios - admin only */}
-                  {isAdmin && scenario.isCustom && (
-                    
-                    <div className="absolute top-3 right-3 flex gap-2">
-                      <button
-                        onClick={(e) => handleAssignScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-green-100 text-slate-600 hover:text-green-600 transition-colors"
-                        title="Assign scenario"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleEditScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
-                        title="Edit scenario"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => handleDeleteScenario(scenario, e)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 transition-colors"
-                        title="Delete scenario"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                  
-                  <h3 className="text-xl font-semibold text-gray-800 mb-3 pr-10">{scenario.title}</h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">
-                    {scenario.description || scenario.learnerBrief || 'Click to view scenario details and instructions.'}
-                  </p>
-                  
-                  {/* Role Information - Hidden */}
-                  {/* <div className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-slate-500 font-medium block mb-1">You play as:</span>
-                        <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold inline-block">
-                          {scenario.userRole || 'Learner'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 font-medium block mb-1">AI plays as:</span>
-                        <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-semibold inline-block">
-                          {scenario.role}
-                        </span>
-                      </div>
-                    </div>
-                  </div> */}
-                  
-                  <div className="flex justify-between items-center text-sm font-medium">
-                    <span className={`px-3 py-1 rounded-full ${
-                      scenario.difficulty?.toLowerCase() === 'easy' ? 'bg-green-100 text-green-700' :
-                      scenario.difficulty?.toLowerCase() === 'medium' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {scenario.difficulty}
-                    </span>
-                  </div>
-                </Card>
-              ))}
-              
-              {/* Create Your Own Roleplay Card - Only show for admins */}
-              {isAdmin === true && (
-                <Card
-                  className="cursor-pointer p-6 hover:border-purple-400 hover:shadow-lg transition-all border-2 border-dashed border-purple-300 bg-purple-50/30"
-                  onClick={() => router.push('/employee/roleplay/create')}
-                >
-                  <h3 className="text-xl font-semibold text-purple-700 mb-3 flex items-center gap-2">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    Create Your Own Roleplay
-                  </h3>
-                  <p className="text-gray-600 mb-4 text-sm leading-relaxed">
-                    Design a custom scenario tailored to your specific needs and practice objectives.
-                  </p>
-                  <div className="flex justify-between items-center text-sm font-medium">
-                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full">Custom Scenario</span>
-                    <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700">
-                      Flexible
-                    </span>
-                  </div>
-                </Card>
-              )}
-            </div>
+        {currentScreen === 'scenarioSelection' && (() => {
+          const filteredScenarios = allScenarios.filter((scenario) => {
+            const q = searchQuery.toLowerCase().trim();
+            if (q) {
+              const matchTitle = (scenario.title || '').toLowerCase().includes(q);
+              const matchDesc = (scenario.description || scenario.learnerBrief || '').toLowerCase().includes(q);
+              const matchRole = (scenario.role || '').toLowerCase().includes(q);
+              const matchUserRole = (scenario.userRole || '').toLowerCase().includes(q);
+              if (!matchTitle && !matchDesc && !matchRole && !matchUserRole) return false;
+            }
 
-            <div className="flex justify-center mt-8">
-              <Button
-                onClick={() => selectedScenario && handleScenarioSelect(selectedScenario)}
-                disabled={!selectedScenario}
-                className="px-12 py-4 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transition-all"
-              >
-                Start Role-Play
-              </Button>
+            if (categoryFilter === 'custom') {
+              if (!scenario.isCustom) return false;
+            } else if (categoryFilter === 'sales') {
+              const text = `${scenario.title} ${scenario.description} ${scenario.role}`.toLowerCase();
+              if (!text.includes('sale') && !text.includes('negotiat') && !text.includes('pitch') && !text.includes('deal') && !text.includes('pricing')) {
+                return false;
+              }
+            } else if (categoryFilter === 'customer_service') {
+              const text = `${scenario.title} ${scenario.description} ${scenario.role}`.toLowerCase();
+              if (!text.includes('customer') && !text.includes('service') && !text.includes('support') && !text.includes('client') && !text.includes('guest') && !text.includes('reservation')) {
+                return false;
+              }
+            } else if (categoryFilter === 'leadership') {
+              const text = `${scenario.title} ${scenario.description} ${scenario.role}`.toLowerCase();
+              if (!text.includes('leader') && !text.includes('coach') && !text.includes('team') && !text.includes('manage') && !text.includes('feedback')) {
+                return false;
+              }
+            }
+
+            if (difficultyFilter !== 'all') {
+              if ((scenario.difficulty || '').toLowerCase() !== difficultyFilter.toLowerCase()) {
+                return false;
+              }
+            }
+
+            return true;
+          });
+
+          const customCount = allScenarios.filter(s => s.isCustom).length;
+
+          return (
+            <div className="space-y-6">
+              {/* Header with Title and Sleek Action Button */}
+              <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
+                      Live Simulation
+                    </span>
+                    <span className="text-xs text-slate-400 font-medium">• {allScenarios.length} Scenarios Available</span>
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                    Practice with <span className="bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">AI Roleplays</span>
+                  </h1>
+                  <p className="text-slate-600 text-sm mt-1">
+                    Select a realistic scenario to sharpen your conversational dynamics, handling, and pace.
+                  </p>
+                </div>
+
+                {isAdmin && (
+                  <div className="flex items-center gap-3 shrink-0">
+                    <Button
+                      onClick={() => router.push('/employee/roleplay/create')}
+                      className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-700 hover:from-purple-700 hover:to-indigo-800 text-white font-semibold shadow-md shadow-purple-500/20 rounded-xl px-5 py-2.5 flex items-center gap-2 transition-all hover:scale-[1.02]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create Custom Roleplay</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Create Your Own Roleplay - High Impact Top Card for Admins */}
+              {isAdmin && (
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 p-6 sm:p-7 text-white shadow-xl border border-purple-500/20">
+                  <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 bg-purple-600/20 rounded-full blur-3xl pointer-events-none"></div>
+                  <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5">
+                    <div className="max-w-xl">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-200 border border-purple-400/30 mb-2.5">
+                        <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+                        <span>AI Scenario Studio</span>
+                      </div>
+                      <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                        Create Your Own Roleplay Scenario
+                      </h2>
+                      <p className="text-purple-200/80 text-xs sm:text-sm mt-1.5 leading-relaxed">
+                        Design tailored scenarios with custom customer personas, specific objections, and custom evaluation criteria for your team.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => router.push('/employee/roleplay/create')}
+                      size="lg"
+                      className="bg-white text-purple-950 hover:bg-purple-50 font-bold px-6 py-3 rounded-xl shadow-lg shrink-0 flex items-center gap-2 transition-transform hover:scale-105"
+                    >
+                      <Plus className="w-4 h-4 text-purple-700" />
+                      <span>Create Scenario Now</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Search & Category Filter Directory Controls */}
+              <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm space-y-4">
+                
+                {/* Search Bar & Difficulty Quick Toggle */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search scenarios by title, persona, or skills..."
+                      className="w-full pl-10 pr-10 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all text-slate-800 placeholder-slate-400"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Difficulty Filters */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 shrink-0">
+                    <span className="text-xs font-semibold text-slate-400 mr-1 hidden md:inline">Difficulty:</span>
+                    {(['all', 'Easy', 'Medium', 'Hard'] as const).map((diff) => (
+                      <button
+                        key={diff}
+                        onClick={() => setDifficultyFilter(diff)}
+                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                          difficultyFilter === diff
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {diff === 'all' ? 'All Difficulties' : diff}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Category Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
+                  <button
+                    onClick={() => setCategoryFilter('all')}
+                    className={`text-xs px-3.5 py-1.5 rounded-full font-semibold transition-all shrink-0 ${
+                      categoryFilter === 'all'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    All Scenarios ({allScenarios.length})
+                  </button>
+
+                  <button
+                    onClick={() => setCategoryFilter('customer_service')}
+                    className={`text-xs px-3.5 py-1.5 rounded-full font-semibold transition-all shrink-0 ${
+                      categoryFilter === 'customer_service'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    Customer Service
+                  </button>
+
+                  <button
+                    onClick={() => setCategoryFilter('sales')}
+                    className={`text-xs px-3.5 py-1.5 rounded-full font-semibold transition-all shrink-0 ${
+                      categoryFilter === 'sales'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    Sales & Negotiations
+                  </button>
+
+                  <button
+                    onClick={() => setCategoryFilter('leadership')}
+                    className={`text-xs px-3.5 py-1.5 rounded-full font-semibold transition-all shrink-0 ${
+                      categoryFilter === 'leadership'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    Leadership & Team
+                  </button>
+
+                  {customCount > 0 && (
+                    <button
+                      onClick={() => setCategoryFilter('custom')}
+                      className={`text-xs px-3.5 py-1.5 rounded-full font-semibold transition-all shrink-0 ${
+                        categoryFilter === 'custom'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
+                      }`}
+                    >
+                      Custom Scenarios ({customCount})
+                    </button>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Scenarios Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {loadingScenarios && allScenarios.length === 0 ? (
+                  // Modern Skeleton Loader Cards
+                  Array.from({ length: 4 }).map((_, idx) => (
+                    <div key={idx} className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm animate-pulse space-y-4">
+                      <div className="flex justify-between items-center">
+                        <div className="w-20 h-5 bg-slate-200 rounded-full"></div>
+                        <div className="w-16 h-5 bg-slate-200 rounded-full"></div>
+                      </div>
+                      <div className="w-3/4 h-6 bg-slate-200 rounded"></div>
+                      <div className="w-full h-12 bg-slate-100 rounded"></div>
+                      <div className="flex gap-2">
+                        <div className="w-1/2 h-8 bg-slate-100 rounded-lg"></div>
+                        <div className="w-1/2 h-8 bg-slate-100 rounded-lg"></div>
+                      </div>
+                    </div>
+                  ))
+                ) : filteredScenarios.length === 0 ? (
+                  <div className="col-span-full bg-white rounded-2xl p-12 text-center border border-slate-200/80 shadow-sm space-y-3">
+                    <Compass className="w-10 h-10 text-slate-300 mx-auto" />
+                    <h3 className="text-base font-bold text-slate-800">No scenarios match your search or filter</h3>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      Try clearing your search query or switching categories to browse other practice scenarios.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setCategoryFilter('all');
+                        setDifficultyFilter('all');
+                      }}
+                      className="mt-2 text-xs"
+                    >
+                      Reset All Filters
+                    </Button>
+                  </div>
+                ) : (
+                  filteredScenarios.map((scenario) => {
+                    const diff = (scenario.difficulty || 'Medium').toLowerCase();
+                    const diffColor =
+                      diff === 'easy'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                        : diff === 'hard'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200/60'
+                        : 'bg-amber-50 text-amber-700 border-amber-200/60';
+
+                    return (
+                      <div
+                        key={scenario.scenario_id}
+                        onClick={() => handleScenarioSelect(scenario)}
+                        className="bg-white rounded-2xl p-6 border border-slate-200/80 hover:border-purple-300 hover:shadow-xl transition-all duration-200 flex flex-col justify-between group cursor-pointer relative"
+                      >
+                        <div>
+                          {/* Top Tag Row */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${diffColor}`}>
+                                {scenario.difficulty || 'Medium'}
+                              </span>
+                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
+                                {scenario.tone || 'Neutral'} Tone
+                              </span>
+                              {scenario.isCustom && (
+                                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                                  Custom
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Admin Actions for Custom Scenarios */}
+                            {isAdmin && scenario.isCustom && (
+                              <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={(e) => handleAssignScenario(scenario, e)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                                  title="Assign Scenario"
+                                >
+                                  <UserPlus className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleEditScenario(scenario, e)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                  title="Edit Scenario"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={(e) => handleDeleteScenario(scenario, e)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                  title="Delete Scenario"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Scenario Title */}
+                          <h3 className="text-lg font-bold text-slate-900 group-hover:text-purple-600 transition-colors line-clamp-1">
+                            {scenario.title}
+                          </h3>
+
+                          {/* Description Snippet */}
+                          <p className="text-slate-600 text-xs sm:text-sm leading-relaxed line-clamp-2 my-2.5">
+                            {scenario.description || scenario.learnerBrief || 'Click to review scenario briefing and launch your AI practice session.'}
+                          </p>
+
+                          {/* Roleplay Cast Mini Chips */}
+                          <div className="grid grid-cols-2 gap-2 my-3">
+                            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+                              <Bot className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                              <div className="truncate text-xs">
+                                <span className="text-[10px] text-slate-400 block font-medium">AI Partner</span>
+                                <span className="font-semibold text-slate-700 truncate block">{scenario.role || 'Partner'}</span>
+                              </div>
+                            </div>
+
+                            <div className="p-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center gap-2">
+                              <UserIcon className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <div className="truncate text-xs">
+                                <span className="text-[10px] text-slate-400 block font-medium">Your Role</span>
+                                <span className="font-semibold text-slate-700 truncate block">{scenario.userRole || 'Learner'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Bottom CTA */}
+                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-purple-600">
+                          <span className="text-slate-400 font-normal">Interactive Audio & Dynamics</span>
+                          <span className="inline-flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                            Start Practice <ArrowRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {currentScreen === 'assessmentReport' && (
           isGeneratingAssessment ? (
@@ -765,7 +1039,13 @@ function RolePlayPageContent({ params }: { params: Promise<{ module_id: string, 
             <AssessmentReportComponent
               report={assessmentReport}
               scenarioTitle={selectedScenario.title}
+              scenarioRole={(selectedScenario as any).scenarioRole || (selectedScenario as any).aiRole || selectedScenario.role}
+              userRole={selectedScenario.userRole}
               passingScore={selectedScenario.passingScore ?? 60}
+              durationSeconds={assessmentReport.metrics?.duration_seconds}
+              conversationHistory={conversationHistory}
+              onRetake={handleRetakeRoleplay}
+              onBackToScenarios={handleStartNew}
               onStartNew={handleStartNew}
             />
           ) : (

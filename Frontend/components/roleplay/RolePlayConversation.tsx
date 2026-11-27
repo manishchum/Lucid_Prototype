@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   Mic, MicOff, Video, VideoOff,
   Loader2, Phone, Camera, CameraOff,
+  Captions, CaptionsOff, ArrowLeftRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Scenario, Message } from "@/lib/roleplayApi";
@@ -50,6 +51,14 @@ export default function RolePlayConversation({
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
+  const [isViewSwapped, setIsViewSwapped] = useState(false);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [showCaptions, setShowCaptions] = useState(true);
+  const [currentCaption, setCurrentCaption] = useState<{
+    speaker: string;
+    text: string;
+    isUser: boolean;
+  } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +77,98 @@ export default function RolePlayConversation({
   const isStartingRef = useRef<boolean>(false);
   const isSessionActiveRef = useRef<boolean>(false);
   const activeAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const captionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (conversationActive) {
+      interval = setInterval(() => {
+        setCallSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallSeconds(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [conversationActive]);
+
+  const formatTime = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const startSpeechRecognition = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    try {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onresult = (event: any) => {
+        let interimText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          interimText += event.results[i][0].transcript;
+        }
+        if (interimText.trim()) {
+          updateCaption("You", interimText.trim(), true, 3500);
+        }
+      };
+
+      recognition.onerror = (e: any) => {
+        if (e.error !== "no-speech" && e.error !== "aborted") {
+          console.warn("[SpeechRecognition] Event error:", e.error);
+        }
+      };
+
+      recognition.onend = () => {
+        if (isSessionActiveRef.current && isMicOn) {
+          try {
+            recognition.start();
+          } catch {}
+        }
+      };
+
+      recognition.start();
+      speechRecognitionRef.current = recognition;
+    } catch (err) {
+      console.warn("[SpeechRecognition] Init error:", err);
+    }
+  };
+
+  const stopSpeechRecognition = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.onend = null;
+        speechRecognitionRef.current.stop();
+      } catch {}
+      speechRecognitionRef.current = null;
+    }
+  };
+
+  const updateCaption = (speaker: string, text: string, isUser: boolean, durationMs = 4500) => {
+    if (captionTimeoutRef.current) {
+      clearTimeout(captionTimeoutRef.current);
+    }
+    setCurrentCaption({ speaker, text, isUser });
+    captionTimeoutRef.current = setTimeout(() => {
+      setCurrentCaption(null);
+    }, durationMs);
+  };
 
   const setBotSpeaking = (val: boolean) => {
     isBotSpeakingRef.current = val;
@@ -145,6 +246,13 @@ export default function RolePlayConversation({
       try { audioOutputRef.current.close(); } catch { }
       audioOutputRef.current = null;
     }
+
+    if (captionTimeoutRef.current) {
+      clearTimeout(captionTimeoutRef.current);
+      captionTimeoutRef.current = null;
+    }
+    setCurrentCaption(null);
+    stopSpeechRecognition();
 
     setBotSpeaking(false);
   };
@@ -263,7 +371,7 @@ export default function RolePlayConversation({
       }));
 
       const audioCtx = new (window.AudioContext ||
-        (window as any).webkitAudioContext)({ sampleRate: 24000 });
+        (window as any).webkitAudioContext)({ sampleRate: 16000 });
       audioInputRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
@@ -308,7 +416,7 @@ export default function RolePlayConversation({
       } catch (err) {
         console.warn("[RolePlay] AudioWorklet failed, falling back to ScriptProcessorNode:", err);
 
-        // ✅ 2048 buffer size (was 4096) — smoother streaming at 24000hz
+        // ✅ 2048 buffer size — smooth streaming at 16000hz
         const processor = audioCtx.createScriptProcessor(2048, 1, 1);
         processorRef.current = processor;
 
@@ -354,6 +462,7 @@ export default function RolePlayConversation({
         case "user_transcription":
           if (data.text) {
             conversationTranscriptRef.current.push({ role: "user", text: data.text });
+            updateCaption("You", data.text, true, 4000);
           }
           break;
 
@@ -364,35 +473,66 @@ export default function RolePlayConversation({
               transcript.pop(); // Remove the ongoing chunk now that we have the final text
             }
             conversationTranscriptRef.current.push({ role: "bot", text: data.text });
+            updateCaption(scenario.role || "Avatar", data.text, false, 4000);
           }
           break;
 
         case "transcript_chunk":
           if (data.text) {
             const transcript = conversationTranscriptRef.current;
+            let currentText = data.text;
             if (transcript.length > 0 && transcript[transcript.length - 1].role === "bot_chunk") {
-              transcript[transcript.length - 1].text += data.text;
+              const prev = transcript[transcript.length - 1].text || "";
+              const next = data.text;
+              let toAppend = next;
+              // Guard against missing spaces between tokens / sentences
+              if (prev && next && !/\s$/.test(prev) && !/^\s/.test(next)) {
+                if (/[.,!?;:]$/.test(prev) || /^[a-zA-Z0-9]/.test(next)) {
+                  toAppend = " " + next;
+                }
+              }
+              transcript[transcript.length - 1].text = prev + toAppend;
+              currentText = transcript[transcript.length - 1].text;
             } else {
               conversationTranscriptRef.current.push({ role: "bot_chunk", text: data.text });
             }
+            updateCaption(scenario.role || "Avatar", currentText, false, 5000);
           }
           break;
 
         case "response.done":
           nextPlayTimeRef.current = 0;
           setIsRecording(false);
+          if (captionTimeoutRef.current) clearTimeout(captionTimeoutRef.current);
+          captionTimeoutRef.current = setTimeout(() => {
+            setCurrentCaption(null);
+          }, 3500);
           break;
 
         case "session_ended":
-          // console.log("[RolePlay] session_ended received, transcript length:", data.transcript?.length ?? 0);
-          // console.log("[RolePlay] Current transcript before merge:", conversationTranscriptRef.current.length);
-
-          // ✅ MERGE transcripts instead of replacing - backend might have updated transcripts
           if (data.transcript && Array.isArray(data.transcript) && data.transcript.length > 0) {
-            // console.log("[RolePlay] Using backend transcript with", data.transcript.length, "messages");
-            conversationTranscriptRef.current = data.transcript;
-          } else {
-            // console.log("[RolePlay] Backend transcript empty, keeping local transcript with", conversationTranscriptRef.current.length, "messages");
+            const backendHasBot = data.transcript.some((t: any) => {
+              const r = String(t.role || t.sender || "").toLowerCase();
+              return ["avatar", "bot", "assistant", "ai", "model"].includes(r);
+            });
+            const localHasBot = conversationTranscriptRef.current.some((t: any) => {
+              const r = String(t.role || t.sender || "").toLowerCase();
+              return ["avatar", "bot", "assistant", "ai", "model", "bot_chunk"].includes(r);
+            });
+
+            if (backendHasBot || !localHasBot) {
+              conversationTranscriptRef.current = data.transcript;
+            } else {
+              const merged = [...data.transcript];
+              conversationTranscriptRef.current.forEach((localItem: any) => {
+                const r = String(localItem.role || localItem.sender || "").toLowerCase();
+                const isBot = ["avatar", "bot", "assistant", "ai", "model", "bot_chunk"].includes(r);
+                if (isBot && !merged.some(m => m.text?.trim() === localItem.text?.trim())) {
+                  merged.push(localItem);
+                }
+              });
+              conversationTranscriptRef.current = merged;
+            }
           }
 
           sessionEndedRef.current = true;
@@ -465,18 +605,56 @@ export default function RolePlayConversation({
       }
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-      setVideoStream(stream);
+    let stream: MediaStream | null = null;
+    let cameraAvailable = true;
 
-      if (videoRef.current) {
+    try {
+      // 1. Try ideal widescreen video + audio without restrictive constraints
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch (videoErr: any) {
+        console.warn("[RolePlay] Ideal video constraints failed:", videoErr?.name, videoErr?.message);
+
+        // 2. Fall back to basic video (any camera available)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+        } catch (basicVideoErr: any) {
+          console.warn("[RolePlay] Video device unavailable or in use by another app, falling back to audio-only:", basicVideoErr?.name);
+          cameraAvailable = false;
+
+          // 3. Fall back to audio-only so the roleplay call is never blocked!
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
+        }
+      }
+
+      setVideoStream(stream);
+      setIsCameraOn(cameraAvailable && stream.getVideoTracks().length > 0);
+
+      if (videoRef.current && stream.getVideoTracks().length > 0) {
         videoRef.current.srcObject = stream;
         videoRef.current.play().catch(() => { });
       }
@@ -492,10 +670,19 @@ export default function RolePlayConversation({
       isSessionActiveRef.current = true;
       connectToRealtime(stream);
       setConversationActive(true);
+      startSpeechRecognition();
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("[RolePlay] Error starting conversation:", err);
-      alert("Microphone/Camera permission is required to start.");
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        alert("Microphone permission was denied. Please allow microphone access in your browser settings.");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        alert("No microphone was detected on your computer. Please check your audio input connection.");
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        alert("Your audio or video device is currently being used by another application (e.g. Zoom, Teams, Meet). Please close other apps and try again.");
+      } else {
+        alert("Failed to access media devices: " + (err.message || "Please check your device settings."));
+      }
       stopAllMedia();
     } finally {
       isStartingRef.current = false;
@@ -506,6 +693,7 @@ export default function RolePlayConversation({
   const handleEndSession = async () => {
     isSessionActiveRef.current = false;
     sessionEndedRef.current = false;
+    stopSpeechRecognition();
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       try {
@@ -530,46 +718,50 @@ export default function RolePlayConversation({
     setIsProcessing(false);
     setBotSpeaking(false);
 
-    const transcript = conversationTranscriptRef.current;
-    // console.log("[handleEndSession] 📝 Transcript ready:", {
-    //   count: transcript.length,
-    //   items: transcript.map(t => `${t.role}: ${t.text.substring(0, 30)}...`)
-    // });
+    const rawTranscript = conversationTranscriptRef.current;
 
-    const messages: Message[] = transcript
-      .filter(item => item.role === "user" || item.role === "bot" || item.role === "bot_chunk")
-      .map((item, idx) => ({
-        text: item.text,
-        sender: item.role === "user" ? "user" : "avatar",
-        timestamp: new Date(
-          Date.now() - (transcript.length - idx) * 1000
-        ).toISOString(),
-      }));
+    // Filter and map all participants (user and AI avatar)
+    const messages: Message[] = rawTranscript
+      .filter((item: any) => {
+        if (!item || !item.text || !item.text.trim()) return false;
+        const role = String(item.role || item.sender || "").toLowerCase().trim();
+        return ["user", "learner", "human", "avatar", "bot", "assistant", "ai", "model", "bot_chunk"].includes(role);
+      })
+      .map((item: any, idx) => {
+        const role = String(item.role || item.sender || "").toLowerCase().trim();
+        const isUser = ["user", "learner", "human"].includes(role);
+        return {
+          text: item.text.trim(),
+          sender: (isUser ? "user" : "avatar") as "user" | "avatar",
+          timestamp: item.timestamp || new Date(
+            Date.now() - (rawTranscript.length - idx) * 1000
+          ).toISOString(),
+        };
+      });
 
-    // console.log("[handleEndSession] ✅ Final transcript:", {
-    //   sessionEndedReceived: sessionEndedRef.current,
-    //   transcriptLength:     transcript.length,
-    //   messagesCount:        messages.length,
-    // });
+    // Remove consecutive identical duplicate messages
+    const deduplicatedMessages: Message[] = [];
+    for (const msg of messages) {
+      if (
+        deduplicatedMessages.length > 0 &&
+        deduplicatedMessages[deduplicatedMessages.length - 1].sender === msg.sender &&
+        deduplicatedMessages[deduplicatedMessages.length - 1].text === msg.text
+      ) {
+        continue;
+      }
+      deduplicatedMessages.push(msg);
+    }
 
-    // ✅ SAVE TRANSCRIPT FIRST - before generating assessment
-    // if (sessionIdRef.current && messages.length > 0) {
-    //   try {
-    //     // console.log("[handleEndSession] 💾 Saving transcript to DB...");
-    //     await updateRolePlaySession(sessionIdRef.current, messages, true);
-    //     // console.log("[handleEndSession] ✅ Transcript saved to DB");
-    //   } catch (e) {
-    //     console.error("[handleEndSession] ❌ Failed to save transcript:", e);
-    //     // Continue anyway - assessment generation is still important
-    //   }
-    // } else {
-    //   console.warn("[handleEndSession] ⚠️ Cannot save transcript:", {
-    //     hasSessionId: !!sessionIdRef.current,
-    //     messagesCount: messages.length
-    //   });
-    // }
+    // Safety fallback: ensure scenario's opening dialogue is present if no AI messages recorded
+    if (!deduplicatedMessages.some(m => m.sender === "avatar") && scenario.initialPrompt?.trim()) {
+      deduplicatedMessages.unshift({
+        text: scenario.initialPrompt.trim(),
+        sender: "avatar",
+        timestamp: new Date(Date.now() - 60000).toISOString(),
+      });
+    }
 
-    onEndSession(messages, sessionIdRef.current || undefined);
+    onEndSession(deduplicatedMessages, sessionIdRef.current || undefined);
   };
 
   const toggleCamera = () => {
@@ -584,126 +776,268 @@ export default function RolePlayConversation({
     if (!videoStream) return;
     const track = videoStream.getAudioTracks()[0];
     if (!track) return;
-    track.enabled = !track.enabled;
-    setIsMicOn(track.enabled);
+    const newState = !track.enabled;
+    track.enabled = newState;
+    setIsMicOn(newState);
+    if (newState) {
+      startSpeechRecognition();
+    } else {
+      stopSpeechRecognition();
+    }
   };
 
   return (
-    <div ref={containerRef} className="fixed inset-0 bg-gray-900 flex flex-col z-50">
-      {/* Header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-3 sm:px-6 py-2 sm:py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className={`w-2 h-2 rounded-full animate-pulse ${isBotSpeaking ? "bg-orange-500" : isRecording ? "bg-red-500" : "bg-green-500"
-            }`} />
-          <span className="text-white font-medium text-xs sm:text-sm truncate">{scenario.title}</span>
+    <div ref={containerRef} className="fixed inset-0 bg-slate-950 flex flex-col z-50 overflow-hidden select-none">
+      {/* Top-Right Floating Scenario & Call Timer Pill */}
+      {conversationActive && (
+        <div className="absolute top-5 right-5 z-30 flex items-center gap-2">
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/15 px-3.5 py-1.5 rounded-full text-white text-xs sm:text-sm font-medium flex items-center gap-2.5 shadow-xl">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="font-mono text-xs sm:text-sm tracking-wide text-slate-200">
+              {formatTime(callSeconds)}
+            </span>
+            <span className="w-1 h-3 bg-white/20 rounded-full" />
+            <span className="text-slate-300 truncate max-w-[140px] sm:max-w-[220px]">
+              {scenario.title}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto flex-wrap">
-          <button onClick={toggleCamera}
-            className={`p-1.5 sm:p-2 rounded-lg transition-all ${isCameraOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
-            {isCameraOn ? <Video className="w-4 sm:w-5 h-4 sm:h-5" /> : <VideoOff className="w-4 sm:w-5 h-4 sm:h-5" />}
-          </button>
-          <button onClick={toggleMic}
-            className={`p-1.5 sm:p-2 rounded-lg transition-all ${isMicOn ? "bg-gray-700 hover:bg-gray-600 text-white" : "bg-red-500 hover:bg-red-600 text-white"}`}>
-            {isMicOn ? <Mic className="w-4 sm:w-5 h-4 sm:h-5" /> : <MicOff className="w-4 sm:w-5 h-4 sm:h-5" />}
-          </button>
-          <Button
-            onClick={handleEndSession}
-            className="bg-red-500 hover:bg-red-600 text-white flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-4 py-1 sm:py-2 h-auto"
+      )}
+
+      {/* ======================================================== */}
+      {/* 1. USER CANVAS (Fullscreen Background or PiP Tile)       */}
+      {/* ======================================================== */}
+      <div
+        onClick={isViewSwapped ? () => setIsViewSwapped(false) : undefined}
+        className={
+          isViewSwapped
+            ? "absolute top-5 left-5 w-56 h-36 sm:w-64 sm:h-44 md:w-72 md:h-48 z-20 rounded-2xl overflow-hidden shadow-2xl border-2 border-cyan-400/50 bg-black cursor-pointer hover:border-cyan-300 transition-all duration-300 group"
+            : "absolute inset-0 w-full h-full z-0 bg-slate-950 flex items-center justify-center overflow-hidden"
+        }
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className={`w-full h-full transform scale-x-[-1] transition-all duration-300 ${
+            isViewSwapped ? "object-cover" : "object-contain"
+          }`}
+          onLoadedMetadata={() => videoRef.current?.play().catch(() => { })}
+        />
+
+        {!videoStream && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-slate-900">
+            <Camera className="w-10 h-10 sm:w-14 sm:h-14 mb-3 opacity-40 text-slate-400" />
+            <p className="text-xs sm:text-sm text-slate-400 font-medium">Camera not started</p>
+          </div>
+        )}
+
+        {!isCameraOn && videoStream && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900 text-white">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center mb-2 shadow-inner">
+              <CameraOff className="w-7 h-7 sm:w-8 sm:h-8 text-slate-400" />
+            </div>
+            <p className="text-xs sm:text-sm text-slate-400 font-medium">Camera is off</p>
+          </div>
+        )}
+
+        {/* Badge Overlay */}
+        <div className="absolute bottom-3 left-3 flex items-center gap-2">
+          <span className="bg-slate-950/75 backdrop-blur-md border border-white/15 text-white text-xs font-semibold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            You {isRecording && !isBotSpeaking && <span className="text-[10px] text-cyan-300 font-normal">(Speaking)</span>}
+          </span>
+        </div>
+
+        {/* Swap Hover Hint when in PiP */}
+        {isViewSwapped && (
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm rounded-full p-1 text-white border border-white/20">
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+          </div>
+        )}
+      </div>
+
+      {/* ======================================================== */}
+      {/* 2. AI AVATAR CANVAS (PiP Tile or Fullscreen Background)  */}
+      {/* ======================================================== */}
+      <div
+        onClick={!isViewSwapped ? () => setIsViewSwapped(true) : undefined}
+        className={
+          isViewSwapped
+            ? "absolute inset-0 w-full h-full z-0 bg-gradient-to-br from-slate-950 via-purple-950 to-indigo-950 flex flex-col items-center justify-center p-8 overflow-hidden select-none"
+            : "absolute top-5 left-5 w-56 h-36 sm:w-64 sm:h-44 md:w-72 md:h-48 z-20 rounded-2xl overflow-hidden shadow-2xl border-2 border-purple-400/50 bg-gradient-to-br from-slate-900 via-indigo-950 to-purple-950 backdrop-blur-md cursor-pointer hover:border-purple-300 transition-all duration-300 group flex flex-col items-center justify-center p-3"
+        }
+      >
+        {/* Concentric Pulsing Soundwave Rings */}
+        <div className="relative flex items-center justify-center">
+          {/* Outer ambient wave */}
+          <div
+            className={`absolute rounded-full transition-all duration-500 ${
+              isViewSwapped
+                ? "w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 bg-purple-500/10"
+                : "w-24 h-24 sm:w-28 sm:h-28 bg-purple-500/10"
+            } ${isBotSpeaking ? "animate-ping opacity-60" : "opacity-0"}`}
+          />
+          {/* Mid soundwave ring */}
+          <div
+            className={`absolute rounded-full transition-all duration-300 ${
+              isViewSwapped
+                ? "w-48 h-48 sm:w-60 sm:h-60 md:w-72 md:h-72 bg-purple-500/15"
+                : "w-20 h-20 sm:w-24 sm:h-24 bg-purple-500/15"
+            } ${isBotSpeaking ? "animate-pulse opacity-80" : "opacity-0"}`}
+          />
+          {/* Core Avatar Circle */}
+          <div
+            className={`relative z-10 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${
+              isViewSwapped
+                ? "w-32 h-32 sm:w-40 sm:h-40 md:w-48 md:h-48 ring-8 ring-purple-400/30"
+                : "w-14 h-14 sm:w-16 sm:h-16 ring-4 ring-purple-400/30"
+            } ${isBotSpeaking ? "scale-105" : "scale-100"}`}
           >
-            <Phone className="w-3 sm:w-4 h-3 sm:h-4 flex-shrink-0" />
-            <span className="hidden sm:inline">End Meeting</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Main area */}
-      <div className="flex-1 flex flex-col md:flex-row gap-0">
-        {/* Bot side */}
-        <div className="flex-1 bg-gradient-to-br from-purple-600 via-purple-500 to-indigo-600 flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
-          <div className="relative z-10 text-center">
-            <div className="relative mx-auto w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 mb-2 sm:mb-3 md:mb-6">
-              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 bg-white/10 rounded-full ${isBotSpeaking ? "animate-ping" : "opacity-0"}`} />
-              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 sm:w-40 md:w-56 lg:w-80 h-32 sm:h-40 md:h-56 lg:h-80 bg-white/5 rounded-full ${isBotSpeaking ? "animate-pulse" : "opacity-0"}`} />
-              <div className={`relative z-10 w-24 sm:w-32 md:w-48 lg:w-64 h-24 sm:h-32 md:h-48 lg:h-64 rounded-full bg-white flex items-center justify-center shadow-2xl transition-all duration-300 ${isBotSpeaking ? "scale-110 ring-8 ring-white/30" : "scale-100"}`}>
-                <span className="text-3xl sm:text-4xl md:text-6xl lg:text-8xl font-bold text-purple-600">L</span>
-              </div>
-            </div>
-            <div className="text-white">
-              <h2 className="text-base sm:text-lg md:text-2xl lg:text-4xl font-bold mb-1 sm:mb-2">{scenario.role}</h2>
-              <div className="flex items-center justify-center gap-1 sm:gap-2 md:gap-3 mb-1 sm:mb-2 md:mb-3 flex-wrap">
-                {isBotSpeaking ? (
-                  <>
-                    <div className="flex gap-1">
-                      <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
-                      <div className="w-1 sm:w-1.5 md:w-2 h-4 sm:h-6 md:h-8 bg-white rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
-                      <div className="w-1 sm:w-1.5 md:w-2 h-3 sm:h-4 md:h-6 bg-white rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
-                    </div>
-                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Speaking...</span>
-                  </>
-                ) : isProcessing ? (
-                  <>
-                    <Loader2 className="w-3 sm:w-4 md:w-5 h-3 sm:h-4 md:h-5 animate-spin" />
-                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Processing...</span>
-                  </>
-                ) : isRecording ? (
-                  <>
-                    <div className="w-1.5 sm:w-2 md:w-3 h-1.5 sm:h-2 md:h-3 bg-red-500 rounded-full animate-pulse" />
-                    <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Listening...</span>
-                  </>
-                ) : conversationActive ? (
-                  <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Ready</span>
-                ) : (
-                  <span className="text-xs sm:text-sm md:text-lg lg:text-xl font-medium">Waiting to start</span>
-                )}
-              </div>
-              <div className="text-purple-100 opacity-90 text-xs sm:text-xs md:text-sm lg:text-lg">
-                {scenario.difficulty} Difficulty • {scenario.tone || "Neutral"} Tone
-              </div>
-            </div>
+            <span
+              className={`font-black text-purple-700 select-none ${
+                isViewSwapped ? "text-5xl sm:text-6xl md:text-7xl" : "text-xl sm:text-2xl"
+              }`}
+            >
+              {scenario.role ? scenario.role.charAt(0).toUpperCase() : "A"}
+            </span>
           </div>
         </div>
 
-        {/* User video side */}
-        <div className="flex-1 bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-600 flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
-          <div className="relative z-10 w-full h-full max-w-full">
-            <div className="relative w-full h-full overflow-hidden shadow-2xl border-2 sm:border-4 border-white/30 bg-black">
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover transform scale-x-[-1]"
-                onLoadedMetadata={() => videoRef.current?.play().catch(() => { })}
-              />
-              {!videoStream && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                  <Camera className="w-8 sm:w-10 md:w-14 lg:w-16 h-8 sm:h-10 md:h-14 lg:h-16 mb-2 sm:mb-3 md:mb-4 opacity-50" />
-                  <p className="text-xs sm:text-sm md:text-base lg:text-lg">Camera not started</p>
-                </div>
-              )}
-              {!isCameraOn && videoStream && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black text-white">
-                  <CameraOff className="w-8 sm:w-10 md:w-14 lg:w-16 h-8 sm:h-10 md:h-14 lg:h-16 mb-2 sm:mb-3 md:mb-4" />
-                  <p className="text-xs sm:text-sm md:text-base lg:text-lg">Camera is off</p>
-                </div>
-              )}
-            </div>
-            {isRecording && (
-              <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-red-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full animate-pulse">
-                <div className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg flex items-center gap-1 sm:gap-1 md:gap-2">
-                  <div className="w-1 sm:w-1.5 md:w-2 h-1 sm:h-1.5 md:h-2 bg-red-500 rounded-full" />
-                  <span className="hidden sm:inline">Recording</span>
-                </div>
+        {/* Text info below Avatar */}
+        <div className={`text-center transition-all ${isViewSwapped ? "mt-6" : "mt-2"}`}>
+          <h3
+            className={`font-bold text-white tracking-wide truncate ${
+              isViewSwapped ? "text-xl sm:text-2xl md:text-3xl" : "text-xs sm:text-sm max-w-[180px]"
+            }`}
+          >
+            {scenario.role}
+          </h3>
+
+          {/* Dynamic Sound Equalizer Waveform & Status */}
+          <div className="flex items-center justify-center gap-2 mt-1">
+            {isBotSpeaking ? (
+              <div className="flex items-center gap-1">
+                <span className="w-1 h-2.5 sm:h-4 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
+                <span className="w-1 h-4 sm:h-6 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
+                <span className="w-1 h-3 sm:h-5 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
+                <span className="w-1 h-1.5 sm:h-3 bg-purple-400 rounded-full animate-pulse" style={{ animationDelay: "450ms" }} />
+                <span className="text-[10px] sm:text-xs text-purple-200 font-medium ml-1">Speaking...</span>
               </div>
-            )}
-            {!isRecording && (
-              <div className="absolute bottom-2 sm:bottom-3 md:bottom-6 lg:bottom-8 right-2 sm:right-3 md:right-6 lg:right-8 bg-blue-900/80 backdrop-blur-sm px-2 sm:px-3 md:px-6 py-1 sm:py-2 md:py-3 rounded-full">
-                <p className="text-white font-medium text-xs sm:text-xs md:text-base lg:text-lg">You</p>
+            ) : isProcessing ? (
+              <div className="flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-spin text-purple-300" />
+                <span className="text-[10px] sm:text-xs text-purple-300 font-medium">Thinking...</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="text-[10px] sm:text-xs text-emerald-300 font-medium">Listening</span>
               </div>
             )}
           </div>
+
+          {isViewSwapped && (
+            <p className="text-purple-200/70 text-xs sm:text-sm mt-2">
+              {scenario.difficulty} Difficulty • {scenario.tone || "Neutral"} Tone
+            </p>
+          )}
         </div>
+
+        {/* Badges and Swap Hint */}
+        {!isViewSwapped && (
+          <>
+            <div className="absolute top-2 left-2 flex items-center gap-1">
+              <span className="bg-purple-950/80 border border-purple-400/40 text-purple-200 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                AI
+              </span>
+            </div>
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-sm rounded-full p-1 text-white border border-white/20">
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+            </div>
+          </>
+        )}
       </div>
+
+      {/* ======================================================== */}
+      {/* 3. LIVE FLOATING CLOSED CAPTIONS                         */}
+      {/* ======================================================== */}
+      {showCaptions && currentCaption && conversationActive && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-30 max-w-3xl w-[92%] sm:w-auto min-w-[280px] pointer-events-none transition-all duration-200 animate-in fade-in slide-in-from-bottom-2">
+          <div className="bg-black/80 backdrop-blur-md border border-white/15 rounded-2xl px-6 py-3 shadow-2xl text-center">
+            <p className="text-white text-sm sm:text-base md:text-lg font-medium leading-relaxed tracking-normal drop-shadow select-none break-words">
+              {currentCaption.text}
+              {!currentCaption.isUser && isBotSpeaking && (
+                <span className="inline-block w-1.5 h-4 bg-purple-400 ml-1.5 rounded-sm animate-pulse align-middle" />
+              )}
+              {currentCaption.isUser && (
+                <span className="inline-block w-1.5 h-4 bg-cyan-400 ml-1.5 rounded-sm animate-pulse align-middle" />
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* 4. FLOATING CONTROL DOCK (Matching Mockup Pill)          */}
+      {/* [Camera] [Mic] [CC] [End Call]                           */}
+      {/* ======================================================== */}
+      {conversationActive && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3.5 bg-slate-900/90 backdrop-blur-xl border border-white/20 px-5 py-2.5 rounded-full shadow-2xl">
+          {/* Camera toggle */}
+          <button
+            type="button"
+            onClick={toggleCamera}
+            title={isCameraOn ? "Turn off camera" : "Turn on camera"}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${
+              isCameraOn
+                ? "bg-slate-800 hover:bg-slate-700 text-white border border-white/10"
+                : "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/30"
+            }`}
+          >
+            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
+
+          {/* Mic toggle */}
+          <button
+            type="button"
+            onClick={toggleMic}
+            title={isMicOn ? "Mute microphone" : "Unmute microphone"}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${
+              isMicOn
+                ? "bg-slate-800 hover:bg-slate-700 text-white border border-white/10"
+                : "bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/30"
+            }`}
+          >
+            {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+          </button>
+
+          {/* Closed Captions toggle */}
+          <button
+            type="button"
+            onClick={() => setShowCaptions((prev) => !prev)}
+            title={showCaptions ? "Hide Closed Captions (CC)" : "Show Closed Captions (CC)"}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all font-bold text-xs ${
+              showCaptions
+                ? "bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-500/30 ring-1 ring-purple-400"
+                : "bg-slate-800 hover:bg-slate-700 text-slate-400 border border-white/10"
+            }`}
+          >
+            {showCaptions ? <Captions className="w-5 h-5" /> : <CaptionsOff className="w-5 h-5" />}
+          </button>
+
+          {/* End Call button */}
+          <button
+            type="button"
+            onClick={handleEndSession}
+            className="bg-red-500 hover:bg-red-600 text-white font-semibold text-sm sm:text-base px-6 py-2.5 sm:py-3 rounded-full flex items-center gap-2 shadow-lg shadow-red-500/30 transition-all active:scale-95"
+          >
+            <Phone className="w-4 h-4 fill-current rotate-[135deg]" />
+            <span>End Call</span>
+          </button>
+        </div>
+      )}
 
       {/* Start overlay */}
       {!conversationActive && !isGeneratingAssessment && (

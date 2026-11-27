@@ -60,12 +60,12 @@ CRITICAL VOICE & ACCENT REQUIREMENT:
 - Always respond actively, conversationally, and promptly in your assigned role (1-2 sentences).
 """
 
-# Voice activity detection parameters for 24kHz PCM16
+# Voice activity detection parameters for native 16kHz PCM16
 VAD_RMS_THRESHOLD = 500        # Sensitive enough for normal speech (>500), but above ambient fan noise (<300)
 VAD_SILENCE_DURATION = 0.75    # Seconds of silence after speech before concluding turn
 MIN_SPEECH_DURATION = 0.25     # Minimum speech duration (seconds) required to treat as genuine speech
 ECHO_COOLDOWN_DURATION = 0.40  # Seconds to ignore mic input after bot finishes speaking
-BUFFER_FLUSH_SIZE = 4800       # Aggregate tiny browser packets into 100ms chunks (2400 samples * 2 bytes)
+BUFFER_FLUSH_SIZE = 3200       # Aggregate native 16kHz packets into 100ms chunks (1600 samples * 2 bytes)
 
 
 def resolve_gemini_live_model(model_name: Optional[str]) -> str:
@@ -143,6 +143,27 @@ async def run_gemini_live_loop(
     audio_packet_count = 0
     outgoing_audio_buffer = bytearray()
 
+    def flush_pending_turns():
+        nonlocal current_turn_bot_text, current_turn_user_text, conversation_transcript
+        raw_bot_text = "".join(current_turn_bot_text).strip()
+        final_bot_text = re.sub(r"<no\s*speech>|\{pause\}|<pause>", "", raw_bot_text, flags=re.IGNORECASE).strip()
+        if final_bot_text:
+            conversation_transcript.append({
+                "role": "avatar",
+                "text": final_bot_text,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            current_turn_bot_text.clear()
+
+        final_user_text = "".join(current_turn_user_text).strip()
+        if final_user_text:
+            conversation_transcript.append({
+                "role": "user",
+                "text": final_user_text,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            current_turn_user_text.clear()
+
     # Thread-safe lock for Gemini WebSocket sends
     gemini_send_lock = asyncio.Lock()
 
@@ -192,7 +213,17 @@ async def run_gemini_live_loop(
                 bot_is_speaking = True
                 ai_is_generating = True
                 opening_line = str(initial_prompt_val).strip()
+                current_turn_bot_text.append(opening_line)
                 log_event("🗣️", f"AI TRIGGERED OPENING GREETING: \"{opening_line}\"")
+                try:
+                    await websocket.send_json({
+                        "type": "transcript_chunk",
+                        "text": opening_line,
+                        "role": "bot"
+                    })
+                except Exception:
+                    pass
+
                 opening_turn = {
                     "clientContent": {
                         "turns": [
@@ -252,9 +283,8 @@ async def run_gemini_live_loop(
                                     # Flush any residual audio buffer to Gemini as 16kHz
                                     if len(outgoing_audio_buffer) >= 2:
                                         even_len = len(outgoing_audio_buffer) - (len(outgoing_audio_buffer) % 2)
-                                        chunk_24k = bytes(outgoing_audio_buffer[:even_len])
+                                        chunk_16k = bytes(outgoing_audio_buffer[:even_len])
                                         outgoing_audio_buffer.clear()
-                                        chunk_16k = resample_24k_to_16k(chunk_24k)
                                         b64 = base64.b64encode(chunk_16k).decode("utf-8")
                                         gemini_audio_msg = {
                                             "realtimeInput": {
@@ -336,12 +366,11 @@ async def run_gemini_live_loop(
                             # Append PCM bytes to the outgoing 100ms buffer
                             outgoing_audio_buffer.extend(pcm_bytes)
 
-                            # When buffer reaches 100ms (4800 bytes / 2400 samples at 24kHz), resample to 16kHz and flush to Gemini
+                            # When buffer reaches 100ms (3200 bytes for native 16kHz PCM), flush directly to Gemini
                             if len(outgoing_audio_buffer) >= BUFFER_FLUSH_SIZE:
-                                chunk_to_send_24k = bytes(outgoing_audio_buffer[:BUFFER_FLUSH_SIZE])
+                                chunk_16k = bytes(outgoing_audio_buffer[:BUFFER_FLUSH_SIZE])
                                 outgoing_audio_buffer = outgoing_audio_buffer[BUFFER_FLUSH_SIZE:]
 
-                                chunk_16k = resample_24k_to_16k(chunk_to_send_24k)
                                 b64 = base64.b64encode(chunk_16k).decode("utf-8")
                                 gemini_audio_msg = {
                                     "realtimeInput": {
@@ -368,6 +397,7 @@ async def run_gemini_live_loop(
                                 consecutive_speech_chunks = 0
 
                         elif msg_type == "end_session":
+                            flush_pending_turns()
                             log_event("📞", f"Session end requested - transcript has {len(conversation_transcript)} messages")
 
                             if session_id and session_id != "unknown":
@@ -444,22 +474,30 @@ async def run_gemini_live_loop(
                                 ai_is_generating = True
                                 turn_requested_at = asyncio.get_running_loop().time()
 
-                        # 3. Handle serverContent
-                        server_content = response.get("serverContent")
-                        if server_content:
-                            # User interruption / barge-in acknowledged by Gemini
-                            if server_content.get("interrupted"):
-                                log_event("⚡", "Gemini confirmed model interrupted by user speech")
-                                bot_is_speaking = False
-                                ai_is_generating = False
-                                turn_requested_at = 0.0
-                                await websocket.send_json({"type": "speech_started"})
-                                current_turn_bot_text.clear()
+                        # 3. Handle serverContent and root-level response transcriptions
+                        server_content = response.get("serverContent") or {}
 
-                            # User speech transcription (from Gemini inputTranscription)
-                            input_transcription = server_content.get("inputTranscription") or server_content.get("inputAudioTranscription")
-                            if input_transcription and "text" in input_transcription:
-                                u_text = input_transcription["text"]
+                        # User interruption / barge-in acknowledged by Gemini
+                        if server_content.get("interrupted") or response.get("interrupted"):
+                            log_event("⚡", "Gemini confirmed model interrupted by user speech")
+                            bot_is_speaking = False
+                            ai_is_generating = False
+                            turn_requested_at = 0.0
+                            await websocket.send_json({"type": "speech_started"})
+                            current_turn_bot_text.clear()
+
+                        # User speech transcription (check root and serverContent)
+                        input_transcription = (
+                            response.get("inputTranscription")
+                            or response.get("inputAudioTranscription")
+                            or response.get("interimInputTranscription")
+                            or server_content.get("inputTranscription")
+                            or server_content.get("inputAudioTranscription")
+                            or server_content.get("interimInputTranscription")
+                        )
+                        if input_transcription and isinstance(input_transcription, dict) and "text" in input_transcription:
+                            u_text = input_transcription["text"]
+                            if u_text and (not current_turn_user_text or u_text != current_turn_user_text[-1]):
                                 current_turn_user_text.append(u_text)
                                 log_event("👤", f"USER Speech Recognized ({len(u_text)} chars)")
                                 await websocket.send_json({
@@ -467,12 +505,37 @@ async def run_gemini_live_loop(
                                     "text": "".join(current_turn_user_text)
                                 })
 
-                            # Model speech transcription chunk
-                            output_transcription = server_content.get("outputTranscription")
-                            if output_transcription and "text" in output_transcription:
-                                text_chunk = output_transcription["text"]
-                                clean_chunk = re.sub(r"<no\s*speech.*?>|\{pause\}|<pause>", "", text_chunk, flags=re.IGNORECASE)
-                                if clean_chunk:
+                        # Model speech transcription chunk (check root and serverContent)
+                        output_transcription = (
+                            server_content.get("outputTranscription")
+                            or server_content.get("output_transcription")
+                            or server_content.get("outputAudioTranscription")
+                            or server_content.get("output_audio_transcription")
+                            or response.get("outputTranscription")
+                            or response.get("output_transcription")
+                            or response.get("outputAudioTranscription")
+                            or response.get("output_audio_transcription")
+                        )
+                        text_chunk = ""
+                        if isinstance(output_transcription, dict):
+                            text_chunk = str(output_transcription.get("text") or "")
+                            if not text_chunk and "parts" in output_transcription:
+                                text_chunk = "".join([str(p.get("text", "")) for p in output_transcription.get("parts", []) if isinstance(p, dict)])
+                        elif isinstance(output_transcription, str):
+                            text_chunk = output_transcription
+
+                        if text_chunk:
+                            # Remove control tags but preserve word-separating spaces
+                            clean_chunk = re.sub(r"<no\s*speech.*?>|\{pause\}|<pause>", "", text_chunk, flags=re.IGNORECASE)
+                            if clean_chunk.strip():
+                                # Smart boundary formatting: insert space if previous ended without space/punct and this chunk begins with a word
+                                if current_turn_bot_text:
+                                    prev_chunk = current_turn_bot_text[-1]
+                                    if prev_chunk and not prev_chunk.endswith(" ") and not clean_chunk.startswith(" "):
+                                        if (prev_chunk[-1] in ".!?,;:" or prev_chunk[-1].isalnum()) and clean_chunk[0].isalnum():
+                                            clean_chunk = " " + clean_chunk
+
+                                if not current_turn_bot_text or clean_chunk != current_turn_bot_text[-1]:
                                     current_turn_bot_text.append(clean_chunk)
                                     await websocket.send_json({
                                         "type": "transcript_chunk",
@@ -480,31 +543,38 @@ async def run_gemini_live_loop(
                                         "role": "bot"
                                     })
 
-                            # Model Turn (Audio chunks and inline text)
-                            model_turn = server_content.get("modelTurn")
-                            if model_turn:
-                                if not bot_is_speaking:
-                                    bot_is_speaking = True
-                                    ai_is_generating = False
-                                    turn_requested_at = 0.0
-                                    first_audio_chunk_logged = False
-                                    log_event("🗣️", "AI STARTED SPEAKING (Audio streaming to client)...")
+                        # Model Turn (Audio chunks and inline text)
+                        model_turn = server_content.get("modelTurn") or response.get("modelTurn")
+                        if model_turn:
+                            if not bot_is_speaking:
+                                bot_is_speaking = True
+                                ai_is_generating = False
+                                turn_requested_at = 0.0
+                                first_audio_chunk_logged = False
+                                log_event("🗣️", "AI STARTED SPEAKING (Audio streaming to client)...")
 
-                                for part in model_turn.get("parts", []):
-                                    inline_data = part.get("inlineData")
-                                    if inline_data and inline_data.get("data"):
-                                        if not first_audio_chunk_logged:
-                                            first_audio_chunk_logged = True
-                                            log_event("🔊", "AI output audio packets streaming...")
-                                        await websocket.send_json({
-                                            "type": "audio",
-                                            "audio": inline_data["data"]
-                                        })
+                            for part in model_turn.get("parts", []):
+                                inline_data = part.get("inlineData")
+                                if inline_data and inline_data.get("data"):
+                                    if not first_audio_chunk_logged:
+                                        first_audio_chunk_logged = True
+                                        log_event("🔊", "AI output audio packets streaming...")
+                                    await websocket.send_json({
+                                        "type": "audio",
+                                        "audio": inline_data["data"]
+                                    })
 
-                                    if "text" in part and not output_transcription:
-                                        t_chunk = part["text"]
-                                        clean_t = re.sub(r"<no\s*speech>|\{pause\}|<pause>", "", t_chunk, flags=re.IGNORECASE)
-                                        if clean_t:
+                                if "text" in part:
+                                    t_chunk = str(part["text"])
+                                    clean_t = re.sub(r"<no\s*speech.*?>|\{pause\}|<pause>", "", t_chunk, flags=re.IGNORECASE)
+                                    if clean_t.strip():
+                                        if current_turn_bot_text:
+                                            prev_chunk = current_turn_bot_text[-1]
+                                            if prev_chunk and not prev_chunk.endswith(" ") and not clean_t.startswith(" "):
+                                                if (prev_chunk[-1] in ".!?,;:" or prev_chunk[-1].isalnum()) and clean_t[0].isalnum():
+                                                    clean_t = " " + clean_t
+
+                                        if not current_turn_bot_text or clean_t != current_turn_bot_text[-1]:
                                             current_turn_bot_text.append(clean_t)
                                             await websocket.send_json({
                                                 "type": "transcript_chunk",
@@ -512,40 +582,40 @@ async def run_gemini_live_loop(
                                                 "role": "bot"
                                             })
 
-                            # Turn Complete
-                            if server_content.get("turnComplete"):
-                                bot_is_speaking = False
-                                ai_is_generating = False
-                                turn_requested_at = 0.0
-                                bot_finished_at = asyncio.get_running_loop().time()
+                        # Turn Complete
+                        if server_content.get("turnComplete") or response.get("turnComplete"):
+                            bot_is_speaking = False
+                            ai_is_generating = False
+                            turn_requested_at = 0.0
+                            bot_finished_at = asyncio.get_running_loop().time()
 
-                                raw_bot_text = "".join(current_turn_bot_text).strip()
-                                final_bot_text = re.sub(r"<no\s*speech>|\{pause\}|<pause>", "", raw_bot_text, flags=re.IGNORECASE).strip()
-                                if final_bot_text:
-                                    log_event("💬", f"AI TURN FINISHED ({len(final_bot_text)} chars generated)")
-                                    conversation_transcript.append({
-                                        "role": "avatar",
-                                        "text": final_bot_text,
-                                        "timestamp": datetime.utcnow().isoformat()
-                                    })
-                                    await websocket.send_json({
-                                        "type": "bot_transcription",
-                                        "text": final_bot_text
-                                    })
-                                current_turn_bot_text.clear()
+                            raw_bot_text = "".join(current_turn_bot_text).strip()
+                            final_bot_text = re.sub(r"<no\s*speech>|\{pause\}|<pause>", "", raw_bot_text, flags=re.IGNORECASE).strip()
+                            if final_bot_text:
+                                log_event("💬", f"AI TURN FINISHED ({len(final_bot_text)} chars generated)")
+                                conversation_transcript.append({
+                                    "role": "avatar",
+                                    "text": final_bot_text,
+                                    "timestamp": datetime.utcnow().isoformat()
+                                })
+                                await websocket.send_json({
+                                    "type": "bot_transcription",
+                                    "text": final_bot_text
+                                })
+                            current_turn_bot_text.clear()
 
-                                final_user_text = "".join(current_turn_user_text).strip()
-                                if final_user_text:
-                                    conversation_transcript.append({
-                                        "role": "user",
-                                        "text": final_user_text,
-                                        "timestamp": datetime.utcnow().isoformat()
-                                    })
-                                current_turn_user_text.clear()
+                            final_user_text = "".join(current_turn_user_text).strip()
+                            if final_user_text:
+                                conversation_transcript.append({
+                                    "role": "user",
+                                    "text": final_user_text,
+                                    "timestamp": datetime.utcnow().isoformat()
+                                })
+                            current_turn_user_text.clear()
 
-                                # Tell the frontend that the bot has finished speaking its response
-                                await websocket.send_json({"type": "response.done"})
-                                log_event("👂", "AI STOPPED SPEAKING (response.done sent). RESUMING audio stream & listening for user...")
+                            # Tell the frontend that the bot has finished speaking its response
+                            await websocket.send_json({"type": "response.done"})
+                            log_event("👂", "AI STOPPED SPEAKING (response.done sent). RESUMING audio stream & listening for user...")
 
                         # Handle token usage
                         usage_metadata = response.get("usageMetadata")
@@ -580,16 +650,31 @@ async def run_gemini_live_loop(
             pass
 
     finally:
+        flush_pending_turns()
         log_event("🔌", f"Disconnected, session {session_id}. Final transcript has {len(conversation_transcript)} messages.")
 
         # Auto-save transcript to database
         if session_id and session_id != "unknown" and conversation_transcript:
             try:
                 log_event("💾", f"Auto-saving {len(conversation_transcript)} messages to DB via supabase_admin...")
-                supabase_admin.table("roleplay_sessions").update({
+                update_data = {
                     "conversation_transcript": conversation_transcript,
                     "message_count": len(conversation_transcript)
-                }).eq("id", session_id).execute()
+                }
+                if len(conversation_transcript) >= 2:
+                    try:
+                        start_time = datetime.fromisoformat(
+                            conversation_transcript[0]["timestamp"].replace("Z", "+00:00")
+                        )
+                        end_time = datetime.fromisoformat(
+                            conversation_transcript[-1]["timestamp"].replace("Z", "+00:00")
+                        )
+                        update_data["duration_seconds"] = int(
+                            (end_time - start_time).total_seconds()
+                        )
+                    except Exception:
+                        pass
+                supabase_admin.table("roleplay_sessions").update(update_data).eq("id", session_id).execute()
                 log_event("✅", "Transcript safely saved to DB.")
             except Exception as e:
                 log_event("❌", f"Failed to auto-save transcript: {e}")

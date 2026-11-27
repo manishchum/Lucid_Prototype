@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import HTTPException
 from utils.supabase_client import supabase
 from utils.auth_bridge import get_service_supabase_client
@@ -117,22 +118,36 @@ def get_company_roleplay_limits(company_id: str) -> tuple[dict, dict | None]:
         return {}, {'code': 'DB_ERROR', 'message': str(e)}
 
 def get_bootstrap_data(company_id: str):
-    scenarios, _ = fetch_all_scenarios(company_id)
+    # Run all bootstrap queries in parallel using ThreadPoolExecutor for high performance
+    try:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            f_scenarios = executor.submit(fetch_all_scenarios, company_id)
+            f_functions = executor.submit(get_functions, company_id)
+            f_sub_functions = executor.submit(get_sub_functions, company_id)
+            f_users = executor.submit(get_active_company_users, company_id)
+            f_limits = executor.submit(get_company_roleplay_limits, company_id)
 
-    functions = get_functions(company_id)
-    sub_functions = get_sub_functions(company_id)
-    users = get_active_company_users(company_id)
-
-    company_limits, _ = get_company_roleplay_limits(company_id)
+            scenarios, _ = f_scenarios.result()
+            functions = f_functions.result()
+            sub_functions = f_sub_functions.result()
+            users = f_users.result()
+            company_limits, _ = f_limits.result()
+    except Exception as e:
+        print(f"[get_bootstrap_data] ThreadPool error: {e}, falling back to sequential")
+        scenarios, _ = fetch_all_scenarios(company_id)
+        functions = get_functions(company_id)
+        sub_functions = get_sub_functions(company_id)
+        users = get_active_company_users(company_id)
+        company_limits, _ = get_company_roleplay_limits(company_id)
 
     return {
         "scenarios": scenarios or [],
         "assignmentTargets": {
-            "functions": functions.data or [],
-            "sub_functions": sub_functions.data or [],
-            "users": users.data or [],
+            "functions": getattr(functions, 'data', None) or [],
+            "sub_functions": getattr(sub_functions, 'data', None) or [],
+            "users": getattr(users, 'data', None) or [],
         },
-        "companyLimits": company_limits,
+        "companyLimits": company_limits or {},
     }
     
 # def finish_roleplay_session(session_id: str):
@@ -333,14 +348,45 @@ def update_roleplay_session(
     )
     
 def save_roleplay_assessment(
-    insert_data:dict
+    insert_data: dict
 ):
-    return (
-        supabase
-        .table("roleplay_assessments")
-        .insert(insert_data)
-        .execute()
-    )
+    try:
+        return (
+            supabase
+            .table("roleplay_assessments")
+            .insert(insert_data)
+            .execute()
+        )
+    except Exception:
+        admin_client = get_service_supabase_client()
+        return (
+            admin_client
+            .table("roleplay_assessments")
+            .insert(insert_data)
+            .execute()
+        )
+
+
+def get_roleplay_assessment_by_session_id(session_id: str):
+    try:
+        return (
+            supabase
+            .table("roleplay_assessments")
+            .select("*")
+            .eq("session_id", session_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception:
+        admin_client = get_service_supabase_client()
+        return (
+            admin_client
+            .table("roleplay_assessments")
+            .select("*")
+            .eq("session_id", session_id)
+            .maybe_single()
+            .execute()
+        )
 
 
 def check_retry_limit(
@@ -724,6 +770,7 @@ def get_employee_roleplay_sessions(
                 summary,
                 parameters,
                 recommendations,
+                metrics,
                 created_at
             )
         """)
