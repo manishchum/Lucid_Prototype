@@ -1,5 +1,5 @@
-import { headers } from "next/headers"
 import { Suspense } from "react"
+import { headers } from "next/headers"
 import LoginContent from "@/components/auth/LoginContent"
 import { isEYTenant } from "@/lib/tenant"
 import { LoadingProgress } from "@/components/LoadingProgress"
@@ -25,3 +25,4 @@ export default async function LoginPage({
     </Suspense>
   )
 }
+

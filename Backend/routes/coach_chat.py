@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.supabase_client import supabase_admin
 from security.rebac import resolve_user_principals
 from coach.graph import execute_coach_agent, stream_coach_agent
@@ -100,14 +100,15 @@ def _resolve_user_name(user_id: Optional[str], auth: RequestAuth, explicit_name:
 async def chat_with_coach(
     payload: CoachChatRequest,
     request: Request,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Main intelligence endpoint: executes LangGraph workflow combining
     Text-to-SQL on spreadsheet data and dense vector RAG on qualitative documents.
     Automatically persists conversation history to public.coach_conversations.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
 
     if not company_id:
@@ -295,13 +296,14 @@ async def chat_with_coach(
 
 @router.get("/schema")
 async def get_coach_schema_catalog(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Returns current spreadsheet sheet columns and uploaded document catalog
     for developer/admin inspection and prompt preview.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
@@ -338,10 +340,11 @@ class CoachProfilePayload(BaseModel):
 
 @router.get("/profile")
 async def get_coach_profile(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Fetches personalized coaching profile for the authenticated user."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated user context required.")
@@ -357,10 +360,11 @@ async def get_coach_profile(
 @router.post("/profile")
 async def save_coach_profile(
     payload: CoachProfilePayload,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Saves or updates personalized onboarding coaching profile for the authenticated user."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated user context required.")
@@ -391,10 +395,11 @@ class RenameConversationPayload(BaseModel):
 
 @router.get("/conversations")
 async def list_conversations(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Lists conversation history threads for the authenticated user."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated context required.")
@@ -406,10 +411,11 @@ async def list_conversations(
 @router.post("/conversations")
 async def create_new_conversation(
     payload: CreateConversationPayload,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Explicitly creates a new chat thread."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated context required.")
@@ -425,10 +431,11 @@ async def create_new_conversation(
 @router.get("/conversations/{conversation_id}")
 async def get_single_conversation(
     conversation_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Retrieves full message history for a specific conversation thread."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated context required.")
@@ -444,10 +451,11 @@ async def get_single_conversation(
 async def rename_thread(
     conversation_id: str,
     payload: RenameConversationPayload,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Renames an existing chat thread."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated context required.")
@@ -467,10 +475,11 @@ async def rename_thread(
 @router.delete("/conversations/{conversation_id}")
 async def delete_thread(
     conversation_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Deletes a conversation thread and all its messages."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not user_id or not company_id:
         raise HTTPException(status_code=400, detail="Authenticated context required.")

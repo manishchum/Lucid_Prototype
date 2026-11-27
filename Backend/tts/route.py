@@ -506,7 +506,7 @@ def buildGeminiPodcastPrompt(moduleTitle: str, moduleContent: str, language: str
             f"Use natural {language_name} vocabulary and expressions throughout."
         )
 
-    dialogueCount = "48" if is_hinglish else "30"
+    dialogueCount = "30"
 
     speakers = (
         "- Pooja (host) - Hindi mein baat karti hai, enthusiastic, warm, naturally curious\n"
@@ -1101,8 +1101,8 @@ async def synthesizeAndStore(processedModuleId: str, language: str = "en"):
     if len(dialogue) == 0:
         return {"error": "No dialogue generated from Gemini response", "status": 500}
 
-    # Expected dialogue count based on language
-    expectedDialogueCount = 48 if language == "hinglish" else 30
+    # Expected dialogue count
+    expectedDialogueCount = 30
     
     print(f"[TTS] Generated {len(dialogue)} dialogue segments from Gemini (target was {expectedDialogueCount})")
     if len(dialogue) < 30:

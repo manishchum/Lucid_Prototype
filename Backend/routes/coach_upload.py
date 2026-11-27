@@ -41,7 +41,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import redis.asyncio as aioredis
 
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.supabase_client import supabase_admin
 from utils.db.permissions import check_user_permission
 from utils.redis_client import redis_client, redis_ssl, get_cache, set_cache, delete_cache_pattern
@@ -265,6 +265,7 @@ class PreflightItem(BaseModel):
 
 class PreflightCheckRequest(BaseModel):
     items: List[PreflightItem]
+    company_id: Optional[str] = None
 
 
 # ============================================================================
@@ -274,14 +275,15 @@ class PreflightCheckRequest(BaseModel):
 @router.post("/preflight-check")
 async def check_preflight_conflicts(
     payload: PreflightCheckRequest,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Checks for file conflicts prior to upload:
     - Detects identical hash duplicates (prevents redundant processing).
     - Detects filename conflicts with modified contents (prompts Overwrite vs Version).
     """
-    company_id = auth.company_id
+    company_id = payload.company_id or effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")
@@ -354,7 +356,9 @@ async def upload_performance_document(
     is_playbook: bool = Form(False),
     conflict_mode: str = Form("fail_on_conflict"),  # "fail_on_conflict", "overwrite", "version", "skip"
     existing_doc_id: Optional[str] = Form(None),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    company_id: Optional[str] = Form(None),
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Enterprise Upload Endpoint:
@@ -364,7 +368,7 @@ async def upload_performance_document(
     - Enqueues to Redis ARQ worker with automatic in-process fallback.
     - Emits audit log entries.
     """
-    company_id = auth.company_id
+    company_id = company_id or effective_company_id or auth.company_id
     user_id = auth.user_id
 
     if not company_id or not user_id:
@@ -754,12 +758,13 @@ def _doc_visible_to_ctx(doc: Dict[str, Any], sec_ctx) -> bool:
 
 @router.get("/stats")
 async def get_coach_stats(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Returns RBAC-scoped document and ingestion stats across documents the caller can access.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
@@ -802,12 +807,13 @@ async def list_coach_documents(
     search: Optional[str] = Query(None, description="Search by file name"),
     status: Optional[str] = Query(None, description="Filter by status (completed, parsing, embedding, failed)"),
     source: Optional[str] = Query(None, description="Filter by source (gdrive, manual)"),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Paginated, searchable document catalog filtered by caller's Zanzibar ReBAC principals.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
@@ -899,10 +905,11 @@ async def list_coach_documents(
 @router.get("/documents/{document_id}")
 async def get_coach_document(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Get status and details of a specific coach document (RBAC verified)."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
 
     res = (
@@ -925,12 +932,13 @@ async def get_coach_document(
 @router.get("/documents/{document_id}/download-url")
 async def get_document_download_url(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Generates a secure, temporary (15-minute) signed URL to download or view the original file.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     try:
         doc_res = (
@@ -980,12 +988,13 @@ async def get_document_chunks(
     document_id: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Fetches paginated vector chunks and proof citations for inspection (RBAC verified).
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     try:
         doc_res = (
@@ -1037,13 +1046,14 @@ async def get_document_chunks(
 @router.delete("/documents/{document_id}")
 async def delete_coach_document(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Delete a document and all its associated vector chunks and spreadsheet rows (CASCADE).
     Enforces Admin RBAC and logs to audit trail.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
 
     # RBAC: Only Admin can delete
@@ -1113,13 +1123,14 @@ async def delete_coach_document(
 async def list_company_playbooks(
     category: Optional[str] = Query(None, description="Filter by category pill / topic"),
     search: Optional[str] = Query(None, description="Search playbook title or content"),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Returns all company playbooks visible to the caller (company-wide or authorized team).
     Available to ALL authenticated employees in the company.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
@@ -1245,12 +1256,13 @@ async def list_company_playbooks(
 async def toggle_document_playbook_status(
     document_id: str,
     payload: Dict[str, Any],
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Manager endpoint to designate or revoke playbook status on an existing uploaded document.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not company_id or not user_id:
         raise HTTPException(status_code=400, detail="Authentication required.")
@@ -1335,14 +1347,15 @@ async def toggle_document_playbook_status(
 @router.get("/events")
 async def stream_coach_events(
     request: Request,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Server-Sent Events (SSE) stream pushing real-time document ingestion updates
     (parsing, chunking, embedding, row counts) to connected admin clients.
     Eliminates 3.5s interval polling.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")

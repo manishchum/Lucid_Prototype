@@ -6,8 +6,8 @@ from ..auth_bridge import get_service_supabase_client
 from .permissions import check_user_permission, check_company_access
 import os
 
-# Default password for new users (from environment)
-DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD")
+# Default password for new users (from environment with fallback)
+DEFAULT_PASSWORD = os.getenv("DEFAULT_PASSWORD") 
 
 # ==================== USER/EMPLOYEE OPERATIONS ====================
 
