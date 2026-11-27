@@ -153,7 +153,8 @@ async def list_learning_plans(
     module_id: Optional[str] = None,
     status: Optional[str] = None,
     baseline_assessment: Optional[bool] = None,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
+    company_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     List learning plans with optional filters.
@@ -183,8 +184,8 @@ async def list_learning_plans(
                 query = query.eq('user_id', user_id)
             else:
                 # Filter by company
-                user_company_id = await get_user_company_id(resolved_requesting_user_id)
-                if not user_company_id:
+                target_company_id = company_id or await get_user_company_id(resolved_requesting_user_id)
+                if not target_company_id:
                     return {"data": None, "error": "User company not found"}
         
         # Apply filters
@@ -212,12 +213,12 @@ async def list_learning_plans(
         ])
 
         if has_permission:
-            user_company_id = await get_user_company_id(resolved_requesting_user_id)
+            target_company_id = company_id or await get_user_company_id(resolved_requesting_user_id)
             filtered_plans = []
             for plan in plans:
                 user_data = plan.get('users', {})
                 plan_company_id = user_data.get('company_id') if isinstance(user_data, dict) else None
-                if plan_company_id == user_company_id:
+                if str(plan_company_id) == str(target_company_id):
                     filtered_plans.append(plan)
             plans = filtered_plans
 
@@ -422,7 +423,18 @@ async def bulk_create_learning_plans(
 
         db = get_service_supabase_client()
         resolved_requesting_user_id = _resolve_app_user_id(db, requesting_user_id) or requesting_user_id
-        company_id = await get_user_company_id(resolved_requesting_user_id)
+        is_developer = await check_user_permission(resolved_requesting_user_id, "developer")
+        
+        user_ids = bulk_data["user_ids"]
+        module_ids = bulk_data["module_ids"]
+
+        company_id = bulk_data.get("company_id")
+        if not company_id and is_developer and user_ids:
+            u_resp = db.table("users").select("company_id").eq("user_id", user_ids[0]).maybe_single().execute()
+            if u_resp.data:
+                company_id = u_resp.data.get("company_id")
+        if not company_id:
+            company_id = await get_user_company_id(resolved_requesting_user_id)
 
         if not company_id:
             return {
@@ -431,10 +443,7 @@ async def bulk_create_learning_plans(
                 "error": "Unable to determine company."
             }
 
-        user_client = get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=company_id)
-
-        user_ids = bulk_data["user_ids"]
-        module_ids = bulk_data["module_ids"]
+        user_client = db if is_developer else get_user_supabase_client(user_id=resolved_requesting_user_id, company_id=company_id)
 
         ####################################################
         # STEP 3 - Load modules once

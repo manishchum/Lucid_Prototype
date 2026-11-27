@@ -111,12 +111,28 @@ async def check_user_permission(user_id: str, required_role: str) -> bool:
         # compute max level from assigned roles
         max_level = 0
         for a in assignments:
-            role = a.get('role') or {}
-            level = role.get('level') or 0
+            role_node = a.get('role') or {}
+            if isinstance(role_node, list) and role_node:
+                role_node = role_node[0]
+            if not isinstance(role_node, dict):
+                role_node = {}
+            level = role_node.get('level') or 0
             try:
                 level = int(level)
             except Exception:
                 level = 0
+            role_name = str(role_node.get('name') or a.get('name') or '').strip().lower().replace('-', '_').replace(' ', '_')
+            if 'developer' in role_name:
+                level = max(level, 6)
+            elif 'super_admin' in role_name or 'superadmin' in role_name or 'ceo' in role_name:
+                level = max(level, 4)
+            elif 'admin' in role_name or 'company_admin' in role_name:
+                level = max(level, 3)
+            elif 'manager' in role_name:
+                level = max(level, 2)
+            elif 'user' in role_name:
+                level = max(level, 1)
+
             if level > max_level:
                 max_level = level
 

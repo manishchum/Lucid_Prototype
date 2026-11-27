@@ -493,7 +493,7 @@ function isLucidStudioEnabled(addons: AddonKey[]) {
 export default function CompanyAccessPage() {
   const router = useRouter()
   const { user, loading: authLoading, isDeveloper, userId } = useAuth()
-  const { availableCompanies, loadingCompanies, isDeveloperMode, activeCompanyId, setActiveCompanyId } = useTenant()
+  const { availableCompanies, loadingCompanies, isDeveloperMode, activeCompanyId, setActiveCompanyId, updateCompanyInContext } = useTenant()
   const { toast } = useToast()
 
   const [companies, setCompanies] = useState<CompanyRecord[]>([])
@@ -734,6 +734,11 @@ export default function CompanyAccessPage() {
         )
         setDraftLanguages(savedLangs)
         setDraftPlatformType(draftPlatformType)
+        updateCompanyInContext?.(updatedCompany.company_id, {
+          ...updatedCompany,
+          subscription_addons: allItems,
+          platform_type: draftPlatformType,
+        })
       }
 
       setSuccess("Company access saved successfully.")

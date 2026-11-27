@@ -112,10 +112,13 @@ interface TrainingModule {
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL; 
 export default function EmployeesPage() {
   const router  = useRouter();
-  const { user, loading: authLoading, isAdmin, isSuperAdmin, userRoles } = useAuth();
-  const { hasFeature } = useTenant();
-  const isDeveloper = (userRoles || []).some((r: string) => (r || '').toUpperCase() === 'DEVELOPER');
+  const { user, loading: authLoading, isAdmin, isSuperAdmin, userRoles, refreshProfile } = useAuth();
+  const { hasFeature, activeCompanyId, activeCompany, isDeveloperMode, addCompanyToContext, refreshCompanies } = useTenant();
+  const isDeveloper = isDeveloperMode || (userRoles || []).some((r: string) => (r || '').toUpperCase() === 'DEVELOPER');
   const [admin, setAdmin] = useState<Admin | null>(null);
+
+  const effectiveCompanyId = (isDeveloper && activeCompanyId) ? activeCompanyId : (admin?.company_id || '');
+  const effectiveCompanyName = (isDeveloper && activeCompany?.name) ? activeCompany.name : (admin?.company_name || '');
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [functions, setFunctions] = useState<OrgFunction[]>([]);
@@ -172,10 +175,20 @@ export default function EmployeesPage() {
   }, [authLoading, user?.email]);
 
   useEffect(() => {
-    if (!admin?.company_id) return;
+    if (!effectiveCompanyId) return;
 
-    loadBootstrap(admin.company_id);
-  }, [admin?.company_id]);
+    // Reset selection and filter state on company switch to avoid cross-tenant contamination
+    setSelectedUsers([]);
+    setSelectedFunctions([]);
+    setSelectedSubFunctions([]);
+    setSelectedFunction('all');
+    setSelectedRole('all');
+    setSelectedStatus('all');
+    setSearchTerm('');
+    setCurrentPage(1);
+
+    loadBootstrap(effectiveCompanyId);
+  }, [effectiveCompanyId]);
 
   // Filter users when filters change
   useEffect(() => {
@@ -237,12 +250,12 @@ export default function EmployeesPage() {
         throw new Error('No active roles found');
       }
 
-      const hasAdminRole = assignments.some(
+      const hasAdminRole = isDeveloper || assignments.some(
         (assignment: any) =>
           assignment.role &&
           (
             assignment.role.level >= 3 ||
-            ['admin', 'super_admin', 'ceo']
+            ['admin', 'super_admin', 'superadmin', 'ceo', 'developer']
               .includes(
                 assignment.role.name?.toLowerCase()
               )
@@ -621,8 +634,8 @@ export default function EmployeesPage() {
       setUserToDelete(null);
       
       // Reload users from backend with forceRefresh to sync state
-      if (admin?.company_id) {
-        await loadBootstrap(admin.company_id, true, false);
+      if (effectiveCompanyId) {
+        await loadBootstrap(effectiveCompanyId, true, false);
       }
       
       // Scroll to top to see updated list
@@ -807,12 +820,12 @@ export default function EmployeesPage() {
               </CardHeader>
               <CardContent>
                 <UserBulkAdd
-                  companyId={admin.company_id}
-                  adminId={admin.user_id}
+                  companyId={effectiveCompanyId}
+                  adminId={admin?.user_id || ''}
                   functions={functions}
                   roles={roles}
                   onSuccess={() => {
-                    loadBootstrap(admin.company_id, true);
+                    loadBootstrap(effectiveCompanyId, true);
                     setSuccess("Users uploaded successfully!");
                     // Scroll to top to see the new users
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1399,8 +1412,8 @@ export default function EmployeesPage() {
           learningPlans={learningPlans}
           users={users}
           trainingModules={trainingModules}
-          companyId={admin.company_id}
-          onAssignmentChange={() => loadLearningPlans(admin.company_id)}
+          companyId={effectiveCompanyId}
+          onAssignmentChange={() => loadLearningPlans(effectiveCompanyId)}
           onSuccess={setSuccess}
           onError={setError}
         />
@@ -1410,16 +1423,21 @@ export default function EmployeesPage() {
       <AddUserModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        companyId={admin.company_id}
-        companyName={admin.company_name || ''}
-        adminId={admin.user_id}
+        companyId={effectiveCompanyId}
+        companyName={effectiveCompanyName}
+        adminId={admin?.user_id || ''}
         functions={functions}
         roles={roles}
         isAdmin={isAdmin}
         isSuperAdmin={isSuperAdmin}
         isDeveloper={isDeveloper}
+        onCompanyCreated={(comp: any) => {
+          addCompanyToContext?.(comp);
+          refreshCompanies?.();
+          refreshProfile?.();
+        }}
         onSuccess={() => {
-          loadBootstrap(admin.company_id, true);
+          loadBootstrap(effectiveCompanyId, true);
           setSuccess("User added successfully!");
           setShowAddModal(false);
           // Scroll to top to see the new user
@@ -1433,8 +1451,8 @@ export default function EmployeesPage() {
           isOpen={showUpdateModal}
           onClose={() => setShowUpdateModal(false)}
           employee={selectedEmployee}
-          adminId={admin.user_id}
-          companyName={admin.company_name || ''}
+          adminId={admin?.user_id || ''}
+          companyName={effectiveCompanyName}
           isAdmin={isAdmin}
           isSuperAdmin={isSuperAdmin}
           isDeveloper={isDeveloper}
@@ -1442,7 +1460,7 @@ export default function EmployeesPage() {
           functions={functions}
           roles={roles}
           onSuccess={() => {
-            loadBootstrap(admin.company_id, true);
+            loadBootstrap(effectiveCompanyId, true);
             setSuccess("Employee updated successfully!");
             setShowUpdateModal(false);
             // Scroll to top to see the updated employee
@@ -1494,10 +1512,10 @@ export default function EmployeesPage() {
         selectedUsers={selectedUsers}
         users={users}
         trainingModules={trainingModules}
-        companyId={admin.company_id}
-        adminId={admin.user_id}
+        companyId={effectiveCompanyId}
+        adminId={admin?.user_id || ''}
         onSuccess={() => {
-          loadLearningPlans(admin.company_id);
+          loadLearningPlans(effectiveCompanyId);
           setSuccess("Modules assigned successfully!");
           setShowBulkAssignModal(false);
           setSelectedUsers([]);
@@ -2149,7 +2167,7 @@ function UserBulkAdd({ companyId, adminId, functions, roles, onSuccess, onError 
   );
 }
 
-function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functions, roles, isAdmin, isSuperAdmin, isDeveloper, onSuccess }: any) {
+function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functions, roles, isAdmin, isSuperAdmin, isDeveloper, onCompanyCreated, onSuccess }: any) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -2567,6 +2585,7 @@ function AddUserModal({ isOpen, onClose, companyId, companyName, adminId, functi
         return next;
       });
       setSelectedCompanyId(createdCompany.company_id);
+      onCompanyCreated?.(createdCompany);
       setFormData(prev => ({ ...prev, company_name: createdCompany.name || prev.company_name }));
       setNewCompanyName('');
       setNewCompanyDomain('');
@@ -3295,6 +3314,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
         body: JSON.stringify({
           user_ids: assignableUsers,
           module_ids: selectedModules,
+          company_id: companyId,
           due_date: dueDate || null,
           baseline_settings: moduleBaselineSettings,
           
@@ -3597,6 +3617,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
           body: JSON.stringify({
             user_ids: selectedUsers,
             module_ids: selectedModules,
+            company_id: companyId,
             due_date: dueDate || null,
             baseline_settings: moduleBaselineSettings,
             status: "ASSIGNED",

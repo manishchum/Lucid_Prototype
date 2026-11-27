@@ -631,12 +631,10 @@ async def get_effective_company_id(
 	from utils.db.permissions import check_user_permission
 	try:
 		is_developer = await check_user_permission(auth_ctx.user_id, "developer")
-		is_admin = await check_user_permission(auth_ctx.user_id, "super_admin")
 	except Exception:
 		is_developer = False
-		is_admin = False
 
-	if is_developer or is_admin:
+	if is_developer:
 		set_current_user_context(
 			user_id=auth_ctx.user_id,
 			company_id=str(requested_company_id),

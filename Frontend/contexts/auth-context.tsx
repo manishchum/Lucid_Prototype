@@ -661,6 +661,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (profile) {
                   writeCachedProfile(profile);
               }
+          } else {
+              // SWR revalidation: revalidate in background so newly created companies or role changes are reflected
+              loadCachedFullProfile(effectiveUser).then((freshProfile) => {
+                if (freshProfile) {
+                  writeCachedProfile(freshProfile);
+                  if (freshProfile.tenant) setInitialTenantData(freshProfile.tenant);
+                  if (freshProfile.notifications) setInitialNotificationsData(freshProfile.notifications);
+                }
+              }).catch(() => {});
           }
 
           if (profile !== undefined) {

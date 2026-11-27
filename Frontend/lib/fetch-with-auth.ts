@@ -116,6 +116,28 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   if (shouldRegisterSession) {
     headers.set("X-Register-Session", "true");
   }
+
+  // Ensure active tenant company header is forwarded if available in localStorage
+  if (!headers.has("X-Company-ID") && typeof window !== "undefined") {
+    try {
+      let activeCompany = window.localStorage.getItem("lucid:active-company");
+      if (!activeCompany) {
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const key = window.localStorage.key(i);
+          if (key && key.startsWith("lucid:active-company:")) {
+            const val = window.localStorage.getItem(key);
+            if (val) {
+              activeCompany = val;
+              break;
+            }
+          }
+        }
+      }
+      if (activeCompany) {
+        headers.set("X-Company-ID", activeCompany);
+      }
+    } catch {}
+  }
   // console.log(
   //   "[AUTH CHECK]",
   //   {
