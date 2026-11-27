@@ -9,8 +9,126 @@ function toHeaders(headers?: HeadersInit): Headers {
   return new Headers(headers || {});
 }
 
+/**
+ * Safely parses the expiration timestamp (in milliseconds) from a JWT string.
+ */
+export function parseJwtExpMs(token: string): number | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const parsed = JSON.parse(jsonPayload);
+    return typeof parsed.exp === "number" ? parsed.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks whether an error from Firebase or network fetch is a transient network failure.
+ */
+export function isTransientNetworkError(err: any): boolean {
+  if (!err) return false;
+  const code = String(err.code || "").toLowerCase();
+  const message = String(err.message || "").toLowerCase();
+  return (
+    code === "auth/network-request-failed" ||
+    code === "auth/timeout" ||
+    message.includes("network-request-failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed") ||
+    message.includes("timeout") ||
+    message.includes("aborted")
+  );
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Waits for browser connectivity if navigator.onLine is false, up to maxWaitMs.
+ */
+async function waitForOnline(maxWaitMs: number = 3000): Promise<boolean> {
+  if (typeof navigator === "undefined" || navigator.onLine) {
+    return true;
+  }
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(false);
+    }, maxWaitMs);
+
+    const onOnline = () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(true);
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", onOnline);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", onOnline);
+    }
+  });
+}
+
+/**
+ * Calls user.getIdToken() with exponential backoff and jitter on transient network errors.
+ */
+async function fetchUserTokenWithRetry(
+  user: User,
+  forceRefresh: boolean,
+  maxRetries: number = 3
+): Promise<string> {
+  let baseDelay = 400;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await waitForOnline(3000);
+      }
+      return await user.getIdToken(forceRefresh);
+    } catch (err: any) {
+      const isTransient = isTransientNetworkError(err);
+      if (!isTransient || attempt === maxRetries) {
+        throw err;
+      }
+
+      // Exponential backoff with ±25% random jitter
+      const jittered = baseDelay * (0.75 + Math.random() * 0.5);
+      console.warn(
+        `[fetch-with-auth] getIdToken(force=${forceRefresh}) network glitch (attempt ${attempt}/${maxRetries}), retrying in ${Math.round(jittered)}ms:`,
+        err?.message || err
+      );
+      await waitMs(jittered);
+      baseDelay *= 2;
+    }
+  }
+
+  throw new Error("Failed to retrieve ID token after retries");
+}
+
 let inFlightAuthReady: Promise<User | null> | null = null;
 let inFlightTokenPromise: Promise<string> | null = null;
+let inFlightRefreshPromise: Promise<string> | null = null;
 let cachedIdToken: { token: string; expiresAt: number } | null = null;
 
 export function invalidateCachedIdToken(): void {
@@ -21,7 +139,7 @@ export async function resolveCurrentUser(): Promise<User | null> {
   if (!auth) return null;
   if (auth.currentUser) return auth.currentUser;
 
-  // Singleflight deduplication: all concurrent requests across the page share the same hydration promise
+  // Singleflight deduplication: all concurrent requests share the same hydration promise
   if (inFlightAuthReady) return inFlightAuthReady;
 
   inFlightAuthReady = (async () => {
@@ -59,12 +177,59 @@ export async function resolveCurrentUser(): Promise<User | null> {
 }
 
 /**
- * Returns an Authorization bearer token from Firebase auth when available.
- * Deduplicates in-flight calls and caches valid tokens in memory for 5 minutes.
+ * Orchestrates a forced token refresh across in-flight calls and browser tabs.
+ * Uses Web Locks API (lucid:token-refresh) with double-check pattern so only one tab hits Google.
  */
-export async function getFirebaseIdToken(): Promise<string> {
+async function executeTokenRefresh(user: User): Promise<string> {
+  if (inFlightRefreshPromise) {
+    return inFlightRefreshPromise;
+  }
+
+  inFlightRefreshPromise = (async () => {
+    try {
+      let refreshed = "";
+
+      if (typeof navigator !== "undefined" && (navigator as any).locks?.request) {
+        refreshed = await (navigator as any).locks.request("lucid:token-refresh", async () => {
+          // Double-check: another tab might have refreshed it while this tab waited for the lock
+          try {
+            const candidate = await user.getIdToken(false);
+            const exp = parseJwtExpMs(candidate);
+            if (exp && exp - Date.now() > 60_000) {
+              return candidate;
+            }
+          } catch {}
+
+          return await fetchUserTokenWithRetry(user, true);
+        });
+      } else {
+        refreshed = await fetchUserTokenWithRetry(user, true);
+      }
+
+      const exp = parseJwtExpMs(refreshed);
+      // Cache for at most 5 minutes, but never beyond (exp - 60 seconds)
+      const safeExpiry = exp
+        ? Math.min(Date.now() + 5 * 60 * 1000, exp - 60_000)
+        : Date.now() + 5 * 60 * 1000;
+
+      cachedIdToken = { token: refreshed, expiresAt: safeExpiry };
+      return refreshed;
+    } finally {
+      inFlightRefreshPromise = null;
+    }
+  })();
+
+  return inFlightRefreshPromise;
+}
+
+/**
+ * Returns an Authorization bearer token from Firebase auth when available.
+ * Deduplicates in-flight calls, proactively refreshes expiring tokens,
+ * and retries on transient network errors.
+ */
+export async function getFirebaseIdToken(forceRefresh: boolean = false): Promise<string> {
   const now = Date.now();
-  if (cachedIdToken && cachedIdToken.expiresAt > now) {
+  if (!forceRefresh && cachedIdToken && cachedIdToken.expiresAt > now) {
     return cachedIdToken.token;
   }
 
@@ -76,24 +241,45 @@ export async function getFirebaseIdToken(): Promise<string> {
     try {
       const user = await resolveCurrentUser();
       if (!user) {
-        console.warn("[fetch-with-auth] No authenticated user found when attempting to get Firebase ID token");
         return "";
       }
 
+      if (forceRefresh) {
+        return await executeTokenRefresh(user);
+      }
+
       try {
-        const token = await user.getIdToken();
-        cachedIdToken = { token, expiresAt: Date.now() + 5 * 60 * 1000 };
-        return token;
-      } catch (error) {
-        console.warn("[fetch-with-auth] Initial getIdToken failed, retrying forced refresh", error);
-        try {
-          const refreshedToken = await user.getIdToken(true);
-          cachedIdToken = { token: refreshedToken, expiresAt: Date.now() + 5 * 60 * 1000 };
-          return refreshedToken;
-        } catch (refreshError) {
-          console.error("[fetch-with-auth] Failed to retrieve Firebase ID token", refreshError);
-          return "";
+        const token = await fetchUserTokenWithRetry(user, false);
+        const exp = parseJwtExpMs(token);
+
+        // Proactive refresh: if token has < 60 seconds remaining or is expired, refresh now
+        if (exp && exp - Date.now() <= 60_000) {
+          return await executeTokenRefresh(user);
         }
+
+        const safeExpiry = exp
+          ? Math.min(Date.now() + 5 * 60 * 1000, exp - 60_000)
+          : Date.now() + 5 * 60 * 1000;
+
+        cachedIdToken = { token, expiresAt: safeExpiry };
+        return token;
+      } catch (err: any) {
+        if (isTransientNetworkError(err)) {
+          // If we already have a cached token that is not expired yet, fall back to it
+          if (cachedIdToken?.token) {
+            const exp = parseJwtExpMs(cachedIdToken.token);
+            if (!exp || exp > Date.now()) {
+              console.warn("[fetch-with-auth] Network error refreshing token, falling back to existing cached token");
+              return cachedIdToken.token;
+            }
+          }
+          // Do NOT return empty string if the user is authenticated! Re-throw so callers don't make unauthenticated requests
+          throw err;
+        }
+
+        console.warn("[fetch-with-auth] Terminal auth error during token retrieval:", err);
+        invalidateCachedIdToken();
+        return "";
       }
     } finally {
       inFlightTokenPromise = null;
@@ -105,10 +291,20 @@ export async function getFirebaseIdToken(): Promise<string> {
 
 /**
  * Fetch wrapper that injects Firebase JWT into Authorization header.
- * Handles 401 Unauthorized by attempting a token refresh and retrying once.
+ * Handles proactive refresh, network retry, and 401 Unauthorized token recovery.
  */
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = await getFirebaseIdToken();
+  let token = "";
+  try {
+    token = await getFirebaseIdToken();
+  } catch (tokenErr: any) {
+    if (isTransientNetworkError(tokenErr)) {
+      console.warn("[fetch-with-auth] Aborting request due to network error obtaining token:", { url, error: tokenErr.message });
+      throw new TypeError(`Failed to fetch: Network offline or error while refreshing token (${tokenErr.message})`);
+    }
+    throw tokenErr;
+  }
+
   const shouldRegisterSession = Boolean((options as any).registerSession);
   const headers = toHeaders(options.headers);
   headers.set("X-Device-ID", getDeviceId());
@@ -138,13 +334,6 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
       }
     } catch {}
   }
-  // console.log(
-  //   "[AUTH CHECK]",
-  //   {
-  //     currentUser: !!auth?.currentUser,
-  //     tokenExists: !!token
-  //   }
-  // );
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -169,13 +358,6 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     ...options,
     headers,
   });
-
-  // console.log(
-  //   "[FETCH]",
-  //   options.method || "GET",
-  //   url,
-  //   response.status
-  // );
 
   // Handle 401 Session_Replaced or Session_Expired cleanly without retry loops
   if (response.status === 401) {
@@ -215,135 +397,110 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     );
   }
 
-  // If the backend says the token is invalid (401), force a refresh once
+  // If the backend returns 401, force a refresh once with retry & locks
   if (response.status === 401) {
-    try {
-      const errClone = response.clone();
-      const errText = await errClone.text();
-      if (errText.includes("Session_Replaced")) {
-        console.warn("[fetch-with-auth] Session_Replaced detected on 401, logging out silently without retry", { url });
-        window.dispatchEvent(
-          new CustomEvent("lucid:auth:force-logout", {
-            detail: { reason: "session_replaced" }
-          })
-        );
-        return response;
-      }
-    } catch {
-      // ignore clone read error
-    }
-
     invalidateCachedIdToken();
     console.warn("[fetch-with-auth] Received 401, forcing token refresh and retrying", { url });
-    try {
-      const currentUser = auth?.currentUser;
 
-      if (!currentUser) {
-        console.error(
-          "[fetch-with-auth] Cannot refresh token because currentUser is null"
-        );
-
-        if (typeof window !== "undefined") {
-          const path = window.location.pathname;
-          if (path !== "/login" && path !== "/" && path !== "/signup") {
-            window.dispatchEvent(
-              new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
-            );
-          }
-        }
-
-        return response;
-      }
-
-      let refreshedToken = "";
-      if (typeof navigator !== "undefined" && (navigator as any).locks) {
-        refreshedToken = await (navigator as any).locks.request("lucid:token-refresh", async () => {
-          return await currentUser.getIdToken(true);
-        });
-      } else {
-        refreshedToken = await currentUser.getIdToken(true);
-      }
-      cachedIdToken = { token: refreshedToken, expiresAt: Date.now() + 5 * 60 * 1000 };
-      
-      const retryHeaders =
-        toHeaders(options.headers);
-
-      retryHeaders.set("X-Device-ID", getDeviceId());
-      retryHeaders.set("X-Platform", "web");
-      if (shouldRegisterSession) {
-        retryHeaders.set("X-Register-Session", "true");
-      }
-      retryHeaders.set(
-        "Authorization",
-        `Bearer ${refreshedToken}`
-      );
-
-      if (options.body && typeof options.body === "string" && !retryHeaders.has("Content-Type")) {
-        retryHeaders.set("Content-Type", "application/json");
-      }
-
-      delete (options as any).registerSession;
-
-      response = await fetch(url, {
-        ...options,
-        headers: retryHeaders,
-      });
-
-      console.log(
-        "[FETCH RETRY]",
-        options.method || "GET",
-        url,
-        response.status
-      );
-
-      let retryErrText = "";
-      if (!response.ok) {
-        try {
-          retryErrText = await response.clone().text();
-        } catch {}
-        if (!retryErrText.includes("Session_Replaced")) {
-          console.error(
-            "[FETCH RETRY FAILED]",
-            options.method || "GET",
-            url,
-            response.status,
-            retryErrText
+    const currentUser = auth?.currentUser;
+    if (!currentUser) {
+      console.error("[fetch-with-auth] Cannot refresh token because currentUser is null");
+      if (typeof window !== "undefined") {
+        const path = window.location.pathname;
+        if (path !== "/login" && path !== "/" && path !== "/signup") {
+          window.dispatchEvent(
+            new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
           );
         }
       }
-
-      if (response.status === 401) {
-        try {
-          const errText = await response.clone().text();
-          const isSessionReplaced = errText.includes("Session_Replaced");
-          if (!auth?.currentUser || isSessionReplaced) {
-            console.warn("[fetch-with-auth] Unrecoverable 401 detected, dispatching force-logout", { url, errText });
-            window.dispatchEvent(
-              new CustomEvent("lucid:auth:force-logout", {
-                detail: { reason: isSessionReplaced ? "session_replaced" : "unauthorized" }
-              })
-            );
-          } else {
-            console.warn("[fetch-with-auth] Retry returned 401, preserving user session", { url, errText });
-          }
-        } catch {
-          if (!auth?.currentUser) {
-            window.dispatchEvent(
-              new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
-            );
-          }
-        }
-      }
+      return response;
     }
-    catch (refreshErr) {
-      console.error(
-        "[fetch-with-auth] Retry token refresh failed",
-        refreshErr
-      );
-      if (!auth?.currentUser) {
+
+    let refreshedToken = "";
+    try {
+      refreshedToken = await executeTokenRefresh(currentUser);
+    } catch (refreshErr: any) {
+      console.error("[fetch-with-auth] Retry token refresh failed:", refreshErr);
+      if (isTransientNetworkError(refreshErr)) {
+        // DO NOT log out user on network connection drops!
+        console.warn("[fetch-with-auth] Preserving session despite refresh error (transient network failure)");
+        return response;
+      }
+      // If it is an explicit auth revocation error from Firebase, force logout
+      if (!auth?.currentUser || refreshErr?.code?.startsWith("auth/")) {
         window.dispatchEvent(
           new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
         );
+      }
+      return response;
+    }
+
+    if (!refreshedToken) {
+      return response;
+    }
+
+    const retryHeaders = toHeaders(options.headers);
+    retryHeaders.set("X-Device-ID", getDeviceId());
+    retryHeaders.set("X-Platform", "web");
+    if (shouldRegisterSession) {
+      retryHeaders.set("X-Register-Session", "true");
+    }
+    retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+
+    if (options.body && typeof options.body === "string" && !retryHeaders.has("Content-Type")) {
+      retryHeaders.set("Content-Type", "application/json");
+    }
+
+    delete (options as any).registerSession;
+
+    response = await fetch(url, {
+      ...options,
+      headers: retryHeaders,
+    });
+
+    console.log(
+      "[FETCH RETRY]",
+      options.method || "GET",
+      url,
+      response.status
+    );
+
+    let retryErrText = "";
+    if (!response.ok) {
+      try {
+        retryErrText = await response.clone().text();
+      } catch {}
+      if (!retryErrText.includes("Session_Replaced")) {
+        console.error(
+          "[FETCH RETRY FAILED]",
+          options.method || "GET",
+          url,
+          response.status,
+          retryErrText
+        );
+      }
+    }
+
+    if (response.status === 401) {
+      try {
+        const errText = await response.clone().text();
+        const isSessionReplaced = errText.includes("Session_Replaced");
+        if (!auth?.currentUser || isSessionReplaced) {
+          console.warn("[fetch-with-auth] Unrecoverable 401 detected on retry, dispatching force-logout", { url, errText });
+          window.dispatchEvent(
+            new CustomEvent("lucid:auth:force-logout", {
+              detail: { reason: isSessionReplaced ? "session_replaced" : "unauthorized" }
+            })
+          );
+        } else {
+          console.warn("[fetch-with-auth] Retry returned 401, preserving user session", { url, errText });
+        }
+      } catch {
+        if (!auth?.currentUser) {
+          window.dispatchEvent(
+            new CustomEvent("lucid:auth:force-logout", { detail: { reason: "unauthorized" } })
+          );
+        }
       }
     }
   }

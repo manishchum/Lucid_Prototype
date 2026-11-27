@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
-import { fetchWithAuth, getFirebaseIdToken } from "@/lib/fetch-with-auth"
+import { fetchWithAuth, getFirebaseIdToken, isTransientNetworkError } from "@/lib/fetch-with-auth"
 import { getDeviceId } from "@/lib/device"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
@@ -217,7 +217,16 @@ const loadCachedFullProfile = async (
   if (!authUser?.email) return null
 
   // Check if a valid Firebase token exists before attempting to fetch
-  const token = await getFirebaseIdToken()
+  let token = ""
+  try {
+    token = await getFirebaseIdToken()
+  } catch (err: any) {
+    if (isTransientNetworkError(err)) {
+      console.warn("[auth-context] Profile fetch deferred due to network error obtaining token:", err?.message || err)
+      return undefined // Preserves existing cached profile
+    }
+    throw err
+  }
   if (!token) {
     return null
   }
@@ -951,15 +960,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    let wakeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleVisibilityChange = () => {
+      checkInactivity();
+      if (typeof document !== "undefined" && document.visibilityState === "visible" && auth?.currentUser) {
+        if (wakeDebounceTimer) clearTimeout(wakeDebounceTimer);
+        // Pre-warm/refresh token 300ms after tab wakes up so network sockets are ready
+        wakeDebounceTimer = setTimeout(() => {
+          if (document.visibilityState === "visible" && auth?.currentUser) {
+            getFirebaseIdToken().catch(() => {});
+          }
+        }, 300);
+      }
+    };
+
     const intervalId = setInterval(checkInactivity, 30_000);
     window.addEventListener("focus", checkInactivity);
-    document.addEventListener("visibilitychange", checkInactivity);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       activityEvents.forEach((evt) => window.removeEventListener(evt, recordActivity));
       clearInterval(intervalId);
+      if (wakeDebounceTimer) clearTimeout(wakeDebounceTimer);
       window.removeEventListener("focus", checkInactivity);
-      document.removeEventListener("visibilitychange", checkInactivity);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [user?.uid]);
 
