@@ -99,6 +99,7 @@ def _resolve_user_name(user_id: Optional[str], auth: RequestAuth, explicit_name:
 @router.post("/chat")
 async def chat_with_coach(
     payload: CoachChatRequest,
+    request: Request,
     auth: RequestAuth = Depends(get_request_auth_required),
     effective_company_id: str = Depends(get_effective_company_id)
 ):
