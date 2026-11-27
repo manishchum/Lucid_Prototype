@@ -120,12 +120,22 @@ def classify_column_sensitivity(column_name: str) -> str:
     norm = _normalize_col(column_name)
     if not norm:
         return "internal"
+    norm_parts = set(norm.split("_"))
     for kw in _HR_CONFIDENTIAL_COLUMNS:
-        if kw in norm:
-            return "hr_confidential"
+        # Match whole word/token or exact match (prevents 'pan' matching inside 'company')
+        if "_" in kw:
+            if kw in norm:
+                return "hr_confidential"
+        else:
+            if kw in norm_parts or norm == kw:
+                return "hr_confidential"
     for kw in _MANAGER_RESTRICTED_COLUMNS:
-        if kw in norm:
-            return "manager_restricted"
+        if "_" in kw:
+            if kw in norm:
+                return "manager_restricted"
+        else:
+            if kw in norm_parts or norm == kw:
+                return "manager_restricted"
     return "internal"
 
 

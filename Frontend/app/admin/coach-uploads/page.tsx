@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
+import { useTenant } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { 
   Upload, 
@@ -193,7 +194,8 @@ export default function CoachUploadsPage() {
   }, [])
 
   const { employeeData, user: authUser, isAdmin, isSuperAdmin, isDeveloper, isManager, isManagerofUsers, rolesLoaded, loading: authLoading } = useAuth()
-  const companyId = employeeData?.company_id
+  const { activeCompanyId } = useTenant()
+  const companyId = activeCompanyId || employeeData?.company_id
   const isAdminOrAbove = isAdmin || isSuperAdmin || isDeveloper
   const isManagerOrAbove = isAdminOrAbove || isManager || isManagerofUsers
   const hasAccess = isManagerOrAbove
@@ -637,8 +639,11 @@ export default function CoachUploadsPage() {
       // 2. Query Preflight Check API
       const preflightRes = await fetchWithAuth(`${API_BASE}/api/coach/preflight-check`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: preflightItems })
+        headers: {
+          "Content-Type": "application/json",
+          ...(companyId ? { "X-Company-ID": companyId } : {})
+        },
+        body: JSON.stringify({ items: preflightItems, company_id: companyId })
       })
 
       if (!preflightRes.ok) {
@@ -712,6 +717,9 @@ export default function CoachUploadsPage() {
           formData.append("manual_description", manualDescription.trim())
         }
         formData.append("conflict_mode", mode)
+        if (companyId) {
+          formData.append("company_id", companyId)
+        }
         if (existingDocId && mode === "overwrite") {
           formData.append("existing_doc_id", existingDocId)
         }

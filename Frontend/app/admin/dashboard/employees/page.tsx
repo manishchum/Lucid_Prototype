@@ -3911,7 +3911,7 @@ function BulkModuleAssignmentModal({ isOpen, onClose, selectedUsers, users, trai
               <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
                 <h3 className="font-medium text-gray-900 mb-2">Assignment Summary</h3>
                 <p className="text-sm text-gray-600">
-                  You are about to assign <strong>{selectedModules.length}</strong> module{selectedModules.length === 1 ? '' : 's'} 
+                  You are about to assign <strong>{selectedModules.length}</strong> module {selectedModules.length === 1 ? '' : 's'} 
                   to <strong>{selectedUsers.length}</strong> user{selectedUsers.length === 1 ? '' : 's'}.
                 </p>
                 <p className="text-sm text-gray-600 mt-1">

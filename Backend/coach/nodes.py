@@ -400,15 +400,25 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets", "what integrations", "connected integrations", "connected tools", "connected sources", "what connectors"]):
         return _route("CATALOG", "User requested document catalog or connected integrations inventory.")
 
-    # Extract dynamic column match tokens from all_cols
+    # Extract dynamic column match tokens from all_cols with singular/plural support
     col_tokens = set()
     for col in all_cols:
         clean_c = re.sub(r"[^a-zA-Z0-9\s]", " ", col.lower()).strip()
         if clean_c:
             col_tokens.add(clean_c)
+            # Add plural and singular variants of full column phrase
+            if clean_c.endswith("s") and len(clean_c) > 3:
+                col_tokens.add(clean_c[:-1])
+            else:
+                col_tokens.add(clean_c + "s")
+
             for part in clean_c.split():
                 if len(part) >= 3 and part not in {"and", "the", "for", "with", "from", "date"}:
                     col_tokens.add(part)
+                    if part.endswith("s") and len(part) > 3:
+                        col_tokens.add(part[:-1])
+                    else:
+                        col_tokens.add(part + "s")
 
     # Heuristic fast-path 1B: Connected Cloud Integrations detection
     active_integrations = state.get("active_integrations", [])
@@ -479,10 +489,22 @@ def router_node(state: CoachState) -> Dict[str, Any]:
             break
 
     if matched_doc:
-        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
-        if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
-            return _route("HYBRID", f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns.")
-        return _route("RAG", f"Query mentions uploaded document '{matched_doc.get('file_name')}'.")
+        doc_ext = (matched_doc.get("file_type") or "").lower()
+        is_spreadsheet_doc = doc_ext in ["xlsx", "xls", "csv"]
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%", "how many", "which", "list", "who"]
+        summary_words = ["summary", "summarize", "overview", "what is this", "tell me about this document", "explain document"]
+
+        if is_spreadsheet_doc and has_sheets:
+            # If the user specifically asks for qualitative prose summary of a spreadsheet file
+            if any(sw in q_lower for sw in summary_words) and not any(mw in q_lower for mw in ["how many", "sum", "total", "cases", "count", "list"]):
+                return _route("HYBRID", f"User requested document summary of spreadsheet '{matched_doc.get('file_name')}'.")
+            # If user asks data questions on this spreadsheet, route to SQL
+            if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
+                return _route("SQL", f"Query mentions spreadsheet document '{matched_doc.get('file_name')}' alongside data metrics/columns.")
+        else:
+            if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
+                return _route("HYBRID", f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns.")
+            return _route("RAG", f"Query mentions uploaded document '{matched_doc.get('file_name')}'.")
 
     # Heuristic fast-path 2B: Company Policies, Guidelines, Strategy, Tasks & Document Inquiries
     doc_concept_terms = [
@@ -501,13 +523,30 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     # Heuristic fast-path 3: Schema-Aware Entity & Dimension Detection
     # If the user asks for insights, details, performance, breakdown, list, or status of an entity or column from the spreadsheet:
     query_mentions_column = any(f" {ct} " in f" {q_lower} " or q_lower.startswith(ct) or q_lower.endswith(ct) for ct in col_tokens)
-    entity_inquiry_phrases = ["insights of", "insights for", "details of", "details for", "performance of", "breakdown of", "status of", "list of", "list all", "show me", "records of", "give me insights", "who is", "which is"]
+    entity_inquiry_phrases = [
+        "insights of", "insights for", "details of", "details for", "performance of",
+        "breakdown of", "status of", "list of", "list all", "show me", "records of",
+        "give me insights", "give me the list", "give me list", "who is", "who are", "which is", "which are"
+    ]
 
     if has_sheets and query_mentions_column:
-        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
+        math_words = [
+            "sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount",
+            "target", "top", "rank", "percentage", "%", "highest", "lowest", "most", "least", "dealing"
+        ]
         is_entity_inquiry = any(p in q_lower for p in entity_inquiry_phrases) or any(mw in q_lower for mw in math_words)
         if is_entity_inquiry:
             return _route("SQL", "Query references active spreadsheet columns/entities for data retrieval.")
+
+    # Heuristic fast-path 3B: Aggregated Entity / Quantitative Inquiries without explicit column exact match
+    if has_sheets:
+        data_inquiry_patterns = [
+            r"\b(how many|how much|total|sum of|average of|count of)\b",
+            r"\b(which|who)\b.*\b(most|highest|top|leading|lowest|least|maximum|minimum)\b",
+            r"\b(list of all|list all|give me (all|the list)|who are all|who is dealing|who are dealing)\b"
+        ]
+        if any(bool(re.search(pat, q_lower)) for pat in data_inquiry_patterns):
+            return _route("SQL", "Query asks for tabular aggregation, entity breakdown, or ranking on spreadsheet data.")
 
     # Heuristic fast-path 4: Informational / Explanation questions (strictly for general documents when no spreadsheet entity is mentioned)
     info_triggers = ["what is", "tell me about", "summary of", "summarize", "explain", "how does", "what are"]
@@ -590,6 +629,11 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
     schema_prompt = state.get("schema_prompt", "")
     emp_name = state.get("target_employee_name")
 
+    print("\n" + "="*80)
+    print(f"[COACH SQL GENERATOR] >>> USER QUERY: {user_query}")
+    print(f"[COACH SQL GENERATOR] >>> SCHEMA SENT TO LLM:\n{schema_prompt}")
+    print("="*80)
+
     res = generate_coach_sql(
         user_query=user_query,
         company_id=company_id,
@@ -597,8 +641,34 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
         target_employee_name=emp_name
     )
 
+    generated_sql = res.get("sql_query")
+
+    # Post-processing safeguard: Strip any hallucinated sheet_name that doesn't exist in the database
+    if generated_sql:
+        try:
+            # Extract valid sheet names from schema_prompt
+            valid_sheets_match = re.search(r"VALID SHEET NAMES IN DATABASE:\s*\[(.*?)\]", schema_prompt)
+            if valid_sheets_match:
+                raw_valid = valid_sheets_match.group(1)
+                valid_sheets = {s.strip().strip("'\"") for s in raw_valid.split(",") if s.strip()}
+                sheet_filter_pat = re.compile(r"(?i)\s+AND\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'([^']+)'\s*\)?")
+                m = sheet_filter_pat.search(generated_sql)
+                if m:
+                    queried_sheet = m.group(1).strip()
+                    if queried_sheet not in valid_sheets:
+                        print(f"[COACH SQL GENERATOR] Detected hallucinated sheet_name '{queried_sheet}'. Auto-stripping to allow query to match target columns.")
+                        generated_sql = sheet_filter_pat.sub("", generated_sql)
+                        generated_sql = re.sub(r"\s{2,}", " ", generated_sql).strip()
+        except Exception as filter_err:
+            print(f"[COACH SQL GENERATOR] Note on sheet filter sanitation: {filter_err}")
+
+    print("\n" + "-"*80)
+    print(f"[COACH SQL GENERATOR] >>> GENERATED SQL QUERY:\n{generated_sql}")
+    print(f"[COACH SQL GENERATOR] >>> EXPLANATION: {res.get('explanation')}")
+    print("-"*80 + "\n")
+
     return {
-        "sql_query": res.get("sql_query"),
+        "sql_query": generated_sql,
         "sql_explanation": res.get("explanation"),
         "sql_error": None
     }
@@ -610,11 +680,52 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
     sql_query = state.get("sql_query") or ""
     security_ctx = state.get("security_ctx")
 
+    print("\n" + "-"*80)
+    print(f"[COACH SQL EXECUTOR] >>> EXECUTING SQL:\n{sql_query}")
+    sec_summary = _get_sec_summary(state)
+    print(f"[COACH SQL EXECUTOR] >>> SECURITY CTX: role_level={sec_summary.get('role_level')}, is_admin={sec_summary.get('is_admin')}, user_id={sec_summary.get('user_id')}")
+
     exec_res = execute_coach_sql(company_id=company_id, sql_query=sql_query, security_ctx=security_ctx)
     current_retry = state.get("sql_retry_count", 0)
 
+    # Self-healing fallback: If query executed successfully but returned 0 rows or NULL aggregation,
+    # and the query had a restrictive sheet_name filter, retry automatically without sheet_name!
+    rows_sample = exec_res.get("rows", [])
+    is_null_aggregate = (
+        len(rows_sample) == 1 and
+        isinstance(rows_sample[0], dict) and
+        all(v is None for v in rows_sample[0].values())
+    )
+    is_empty_result = len(rows_sample) == 0 or is_null_aggregate
+
+    sheet_filter_pat = re.compile(r"(?i)\s+AND\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'[^']+'\s*\)?")
+    if exec_res.get("success") and is_empty_result and sheet_filter_pat.search(sql_query):
+        broader_query = sheet_filter_pat.sub("", sql_query)
+        broader_query = re.sub(r"\s{2,}", " ", broader_query).strip()
+        print(f"[COACH SQL EXECUTOR] Zero rows returned with sheet filter. Retrying with multi-sheet scope:\n{broader_query}")
+        retry_res = execute_coach_sql(company_id=company_id, sql_query=broader_query, security_ctx=security_ctx)
+        if retry_res.get("success") and retry_res.get("rows"):
+            retry_null = (
+                len(retry_res["rows"]) == 1 and
+                isinstance(retry_res["rows"][0], dict) and
+                all(v is None for v in retry_res["rows"][0].values())
+            )
+            if not retry_null:
+                print(f"[COACH SQL EXECUTOR] Fallback succeeded! Returned {retry_res.get('row_count')} rows across sheets.")
+                exec_res = retry_res
+                sql_query = broader_query
+
+    print(f"[COACH SQL EXECUTOR] >>> RESULT: success={exec_res.get('success')}, row_count={exec_res.get('row_count')}, error={exec_res.get('error')}")
+    rows_sample = exec_res.get("rows", [])
+    if rows_sample:
+        print(f"[COACH SQL EXECUTOR] >>> ROWS SAMPLE (first 3): {json.dumps(rows_sample[:3], indent=2, default=str)}")
+    else:
+        print("[COACH SQL EXECUTOR] >>> ROWS: [] (0 rows returned)")
+    print("-"*80 + "\n")
+
     if exec_res["success"]:
         return {
+            "sql_query": sql_query,
             "sql_result": exec_res["rows"],
             "sql_row_count": exec_res["row_count"],
             "sql_error": None

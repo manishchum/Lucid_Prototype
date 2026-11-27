@@ -77,12 +77,34 @@ DATABASE SCHEMA:
 
 CRITICAL RULES:
 1. ALWAYS include the mandatory tenant filter: `WHERE company_id = '{company_id}'`.
-2. When querying sheet columns stored in `row_data`:
-   - Column names in JSONB are strictly CASE-SENSITIVE. Always check the exact column names from the provided schema (e.g. 'DATE' vs 'Date' vs 'Follow Up Date', 'CASES' vs 'Cases').
-   - Numeric aggregations: Clean units/text before casting: `NULLIF(regexp_replace(coalesce(row_data->>'Cases', row_data->>'CASES', ''), '[^0-9.]', '', 'g'), '')::numeric`
-   - Text fields: `(row_data->>'Column Name')`
-   - Case-insensitive text search: `(row_data->>'Column Name') ILIKE '%term%'`
-3. CRITICAL DATE FORMAT RULES:
+
+2. MULTI-SHEET AGGREGATION & SHEET FILTER RULE (CRITICAL):
+   - By default, do NOT filter by `sheet_name`! Data for employees, clients, accounts, or products often spans multiple sheets, months, or uploaded files.
+   - ONLY include `AND sheet_name = '...'` if the user's question EXPLICITLY asks for a specific sheet or document by name (e.g., "in sheet 1", "from the May upload", "in Rural Territory Performance").
+   - When the user asks general entity or aggregation questions (e.g. "total cases sold by licensee X", "who is the ase of Y", "list top performers"), OMIT the `sheet_name` filter so your query aggregates across ALL relevant rows in the company.
+
+3. ROBUST COLUMN COALESCING (CRITICAL):
+   - Different sheets may format column headers slightly differently (e.g., 'LICENSEE_NAME' vs 'LICENSEE NAME', 'TOTAL_CASE' vs 'TOTAL CASE' vs 'Cases', 'ASE' vs 'Assigned_ASM').
+   - ALWAYS COALESCE possible header variations across detected sheets:
+     * Entity matching: `coalesce(row_data->>'LICENSEE_NAME', row_data->>'LICENSEE NAME', row_data->>'Customer Name', row_data->>'Account Name', '')`
+     * Metric aggregations: `NULLIF(regexp_replace(coalesce(row_data->>'TOTAL_CASE', row_data->>'TOTAL CASE', row_data->>'Cases', row_data->>'cases', ''), '[^0-9.]', '', 'g'), '')::numeric`
+     * Executive/Person matching: `coalesce(row_data->>'ASE', row_data->>'Assigned_ASM', row_data->>'Salesperson', row_data->>'Employee Name', '')`
+     * Location matching: `coalesce(row_data->>'H.Q.', row_data->>'HQ', row_data->>'DEPOT_NAME', row_data->>'DEO_OFFICE_NAME', row_data->>'District_Name', '')`
+   - Numeric aggregations: Clean units/text before casting using the regexp_replace pattern above.
+   - Text fields: Use case-insensitive search: `coalesce(...) ILIKE '%term%'`
+
+4. GEOGRAPHIC & LOCATION QUERIES (e.g., cities, districts, headquarters, depots like Jaipur, Alwar, Behror):
+   - Locations may be stored under various column names depending on the sheet: e.g. `H.Q.`, `HQ`, `DEPOT_NAME`, `DEO_OFFICE_NAME`, `CIRCLE_OFFICE_NAME`, `District_Name`, `State`, `City`, `Area`.
+   - Inspect the columns of the sheet that has the requested entity/metric.
+   - When matching a location (e.g. 'Jaipur' or 'Alwar'):
+     Search across ALL relevant geographic columns of that sheet using ILIKE:
+     For example, if the sheet has `H.Q.`, `DEPOT_NAME`, `DEO_OFFICE_NAME`:
+     `AND (coalesce(row_data->>'H.Q.', row_data->>'DEPOT_NAME', row_data->>'DEO_OFFICE_NAME', '') ILIKE '%Jaipur%')`
+   - If the user asks for multiple locations (e.g. "Jaipur and Alwar"):
+     Match ANY of those locations:
+     `AND (coalesce(row_data->>'H.Q.', row_data->>'DEPOT_NAME', row_data->>'DEO_OFFICE_NAME', '') ILIKE '%Jaipur%' OR coalesce(row_data->>'H.Q.', row_data->>'DEPOT_NAME', row_data->>'DEO_OFFICE_NAME', '') ILIKE '%Alwar%')`
+
+5. CRITICAL DATE FORMAT RULES:
    - Only add a DATE filter (e.g. `Date = ...` or `to_date(...)`) if the user's question EXPLICITLY asks for a specific date, month, or time period (e.g. "on October 15", "last month", "in Q3").
    - NEVER invent or add a date filter for general questions like "how am I doing", "what is my performance", or "who are the top performers".
    - When a specific date is requested, carefully inspect the 'Sample row_data JSONB' in the schema to see how dates are stored in the table (e.g., DD.MM.YY like '02.04.26', DD/MM/YYYY like '02/04/2026', or YYYY-MM-DD like '2026-04-02').
@@ -90,30 +112,44 @@ CRITICAL RULES:
      Match the exact string or multiple variations:
      `coalesce(row_data->>'Date', row_data->>'DATE', row_data->>'Follow Up Date', '') IN ('02.04.26', '2.04.26', '2026-04-02')`
      OR `coalesce(row_data->>'Date', row_data->>'DATE') ILIKE '%02.04.26%'`
+   - If user asks for a month (e.g. "month of april" or "in April"):
+     Check if the sheet is already an April sheet or period, or if there is a Date/Month column:
+     If the sheet period/filename is April and there's no specific day asked, do not over-filter dates. If there is a Date column with format DD.MM.YY, April dates match `ILIKE '%.04.%'` or `ILIKE '%-04-%'`.
    - NEVER use raw `::date = 'YYYY-MM-DD'` on dot-separated dates like '02.04.26' because PostgreSQL's default DateStyle will misinterpret day vs month or fail.
-4. EMPLOYEE & PERSON NAME FILTERING (CRITICAL):
+
+6. EMPLOYEE & PERSON NAME FILTERING (CRITICAL):
    - When filtering for an employee or salesperson (e.g. 'Riya', 'Riya Jhamb', 'Arjun Mehta'):
    - Spreadsheets very frequently store employees by FIRST NAME ONLY (e.g. 'Riya'), or first name + initial ('Riya J'), or full name ('Riya Jhamb').
    - If a full name is provided or asked (e.g. 'Riya Jhamb'), ALWAYS filter using the FIRST NAME: `ILIKE '%Riya%'` (or `(col ILIKE '%Riya Jhamb%' OR col ILIKE '%Riya%')`).
    - Check all likely employee columns:
      `employee_name ILIKE '%<FirstName>%' OR (row_data->>'Salesperson') ILIKE '%<FirstName>%' OR (row_data->>'Employee Name') ILIKE '%<FirstName>%' OR (row_data->>'Name') ILIKE '%<FirstName>%' OR (row_data->>'Employee') ILIKE '%<FirstName>%'`
    - NEVER filter strictly on the full multi-word string (`ILIKE '%Riya Jhamb%'`) alone, because if the spreadsheet stores only 'Riya', a full-name filter will return 0 rows! Matching on the first name `ILIKE '%Riya%'` safely matches both 'Riya' and 'Riya Jhamb'.
-5. ENTITY & DIMENSION INQUIRIES ("insights of...", "details of...", "performance of...", "list of..."):
+   - CRITICAL - NO UNPROMPTED EMPLOYEE FILTERING:
+     If the user's query asks about a depot, headquarters, district, licensee, product, or general total (e.g., 'give me total sales of sikar depot', 'top 5 products', 'sales in Jaipur'):
+     DO NOT add any condition filtering by the user's name or employee_name (e.g., DO NOT inject `(employee_name ILIKE '%Riya%' OR ...)`). Aggregate across ALL records for the requested depot or entity! Only filter by employee when the query explicitly asks for personal performance ('my sales') or names a specific salesperson.
+
+7. ENTITY & DIMENSION INQUIRIES ("insights of...", "details of...", "performance of...", "list of..."):
    - When the user asks for insights, details, or breakdown of a specific entity (e.g. account, client, licensee, store, branch, product, employee, or location):
-     a) Identify the matching column in the provided schema (e.g., 'Licensee Name', 'Employee Name', 'Store Name', 'Customer Name', 'ASE', 'Depot', etc.).
+     a) Identify the matching column in the provided schema (e.g., 'Licensee Name', 'LICENSEE_NAME', 'Employee Name', 'Store Name', 'Customer Name', 'ASE', 'Depot', etc.).
      b) Robust Text Matching:
-        - If the entity contains a numeric code/ID alongside a name (e.g. '2302042 Neemkathana ... -2302042'):
-          Filter on the key numeric ID or distinct keyword using ILIKE:
-          `((row_data->>'Column') ILIKE '%2302042%' OR (row_data->>'Column') ILIKE '%Neemkathana%')`
+        - If the entity contains a numeric code/ID alongside a name (e.g. 'Arvind Gupta -1407010' or '2302042 Neemkathana ... -2302042'):
+          Filter on the key numeric ID or distinct keyword using OR with ILIKE:
+          `((row_data->>'LICENSEE_NAME') ILIKE '%1407010%' OR (row_data->>'LICENSEE_NAME') ILIKE '%Arvind%')`
           Do NOT search for long exact strings with hyphens or trailing duplicate codes, as formatting differences will result in 0 rows.
         - For multi-word entity names (e.g. 'mandoli manoj kumar'):
           Match key words flexibly:
           `((row_data->>'Column') ILIKE '%mandoli%' AND (row_data->>'Column') ILIKE '%manoj%')`
-     c) Columns to SELECT: Select key descriptive columns (e.g. item/product, category, location, date) alongside numeric metrics (e.g. cases, quantities, amounts, totals) so comprehensive insights can be provided. Add `LIMIT 50` if returning itemized records.
-6. If the question relates to a specific sheet, include `AND sheet_name = 'Sheet_Name'`.
-7. Strictly generate READ-ONLY queries starting with SELECT on `public.coach_spreadsheet_rows` ONLY. NEVER query system or identity/permission tables (`users`, `roles`, `user_role_assignments`, `rebac_tuples`, `company_integrations`, `coach_document_chunks`, `coach_uploaded_documents`, `audit_logs`, `pg_catalog`, `information_schema`). NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
-8. Do NOT add trailing semicolons. Only add LIMIT if the user asks for a top-N ranking (e.g., 'top 5') or itemized entity rows (LIMIT 50); otherwise the execution sandbox automatically handles limits.
-9. Return ONLY valid JSON with keys:
+     c) Columns to SELECT: Select key descriptive columns (e.g. item/product, category, location, date, licensee, ASE) alongside numeric metrics (e.g. cases, quantities, amounts, totals) so comprehensive insights can be provided. Add `LIMIT 50` if returning itemized records.
+
+8. SHEET NAME RULES:
+   - Remember Rule 2: DO NOT filter by `sheet_name` unless the user explicitly named the sheet in their question.
+   - If the user explicitly asks for a sheet, match the exact sheet name shown in `--- Sheet: '<Sheet_Name>' ---`.
+
+9. Strictly generate READ-ONLY queries starting with SELECT on `public.coach_spreadsheet_rows` ONLY. NEVER query system or identity/permission tables (`users`, `roles`, `user_role_assignments`, `rebac_tuples`, `company_integrations`, `coach_document_chunks`, `coach_uploaded_documents`, `audit_logs`, `pg_catalog`, `information_schema`). NEVER use INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, or INTO.
+
+10. Do NOT add trailing semicolons. Only add LIMIT if the user asks for a top-N ranking (e.g., 'top 5') or itemized entity rows (LIMIT 50); otherwise the execution sandbox automatically handles limits.
+
+11. Return ONLY valid JSON with keys:
    {
      "sql_query": "SELECT ...",
      "explanation": "Brief explanation of what this query aggregates."
@@ -161,23 +197,16 @@ def generate_coach_sql(
         clean_emp = target_employee_name.strip()
         name_parts = clean_emp.split()
         first_name = name_parts[0] if name_parts else clean_emp
-        is_first_person = bool(re.search(r"\b(my|i|me|mine|myself|our|we)\b", user_query, re.IGNORECASE))
-        mentions_user_name = bool(re.search(rf"\b({re.escape(first_name)}|{re.escape(clean_emp)})\b", user_query, re.IGNORECASE))
-
-        prompt_parts.append(
-            f"\nAUTHENTICATED USER / EMPLOYEE CONTEXT:\n"
-            f"- User Asking the Question: '{clean_emp}' (First Name: '{first_name}')\n"
-            f"- SPREADSHEET NAME MATCHING RULE:\n"
-            f"  Spreadsheets often record employees by FIRST NAME ONLY ('{first_name}') or full name ('{clean_emp}').\n"
-            f"  Therefore, ALWAYS filter on the first name: `ILIKE '%{first_name}%'` (or `ILIKE '%{clean_emp}%' OR ... ILIKE '%{first_name}%'`).\n"
-            f"  NEVER require the full surname ('{clean_emp}') alone, as spreadsheets containing only '{first_name}' will return 0 rows!"
-        )
+        # Match explicit first-person requests like "my sales", "what did I sell", "total sales by me"
+        is_first_person = bool(re.search(r"\b(my|mine|myself)\b|\b(i|me)\s+(sold|closed|did|generated|achieved)\b|\bby\s+(me|myself)\b", user_query, re.IGNORECASE))
+        mentions_user_name = bool(re.search(rf"\b(by|for|of)\s+({re.escape(first_name)}|{re.escape(clean_emp)})\b", user_query, re.IGNORECASE))
 
         if is_first_person or mentions_user_name:
             prompt_parts.append(
-                f"\nCRITICAL PERSONAL RECORD FILTERING ('my', 'I', 'me', '{first_name}'):\n"
-                f"- The user is asking about personal performance ('{clean_emp}' / '{first_name}').\n"
-                f"- YOU MUST FILTER THE SPREADSHEET FOR THIS EMPLOYEE using flexible first-name matching ('{first_name}'):\n"
+                f"\nAUTHENTICATED USER / EMPLOYEE CONTEXT:\n"
+                f"- User Asking the Question: '{clean_emp}' (First Name: '{first_name}')\n"
+                f"- The user is explicitly asking about their own personal performance ('{clean_emp}' / '{first_name}').\n"
+                f"- FILTER THE SPREADSHEET FOR THIS EMPLOYEE using flexible first-name matching ('{first_name}'):\n"
                 f"  `WHERE company_id = '{company_id}' AND (\n"
                 f"     employee_name ILIKE '%{first_name}%' OR\n"
                 f"     (row_data->>'Salesperson') ILIKE '%{first_name}%' OR\n"
@@ -185,7 +214,13 @@ def generate_coach_sql(
                 f"     (row_data->>'Employee') ILIKE '%{first_name}%' OR\n"
                 f"     (row_data->>'Name') ILIKE '%{first_name}%'\n"
                 f"   )`\n"
-                f"- NEVER aggregate across the entire company when the user asks for personal performance!"
+            )
+        else:
+            prompt_parts.append(
+                f"\nAUTHENTICATED USER CONTEXT:\n"
+                f"- User asking the query: '{clean_emp}'.\n"
+                f"- CRITICAL SCOPING RULE: The user is asking a GENERAL or ENTITY-SPECIFIC question (e.g. for a depot, territory, licensee, product, or entire company), NOT about their own personal records!\n"
+                f"- STRICT REQUIREMENT: DO NOT filter by employee_name, salesperson, or '{clean_emp}' / '{first_name}'! Do NOT add any WHERE conditions matching '{first_name}' or '{clean_emp}'. Query and aggregate across ALL relevant records in the dataset matching the requested entity/depot/location."
             )
 
     if previous_error and previous_query:
