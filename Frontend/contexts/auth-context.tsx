@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react"
 import { type User, onAuthStateChanged, signOut } from "firebase/auth"
 import { auth } from "@/lib/firebase"
 import { createCacheKey, sharedDataClient } from "@/lib/data-client"
-import { fetchWithAuth, getFirebaseIdToken, isTransientNetworkError } from "@/lib/fetch-with-auth"
+import { fetchWithAuth, getFirebaseIdToken, isTransientNetworkError, invalidateCachedIdToken } from "@/lib/fetch-with-auth"
 import { getDeviceId } from "@/lib/device"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL
@@ -354,6 +354,7 @@ const writeManualAuthUser = (user: AuthUserLike): void => {
 export const clearManualAuthUser = (): void => {
   if (typeof window === "undefined") return
   try {
+    invalidateCachedIdToken()
     window.sessionStorage.removeItem(MANUAL_AUTH_STORAGE_KEY)
     window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)
     window.sessionStorage.removeItem(LAST_ACTIVE_STORAGE_KEY)
@@ -1006,6 +1007,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasRegisteredSessionForUser = authUserObj.uid;
 
         // Invalidate stale cache for fresh login validation
+        invalidateCachedIdToken()
         sharedDataClient.invalidateByPrefix("v1|auth")
         if (typeof window !== "undefined") {
           window.sessionStorage.removeItem(MANUAL_PROFILE_STORAGE_KEY)

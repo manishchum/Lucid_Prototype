@@ -10,6 +10,7 @@ Vector RAG, and Grounded Synthesis into an executable StateGraph.
 
 
 
+import re
 import asyncio
 import time
 from typing import Dict, Any, Literal, List, Optional, AsyncGenerator
@@ -184,8 +185,6 @@ def extract_query_subject(user_query: str, caller_name: Optional[str] = None) ->
     - If first-person pronouns are used ('my performance', 'how am I doing'), returns caller_name.
     - Otherwise returns None.
     """
-    import re
-
     q = (user_query or "").strip()
     if not q:
         return None
@@ -351,8 +350,6 @@ def build_humane_thought_detail(step: str, state: Dict[str, Any], **extra) -> st
     Builds a dynamic, humane, natural language thought monologue reflecting
     the model's actual reasoning, database findings, and document discoveries in real-time.
     """
-    import re
-
     user_query = (state.get("user_query") or "").strip()
     target_name = extract_query_subject(user_query, state.get("target_employee_name"))
 

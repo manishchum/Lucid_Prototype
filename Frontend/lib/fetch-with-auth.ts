@@ -10,9 +10,9 @@ function toHeaders(headers?: HeadersInit): Headers {
 }
 
 /**
- * Safely parses the expiration timestamp (in milliseconds) from a JWT string.
+ * Safely parses the payload of a JWT string.
  */
-export function parseJwtExpMs(token: string): number | null {
+export function parseJwtPayload(token: string): Record<string, any> | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
@@ -24,11 +24,18 @@ export function parseJwtExpMs(token: string): number | null {
         .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
         .join("")
     );
-    const parsed = JSON.parse(jsonPayload);
-    return typeof parsed.exp === "number" ? parsed.exp * 1000 : null;
+    return JSON.parse(jsonPayload);
   } catch {
     return null;
   }
+}
+
+/**
+ * Safely parses the expiration timestamp (in milliseconds) from a JWT string.
+ */
+export function parseJwtExpMs(token: string): number | null {
+  const payload = parseJwtPayload(token);
+  return typeof payload?.exp === "number" ? payload.exp * 1000 : null;
 }
 
 /**
@@ -129,10 +136,104 @@ async function fetchUserTokenWithRetry(
 let inFlightAuthReady: Promise<User | null> | null = null;
 let inFlightTokenPromise: Promise<string> | null = null;
 let inFlightRefreshPromise: Promise<string> | null = null;
-let cachedIdToken: { token: string; expiresAt: number } | null = null;
+const SESSION_CACHED_ID_TOKEN_KEY = "lucid:cached-id-token";
+
+export type CachedTokenEntry = { token: string; expiresAt: number };
+
+let cachedIdToken: CachedTokenEntry | null = null;
+
+function readCachedTokenFromStorage(): CachedTokenEntry | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_CACHED_ID_TOKEN_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedTokenEntry;
+    if (!parsed || typeof parsed.token !== "string" || !parsed.token) {
+      window.sessionStorage.removeItem(SESSION_CACHED_ID_TOKEN_KEY);
+      return null;
+    }
+    const exp = parseJwtExpMs(parsed.token);
+    // If the JWT itself is already expired (with 10s buffer), purge and return null
+    if (!exp || exp <= Date.now() + 10_000) {
+      window.sessionStorage.removeItem(SESSION_CACHED_ID_TOKEN_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedTokenToStorage(entry: CachedTokenEntry): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(SESSION_CACHED_ID_TOKEN_KEY, JSON.stringify(entry));
+  } catch {
+    // ignore quota/private mode errors
+  }
+}
+
+function removeCachedTokenFromStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(SESSION_CACHED_ID_TOKEN_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function setCachedIdToken(token: string, expiresAt: number): void {
+  const entry: CachedTokenEntry = { token, expiresAt };
+  cachedIdToken = entry;
+  writeCachedTokenToStorage(entry);
+}
 
 export function invalidateCachedIdToken(): void {
   cachedIdToken = null;
+  removeCachedTokenFromStorage();
+}
+
+/**
+ * Returns a valid cached token entry (from memory or sessionStorage fallback).
+ * Optionally verifies that the token belongs to the expected user UID.
+ */
+export function getValidCachedToken(expectedUid?: string | null): CachedTokenEntry | null {
+  const validateEntry = (entry: CachedTokenEntry | null): CachedTokenEntry | null => {
+    if (!entry || !entry.token) return null;
+    const payload = parseJwtPayload(entry.token);
+    if (!payload) return null;
+
+    const exp = typeof payload.exp === "number" ? payload.exp * 1000 : null;
+    if (!exp || exp <= Date.now() + 10_000) {
+      return null;
+    }
+
+    if (expectedUid) {
+      const tokenUid = payload.user_id || payload.sub;
+      if (tokenUid && tokenUid !== expectedUid) {
+        return null;
+      }
+    }
+
+    return entry;
+  };
+
+  const validMem = validateEntry(cachedIdToken);
+  if (validMem) {
+    return validMem;
+  }
+
+  const fromStorage = readCachedTokenFromStorage();
+  const validStorage = validateEntry(fromStorage);
+  if (validStorage) {
+    cachedIdToken = validStorage;
+    return validStorage;
+  } else if (fromStorage) {
+    removeCachedTokenFromStorage();
+  }
+
+  cachedIdToken = null;
+  return null;
 }
 
 export async function resolveCurrentUser(): Promise<User | null> {
@@ -212,7 +313,7 @@ async function executeTokenRefresh(user: User): Promise<string> {
         ? Math.min(Date.now() + 5 * 60 * 1000, exp - 60_000)
         : Date.now() + 5 * 60 * 1000;
 
-      cachedIdToken = { token: refreshed, expiresAt: safeExpiry };
+      setCachedIdToken(refreshed, safeExpiry);
       return refreshed;
     } finally {
       inFlightRefreshPromise = null;
@@ -229,8 +330,11 @@ async function executeTokenRefresh(user: User): Promise<string> {
  */
 export async function getFirebaseIdToken(forceRefresh: boolean = false): Promise<string> {
   const now = Date.now();
-  if (!forceRefresh && cachedIdToken && cachedIdToken.expiresAt > now) {
-    return cachedIdToken.token;
+  if (!forceRefresh) {
+    const memoryCached = getValidCachedToken();
+    if (memoryCached && memoryCached.expiresAt > now) {
+      return memoryCached.token;
+    }
   }
 
   if (inFlightTokenPromise) {
@@ -242,6 +346,14 @@ export async function getFirebaseIdToken(forceRefresh: boolean = false): Promise
       const user = await resolveCurrentUser();
       if (!user) {
         return "";
+      }
+
+      // Check storage cache with expectedUid if not forcing refresh
+      if (!forceRefresh) {
+        const existing = getValidCachedToken(user.uid);
+        if (existing && existing.expiresAt > now) {
+          return existing.token;
+        }
       }
 
       if (forceRefresh) {
@@ -261,16 +373,19 @@ export async function getFirebaseIdToken(forceRefresh: boolean = false): Promise
           ? Math.min(Date.now() + 5 * 60 * 1000, exp - 60_000)
           : Date.now() + 5 * 60 * 1000;
 
-        cachedIdToken = { token, expiresAt: safeExpiry };
+        setCachedIdToken(token, safeExpiry);
         return token;
       } catch (err: any) {
         if (isTransientNetworkError(err)) {
-          // If we already have a cached token that is not expired yet, fall back to it
-          if (cachedIdToken?.token) {
-            const exp = parseJwtExpMs(cachedIdToken.token);
+          // If we have a cached token in memory or sessionStorage whose JWT is not expired yet, fall back to it
+          const fallbackEntry = getValidCachedToken(user.uid);
+          if (fallbackEntry?.token) {
+            const exp = parseJwtExpMs(fallbackEntry.token);
             if (!exp || exp > Date.now()) {
-              console.warn("[fetch-with-auth] Network error refreshing token, falling back to existing cached token");
-              return cachedIdToken.token;
+              console.warn(
+                "[fetch-with-auth] Network error refreshing token, falling back to persistent cached token from sessionStorage"
+              );
+              return fallbackEntry.token;
             }
           }
           // Do NOT return empty string if the user is authenticated! Re-throw so callers don't make unauthenticated requests
