@@ -174,7 +174,8 @@ QUERY_STOP_WORDS = {
     "was", "were", "and", "or", "in", "at", "by", "from", "to", "with", "documents",
     "document", "records", "notes", "tasks", "task", "review", "summary", "performance",
     "them", "they", "their", "him", "her", "his", "hers", "me", "i", "mine", "myself",
-    "rece", "recent", "detail", "details", "info", "information", "spreadsheet", "table"
+    "rece", "recent", "detail", "details", "info", "information", "spreadsheet", "table",
+    "performing", "overall", "currently", "doing", "compared", "vs"
 }
 
 
@@ -197,9 +198,9 @@ def extract_query_subject(user_query: str, caller_name: Optional[str] = None) ->
         if not any(w.lower() in QUERY_STOP_WORDS for w in words):
             return cand.title()
 
-    # 2. Preposition pattern: "summary for riya jhamb", "for riya jhamb", "review for Khwaish Gahoi", "about Yomit"
+    # 2. Preposition pattern: "how is riya jhamb", "summary for riya jhamb", "for riya jhamb", "review for Khwaish Gahoi", "about Yomit"
     m_prep = re.search(
-        r"\b(?:summary\s+for|review\s+for|performance\s+for|tasks?\s+(?:noted\s+)?for|feedback\s+for|notes?\s+for|metrics\s+for|for|about|of)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
+        r"\b(?:how\s+is|hows|summary\s+for|review\s+for|performance\s+for|tasks?\s+(?:noted\s+)?for|feedback\s+for|notes?\s+for|metrics\s+for|for|about|of)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
         q,
         re.IGNORECASE
     )
@@ -347,33 +348,28 @@ def execute_coach_agent(
 # ============================================================================
 def build_humane_thought_detail(step: str, state: Dict[str, Any], **extra) -> str:
     """
-    Builds a dynamic, humane, natural language thought monologue reflecting
-    the model's actual reasoning, database findings, and document discoveries in real-time.
+    Builds a dynamic, humane, natural language thought reflection
+    using the Cognitive Thought Engine.
     """
+    from coach.thought_engine import triage_query, build_tool_observation, build_synthesis_strategy
+
     user_query = (state.get("user_query") or "").strip()
     target_name = extract_query_subject(user_query, state.get("target_employee_name"))
 
-    intent = state.get("intent", "GENERAL")
-    row_count = extra.get("row_count")
-    if row_count is None:
-        row_count = len(state.get("sql_result") or [])
+    triage = triage_query(
+        user_query,
+        caller_name=state.get("target_employee_name"),
+        target_employee_name=target_name
+    )
 
-    matched_files = state.get("matched_files") or []
-    chunks = state.get("rag_chunks") or []
-
-    clean_q = user_query
-    if len(clean_q) > 90:
-        clean_q = clean_q[:87] + "..."
-
-    if step == "introspecting":
-        if user_query:
-            return f"The user is asking: \"{clean_q}\". Let me inspect our available database tables and company document archives to see where this information is recorded."
-        return "Checking our company data catalog to inspect available metrics tables and reference playbooks."
+    if step in ["introspecting", "cognition"]:
+        return triage.understanding
 
     elif step == "routing":
+        intent = state.get("intent", triage.intent)
         if intent == "HYBRID":
             if target_name:
-                return f"To provide a complete review for {target_name}, I need a two-pronged approach: query our numerical performance tables for any sales or quota metrics, while also searching qualitative review notes and task reminders."
+                return f"To provide a complete review for {target_name}, I need a two-pronged approach: query our numerical performance tables for sales and quota metrics, while cross-referencing qualitative review notes and task reminders."
             return "This inquiry requires cross-referencing: checking our numerical metrics tables for data while scanning our qualitative documents and playbooks for context."
         elif intent == "SQL":
             if target_name:
@@ -384,54 +380,13 @@ def build_humane_thought_detail(step: str, state: Dict[str, Any], **extra) -> st
         elif intent == "CRM":
             return "The user is asking about live CRM deals and pipeline status. I will connect to our CRM integration to fetch current stages, contacts, and deal values."
         else:
-            return "Reviewing the inquiry against our coaching capabilities to formulate clear, direct guidance."
+            return triage.understanding
 
-    elif step == "crm":
-        return "Connecting to our CRM integration to inspect live deals, pipeline stages, and contact activity from HubSpot..."
-
-    elif step == "sql":
-        if row_count == 0:
-            if target_name:
-                return f"Checked our performance metrics tables for {target_name}... No direct numerical spreadsheet rows or sales quotas were recorded under this name, so their contributions appear to be tracked qualitatively in project logs."
-            return "Executed a database query across our company performance metrics tables, but found 0 matching rows. I will rely on qualitative documentation and playbooks for relevant context."
-        else:
-            row_word = "record" if row_count == 1 else "records"
-            if target_name:
-                return f"Queried our performance metrics tables for {target_name}: retrieved {row_count} matching {row_word} detailing sales volume, quota pacing, and target attainment."
-            return f"Executed a database query across our company performance tables: pulled {row_count} matching {row_word} containing verified metrics and attainment data."
-
-    elif step == "rag":
-        files_sample = f" (such as {', '.join(matched_files[:2])})" if matched_files else ""
-        passage_word = "passage" if len(chunks) == 1 else "passages"
-        doc_word = "document" if len(matched_files) == 1 else "documents"
-
-        is_task_related = any("task" in f.lower() or "reminder" in f.lower() or "test" in f.lower() for f in matched_files)
-        is_playbook_related = any("playbook" in f.lower() or "policy" in f.lower() or "discount" in f.lower() for f in matched_files)
-
-        if is_task_related:
-            if target_name:
-                return f"Searched our qualitative document archives for task reminders and review notes. Found {len(chunks)} relevant {passage_word} across {len(matched_files)} {doc_word}{files_sample} documenting {target_name}'s active task completions and project involvement."
-            return f"Searched our qualitative document archives for task reminders and review notes. Found {len(chunks)} relevant {passage_word} across {len(matched_files)} {doc_word}{files_sample} detailing completed deliverables, team feedback, and project milestones."
-        elif is_playbook_related:
-            return f"Searched our playbook archives and policy documentation. Found {len(chunks)} relevant {passage_word} across {len(matched_files)} {doc_word}{files_sample} detailing authorized procedures, guidelines, and operational standards."
-        else:
-            return f"Searched our company knowledge base. Found {len(chunks)} relevant {passage_word} across {len(matched_files)} {doc_word}{files_sample} containing verified source context."
+    elif step in ["sql", "rag", "crm"]:
+        return build_tool_observation(step, state, **extra)
 
     elif step == "synthesizing":
-        if intent == "HYBRID" and row_count == 0:
-            if target_name:
-                return f"Bringing everything together into a clear coaching summary for {target_name}: highlighting their documented project milestones, noting the absence of numerical quota rows, and recommending constructive next steps with verified citations."
-            return "Bringing everything together into a balanced coaching response: highlighting documented project milestones, clarifying that quantitative quota rows were not found, and providing actionable next steps with citations."
-        elif intent == "HYBRID" and row_count > 0:
-            if target_name:
-                return f"Bringing together both the verified performance metrics and qualitative document findings into an actionable coaching summary for {target_name} with source citations."
-            return "Synthesizing both the quantitative database metrics and qualitative document findings into an actionable coaching summary with verified citations."
-        elif intent == "SQL":
-            return "Structuring the retrieved metrics into an executive-ready performance summary, highlighting pacing, quota attainment, and key trends."
-        elif intent == "RAG":
-            return "Synthesizing the verified playbook guidelines into a structured, clear response with exact references to the source documents."
-        else:
-            return "Synthesizing actionable, grounded coaching guidance calibrated to your role and company context."
+        return build_synthesis_strategy(state)
 
     return "Analyzing company metrics and knowledge base records..."
 
@@ -493,6 +448,86 @@ async def stream_coach_agent(
 
     start_time = time.time()
     loop = asyncio.get_event_loop()
+
+    # 0B. Fast-Path Cognitive Triage & Humane Action Planner
+    from coach.thought_engine import (
+        triage_query,
+        build_tool_observation,
+        build_synthesis_strategy,
+        format_thought_monologue,
+        stream_thought_tokens,
+    )
+
+    triage = triage_query(
+        user_query,
+        caller_name=target_employee_name,
+        target_employee_name=effective_emp_name,
+    )
+
+    # If conversational greeting, pleasantry, or gratitude: stream reasoning tokens (<0.3s) then answer
+    if triage.is_conversational:
+        thought_text = format_thought_monologue(triage)
+        async for thought_event in stream_thought_tokens(thought_text, delay=0.008):
+            yield thought_event
+
+        elapsed = max(round(time.time() - start_time, 2), 0.3)
+        yield {
+            "type": "thought_done",
+            "duration": elapsed,
+            "understanding": triage.understanding,
+            "planned_actions": triage.planned_actions,
+            "synthesis_strategy": triage.synthesis_strategy,
+        }
+        yield {
+            "type": "step",
+            "step": "cognition",
+            "title": "Thought",
+            "detail": triage.understanding,
+            "understanding": triage.understanding,
+            "planned_actions": triage.planned_actions,
+            "synthesis_strategy": triage.synthesis_strategy,
+            "duration": elapsed,
+            "timestamp": time.time(),
+        }
+
+        state["intent"] = triage.intent
+        ctx = prepare_synthesis_context(state)
+        role_level = _get_role_level(state)
+
+        full_response_parts: List[str] = []
+        async for token_chunk in stream_synthesis_response(ctx, request=request):
+            full_response_parts.append(token_chunk)
+            yield {"type": "token", "content": token_chunk}
+
+        raw_response = "".join(full_response_parts)
+        sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
+
+        yield {
+            "type": "done",
+            "intent": triage.intent,
+            "sql_query": None,
+            "sql_result": None,
+            "citations": [],
+            "citations_count": 0,
+            "response": sanitized_response,
+        }
+        return
+
+    # For non-conversational queries: stream initial cognitive understanding & planned actions token-by-token
+    thought_text = format_thought_monologue(triage)
+    async for thought_event in stream_thought_tokens(thought_text, delay=0.006):
+        yield thought_event
+
+    yield {
+        "type": "step",
+        "step": "cognition",
+        "title": "Thought",
+        "detail": triage.understanding,
+        "understanding": triage.understanding,
+        "planned_actions": triage.planned_actions,
+        "synthesis_strategy": triage.synthesis_strategy,
+        "timestamp": time.time(),
+    }
 
     # Step 1: Introspect
     yield {
@@ -576,11 +611,14 @@ async def stream_coach_agent(
             row_count = len(sql_result or [])
             row_count_for_synthesis = row_count
             if sql_query:
+                sql_detail = build_humane_thought_detail("sql", state, row_count=row_count)
+                async for thought_event in stream_thought_tokens(f"\n\nObservation (SQL Data): {sql_detail}", delay=0.006):
+                    yield thought_event
                 yield {
                     "type": "step",
                     "step": "sql",
                     "title": "Database Query",
-                    "detail": build_humane_thought_detail("sql", state, row_count=row_count),
+                    "detail": sql_detail,
                     "query": sql_query,
                     "row_count": row_count,
                     "data": {
@@ -605,6 +643,9 @@ async def stream_coach_agent(
                 try:
                     crm_res = await loop.run_in_executor(None, crm_node, state)
                     state.update(crm_res)
+                    crm_detail = build_humane_thought_detail("crm", state)
+                    async for thought_event in stream_thought_tokens(f"\n\nObservation (CRM Pipeline): {crm_detail}", delay=0.006):
+                        yield thought_event
                 except Exception as e:
                     print(f"[COACH GRAPH STREAM] CRM hybrid node error: {e}")
 
@@ -619,12 +660,16 @@ async def stream_coach_agent(
             matched_files = state.get("matched_files") or []
             matched_files_details = state.get("matched_files_details") or []
             chunks = state.get("rag_chunks") or []
+            rag_detail = build_humane_thought_detail("rag", state)
+
+            async for thought_event in stream_thought_tokens(f"\n\nObservation (Knowledge Base): {rag_detail}", delay=0.006):
+                yield thought_event
 
             yield {
                 "type": "step",
                 "step": "rag",
                 "title": "Document Analysis",
-                "detail": build_humane_thought_detail("rag", state),
+                "detail": rag_detail,
                 "data": {
                     "files": matched_files_details,
                     "fileCount": len(matched_files),
@@ -640,6 +685,10 @@ async def stream_coach_agent(
 
     # Step 7: Synthesis (Token-by-Token Streaming)
     elapsed = round(time.time() - start_time, 1)
+    yield {
+        "type": "thought_done",
+        "duration": elapsed,
+    }
     yield {
         "type": "step",
         "step": "synthesizing",

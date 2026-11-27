@@ -22,7 +22,7 @@ import hmac
 import hashlib
 from utils.supabase_client import supabase_admin
 from utils.logging import mask_email
-from utils.redis_client import redis_client
+from utils.redis_client import redis_client, get_cache, set_cache, delete_cache_pattern
 from services.connectors import ConnectorManager, ConnectorRegistry
 from services.connectors.providers.slack.client import verify_slack_signature, get_slack_credentials
 from services.connectors.providers.zoom.client import validate_zoom_crc, verify_zoom_signature, get_zoom_credentials
@@ -176,6 +176,14 @@ class SelectContainerRequest(BaseModel):
     integration_id: Optional[str] = None
 
 
+def invalidate_connectors_status_cache(company_id: str):
+    """Evicts cached connectors status payloads across all callers in the company."""
+    try:
+        delete_cache_pattern(f"connectors_status:{company_id}:*")
+    except Exception:
+        pass
+
+
 @router.get("/status")
 async def get_all_connectors_status(
     auth: RequestAuth = Depends(require_manager_or_above)
@@ -183,9 +191,15 @@ async def get_all_connectors_status(
     """
     Returns connection and sync status for all registered cloud providers and accessible multi-instance connections.
     Admins see all org instances; Managers see instances they own or org-wide connectors.
+    Cached for 60s per user/role context for sub-millisecond retrieval.
     """
     company_id = auth.company_id
     is_admin = await check_user_permission(auth.user_id, "admin")
+
+    cache_key = f"connectors_status:{company_id}:{auth.user_id}:{int(is_admin)}"
+    cached = get_cache(cache_key)
+    if cached is not None:
+        return cached
 
     providers = ConnectorRegistry.list_providers()
     display_map = {p["provider"]: p["display_name"] for p in providers}
@@ -251,7 +265,9 @@ async def get_all_connectors_status(
                 "error_message": str(e),
             })
 
-    return {"connectors": statuses, "instances": visible_instances}
+    result_payload = {"connectors": statuses, "instances": visible_instances}
+    set_cache(cache_key, result_payload, ttl=60)
+    return result_payload
 
 
 @router.get("/{provider}/status")
@@ -919,6 +935,7 @@ async def select_connector_container(
         integration_id=target_int_id,
     )
 
+    invalidate_connectors_status_cache(company_id)
     return {
         "success": True,
         "integration_id": target_int_id,
@@ -953,6 +970,7 @@ async def sync_connector_now(
         target_name=provider,
         details={"synced": res.synced_count, "updated": res.updated_count, "deleted": res.deleted_count},
     )
+    invalidate_connectors_status_cache(company_id)
     return {
         "success": True,
         "provider": provider,
@@ -985,6 +1003,7 @@ async def disconnect_connector(
         target_id=target_int_id,
         target_name=provider,
     )
+    invalidate_connectors_status_cache(company_id)
     return {
         "success": success,
         "integration_id": target_int_id,

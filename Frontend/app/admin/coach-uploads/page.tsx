@@ -259,6 +259,7 @@ export default function CoachUploadsPage() {
   const [documents, setDocuments] = useState<CoachDocument[]>([])
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [loading, setLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalDocuments, setTotalDocuments] = useState(0)
@@ -492,10 +493,17 @@ export default function CoachUploadsPage() {
     page = 1,
     query = "",
     status = "all",
-    source = "all"
+    source = "all",
+    silent = false
   ) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setDocuments(prev => {
+          if (prev.length === 0) setLoading(true)
+          return prev
+        })
+      }
+      setIsRefreshing(true)
       const params = new URLSearchParams()
       params.append("page", String(page))
       params.append("limit", "25")
@@ -518,14 +526,14 @@ export default function CoachUploadsPage() {
       console.error("[coach-upload] Failed to fetch documents:", err)
     } finally {
       setLoading(false)
+      setIsRefreshing(false)
     }
   }, [])
 
-  // 2. Fetch Employee Roster for Scoping Dropdown
+  // 2. Fetch Employee Roster for Scoping Dropdown (Ultra-Fast Lightweight Roster)
   const fetchEmployees = useCallback(async () => {
-    if (!companyId) return
     try {
-      const res = await fetchWithAuth(`${API_BASE}/api/employees/bootstrap/${companyId}`)
+      const res = await fetchWithAuth(`${API_BASE}/api/coach/employees`)
       if (res.ok) {
         const payload = await res.json()
         const usersList: EmployeeOption[] = (payload.users || []).map((u: any) => ({
@@ -534,6 +542,19 @@ export default function CoachUploadsPage() {
           email: u.email
         }))
         setEmployees(usersList)
+        return
+      }
+      if (companyId) {
+        const fallbackRes = await fetchWithAuth(`${API_BASE}/api/employees/bootstrap/${companyId}`)
+        if (fallbackRes.ok) {
+          const payload = await fallbackRes.json()
+          const usersList: EmployeeOption[] = (payload.users || []).map((u: any) => ({
+            user_id: u.user_id,
+            name: u.name || u.email,
+            email: u.email
+          }))
+          setEmployees(usersList)
+        }
       }
     } catch (err) {
       console.warn("[coach-upload] Failed to fetch employees list for dropdown:", err)
@@ -591,17 +612,20 @@ export default function CoachUploadsPage() {
     fetchConnectors()
   }, [])
 
-  // Initial Load
+  // Initial Load: Fetch documents immediately on mount (zero auth wait, zero duplicate cascades)
   useEffect(() => {
     fetchDocuments(1, searchQuery, statusFilter, sourceFilter)
-    fetchStats()
+  }, [fetchDocuments])
+
+  // Secondary Load: Fetch role-scoped employees and cloud storage status once roles finish loading
+  useEffect(() => {
     if (rolesLoaded && isManagerOrAbove) {
       fetchEmployees()
       fetchGDriveStatus()
-    } else {
+    } else if (rolesLoaded) {
       setGdriveLoading(false)
     }
-  }, [fetchDocuments, fetchStats, fetchEmployees, fetchGDriveStatus, rolesLoaded, isManagerOrAbove])
+  }, [rolesLoaded, isManagerOrAbove, fetchEmployees, fetchGDriveStatus])
 
   // Keep latest search and pagination params in a ref to avoid reconnecting SSE on keystroke
   const fetchParamsRef = useRef({ currentPage, searchQuery, statusFilter, sourceFilter })
@@ -685,13 +709,28 @@ export default function CoachUploadsPage() {
     }
   }, [companyId])
 
-  // Debounced Search Query Trigger
+  // Debounced Search Query Trigger (skips initial mount to prevent duplicate fetch cascade)
+  const isSearchFirstMount = useRef(true)
   useEffect(() => {
+    if (isSearchFirstMount.current) {
+      isSearchFirstMount.current = false
+      return
+    }
     const handler = setTimeout(() => {
       fetchDocuments(1, searchQuery, statusFilter, sourceFilter)
     }, 300)
     return () => clearTimeout(handler)
-  }, [searchQuery, statusFilter, sourceFilter, fetchDocuments])
+  }, [searchQuery, fetchDocuments])
+
+  // Instant trigger for dropdown filters (status / source) - skips initial mount
+  const isFilterFirstMount = useRef(true)
+  useEffect(() => {
+    if (isFilterFirstMount.current) {
+      isFilterFirstMount.current = false
+      return
+    }
+    fetchDocuments(1, searchQuery, statusFilter, sourceFilter)
+  }, [statusFilter, sourceFilter, fetchDocuments])
 
   // File Selection Handlers (Multi-File)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1471,10 +1510,10 @@ export default function CoachUploadsPage() {
               variant="outline"
               size="sm"
               onClick={() => fetchDocuments(currentPage, searchQuery, statusFilter, sourceFilter)}
-              disabled={loading}
+              disabled={loading || isRefreshing}
               className="gap-2 text-xs"
             >
-              <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+              <RefreshCw className={cn("size-3.5", (loading || isRefreshing) && "animate-spin")} />
               <span>Refresh Status</span>
             </Button>
 
@@ -1976,7 +2015,7 @@ export default function CoachUploadsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => fetchDocuments(currentPage - 1, searchQuery, statusFilter, sourceFilter)}
-                        disabled={currentPage <= 1 || loading}
+                        disabled={currentPage <= 1 || loading || isRefreshing}
                         className="h-8 text-xs"
                       >
                         Previous
@@ -1988,7 +2027,7 @@ export default function CoachUploadsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => fetchDocuments(currentPage + 1, searchQuery, statusFilter, sourceFilter)}
-                        disabled={currentPage >= totalPages || loading}
+                        disabled={currentPage >= totalPages || loading || isRefreshing}
                         className="h-8 text-xs"
                       >
                         Next

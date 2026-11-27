@@ -49,7 +49,18 @@ import {
 import { useAuth } from "@/contexts/auth-context"
 import { useTenant, FEATURES } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
+import { cn } from "@/lib/utils"
 import CoachOnboarding, { CoachProfileData } from "./components/CoachOnboarding"
+import {
+  Trace,
+  TraceLine,
+  TraceIcon,
+  TraceTitle,
+  TraceDescription,
+  TraceCollapsible,
+  TraceCollapsibleTrigger,
+  TraceCollapsibleContent,
+} from "@/components/ui/trace"
 
 const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["700"] })
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || ""
@@ -107,6 +118,9 @@ interface ThoughtStep {
   step: string
   title?: string
   detail?: string
+  understanding?: string
+  plannedActions?: string[]
+  synthesisStrategy?: string
   timestamp?: number
   duration?: number
   data?: {
@@ -135,6 +149,7 @@ interface Message {
   error?: string
   statusStep?: string
   thoughtSteps?: ThoughtStep[]
+  thoughtText?: string
   thoughtDurationSeconds?: number
   isThoughtExpanded?: boolean
 }
@@ -750,6 +765,9 @@ export default function CoachPage() {
                       ...updatedSteps[existingIdx],
                       title: data.title || updatedSteps[existingIdx].title,
                       detail: data.detail || updatedSteps[existingIdx].detail,
+                      understanding: data.understanding || updatedSteps[existingIdx].understanding,
+                      plannedActions: data.planned_actions || updatedSteps[existingIdx].plannedActions,
+                      synthesisStrategy: data.synthesis_strategy || updatedSteps[existingIdx].synthesisStrategy,
                       data: data.data || updatedSteps[existingIdx].data,
                       duration: data.duration ?? updatedSteps[existingIdx].duration,
                     }
@@ -761,6 +779,9 @@ export default function CoachPage() {
                         step: data.step,
                         title: data.title,
                         detail: data.detail,
+                        understanding: data.understanding,
+                        plannedActions: data.planned_actions,
+                        synthesisStrategy: data.synthesis_strategy,
                         timestamp: data.timestamp || Date.now(),
                         duration: data.duration,
                         data: data.data,
@@ -773,6 +794,28 @@ export default function CoachPage() {
                     thoughtSteps: updatedSteps,
                     thoughtDurationSeconds: data.duration ?? msg.thoughtDurationSeconds,
                     isThoughtExpanded: msg.isThoughtExpanded ?? true,
+                  }
+                })
+              )
+            } else if (data.type === "thought_token") {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.id !== assistantMessageId) return msg
+                  const currentThought = msg.thoughtText || ""
+                  return {
+                    ...msg,
+                    thoughtText: currentThought + data.content,
+                    isThoughtExpanded: true,
+                  }
+                })
+              )
+            } else if (data.type === "thought_done") {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.id !== assistantMessageId) return msg
+                  return {
+                    ...msg,
+                    thoughtDurationSeconds: data.duration ?? msg.thoughtDurationSeconds,
                   }
                 })
               )
@@ -909,21 +952,25 @@ export default function CoachPage() {
     )
   }
 
-  // Render Thought & Real-Time Inspection (Claude Style: Natural Prose Narrative)
+  // Render Thought & Real-Time Inspection (shadcn Trace & Reasoning Pattern)
   const renderThinkingAccordion = (msg: Message) => {
     const steps = msg.thoughtSteps || []
-    if (steps.length === 0) return null
+    if (steps.length === 0 && !msg.thoughtText) return null
 
     // Response is considered displayed when content tokens exist OR when stream has completed
     const isResponseDisplayed = Boolean(msg.content && msg.content.length > 0) || !msg.isStreaming
     const isGenerating = msg.isStreaming && !isResponseDisplayed
     const isExpanded = msg.isThoughtExpanded ?? isGenerating
-    const duration = msg.thoughtDurationSeconds || (isGenerating ? 1.8 : 2.4)
+    const duration = msg.thoughtDurationSeconds ? `${msg.thoughtDurationSeconds}s` : (isGenerating ? "..." : "")
 
-    // Build narrative paragraphs directly from the execution details
-    const narrativeParagraphs = steps
-      .map((s) => s.detail)
-      .filter(Boolean)
+    // Find structured cognition step or fallback to steps
+    const cognitionStep = steps.find((s) => s.step === "cognition")
+    const understanding = cognitionStep?.understanding || steps[0]?.detail
+    const plannedActions = cognitionStep?.plannedActions || []
+    const synthesisStrategy = cognitionStep?.synthesisStrategy || steps.find((s) => s.step === "synthesizing")?.detail
+
+    // Tool execution observations (sql, rag, crm)
+    const observationSteps = steps.filter((s) => ["sql", "rag", "crm"].includes(s.step))
 
     // Extract unique files reviewed
     const allFiles = steps.flatMap((s) => s.data?.files || [])
@@ -937,52 +984,103 @@ export default function CoachPage() {
     }
 
     return (
-      <div className="mb-2.5">
-        {/* Trigger Button: Pure subtle typography, ZERO container box */}
-        <button
-          type="button"
-          onClick={() => toggleThoughtExpanded(msg.id)}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition cursor-pointer py-0.5 group select-none"
+      <Trace className="mb-2.5">
+        <TraceCollapsible
+          open={isExpanded}
+          onOpenChange={() => toggleThoughtExpanded(msg.id)}
         >
-          {isGenerating ? (
-            <span className="relative flex h-2 w-2 mr-0.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
-            </span>
-          ) : (
-            <Brain className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition" />
-          )}
+          <TraceCollapsibleTrigger asChild>
+            <TraceLine status={isGenerating ? "running" : "success"}>
+              <TraceIcon>
+                {isGenerating ? (
+                  <span className="relative flex h-2 w-2 mr-0.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
+                  </span>
+                ) : (
+                  <Brain className="w-3.5 h-3.5 text-slate-400 group-hover/trace-line:text-slate-600 transition" />
+                )}
+              </TraceIcon>
 
-          <span className="italic font-serif text-slate-500 group-hover:text-slate-800 transition">
-            {isResponseDisplayed ? `Thought for ${duration}s` : `Thinking (${duration}s)...`}
-          </span>
+              <TraceTitle>
+                {isGenerating ? "Thinking..." : "Thought"}
+              </TraceTitle>
 
-          <ChevronDown
-            className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${
-              isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </button>
+              {duration && (
+                <TraceDescription>{duration}</TraceDescription>
+              )}
 
-        {/* Expanded Narrative: Smooth CSS Grid transition, ZERO nested boxes */}
-        <div
-          className={`grid transition-[grid-template-rows,opacity,margin] duration-300 ease-out ${
-            isExpanded
-              ? "grid-rows-[1fr] opacity-100 my-2"
-              : "grid-rows-[0fr] opacity-0 my-0 pointer-events-none"
-          }`}
-        >
-          <div className="overflow-hidden">
-            <div className="border-l-2 border-slate-200/90 pl-3.5 space-y-2 text-xs sm:text-[13px] text-slate-500 font-normal italic leading-relaxed">
-              {narrativeParagraphs.map((para, pIdx) => (
-                <p key={pIdx}>{para}</p>
-              ))}
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 group-hover/trace-line:text-slate-600 transition-transform duration-200 ml-1.5 ${
+                  isExpanded ? "rotate-180" : ""
+                }`}
+              />
+            </TraceLine>
+          </TraceCollapsibleTrigger>
 
-              {/* If source documents were reviewed, show clean subtle inline links (zero drop shadows) */}
+          <TraceCollapsibleContent>
+            <div className="border-l-2 border-slate-200/90 pl-3.5 py-1.5 my-1.5 space-y-2.5 text-xs sm:text-[13px] text-slate-600 leading-relaxed">
+              {msg.thoughtText ? (
+                <div className="whitespace-pre-wrap font-sans text-xs sm:text-[13px] text-slate-600 leading-relaxed select-text">
+                  {msg.thoughtText}
+                </div>
+              ) : (
+                <>
+                  {/* 1. Humane Understanding & Intent */}
+                  {understanding && (
+                    <p className="italic font-serif text-slate-600">
+                      {understanding}
+                    </p>
+                  )}
+
+                  {/* 2. Explicit Planned Actions Checklist */}
+                  {plannedActions.length > 0 && (
+                    <div className="pt-0.5 space-y-1.5 not-italic">
+                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Planned Actions
+                      </span>
+                      <ul className="space-y-1 pl-0 list-none">
+                        {plannedActions.map((action, aIdx) => (
+                          <li key={aIdx} className="flex items-start gap-2 text-slate-600 text-xs sm:text-[13px]">
+                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                            <span>{action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* 3. Live Tool Observations */}
+                  {observationSteps.length > 0 && (
+                    <div className="pt-0.5 space-y-1.5 not-italic">
+                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                        Findings & Observations
+                      </span>
+                      <div className="space-y-1 text-slate-600 text-xs sm:text-[13px]">
+                        {observationSteps.map((obs, oIdx) => (
+                          <div key={oIdx} className="flex items-start gap-2">
+                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            <span>{obs.detail}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Synthesis Strategy (if distinct from understanding) */}
+                  {synthesisStrategy && synthesisStrategy !== understanding && (
+                    <p className="italic text-slate-500 text-xs pt-0.5">
+                      {synthesisStrategy}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* 5. Reviewed Source Documents */}
               {uniqueFiles.length > 0 && (
-                <div className="pt-1.5 not-italic text-xs space-y-1">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                    Source Documents Reviewed:
+                <div className="pt-1 not-italic text-xs space-y-1">
+                  <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Source Documents Reviewed
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     {uniqueFiles.map((file, fIdx) => (
@@ -1000,9 +1098,9 @@ export default function CoachPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      </div>
+          </TraceCollapsibleContent>
+        </TraceCollapsible>
+      </Trace>
     )
   }
 
@@ -2079,7 +2177,7 @@ export default function CoachPage() {
                                   <div className={message.thoughtSteps && message.thoughtSteps.length > 0 ? "pt-1" : ""}>
                                     {renderMarkdown(message.content, message.citations, message.id)}
                                   </div>
-                                ) : message.isStreaming && (!message.thoughtSteps || message.thoughtSteps.length === 0) ? (
+                                ) : message.isStreaming && (!message.thoughtSteps || message.thoughtSteps.length === 0) && !message.thoughtText ? (
                                   <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-indigo-50/90 via-violet-50/90 to-indigo-50/90 border border-indigo-200/70 shadow-xs text-xs text-indigo-900 font-medium animate-pulse">
                                     <span className="relative flex h-2 w-2">
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75" />

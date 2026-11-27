@@ -652,13 +652,18 @@ def set_coach_docs_cached(key: str, val: Any, ttl: int = 120):
 def invalidate_coach_docs_cached(company_id: str):
     prefix = f"coach_docs:{company_id}:"
     stats_key = f"coach_stats:{company_id}"
+    scoped_stats_key = f"coach_stats_scoped:{company_id}:"
+    emp_key = f"coach_employees:{company_id}"
     _COACH_DOCS_L1_CACHE.pop(stats_key, None)
-    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix) or k.startswith(stats_key)]
+    _COACH_DOCS_L1_CACHE.pop(emp_key, None)
+    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix) or k.startswith(stats_key) or k.startswith(scoped_stats_key) or k.startswith(emp_key)]
     for k in keys_to_del:
         _COACH_DOCS_L1_CACHE.pop(k, None)
     try:
         delete_cache_pattern(f"{prefix}*")
         delete_cache_pattern(f"{stats_key}*")
+        delete_cache_pattern(f"{scoped_stats_key}*")
+        delete_cache_pattern(f"{emp_key}*")
     except Exception:
         pass
 
@@ -668,55 +673,42 @@ def get_company_coach_stats(company_id: str) -> Dict[str, int]:
     Retrieves global company-wide stats across the entire document vault:
     Total documents, completed documents, total vector chunks, and spreadsheet rows.
     Cached in L1 (Memory) + L2 (Redis) with TTL=60s.
+    Ultra-fast single query with zero table locks or multi-table scans.
     """
     cache_key = f"coach_stats:{company_id}"
     cached = get_coach_docs_cached(cache_key)
     if cached is not None:
         return cached
 
-    from concurrent.futures import ThreadPoolExecutor
+    try:
+        docs_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, parsed_metadata")
+            .eq("company_id", company_id)
+            .neq("status", "deleted")
+            .execute()
+        )
+        docs = docs_res.data or []
+        total_docs = len(docs)
+        completed_docs = sum(1 for d in docs if d.get("status") == "completed")
+        total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in docs)
+        total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in docs)
 
-    def _get_total_docs():
-        try:
-            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
+        stats = {
+            "total_documents": total_docs,
+            "completed_documents": completed_docs,
+            "total_chunks": total_chunks,
+            "total_spreadsheet_rows": total_rows
+        }
+    except Exception as e:
+        print(f"[COACH STATS ERROR] {e}")
+        stats = {
+            "total_documents": 0,
+            "completed_documents": 0,
+            "total_chunks": 0,
+            "total_spreadsheet_rows": 0
+        }
 
-    def _get_completed_docs():
-        try:
-            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).eq("status", "completed").limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    def _get_total_chunks():
-        try:
-            return supabase_admin.table("coach_document_chunks").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    def _get_total_rows():
-        try:
-            return supabase_admin.table("coach_spreadsheet_rows").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        f_total = ex.submit(_get_total_docs)
-        f_comp = ex.submit(_get_completed_docs)
-        f_chunks = ex.submit(_get_total_chunks)
-        f_rows = ex.submit(_get_total_rows)
-
-        total_docs = f_total.result()
-        completed_docs = f_comp.result()
-        total_chunks = f_chunks.result()
-        total_rows = f_rows.result()
-
-    stats = {
-        "total_documents": total_docs,
-        "completed_documents": completed_docs,
-        "total_chunks": total_chunks,
-        "total_spreadsheet_rows": total_rows
-    }
     set_coach_docs_cached(cache_key, stats, ttl=60)
     return stats
 
@@ -756,6 +748,41 @@ def _doc_visible_to_ctx(doc: Dict[str, Any], sec_ctx) -> bool:
     return False
 
 
+@router.get("/employees")
+async def list_coach_employees(
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
+    """
+    Ultra-fast, lightweight employee roster for document scoping dropdowns and target scope badges.
+    Returns only user_id, name, and email with 5-minute caching.
+    """
+    company_id = effective_company_id or auth.company_id
+    if not company_id:
+        return {"users": []}
+
+    cache_key = f"coach_employees:{company_id}"
+    cached = get_coach_docs_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        res = (
+            supabase_admin.table("users")
+            .select("user_id, name, email")
+            .eq("company_id", company_id)
+            .order("name")
+            .execute()
+        )
+        users = res.data or []
+        payload = {"users": users}
+        set_coach_docs_cached(cache_key, payload, ttl=300)
+        return payload
+    except Exception as e:
+        print(f"[COACH EMPLOYEES ERROR] {e}")
+        return {"users": []}
+
+
 @router.get("/stats")
 async def get_coach_stats(
     auth: RequestAuth = Depends(get_request_auth_required),
@@ -770,6 +797,11 @@ async def get_coach_stats(
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     if sec_ctx.is_admin:
         return get_company_coach_stats(company_id)
+
+    cache_key = f"coach_stats_scoped:{company_id}:{sec_ctx.principals_hash}"
+    cached = get_coach_docs_cached(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         docs_res = (
@@ -792,12 +824,14 @@ async def get_coach_stats(
     visible_docs = [d for d in (getattr(docs_res, "data", None) or []) if _doc_visible_to_ctx(d, sec_ctx)]
     total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in visible_docs)
     total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in visible_docs)
-    return {
+    scoped_stats = {
         "total_documents": len(visible_docs),
         "completed_documents": sum(1 for d in visible_docs if d.get("status") == "completed"),
         "total_chunks": total_chunks,
         "total_spreadsheet_rows": total_rows,
     }
+    set_coach_docs_cached(cache_key, scoped_stats, ttl=60)
+    return scoped_stats
 
 
 @router.get("/documents")
@@ -1329,7 +1363,7 @@ async def toggle_document_playbook_status(
         print(f"[PLAYBOOK TOGGLE] ACL recompute warning: {acl_e}")
 
     # Invalidate document and security caches
-    delete_cache_pattern(f"coach_docs:{company_id}:*")
+    invalidate_coach_docs_cached(company_id)
     delete_cache_pattern(f"acl:principals:{company_id}:*")
 
     return {
