@@ -559,7 +559,26 @@ class ConnectorManager:
                     .execute()
                 )
                 all_container_synced = getattr(cont_res, "data", None) or []
+
+                # Exclude failed documents from existing_map so they are automatically retried
+                failed_doc_ids = set()
+                doc_ids_to_check = [r["coach_document_id"] for r in all_container_synced if r.get("coach_document_id")]
+                if doc_ids_to_check:
+                    try:
+                        f_res = (
+                            supabase_admin.table("coach_uploaded_documents")
+                            .select("id")
+                            .in_("id", doc_ids_to_check[:100])
+                            .eq("indexing_status", "failed")
+                            .execute()
+                        )
+                        failed_doc_ids = {str(d["id"]) for d in (getattr(f_res, "data", None) or [])}
+                    except Exception as f_err:
+                        print(f"[{provider.upper()} SYNC] Failed doc check note: {f_err}")
+
                 for row in all_container_synced:
+                    if str(row.get("coach_document_id")) in failed_doc_ids:
+                        continue
                     existing_map[row["external_item_id"]] = row
             except Exception as ex_err:
                 print(f"[{provider.upper()} SYNC] Container synced fetch note: {ex_err}")
@@ -682,7 +701,7 @@ class ConnectorManager:
                                 try:
                                     from ingestion.coach_store import fetch_company_employees
                                     roster = fetch_company_employees(company_id)
-                                    if provider == "gmail":
+                                    if provider in ("gmail", "google_calendar"):
                                         from services.connectors.providers.gmail.client import match_email_participants_to_employee
                                         resolved_emp_id = match_email_participants_to_employee(
                                             item.metadata["detected_participants"],
@@ -727,9 +746,10 @@ class ConnectorManager:
                         with open(temp_file_path, "wb") as f:
                             f.write(content)
 
+                        ingest_res = None
                         try:
                             # Run heavy text extraction & embedding in worker thread so event loop stays unblocked
-                            await asyncio.to_thread(
+                            ingest_res = await asyncio.to_thread(
                                 run_coach_file_ingestion,
                                 file_path=temp_file_path,
                                 document_id=doc_record_id,
@@ -763,6 +783,7 @@ class ConnectorManager:
                             recompute_document_acl(doc_record_id, company_id=company_id)
 
                         # Record in integration_synced_items
+                        is_failed = isinstance(ingest_res, dict) and ingest_res.get("status") == "failed"
                         now_iso = datetime.now(timezone.utc).isoformat()
                         item_meta = dict(item.metadata or {})
                         if item.acl_emails:
@@ -782,7 +803,7 @@ class ConnectorManager:
                             "content_hash": item.content_hash,
                             "external_modified_time": item.modified_time.isoformat() if item.modified_time else None,
                             "coach_document_id": doc_record_id,
-                            "status": "completed",
+                            "status": "failed" if is_failed else "completed",
                             "metadata": item_meta,
                             "synced_at": now_iso
                         }

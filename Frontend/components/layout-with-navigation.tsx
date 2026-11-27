@@ -105,6 +105,19 @@ const shouldShowNavigation =
     };
   }, [shouldShowNavigation, user, authLoading, router]);
 
+  const isCoachPage = pathname.startsWith('/coach');
+
+  if (isCoachPage) {
+    return (
+      <div className="h-screen w-full overflow-hidden flex">
+        <EmployeeNavigation />
+        <main className="flex-1 h-screen overflow-hidden md:ml-[var(--sidebar-width)] transition-all duration-300 ease-in-out">
+          {children}
+        </main>
+      </div>
+    );
+  }
+
   if (!shouldShowNavigation) {
     if (pathname === '/' || pathname === '/login') {
       return <>{children}</>;

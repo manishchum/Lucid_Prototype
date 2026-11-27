@@ -1004,6 +1004,13 @@ async def arq_startup(ctx: dict) -> None:
 async def arq_shutdown(ctx: dict) -> None:
     logger.info("[ARQ Worker] Lucid background ARQ worker shutting down gracefully.")
     try:
+        from utils.arq_client import ARQ_HEALTH_CHECK_KEY
+        arq_redis = ctx.get("redis")
+        if arq_redis is not None:
+            await arq_redis.delete(ARQ_HEALTH_CHECK_KEY)
+    except Exception:
+        pass
+    try:
         from utils.redis_client import close_redis_client
         close_redis_client()
     except Exception:
@@ -1040,6 +1047,7 @@ class WorkerSettings:
     max_jobs = int(os.getenv("ARQ_MAX_JOBS", "5"))
     job_timeout = int(os.getenv("ARQ_JOB_TIMEOUT", "600"))  # 10 minutes timeout for heavy jobs (e.g. document ingestion)
     keep_result = 3600
+    health_check_interval = 30  # Refresh Redis heartbeat every 30s so dead workers expire quickly
 
     # Periodic background cron schedules
     cron_jobs = [

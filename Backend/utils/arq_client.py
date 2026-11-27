@@ -25,6 +25,8 @@ except (ImportError, ModuleNotFoundError):
 
 logger = logging.getLogger("lucid.arq_client")
 
+ARQ_HEALTH_CHECK_KEY = "arq:queue:health-check"
+
 _arq_pool: Optional[ArqRedis] = None
 _pool_lock = asyncio.Lock()
 
@@ -120,6 +122,23 @@ async def enqueue_job(
     except Exception as e:
         logger.error(f"[ARQ Client] Failed to enqueue job '{function_name}': {e}", exc_info=True)
         return None
+
+
+async def is_arq_worker_alive() -> bool:
+    """
+    Checks whether at least one ARQ worker has an active health-check heartbeat in Redis.
+    Returns False if ARQ/Redis is unavailable or no worker is currently consuming the queue.
+    """
+    if not ARQ_AVAILABLE:
+        return False
+    try:
+        pool = await get_arq_pool()
+        if pool is None:
+            return False
+        return bool(await pool.exists(ARQ_HEALTH_CHECK_KEY))
+    except Exception as e:
+        logger.warning(f"[ARQ Client] Failed to check worker heartbeat: {e}")
+        return False
 
 
 async def close_arq_pool() -> None:

@@ -305,6 +305,7 @@ async def create_company_with_logo_route(
     }
     
     result = await create_company(user_id, company_data)
+    redis_client.delete("all_active_companies_light")
     company = result.get("data") or None
     created_company_id = company.get("company_id") if isinstance(company, dict) else None
 
@@ -342,6 +343,7 @@ async def create_company_route(
     """
     company_data = request.dict()
     result = await create_company(user_id, company_data)
+    redis_client.delete("all_active_companies_light")
     
     # Unwrap service layer response
     company = result.get("data") or None
@@ -527,6 +529,7 @@ async def update_company_route(
 
     result = await update_company(user_id, company_id, update_data)
     
+    redis_client.delete("all_active_companies_light")
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on update
     redis_client.delete(f"company_static:{company_id}")  # Invalidate static metadata cache for employee dashboard
     redis_client.delete(f"company_addons:{company_id}")  # Invalidate addon permission cache
@@ -569,6 +572,7 @@ async def delete_company_route(
     Permission: Super admin only.
     """
     result = await delete_company(user_id, company_id)
+    redis_client.delete("all_active_companies_light")
     redis_client.delete(f"company:{company_id}")  # Invalidate cache on delete
     redis_client.delete(f"company_addons:{company_id}")
     # Unwrap service layer response

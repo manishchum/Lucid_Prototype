@@ -14,6 +14,7 @@ import {
   Search,
   HardDrive,
   Folder,
+  Calendar,
   Radio,
   Check,
   ShieldCheck,
@@ -25,7 +26,8 @@ import {
   Plus,
   Building2,
   UserCheck,
-  ShieldAlert
+  ShieldAlert,
+  Briefcase
 } from "lucide-react"
 
 const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
@@ -606,6 +608,20 @@ export function UnifiedConnectorsHub({
             <path d="M22 19V6.5l-10 7V19h10z" fill="#34A853" />
           </svg>
         )
+      case "google_calendar":
+        return (
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+            <rect width="24" height="24" rx="4" fill="#FFFFFF" />
+            <path d="M19 4H18V2H16V4H8V2H6V4H5C3.89 4 3.01 4.9 3.01 6L3 20C3 21.1 3.89 22 5 22H19C20.1 22 21 21.1 21 20V6C21 4.9 20.1 4 19 4ZM19 20H5V10H19V20ZM19 8H5V6H19V8Z" fill="#1A73E8" />
+            <path d="M9 14H7V12H9V14ZM13 14H11V12H13V14ZM17 14H15V12H17V14ZM9 18H7V16H9V18ZM13 18H11V16H13V18ZM17 18H15V16H17V18Z" fill="#1A73E8" />
+          </svg>
+        )
+      case "hubspot":
+        return (
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+            <path d="M18.8 7.3V4.9c.7-.4 1.2-1.2 1.2-2.1 0-1.4-1.1-2.5-2.5-2.5S15 1.4 15 2.8c0 .9.5 1.7 1.2 2.1v2.4c-1.3.4-2.4 1.3-3 2.5l-6-4.6c.1-.4.2-.8.2-1.2 0-2.2-1.8-4-4-4S0 1.8 0 4s1.8 4 4 4c.6 0 1.1-.1 1.6-.4l5.9 4.6c-.6 1-.9 2.1-.9 3.4 0 1.5.5 2.9 1.4 4l-2.4 2.4c-.4-.2-.8-.4-1.3-.4-1.8 0-3.3 1.5-3.3 3.3s1.5 3.3 3.3 3.3 3.3-1.5 3.3-3.3c0-.5-.1-.9-.3-1.3l2.4-2.4c1.1.9 2.5 1.4 4 1.4 3.7 0 6.7-3 6.7-6.7 0-2.8-1.7-5.2-4.1-6.2zM4 6.2c-1.2 0-2.2-1-2.2-2.2S2.8 1.8 4 1.8s2.2 1 2.2 2.2-1 2.2-2.2 2.2zm4.3 14.5c0 .8-.7 1.5-1.5 1.5s-1.5-.7-1.5-1.5.7-1.5 1.5-1.5 1.5.7 1.5 1.5zm8.4-3.6c-2.1 0-3.8-1.7-3.8-3.8s1.7-3.8 3.8-3.8 3.8 1.7 3.8 3.8-1.7 3.8-3.8 3.8z" fill="#FF7A59" />
+          </svg>
+        )
       default:
         return <FolderSync className="w-5 h-5 text-indigo-600" />
     }
@@ -725,7 +741,11 @@ export function UnifiedConnectorsHub({
                     ) : (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                         <AlertCircle className="w-3.5 h-3.5" />
-                        Select Folder / Drive to Sync
+                        {activeConnector.provider === "google_calendar"
+                          ? "Select Calendar to Sync"
+                          : activeConnector.provider === "hubspot"
+                            ? "Select Pipeline / Module to Sync"
+                            : "Select Folder / Drive to Sync"}
                       </span>
                     )}
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -771,7 +791,13 @@ export function UnifiedConnectorsHub({
                     }`}
                   >
                     <FolderTree className={`w-3.5 h-3.5 ${activeConnector.monitored_source_id ? "text-indigo-600" : "text-white"}`} />
-                    {activeConnector.monitored_source_id ? "Configure Source" : "Choose Drive / Folder"}
+                    {activeConnector.monitored_source_id
+                      ? "Configure Source"
+                      : activeConnector.provider === "google_calendar"
+                        ? "Choose Calendar"
+                        : activeConnector.provider === "hubspot"
+                          ? "Choose Pipeline / Module"
+                          : "Choose Drive / Folder"}
                   </button>
 
                   {activeConnector.monitored_source_id && (
@@ -1218,7 +1244,13 @@ export function UnifiedConnectorsHub({
               <Search className="w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search drives or folders..."
+                placeholder={
+                  pickerProvider === "google_calendar"
+                    ? "Search calendars..."
+                    : pickerProvider === "hubspot"
+                      ? "Search pipelines or modules..."
+                      : "Search drives or folders..."
+                }
                 value={pickerSearch}
                 onChange={e => setPickerSearch(e.target.value)}
                 className="w-full bg-transparent text-xs text-slate-800 placeholder-slate-400 focus:outline-none"
@@ -1264,12 +1296,24 @@ export function UnifiedConnectorsHub({
                         <div className="flex items-center gap-2.5 truncate">
                           {c.container_type === "shared_drive" ? (
                             <HardDrive className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-sky-500"}`} />
+                          ) : c.container_type === "calendar" ? (
+                            <Calendar className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-blue-500"}`} />
+                          ) : c.container_type === "crm_module" || c.container_type === "pipeline" ? (
+                            <Briefcase className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-amber-500"}`} />
                           ) : (
                             <Folder className={`w-4 h-4 flex-shrink-0 ${isSelected ? "text-indigo-600" : "text-slate-400"}`} />
                           )}
                           <span className="font-medium truncate">{c.name}</span>
                           <span className="text-[10px] uppercase font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {c.container_type === "shared_drive" ? "Shared Drive" : c.container_type}
+                            {c.container_type === "shared_drive"
+                              ? "Shared Drive"
+                              : c.container_type === "calendar"
+                                ? "Calendar"
+                                : c.container_type === "crm_module"
+                                  ? "CRM Module"
+                                  : c.container_type === "pipeline"
+                                    ? "Pipeline"
+                                    : c.container_type}
                           </span>
                           {!isSelectable && (
                             <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">

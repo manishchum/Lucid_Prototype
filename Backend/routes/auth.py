@@ -791,7 +791,7 @@ async def get_current_user_profile(
                 resp = (
                     service_client
                     .table("companies")
-                    .select("company_id, name, domain, company_logo, subscription_tier")
+                    .select("company_id, name, domain, company_logo, subscription_tier, subscription_addons")
                     .eq("is_company_active", True)
                     .order("name")
                     .execute()

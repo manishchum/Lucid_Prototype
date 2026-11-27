@@ -56,7 +56,7 @@ router = APIRouter(
     tags=["Performance Coach Ingestion"]
 )
 
-ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "csv", "xlsx", "xls", "pptx", "ppt"}
+ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "csv", "xlsx", "xls", "pptx", "ppt", "md", "markdown", "txt"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 BUCKET_NAME = "coach-documents"
 TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
@@ -162,6 +162,20 @@ def detect_mime_and_validate(content: bytes, filename: str) -> Tuple[bool, str, 
             try:
                 content[:2048].decode("latin-1")
                 return True, "text/csv", ext
+            except Exception:
+                return False, "application/octet-stream", ext
+
+    # Markdown & Plain Text validation
+    if ext in ("md", "markdown", "txt"):
+        if b"\x00" in content[:1024]:
+            return False, "application/octet-stream", ext
+        try:
+            content[:2048].decode("utf-8")
+            return True, "text/markdown" if ext in ("md", "markdown") else "text/plain", ext
+        except UnicodeDecodeError:
+            try:
+                content[:2048].decode("latin-1")
+                return True, "text/markdown" if ext in ("md", "markdown") else "text/plain", ext
             except Exception:
                 return False, "application/octet-stream", ext
 

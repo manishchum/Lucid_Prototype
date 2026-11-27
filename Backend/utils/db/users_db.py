@@ -277,9 +277,7 @@ async def get_users_by_company(
         }
     
     try:
-        query_client = supabase
-        if auth_claims:
-            query_client = get_service_supabase_client()
+        query_client = get_service_supabase_client()
 
         response = query_client.table('users').select(
             '''
@@ -716,7 +714,8 @@ async def delete_user(
 
 async def get_users_by_filter(filters: dict, company_id: Optional[str] = None):
     try:
-        query = supabase.table("users").select(
+        service_client = get_service_supabase_client()
+        query = service_client.table("users").select(
             'user_id, company_id, name, email, phone, position, hire_date, '
             'employment_status, function_id, sub_function_id, manager_id, avatar_url, '
             'is_active, created_at, updated_at'

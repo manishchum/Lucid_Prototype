@@ -9,14 +9,14 @@ import asyncio
 import functools
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.supabase_client import supabase_admin
 from security.rebac import resolve_user_principals
-from coach.graph import execute_coach_agent
+from coach.graph import execute_coach_agent, stream_coach_agent
 from coach.schema_inspector import (
     get_company_spreadsheet_schema,
     get_company_document_catalog,
@@ -160,10 +160,10 @@ async def chat_with_coach(
     if conv_id:
         existing_conv = get_conversation(conv_id, user_id=user_id, company_id=company_id)
         if not existing_conv:
-            new_conv = create_conversation(user_id=user_id, company_id=company_id, title=query[:45])
+            new_conv = create_conversation(user_id=user_id, company_id=company_id, title="New Chat")
             conv_id = str(new_conv.get("id"))
     else:
-        new_conv = create_conversation(user_id=user_id, company_id=company_id, title=query[:45])
+        new_conv = create_conversation(user_id=user_id, company_id=company_id, title="New Chat")
         conv_id = str(new_conv.get("id"))
 
     # 1. Non-streaming JSON response
@@ -191,8 +191,9 @@ async def chat_with_coach(
         response_text = result.get("response", "")
         citations = result.get("citations", [])
 
+        final_title = "New Chat"
         if conv_id:
-            append_messages_to_conversation(
+            updated_conv = append_messages_to_conversation(
                 conversation_id=conv_id,
                 user_id=user_id,
                 company_id=company_id,
@@ -202,10 +203,15 @@ async def chat_with_coach(
                 ],
                 auto_title_from_query=query
             )
+            if updated_conv and isinstance(updated_conv, dict):
+                final_title = str(updated_conv.get("title") or "New Chat")
+            else:
+                final_title = "New Chat"
 
         return {
             "success": True,
             "conversation_id": conv_id,
+            "title": final_title,
             "target_employee_name": resolved_employee_name,
             "response": response_text,
             "intent": result.get("intent", ""),
@@ -217,77 +223,61 @@ async def chat_with_coach(
 
     # 2. Server-Sent Events (SSE) Streaming
     async def sse_event_stream():
+        final_result = None
         try:
-            yield f"data: {json.dumps({'type': 'step', 'step': 'introspecting', 'detail': 'Inspecting company schema and document catalog...'})}\n\n"
-            await asyncio.sleep(0.05)
-
-            yield f"data: {json.dumps({'type': 'step', 'step': 'routing', 'detail': 'Classifying intent and planning retrieval...'})}\n\n"
-            await asyncio.sleep(0.05)
-
-            # Execute agent workflow in thread to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            runner = functools.partial(
-                execute_coach_agent,
+            async for event in stream_coach_agent(
                 user_query=query,
                 company_id=company_id,
                 user_id=user_id,
                 target_employee_id=effective_target_employee_id,
-                target_employee_name=payload.target_employee_name,
+                target_employee_name=resolved_employee_name,
                 security_ctx=sec_dict,
-            )
-            result = await loop.run_in_executor(None, runner)
-            _audit_coach_query(
-                company_id=company_id,
-                auth=auth,
-                action="COACH_QUERY_EXECUTED",
-                details={
-                    "intent": result.get("intent"),
-                    "role_level": security_ctx.role_level,
-                    "target_employee_id": effective_target_employee_id,
-                    "target_employee_name": resolved_employee_name,
-                    "citations_count": len(result.get("citations") or []),
-                    "stream": True,
-                },
-            )
-            intent = result.get("intent")
-            sql_query = result.get("sql_query")
-            sql_result = result.get("sql_result")
-            citations = result.get("citations", [])
-            response_text = result.get("response", "")
+                request=request,
+            ):
+                if event.get("type") == "done":
+                    final_result = event
+                    # Attach conversation_id and intelligent title to done event
+                    event["conversation_id"] = conv_id
+                    response_text = event.get("response", "")
+                    if conv_id and response_text:
+                        updated_conv = append_messages_to_conversation(
+                            conversation_id=conv_id,
+                            user_id=user_id,
+                            company_id=company_id,
+                            new_messages=[
+                                {"role": "user", "content": query, "timestamp": datetime.utcnow().isoformat()},
+                                {"role": "assistant", "content": response_text, "citations": event.get("citations") or [], "timestamp": datetime.utcnow().isoformat()}
+                            ],
+                            auto_title_from_query=query
+                        )
+                        if updated_conv and isinstance(updated_conv, dict):
+                            event["title"] = str(updated_conv.get("title") or "New Chat")
+                        else:
+                            event["title"] = "New Chat"
 
-            # Emit SQL step if executed
-            if sql_query:
-                yield f"data: {json.dumps({'type': 'step', 'step': 'sql', 'query': sql_query, 'row_count': len(sql_result or [])})}\n\n"
-                await asyncio.sleep(0.05)
+                yield f"data: {json.dumps(event)}\n\n"
 
-            # Emit citations if available
-            if citations:
-                yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
-                await asyncio.sleep(0.05)
+            if final_result:
+                response_text = final_result.get("response", "")
+                intent = final_result.get("intent")
+                citations = final_result.get("citations") or []
 
-            # Stream words
-            chunk_size = 4
-            words = response_text.split(" ")
-            for i in range(0, len(words), chunk_size):
-                token_chunk = " ".join(words[i:i + chunk_size]) + " "
-                yield f"data: {json.dumps({'type': 'token', 'content': token_chunk})}\n\n"
-                await asyncio.sleep(0.03)
-
-            # Persist to database thread
-            if conv_id:
-                append_messages_to_conversation(
-                    conversation_id=conv_id,
-                    user_id=user_id,
+                _audit_coach_query(
                     company_id=company_id,
-                    new_messages=[
-                        {"role": "user", "content": query, "timestamp": datetime.utcnow().isoformat()},
-                        {"role": "assistant", "content": response_text, "citations": citations, "timestamp": datetime.utcnow().isoformat()}
-                    ],
-                    auto_title_from_query=query
+                    auth=auth,
+                    action="COACH_QUERY_EXECUTED",
+                    details={
+                        "intent": intent,
+                        "role_level": security_ctx.role_level,
+                        "target_employee_id": effective_target_employee_id,
+                        "target_employee_name": resolved_employee_name,
+                        "citations_count": len(citations),
+                        "stream": True,
+                    },
                 )
 
-            yield f"data: {json.dumps({'type': 'done', 'intent': intent, 'conversation_id': conv_id, 'citations_count': len(citations)})}\n\n"
-
+        except asyncio.CancelledError:
+            print("[COACH CHAT SSE] Client cancelled SSE stream.")
         except Exception as e:
             print(f"[COACH CHAT SSE] Stream error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"

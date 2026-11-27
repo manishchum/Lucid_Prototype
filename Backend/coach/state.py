@@ -41,6 +41,11 @@ class CoachState(TypedDict, total=False):
     # Vector RAG State
     rag_chunks: List[Dict[str, Any]]
 
+    # CRM Engine State (HubSpot FastMCP)
+    crm_data: Optional[Dict[str, Any]]
+    crm_summary: Optional[str]
+    crm_tool_calls: Optional[List[Dict[str, Any]]]
+
     # Final Output & Grounding
     citations: List[Dict[str, Any]]
     final_response: str
