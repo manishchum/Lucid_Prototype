@@ -51,6 +51,7 @@ import { useTenant, FEATURES } from "@/contexts/tenant-context"
 import { fetchWithAuth } from "@/lib/fetch-with-auth"
 import { cn } from "@/lib/utils"
 import CoachOnboarding, { CoachProfileData } from "./components/CoachOnboarding"
+import { TurnTrace, TurnTraceStep } from "@/components/agent-activity/TurnTrace"
 import {
   Trace,
   TraceLine,
@@ -148,6 +149,8 @@ interface Message {
   isStreaming?: boolean
   error?: string
   statusStep?: string
+  activitySteps?: TurnTraceStep[]
+  executionId?: string
   thoughtSteps?: ThoughtStep[]
   thoughtText?: string
   thoughtDurationSeconds?: number
@@ -751,48 +754,73 @@ export default function CoachPage() {
           try {
             const data = JSON.parse(jsonStr)
 
-            if (data.type === "step") {
+            if (data.type === "activity_update" || data.type === "step") {
+              const stageKey = data.stage || data.step || "step"
+              const titleVal = data.title || "Processing"
+              const messageVal = data.message || data.detail || ""
+              const statusVal = data.status || "completed"
+
               setMessages((prev) =>
                 prev.map((msg) => {
                   if (msg.id !== assistantMessageId) return msg
-                  const currentSteps = msg.thoughtSteps || []
-                  const stepKey = data.step
-                  const existingIdx = currentSteps.findIndex((s) => s.step === stepKey)
-                  let updatedSteps: ThoughtStep[]
+                  const currentActivitySteps = msg.activitySteps || []
+                  const existingIdx = currentActivitySteps.findIndex((s) => s.id === stageKey || s.stage === stageKey)
+
+                  const stepObj: TurnTraceStep = {
+                    id: stageKey,
+                    stage: stageKey,
+                    title: titleVal,
+                    message: messageVal,
+                    status: statusVal as any,
+                    duration_ms: data.duration_ms,
+                    evidence: data.evidence || data.data,
+                    planned_actions: data.planned_actions,
+                    timestamp: data.timestamp || Date.now(),
+                  }
+
+                  let updatedActivitySteps: TurnTraceStep[]
                   if (existingIdx >= 0) {
-                    updatedSteps = [...currentSteps]
-                    updatedSteps[existingIdx] = {
-                      ...updatedSteps[existingIdx],
-                      title: data.title || updatedSteps[existingIdx].title,
-                      detail: data.detail || updatedSteps[existingIdx].detail,
-                      understanding: data.understanding || updatedSteps[existingIdx].understanding,
-                      plannedActions: data.planned_actions || updatedSteps[existingIdx].plannedActions,
-                      synthesisStrategy: data.synthesis_strategy || updatedSteps[existingIdx].synthesisStrategy,
-                      data: data.data || updatedSteps[existingIdx].data,
-                      duration: data.duration ?? updatedSteps[existingIdx].duration,
+                    updatedActivitySteps = [...currentActivitySteps]
+                    updatedActivitySteps[existingIdx] = {
+                      ...updatedActivitySteps[existingIdx],
+                      ...stepObj,
                     }
                   } else {
-                    updatedSteps = [
-                      ...currentSteps,
-                      {
-                        id: `${msg.id}-${currentSteps.length}`,
-                        step: data.step,
-                        title: data.title,
-                        detail: data.detail,
-                        understanding: data.understanding,
-                        plannedActions: data.planned_actions,
-                        synthesisStrategy: data.synthesis_strategy,
-                        timestamp: data.timestamp || Date.now(),
-                        duration: data.duration,
-                        data: data.data,
-                      },
-                    ]
+                    updatedActivitySteps = [...currentActivitySteps, stepObj]
                   }
+
+                  // Also maintain legacy thoughtSteps for fallback compatibility
+                  const currentLegacySteps = msg.thoughtSteps || []
+                  const legacyIdx = currentLegacySteps.findIndex((s) => s.step === stageKey)
+                  const legacyObj: ThoughtStep = {
+                    id: `${msg.id}-${currentLegacySteps.length}`,
+                    step: stageKey,
+                    title: titleVal,
+                    detail: messageVal,
+                    understanding: data.understanding,
+                    plannedActions: data.planned_actions,
+                    synthesisStrategy: data.synthesis_strategy,
+                    timestamp: data.timestamp || Date.now(),
+                    duration: data.duration,
+                    data: data.evidence || data.data,
+                  }
+                  let updatedLegacySteps: ThoughtStep[]
+                  if (legacyIdx >= 0) {
+                    updatedLegacySteps = [...currentLegacySteps]
+                    updatedLegacySteps[legacyIdx] = {
+                      ...updatedLegacySteps[legacyIdx],
+                      ...legacyObj,
+                    }
+                  } else {
+                    updatedLegacySteps = [...currentLegacySteps, legacyObj]
+                  }
+
                   return {
                     ...msg,
-                    statusStep: data.detail || data.step,
-                    thoughtSteps: updatedSteps,
-                    thoughtDurationSeconds: data.duration ?? msg.thoughtDurationSeconds,
+                    statusStep: titleVal,
+                    activitySteps: updatedActivitySteps,
+                    thoughtSteps: updatedLegacySteps,
+                    thoughtDurationSeconds: data.duration ?? (data.duration_ms ? data.duration_ms / 1000 : msg.thoughtDurationSeconds),
                     isThoughtExpanded: msg.isThoughtExpanded ?? true,
                   }
                 })
@@ -846,9 +874,10 @@ export default function CoachPage() {
                         isStreaming: false,
                         intent: data.intent,
                         statusStep: undefined,
+                        executionId: data.execution_id,
                         thoughtDurationSeconds:
                           msg.thoughtDurationSeconds ||
-                          (msg.thoughtSteps && msg.thoughtSteps.length > 0 ? 2.5 : undefined),
+                          (msg.activitySteps && msg.activitySteps.length > 0 ? 1.5 : undefined),
                       }
                     : msg
                 )
@@ -953,156 +982,46 @@ export default function CoachPage() {
     )
   }
 
-  // Render Thought & Real-Time Inspection (shadcn Trace & Reasoning Pattern)
+  // Render Thought & Real-Time Inspection (official shadcn TurnTrace)
   const renderThinkingAccordion = (msg: Message) => {
-    const steps = msg.thoughtSteps || []
-    if (steps.length === 0 && !msg.thoughtText) return null
-
-    // Response is considered displayed when content tokens exist OR when stream has completed
-    const isResponseDisplayed = Boolean(msg.content && msg.content.length > 0) || !msg.isStreaming
-    const isGenerating = msg.isStreaming && !isResponseDisplayed
-    const isExpanded = msg.isThoughtExpanded ?? isGenerating
-    const duration = msg.thoughtDurationSeconds ? `${msg.thoughtDurationSeconds}s` : (isGenerating ? "..." : "")
-
-    // Find structured cognition step or fallback to steps
-    const cognitionStep = steps.find((s) => s.step === "cognition")
-    const understanding = cognitionStep?.understanding || steps[0]?.detail
-    const plannedActions = cognitionStep?.plannedActions || []
-    const synthesisStrategy = cognitionStep?.synthesisStrategy || steps.find((s) => s.step === "synthesizing")?.detail
-
-    // Tool execution observations (sql, rag, crm)
-    const observationSteps = steps.filter((s) => ["sql", "rag", "crm"].includes(s.step))
-
-    // Extract unique files reviewed
-    const allFiles = steps.flatMap((s) => s.data?.files || [])
-    const uniqueFiles: Array<{ filename: string; page?: number; period?: string }> = []
-    const seenFiles = new Set<string>()
-    for (const f of allFiles) {
-      if (!seenFiles.has(f.filename)) {
-        seenFiles.add(f.filename)
-        uniqueFiles.push(f)
-      }
+    // 1. If new structured activitySteps exist, render TurnTrace directly
+    if (msg.activitySteps && msg.activitySteps.length > 0) {
+      const isResponseDisplayed = Boolean(msg.content && msg.content.length > 0) || !msg.isStreaming
+      const isGenerating = msg.isStreaming && !isResponseDisplayed
+      return (
+        <TurnTrace
+          steps={msg.activitySteps}
+          isGenerating={isGenerating}
+          durationSeconds={msg.thoughtDurationSeconds}
+        />
+      )
     }
 
-    return (
-      <Trace className="mb-2.5">
-        <TraceCollapsible
-          open={isExpanded}
-          onOpenChange={() => toggleThoughtExpanded(msg.id)}
-        >
-          <TraceCollapsibleTrigger asChild>
-            <TraceLine status={isGenerating ? "running" : "success"}>
-              <TraceIcon>
-                {isGenerating ? (
-                  <span className="relative flex h-2 w-2 mr-0.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500" />
-                  </span>
-                ) : (
-                  <Brain className="w-3.5 h-3.5 text-slate-400 group-hover/trace-line:text-slate-600 transition" />
-                )}
-              </TraceIcon>
+    // 2. If legacy thoughtSteps exist, map them to TurnTraceStep format
+    const legacySteps = msg.thoughtSteps || []
+    if (legacySteps.length > 0 || msg.thoughtText) {
+      const isResponseDisplayed = Boolean(msg.content && msg.content.length > 0) || !msg.isStreaming
+      const isGenerating = msg.isStreaming && !isResponseDisplayed
+      const convertedSteps: TurnTraceStep[] = legacySteps.map((s) => ({
+        id: s.id || s.step,
+        stage: s.step,
+        title: s.title || s.step,
+        message: s.understanding || s.detail || "",
+        status: "completed",
+        planned_actions: s.plannedActions,
+        duration_ms: s.duration ? Math.round(s.duration * 1000) : undefined,
+        evidence: s.data,
+      }))
+      return (
+        <TurnTrace
+          steps={convertedSteps}
+          isGenerating={isGenerating}
+          durationSeconds={msg.thoughtDurationSeconds}
+        />
+      )
+    }
 
-              <TraceTitle>
-                {isGenerating ? "Thinking..." : "Thought"}
-              </TraceTitle>
-
-              {duration && (
-                <TraceDescription>{duration}</TraceDescription>
-              )}
-
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-slate-400 group-hover/trace-line:text-slate-600 transition-transform duration-200 ml-1.5 ${
-                  isExpanded ? "rotate-180" : ""
-                }`}
-              />
-            </TraceLine>
-          </TraceCollapsibleTrigger>
-
-          <TraceCollapsibleContent>
-            <div className="border-l-2 border-slate-200/90 pl-3.5 py-1.5 my-1.5 space-y-2.5 text-xs sm:text-[13px] text-slate-600 leading-relaxed">
-              {msg.thoughtText ? (
-                <div className="whitespace-pre-wrap font-sans text-xs sm:text-[13px] text-slate-600 leading-relaxed select-text">
-                  {msg.thoughtText}
-                </div>
-              ) : (
-                <>
-                  {/* 1. Humane Understanding & Intent */}
-                  {understanding && (
-                    <p className="italic font-serif text-slate-600">
-                      {understanding}
-                    </p>
-                  )}
-
-                  {/* 2. Explicit Planned Actions Checklist */}
-                  {plannedActions.length > 0 && (
-                    <div className="pt-0.5 space-y-1.5 not-italic">
-                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Planned Actions
-                      </span>
-                      <ul className="space-y-1 pl-0 list-none">
-                        {plannedActions.map((action, aIdx) => (
-                          <li key={aIdx} className="flex items-start gap-2 text-slate-600 text-xs sm:text-[13px]">
-                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                            <span>{action}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* 3. Live Tool Observations */}
-                  {observationSteps.length > 0 && (
-                    <div className="pt-0.5 space-y-1.5 not-italic">
-                      <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                        Findings & Observations
-                      </span>
-                      <div className="space-y-1 text-slate-600 text-xs sm:text-[13px]">
-                        {observationSteps.map((obs, oIdx) => (
-                          <div key={oIdx} className="flex items-start gap-2">
-                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                            <span>{obs.detail}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 4. Synthesis Strategy (if distinct from understanding) */}
-                  {synthesisStrategy && synthesisStrategy !== understanding && (
-                    <p className="italic text-slate-500 text-xs pt-0.5">
-                      {synthesisStrategy}
-                    </p>
-                  )}
-                </>
-              )}
-
-              {/* 5. Reviewed Source Documents */}
-              {uniqueFiles.length > 0 && (
-                <div className="pt-1 not-italic text-xs space-y-1">
-                  <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                    Source Documents Reviewed
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {uniqueFiles.map((file, fIdx) => (
-                      <span
-                        key={fIdx}
-                        className="inline-flex items-center gap-1 text-[11px] text-slate-600 bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/80 transition"
-                      >
-                        <FileText className="w-3 h-3 text-slate-400 shrink-0" />
-                        <span className="font-medium text-slate-700">{file.filename}</span>
-                        {file.page && <span className="text-slate-400 text-[10px]">p. {file.page}</span>}
-                        {file.period && <span className="text-slate-400 text-[10px]">({file.period})</span>}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </TraceCollapsibleContent>
-        </TraceCollapsible>
-      </Trace>
-    )
+    return null
   }
 
   // Helper: Extract inline citations, strip them from mid-sentence, and return unique numbers

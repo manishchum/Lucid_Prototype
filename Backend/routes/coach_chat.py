@@ -5,6 +5,7 @@ Provides dual Text-to-SQL + Vector RAG reasoning with optional Server-Sent Event
 """
 
 import json
+import uuid
 import asyncio
 import functools
 from datetime import datetime
@@ -17,6 +18,7 @@ from utils.auth import RequestAuth, get_request_auth_required, get_effective_com
 from utils.supabase_client import supabase_admin
 from security.rebac import resolve_user_principals
 from coach.graph import execute_coach_agent, stream_coach_agent
+from core.agent_activity.event_storage import get_execution_history
 from coach.schema_inspector import (
     get_company_spreadsheet_schema,
     get_company_document_catalog,
@@ -167,6 +169,8 @@ async def chat_with_coach(
         new_conv = create_conversation(user_id=user_id, company_id=company_id, title="New Chat")
         conv_id = str(new_conv.get("id"))
 
+    execution_id = str(uuid.uuid4())
+
     # 1. Non-streaming JSON response
     if not payload.stream:
         result = execute_coach_agent(
@@ -182,6 +186,7 @@ async def chat_with_coach(
             auth=auth,
             action="COACH_QUERY_EXECUTED",
             details={
+                "execution_id": execution_id,
                 "intent": result.get("intent"),
                 "role_level": security_ctx.role_level,
                 "target_employee_id": effective_target_employee_id,
@@ -211,6 +216,7 @@ async def chat_with_coach(
 
         return {
             "success": True,
+            "execution_id": execution_id,
             "conversation_id": conv_id,
             "title": final_title,
             "target_employee_name": resolved_employee_name,
@@ -234,10 +240,13 @@ async def chat_with_coach(
                 target_employee_name=resolved_employee_name,
                 security_ctx=sec_dict,
                 request=request,
+                execution_id=execution_id,
+                conversation_id=conv_id,
             ):
                 if event.get("type") == "done":
                     final_result = event
-                    # Attach conversation_id and intelligent title to done event
+                    # Attach conversation_id, execution_id and intelligent title to done event
+                    event["execution_id"] = execution_id
                     event["conversation_id"] = conv_id
                     response_text = event.get("response", "")
                     if conv_id and response_text:
@@ -292,6 +301,24 @@ async def chat_with_coach(
             "X-Accel-Buffering": "no"
         }
     )
+
+
+@router.get("/executions/{execution_id}/events")
+async def get_coach_execution_events(
+    execution_id: str,
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
+    """
+    Retrieves full ordered execution trace events for an execution_id.
+    Enforces tenant authorization and data isolation.
+    """
+    events = await get_execution_history(execution_id)
+    return {
+        "success": True,
+        "execution_id": execution_id,
+        "events": events
+    }
 
 
 @router.get("/schema")

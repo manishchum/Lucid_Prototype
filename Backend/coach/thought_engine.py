@@ -34,6 +34,82 @@ POLITE_SUFFIXES = {
 THANKS_TOKENS = {"thanks", "thank", "thx", "appreciate", "grateful"}
 INTRO_TRIGGERS = ["who are you", "what can you do", "help me", "introduce yourself", "what do you do"]
 
+QUERY_STOP_WORDS = {
+    "our", "my", "the", "this", "all", "recent", "team", "each", "sales", "quota",
+    "trade", "deal", "deals", "playbook", "playbooks", "policy", "policies", "a", "an",
+    "company", "today", "yesterday", "tomorrow", "q1", "q2", "q3", "q4", "monthly",
+    "weekly", "annual", "superadmin", "store", "management", "user", "users",
+    "customer", "experience", "service", "progress", "overview", "what", "which", "where",
+    "how", "when", "why", "who", "whom", "can", "could", "should", "would", "is", "are",
+    "was", "were", "and", "or", "in", "at", "by", "from", "to", "with", "documents",
+    "document", "records", "notes", "tasks", "task", "review", "summary", "performance",
+    "them", "they", "their", "him", "her", "his", "hers", "me", "i", "mine", "myself",
+    "rece", "recent", "detail", "details", "info", "information", "spreadsheet", "table",
+    "performing", "overall", "currently", "doing", "compared", "vs"
+}
+
+
+def extract_query_subject(user_query: str, caller_name: Optional[str] = None) -> Optional[str]:
+    """
+    Extracts the specific employee or person being inquired about from user_query.
+    - If a third-party person is explicitly mentioned, returns that name.
+    - If first-person pronouns are used ('my performance', 'how am I doing'), returns caller_name.
+    - Otherwise returns None.
+    """
+    q = (user_query or "").strip()
+    if not q:
+        return None
+
+    # 1. Possessive pattern: "riya jhamb's tasks", "Khwaish's performance", "monalika's review"
+    m_poss = re.search(r"\b([A-Za-z]+(?:\s+[A-Za-z]+)?)'s\b", q)
+    if m_poss:
+        cand = m_poss.group(1).strip()
+        words = cand.split()
+        if not any(w.lower() in QUERY_STOP_WORDS for w in words):
+            return cand.title()
+
+    # 2. Preposition pattern: "how is riya jhamb", "summary for riya jhamb", "for riya jhamb"
+    m_prep = re.search(
+        r"\b(?:how\s+is|hows|summary\s+for|review\s+for|performance\s+for|tasks?\s+(?:noted\s+)?for|feedback\s+for|notes?\s+for|metrics\s+for|for|about|of)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
+        q,
+        re.IGNORECASE
+    )
+    if m_prep:
+        raw_cand = m_prep.group(1).strip()
+        words = raw_cand.split()
+        valid_words = []
+        for w in words:
+            if w.lower() in QUERY_STOP_WORDS:
+                break
+            valid_words.append(w)
+        if valid_words:
+            cand = " ".join(valid_words)
+            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
+                return cand.title()
+
+    # 3. Direct name mention pattern if preceded by 'on', 'with', 'regarding'
+    m_direct = re.search(r"\b(?:on|with|regarding)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b", q, re.IGNORECASE)
+    if m_direct:
+        raw_cand = m_direct.group(1).strip()
+        words = raw_cand.split()
+        valid_words = []
+        for w in words:
+            if w.lower() in QUERY_STOP_WORDS:
+                break
+            valid_words.append(w)
+        if valid_words:
+            cand = " ".join(valid_words)
+            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
+                return cand.title()
+
+    # 4. Check for first-person self-reference ("my performance", "my quota", "how am I doing")
+    is_first_person = bool(re.search(r"\b(my|i|me|mine|myself)\b", q, re.IGNORECASE))
+    if is_first_person and caller_name and caller_name.strip():
+        return caller_name.strip()
+
+    return None
+
+
 
 def is_conversational_greeting(query: str) -> bool:
     """Detects whether a user query is purely a conversational greeting or small-talk."""
@@ -179,7 +255,6 @@ def triage_query(
 
     # 5. Extract Subject Entity (Specific employee vs caller)
     subject = target_employee_name
-    from coach.graph import extract_query_subject
     cand_subject = extract_query_subject(user_query, caller_name)
     if cand_subject:
         subject = cand_subject

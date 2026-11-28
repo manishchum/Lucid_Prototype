@@ -30,6 +30,10 @@ from coach.nodes import (
 )
 from coach.guardrails import check_input_guardrails
 from security.pii_firewall import sanitize_final_response
+from core.agent_activity.event_types import ExecutionStage, EventStatus, EventVisibility
+from core.agent_activity.execution_context import ExecutionContext, execution_scope, execution_span
+from core.agent_activity.event_manager import ExecutionEventManager
+from ai.narrator.narrator_service import get_narrator_service
 
 try:
     from langgraph.graph import StateGraph, START, END
@@ -214,82 +218,9 @@ compiled_coach_graph = build_coach_graph()
 
 
 # ============================================================================
-# QUERY SUBJECT ENTITY EXTRACTOR & STOP WORDS
+# QUERY SUBJECT ENTITY EXTRACTOR & STOP WORDS (Imported from thought_engine)
 # ============================================================================
-QUERY_STOP_WORDS = {
-    "our", "my", "the", "this", "all", "recent", "team", "each", "sales", "quota",
-    "trade", "deal", "deals", "playbook", "playbooks", "policy", "policies", "a", "an",
-    "company", "today", "yesterday", "tomorrow", "q1", "q2", "q3", "q4", "monthly",
-    "weekly", "annual", "superadmin", "store", "management", "user", "users",
-    "customer", "experience", "service", "progress", "overview", "what", "which", "where",
-    "how", "when", "why", "who", "whom", "can", "could", "should", "would", "is", "are",
-    "was", "were", "and", "or", "in", "at", "by", "from", "to", "with", "documents",
-    "document", "records", "notes", "tasks", "task", "review", "summary", "performance",
-    "them", "they", "their", "him", "her", "his", "hers", "me", "i", "mine", "myself",
-    "rece", "recent", "detail", "details", "info", "information", "spreadsheet", "table",
-    "performing", "overall", "currently", "doing", "compared", "vs"
-}
-
-
-def extract_query_subject(user_query: str, caller_name: Optional[str] = None) -> Optional[str]:
-    """
-    Extracts the specific employee or person being inquired about from user_query.
-    - If a third-party person is explicitly mentioned (e.g. 'riya jhamb', 'Khwaish Gahoi'), returns that name.
-    - If first-person pronouns are used ('my performance', 'how am I doing'), returns caller_name.
-    - Otherwise returns None.
-    """
-    q = (user_query or "").strip()
-    if not q:
-        return None
-
-    # 1. Possessive pattern: "riya jhamb's tasks", "Khwaish's performance", "monalika's review"
-    m_poss = re.search(r"\b([A-Za-z]+(?:\s+[A-Za-z]+)?)'s\b", q)
-    if m_poss:
-        cand = m_poss.group(1).strip()
-        words = cand.split()
-        if not any(w.lower() in QUERY_STOP_WORDS for w in words):
-            return cand.title()
-
-    # 2. Preposition pattern: "how is riya jhamb", "summary for riya jhamb", "for riya jhamb", "review for Khwaish Gahoi", "about Yomit"
-    m_prep = re.search(
-        r"\b(?:how\s+is|hows|summary\s+for|review\s+for|performance\s+for|tasks?\s+(?:noted\s+)?for|feedback\s+for|notes?\s+for|metrics\s+for|for|about|of)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
-        q,
-        re.IGNORECASE
-    )
-    if m_prep:
-        raw_cand = m_prep.group(1).strip()
-        words = raw_cand.split()
-        valid_words = []
-        for w in words:
-            if w.lower() in QUERY_STOP_WORDS:
-                break
-            valid_words.append(w)
-        if valid_words:
-            cand = " ".join(valid_words)
-            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
-                return cand.title()
-
-    # 3. Direct name mention pattern if preceded by 'on', 'with', 'regarding'
-    m_direct = re.search(r"\b(?:on|with|regarding)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b", q, re.IGNORECASE)
-    if m_direct:
-        raw_cand = m_direct.group(1).strip()
-        words = raw_cand.split()
-        valid_words = []
-        for w in words:
-            if w.lower() in QUERY_STOP_WORDS:
-                break
-            valid_words.append(w)
-        if valid_words:
-            cand = " ".join(valid_words)
-            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
-                return cand.title()
-
-    # 4. Check for first-person self-reference ("my performance", "my quota", "how am I doing")
-    is_first_person = bool(re.search(r"\b(my|i|me|mine|myself)\b", q, re.IGNORECASE))
-    if is_first_person and caller_name and caller_name.strip():
-        return caller_name.strip()
-
-    return None
+from coach.thought_engine import extract_query_subject, QUERY_STOP_WORDS
 
 
 # ============================================================================
@@ -446,7 +377,7 @@ def build_humane_thought_detail(step: str, state: Dict[str, Any], **extra) -> st
 
 
 # ============================================================================
-# ASYNCHRONOUS TRUE STREAMING RUNNER (SSE)
+# ASYNCHRONOUS TRUE STREAMING RUNNER (SSE) WITH AGENT ACTIVITY TRANSPARENCY
 # ============================================================================
 async def stream_coach_agent(
     user_query: str,
@@ -456,19 +387,61 @@ async def stream_coach_agent(
     target_employee_name: str = None,
     security_ctx: Any = None,
     request: Optional[Any] = None,
+    execution_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
-    Asynchronously streams the Performance Coach workflow.
-    Emits real-time SSE progress steps during retrieval, followed by true token-by-token
-    synthesis directly from AsyncOpenAI / Gemini async streaming.
+    Asynchronously streams the Performance Coach workflow with real-time natural language
+    transparency updates powered by the Agent Activity Layer and LLM Narrator Service.
     """
+    start_time = time.time()
+    loop = asyncio.get_event_loop()
+
+    # Initialize Execution Context and Event Manager
+    ctx = ExecutionContext(
+        company_id=company_id,
+        user_id=user_id,
+        execution_id=execution_id,
+        conversation_id=conversation_id,
+        agent_type="coach",
+    )
+    event_mgr = ExecutionEventManager(context=ctx, query=user_query)
+    await event_mgr.initialize()
+    narrator = get_narrator_service()
+
     # 0. Fast-Path Input Guardrails (< 5ms: Crisis, Harm, DB Security, Off-topic Poems)
     guardrail_match = check_input_guardrails(user_query)
     if guardrail_match:
         response_text = guardrail_match["response"]
+        await event_mgr.emit_execution_event(
+            stage=ExecutionStage.VALIDATION,
+            event_type="guardrail_triggered",
+            source_component="guardrails",
+            payload={"intent": guardrail_match["intent"]},
+        )
+        await event_mgr.emit_activity_update(
+            stage=ExecutionStage.VALIDATION,
+            title="Safety Verification",
+            message="Evaluating query against compliance and safety guidelines.",
+            status="completed",
+        )
+        yield {
+            "type": "activity_update",
+            "execution_id": ctx.execution_id,
+            "sequence": ctx.current_sequence,
+            "stage": "validation",
+            "step": "cognition",
+            "title": "Safety Verification",
+            "message": "Evaluated query against compliance and safety guidelines.",
+            "detail": "Evaluated query against compliance and safety guidelines.",
+            "status": "completed",
+            "timestamp": time.time(),
+        }
         yield {"type": "token", "content": response_text}
+        await event_mgr.complete(status="COMPLETED")
         yield {
             "type": "done",
+            "execution_id": ctx.execution_id,
             "intent": guardrail_match["intent"],
             "sql_query": None,
             "sql_result": None,
@@ -500,70 +473,74 @@ async def stream_coach_agent(
         "rag_chunks": []
     }
 
-    start_time = time.time()
-    loop = asyncio.get_event_loop()
-
     # 0B. Fast-Path Cognitive Triage & Humane Action Planner
-    from coach.thought_engine import (
-        triage_query,
-        build_tool_observation,
-        build_synthesis_strategy,
-        format_thought_monologue,
-        stream_thought_tokens,
-    )
-
+    from coach.thought_engine import triage_query
     triage = triage_query(
         user_query,
         caller_name=target_employee_name,
         target_employee_name=effective_emp_name,
     )
 
-    # If conversational greeting, pleasantry, or gratitude: stream reasoning tokens (<0.3s) then answer
+    # If conversational greeting, pleasantry, or gratitude: fast-path narration (<5ms)
     if triage.is_conversational:
-        thought_text = format_thought_monologue(triage)
-        async for thought_event in stream_thought_tokens(thought_text, delay=0.008):
-            yield thought_event
-
-        elapsed = max(round(time.time() - start_time, 2), 0.3)
+        plan_narr = await narrator.narrate_plan(user_query, triage, target_entity=effective_emp_name)
+        ev_plan = await event_mgr.emit_execution_event(
+            stage=ExecutionStage.UNDERSTANDING,
+            event_type="intent_classified",
+            source_component="thought_engine",
+            payload={"intent": triage.intent, "is_conversational": True},
+            duration_ms=plan_narr.get("duration_ms"),
+        )
+        await event_mgr.record_narration(
+            title=plan_narr["title"],
+            message=plan_narr["message"],
+            stage=ExecutionStage.UNDERSTANDING,
+            source_event_id=ev_plan.event_id,
+            provider=plan_narr.get("provider", "fast_path"),
+            model=plan_narr.get("model"),
+            is_fallback=plan_narr.get("is_fallback", False),
+            duration_ms=plan_narr.get("duration_ms"),
+        )
+        elapsed = max(round(time.time() - start_time, 2), 0.2)
         yield {
-            "type": "thought_done",
-            "duration": elapsed,
-            "understanding": triage.understanding,
-            "planned_actions": triage.planned_actions,
-            "synthesis_strategy": triage.synthesis_strategy,
-        }
-        yield {
-            "type": "step",
+            "type": "activity_update",
+            "execution_id": ctx.execution_id,
+            "sequence": ctx.current_sequence,
+            "stage": "understanding",
             "step": "cognition",
-            "title": "Thought",
-            "detail": triage.understanding,
+            "title": plan_narr["title"],
+            "message": plan_narr["message"],
+            "detail": plan_narr["message"],
             "understanding": triage.understanding,
             "planned_actions": triage.planned_actions,
             "synthesis_strategy": triage.synthesis_strategy,
+            "status": "completed",
             "duration": elapsed,
+            "duration_ms": plan_narr.get("duration_ms"),
             "timestamp": time.time(),
         }
 
         state["intent"] = triage.intent
-        ctx = prepare_synthesis_context(state)
+        synthesis_ctx = prepare_synthesis_context(state)
         role_level = _get_role_level(state)
 
         # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
         full_response_parts: List[str] = []
-        async for token_chunk in stream_synthesis_response(ctx, request=request):
+        async for token_chunk in stream_synthesis_response(synthesis_ctx, request=request):
             full_response_parts.append(token_chunk)
 
         raw_response = "".join(full_response_parts)
         sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
 
-        # Emit sanitized response tokens safely after role-based PII firewall runs
         for token in _tokenize_text_for_stream(sanitized_response):
             if request and await request.is_disconnected():
                 break
             yield {"type": "token", "content": token}
 
+        await event_mgr.complete(status="COMPLETED")
         yield {
             "type": "done",
+            "execution_id": ctx.execution_id,
             "intent": triage.intent,
             "sql_query": None,
             "sql_result": None,
@@ -573,41 +550,93 @@ async def stream_coach_agent(
         }
         return
 
-    # For non-conversational queries: stream initial cognitive understanding & planned actions token-by-token
-    thought_text = format_thought_monologue(triage)
-    async for thought_event in stream_thought_tokens(thought_text, delay=0.006):
-        yield thought_event
+    # Non-conversational: 1. Planning Stage
+    plan_narr = await narrator.narrate_plan(user_query, triage, target_entity=effective_emp_name)
+    ev_plan = await event_mgr.emit_execution_event(
+        stage=ExecutionStage.PLANNING,
+        event_type="plan_formulated",
+        source_component="planner",
+        payload={
+            "intent": triage.intent,
+            "planned_actions": triage.planned_actions,
+            "target_entity": effective_emp_name
+        },
+        duration_ms=plan_narr.get("duration_ms"),
+    )
+    await event_mgr.record_narration(
+        title=plan_narr["title"],
+        message=plan_narr["message"],
+        stage=ExecutionStage.PLANNING,
+        source_event_id=ev_plan.event_id,
+        provider=plan_narr.get("provider", "gemini"),
+        model=plan_narr.get("model"),
+        is_fallback=plan_narr.get("is_fallback", False),
+        duration_ms=plan_narr.get("duration_ms"),
+    )
 
     yield {
-        "type": "step",
+        "type": "activity_update",
+        "execution_id": ctx.execution_id,
+        "sequence": ctx.current_sequence,
+        "stage": "planning",
         "step": "cognition",
-        "title": "Thought",
-        "detail": triage.understanding,
+        "title": plan_narr["title"],
+        "message": plan_narr["message"],
+        "detail": plan_narr["message"],
         "understanding": triage.understanding,
         "planned_actions": triage.planned_actions,
         "synthesis_strategy": triage.synthesis_strategy,
+        "status": "completed",
+        "duration_ms": plan_narr.get("duration_ms"),
         "timestamp": time.time(),
     }
 
-    # Step 1: Introspect
+    # Step 1: Introspect Catalog & Schemas
     yield {
-        "type": "step",
+        "type": "activity_update",
+        "execution_id": ctx.execution_id,
+        "sequence": ctx.current_sequence,
+        "stage": "information_gathering",
         "step": "introspecting",
         "title": "Inspecting Catalog & Schemas",
-        "detail": build_humane_thought_detail("introspecting", state),
+        "message": "Scanning accessible spreadsheets, playbooks, and company schemas...",
+        "detail": "Scanning accessible spreadsheets, playbooks, and company schemas...",
+        "status": "running",
         "timestamp": time.time(),
     }
+    t_introspect = time.monotonic()
     try:
         introspect_res = await loop.run_in_executor(None, introspect_node, state)
         state.update(introspect_res)
     except Exception as e:
         print(f"[COACH GRAPH STREAM] Introspect node error: {e}")
 
-    schema_dict = state.get("schema_dict") or {}
-    all_tables = schema_dict.get("all_sheet_names") or []
-    doc_catalog = state.get("document_catalog") or []
+    introspect_ms = int((time.monotonic() - t_introspect) * 1000)
+    await event_mgr.emit_execution_event(
+        stage=ExecutionStage.INFORMATION_GATHERING,
+        event_type="catalog_inspected",
+        source_component="schema_inspector",
+        payload={
+            "tables_found": len(state.get("schema_dict", {}).get("all_sheet_names") or []),
+            "documents_found": len(state.get("document_catalog") or [])
+        },
+        duration_ms=introspect_ms,
+    )
+    yield {
+        "type": "activity_update",
+        "execution_id": ctx.execution_id,
+        "sequence": ctx.current_sequence,
+        "stage": "information_gathering",
+        "step": "introspecting",
+        "title": "Inspecting Catalog & Schemas",
+        "message": "Verified accessible company spreadsheets and reference documents.",
+        "detail": "Verified accessible company spreadsheets and reference documents.",
+        "status": "completed",
+        "duration_ms": introspect_ms,
+        "timestamp": time.time(),
+    }
 
-    # Step 2: Routing (run router first so the humane thought reflects the classified strategy)
+    # Step 2: Routing
     try:
         router_res = await loop.run_in_executor(None, router_node, state)
         state.update(router_res)
@@ -616,17 +645,7 @@ async def stream_coach_agent(
 
     intent = state.get("intent", "GENERAL")
     guardrail_triggered = state.get("guardrail_triggered", False)
-    reason = state.get("routing_reason") or ""
 
-    yield {
-        "type": "step",
-        "step": "routing",
-        "title": "Planning Execution Strategy",
-        "detail": build_humane_thought_detail("routing", state),
-        "timestamp": time.time(),
-    }
-
-    # If guardrail triggered or non-retrieval intent, skip directly to synthesis
     is_non_retrieval = guardrail_triggered or intent in [
         "SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE",
         "PERMISSIONS", "PERMISSION_DENIED", "CATALOG", "GENERAL"
@@ -635,103 +654,257 @@ async def stream_coach_agent(
     row_count_for_synthesis = 0
 
     if not is_non_retrieval:
-        # Step 3: CRM (if CRM intent)
+        # Step 3: CRM Execution
         if intent == "CRM":
             yield {
-                "type": "step",
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "tool_execution",
                 "step": "crm",
-                "title": "Connecting to CRM Pipeline",
-                "detail": build_humane_thought_detail("crm", state),
+                "title": "Querying CRM Pipeline",
+                "message": "Connecting to CRM integration to inspect deal stages and pipeline values...",
+                "detail": "Connecting to CRM integration to inspect deal stages and pipeline values...",
+                "status": "running",
                 "timestamp": time.time(),
             }
+            t_crm = time.monotonic()
             try:
                 crm_res = await loop.run_in_executor(None, crm_node, state)
                 state.update(crm_res)
             except Exception as e:
                 print(f"[COACH GRAPH STREAM] CRM node error: {e}")
+            crm_ms = int((time.monotonic() - t_crm) * 1000)
 
-        # Step 4: Text-to-SQL & Self-Healing (if SQL or HYBRID)
+            obs_crm = await narrator.narrate_observation(
+                user_query=user_query,
+                step="crm",
+                state=state,
+                target_entity=effective_emp_name,
+            )
+            ev_crm = await event_mgr.emit_execution_event(
+                stage=ExecutionStage.OBSERVATION,
+                event_type="crm_queried",
+                source_component="hubspot_mcp",
+                payload=obs_crm.get("evidence", {}),
+                duration_ms=crm_ms,
+            )
+            await event_mgr.record_narration(
+                title=obs_crm["title"],
+                message=obs_crm["message"],
+                stage=ExecutionStage.OBSERVATION,
+                source_event_id=ev_crm.event_id,
+                provider=obs_crm.get("provider", "gemini"),
+                model=obs_crm.get("model"),
+                is_fallback=obs_crm.get("is_fallback", False),
+                duration_ms=obs_crm.get("duration_ms"),
+            )
+            yield {
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "observation",
+                "step": "crm",
+                "title": obs_crm["title"],
+                "message": obs_crm["message"],
+                "detail": obs_crm["message"],
+                "evidence": obs_crm.get("evidence"),
+                "status": "completed",
+                "duration_ms": crm_ms,
+                "timestamp": time.time(),
+            }
+
+        # Step 4: Text-to-SQL & Self-Healing Execution
         if intent in ["SQL", "HYBRID"]:
+            yield {
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "tool_execution",
+                "step": "sql",
+                "title": "Database Query",
+                "message": f"Formulating SQL query across metrics tables{f' for {effective_emp_name}' if effective_emp_name else ''}...",
+                "detail": f"Formulating SQL query across metrics tables{f' for {effective_emp_name}' if effective_emp_name else ''}...",
+                "status": "running",
+                "timestamp": time.time(),
+            }
+            t_sql = time.monotonic()
             sql_gen_res = await loop.run_in_executor(None, sql_generator_node, state)
             state.update(sql_gen_res)
 
-            sql_query = state.get("sql_query") or ""
             sql_exec_res = await loop.run_in_executor(None, sql_executor_node, state)
             state.update(sql_exec_res)
 
             # Self-healing retry check (up to 2 retries)
             while state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
+                yield {
+                    "type": "activity_update",
+                    "execution_id": ctx.execution_id,
+                    "sequence": ctx.current_sequence,
+                    "stage": "recovery",
+                    "step": "sql",
+                    "title": "Repairing SQL Query",
+                    "message": "Self-healing: correcting SQL schema predicate for accurate execution...",
+                    "detail": "Self-healing: correcting SQL schema predicate for accurate execution...",
+                    "status": "retrying",
+                    "timestamp": time.time(),
+                }
                 fix_res = await loop.run_in_executor(None, sql_fixer_node, state)
                 state.update(fix_res)
                 retry_exec_res = await loop.run_in_executor(None, sql_executor_node, state)
                 state.update(retry_exec_res)
 
-            sql_query = state.get("sql_query")
+            sql_ms = int((time.monotonic() - t_sql) * 1000)
             sql_result = state.get("sql_result")
             row_count = len(sql_result or [])
             row_count_for_synthesis = row_count
-            if sql_query:
-                sql_detail = build_humane_thought_detail("sql", state, row_count=row_count)
-                async for thought_event in stream_thought_tokens(f"\n\nObservation (SQL Data): {sql_detail}", delay=0.006):
-                    yield thought_event
-                yield {
-                    "type": "step",
-                    "step": "sql",
-                    "title": "Database Query",
-                    "detail": sql_detail,
-                    "row_count": row_count,
-                    "data": {
-                        "rowCount": row_count
-                    },
-                    "timestamp": time.time(),
-                }
 
-        # Step 5: Hybrid CRM check
+            obs_sql = await narrator.narrate_observation(
+                user_query=user_query,
+                step="sql",
+                state=state,
+                row_count=row_count,
+                target_entity=effective_emp_name,
+            )
+            ev_sql = await event_mgr.emit_execution_event(
+                stage=ExecutionStage.OBSERVATION,
+                event_type="sql_executed",
+                source_component="sql_executor",
+                payload={"row_count": row_count, "retries": state.get("sql_retry_count", 0)},
+                duration_ms=sql_ms,
+            )
+            await event_mgr.record_narration(
+                title=obs_sql["title"],
+                message=obs_sql["message"],
+                stage=ExecutionStage.OBSERVATION,
+                source_event_id=ev_sql.event_id,
+                provider=obs_sql.get("provider", "gemini"),
+                model=obs_sql.get("model"),
+                is_fallback=obs_sql.get("is_fallback", False),
+                duration_ms=obs_sql.get("duration_ms"),
+            )
+            yield {
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "observation",
+                "step": "sql",
+                "title": obs_sql["title"],
+                "message": obs_sql["message"],
+                "detail": obs_sql["message"],
+                "evidence": {"rowCount": row_count},
+                "data": {"rowCount": row_count},
+                "status": "completed",
+                "duration_ms": sql_ms,
+                "timestamp": time.time(),
+            }
+
+        # Step 5: Hybrid CRM Check
         if intent == "HYBRID":
             q_low = user_query.lower()
             if any(k in q_low for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
                 yield {
-                    "type": "step",
+                    "type": "activity_update",
+                    "execution_id": ctx.execution_id,
+                    "sequence": ctx.current_sequence,
+                    "stage": "tool_execution",
                     "step": "crm",
                     "title": "Connecting to CRM Pipeline",
-                    "detail": build_humane_thought_detail("crm", state),
+                    "message": "Cross-referencing live CRM deal status...",
+                    "detail": "Cross-referencing live CRM deal status...",
+                    "status": "running",
                     "timestamp": time.time(),
                 }
                 try:
                     crm_res = await loop.run_in_executor(None, crm_node, state)
                     state.update(crm_res)
-                    crm_detail = build_humane_thought_detail("crm", state)
-                    async for thought_event in stream_thought_tokens(f"\n\nObservation (CRM Pipeline): {crm_detail}", delay=0.006):
-                        yield thought_event
+                    obs_crm = await narrator.narrate_observation(user_query, "crm", state, target_entity=effective_emp_name)
+                    yield {
+                        "type": "activity_update",
+                        "execution_id": ctx.execution_id,
+                        "sequence": ctx.current_sequence,
+                        "stage": "observation",
+                        "step": "crm",
+                        "title": obs_crm["title"],
+                        "message": obs_crm["message"],
+                        "detail": obs_crm["message"],
+                        "evidence": obs_crm.get("evidence"),
+                        "status": "completed",
+                        "timestamp": time.time(),
+                    }
                 except Exception as e:
                     print(f"[COACH GRAPH STREAM] CRM hybrid node error: {e}")
 
-        # Step 6: RAG retrieval (if RAG or HYBRID)
+        # Step 6: RAG Retrieval
         if intent in ["RAG", "HYBRID"]:
+            yield {
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "tool_execution",
+                "step": "rag",
+                "title": "Document Analysis",
+                "message": f"Searching company documents and meeting archives{f' for {effective_emp_name}' if effective_emp_name else ''}...",
+                "detail": f"Searching company documents and meeting archives{f' for {effective_emp_name}' if effective_emp_name else ''}...",
+                "status": "running",
+                "timestamp": time.time(),
+            }
+            t_rag = time.monotonic()
             try:
                 rag_res = await loop.run_in_executor(None, rag_node, state)
                 state.update(rag_res)
             except Exception as e:
                 print(f"[COACH GRAPH STREAM] RAG node error: {e}")
+            rag_ms = int((time.monotonic() - t_rag) * 1000)
 
             matched_files = state.get("matched_files") or []
             matched_files_details = state.get("matched_files_details") or []
             chunks = state.get("rag_chunks") or []
-            rag_detail = build_humane_thought_detail("rag", state)
 
-            async for thought_event in stream_thought_tokens(f"\n\nObservation (Knowledge Base): {rag_detail}", delay=0.006):
-                yield thought_event
-
+            obs_rag = await narrator.narrate_observation(
+                user_query=user_query,
+                step="rag",
+                state=state,
+                target_entity=effective_emp_name,
+            )
+            ev_rag = await event_mgr.emit_execution_event(
+                stage=ExecutionStage.OBSERVATION,
+                event_type="rag_retrieved",
+                source_component="rag_tool",
+                payload={"file_count": len(matched_files), "chunk_count": len(chunks)},
+                duration_ms=rag_ms,
+            )
+            await event_mgr.record_narration(
+                title=obs_rag["title"],
+                message=obs_rag["message"],
+                stage=ExecutionStage.OBSERVATION,
+                source_event_id=ev_rag.event_id,
+                provider=obs_rag.get("provider", "gemini"),
+                model=obs_rag.get("model"),
+                is_fallback=obs_rag.get("is_fallback", False),
+                duration_ms=obs_rag.get("duration_ms"),
+            )
             yield {
-                "type": "step",
+                "type": "activity_update",
+                "execution_id": ctx.execution_id,
+                "sequence": ctx.current_sequence,
+                "stage": "observation",
                 "step": "rag",
-                "title": "Document Analysis",
-                "detail": rag_detail,
+                "title": obs_rag["title"],
+                "message": obs_rag["message"],
+                "detail": obs_rag["message"],
+                "evidence": {
+                    "files": matched_files_details,
+                    "fileCount": len(matched_files),
+                    "chunkCount": len(chunks)
+                },
                 "data": {
                     "files": matched_files_details,
                     "fileCount": len(matched_files),
                     "chunkCount": len(chunks)
                 },
+                "status": "completed",
+                "duration_ms": rag_ms,
                 "timestamp": time.time(),
             }
 
@@ -744,24 +917,28 @@ async def stream_coach_agent(
         yield {"type": "citations", "citations": public_citations}
 
     # Step 7: Synthesis (Token-by-Token Streaming)
+    synth_narr = await narrator.narrate_synthesis(user_query, state)
     elapsed = round(time.time() - start_time, 1)
+
     yield {
-        "type": "thought_done",
-        "duration": elapsed,
-    }
-    yield {
-        "type": "step",
+        "type": "activity_update",
+        "execution_id": ctx.execution_id,
+        "sequence": ctx.current_sequence,
+        "stage": "synthesis",
         "step": "synthesizing",
-        "title": "Synthesizing Coaching Guidance",
-        "detail": build_humane_thought_detail("synthesizing", state, row_count=row_count_for_synthesis),
+        "title": synth_narr["title"],
+        "message": synth_narr["message"],
+        "detail": synth_narr["message"],
+        "status": "running",
         "duration": elapsed,
         "timestamp": time.time(),
     }
-    ctx = prepare_synthesis_context(state)
+
+    synthesis_ctx = prepare_synthesis_context(state)
 
     # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
     full_response_parts: List[str] = []
-    async for token_chunk in stream_synthesis_response(ctx, request=request):
+    async for token_chunk in stream_synthesis_response(synthesis_ctx, request=request):
         full_response_parts.append(token_chunk)
 
     raw_response = "".join(full_response_parts)
@@ -773,8 +950,25 @@ async def stream_coach_agent(
             break
         yield {"type": "token", "content": token}
 
+    # Mark synthesis step completed
+    yield {
+        "type": "activity_update",
+        "execution_id": ctx.execution_id,
+        "sequence": ctx.current_sequence,
+        "stage": "synthesis",
+        "step": "synthesizing",
+        "title": synth_narr["title"],
+        "message": "Formulated grounded response with verified citations.",
+        "detail": "Formulated grounded response with verified citations.",
+        "status": "completed",
+        "duration": elapsed,
+        "timestamp": time.time(),
+    }
+
+    await event_mgr.complete(status="COMPLETED")
     yield {
         "type": "done",
+        "execution_id": ctx.execution_id,
         "intent": state.get("intent", intent),
         "sql_query": None,  # Omit raw SQL statement to protect schema/sensitive literals in ordinary responses
         "sql_result": None,  # Omit raw database rows from public SSE events to prevent sensitive data exposure
@@ -782,3 +976,4 @@ async def stream_coach_agent(
         "citations_count": len(public_citations),
         "response": sanitized_response
     }
+
