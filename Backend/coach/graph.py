@@ -645,7 +645,6 @@ async def stream_coach_agent(
 
     intent = state.get("intent", "GENERAL")
     guardrail_triggered = state.get("guardrail_triggered", False)
-
     is_non_retrieval = guardrail_triggered or intent in [
         "SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE",
         "PERMISSIONS", "PERMISSION_DENIED", "CATALOG", "GENERAL"
@@ -976,4 +975,3 @@ async def stream_coach_agent(
         "citations_count": len(public_citations),
         "response": sanitized_response
     }
-

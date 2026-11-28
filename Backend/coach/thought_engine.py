@@ -255,6 +255,10 @@ def triage_query(
 
     # 5. Extract Subject Entity (Specific employee vs caller)
     subject = target_employee_name
+<<<<<<< HEAD
+=======
+    from coach.graph import extract_query_subject
+>>>>>>> 2b5ba24f844e5df0350eb98358864bfc11a9932b
     cand_subject = extract_query_subject(user_query, caller_name)
     if cand_subject:
         subject = cand_subject
