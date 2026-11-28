@@ -84,7 +84,7 @@ _CARD_CANDIDATE_RE = re.compile(r"\b(?:\d[ -]*?){13,19}\b")
 
 # Soft / workplace PII patterns (masked dynamically at query-time by role)
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-_PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?!\d)")
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)|\d{2,4})[\s.-]?\d{3,4}(?:[\s.-]?\d{3,4})?(?!\d)")
 
 # Compensation / HR / Disciplinary keywords for automatic sensitivity classification
 _HR_CONFIDENTIAL_KEYWORDS = {
@@ -120,12 +120,22 @@ def classify_column_sensitivity(column_name: str) -> str:
     norm = _normalize_col(column_name)
     if not norm:
         return "internal"
+    norm_parts = set(norm.split("_"))
     for kw in _HR_CONFIDENTIAL_COLUMNS:
-        if kw in norm:
-            return "hr_confidential"
+        # Match whole word/token or exact match (prevents 'pan' matching inside 'company')
+        if "_" in kw:
+            if kw in norm:
+                return "hr_confidential"
+        else:
+            if kw in norm_parts or norm == kw:
+                return "hr_confidential"
     for kw in _MANAGER_RESTRICTED_COLUMNS:
-        if kw in norm:
-            return "manager_restricted"
+        if "_" in kw:
+            if kw in norm:
+                return "manager_restricted"
+        else:
+            if kw in norm_parts or norm == kw:
+                return "manager_restricted"
     return "internal"
 
 
@@ -342,12 +352,19 @@ def mask_rag_chunks_for_role(
 def sanitize_final_response(text: str, role_level: int) -> str:
     """
     Final Output Firewall before SSE/JSON delivery.
-    Ensures zero hard PII / secrets or unauthorized phone leaks appear in LLM output.
+    Ensures zero hard PII / secrets, unauthorized phone leaks, or restricted compensation appear in LLM output.
     """
     if not text:
         return text
     cleaned, _ = scrub_hard_pii(text)
     if role_level < 2:
         cleaned = _PHONE_RE.sub("[MASKED_PHONE]", cleaned)
+    if role_level < 3:
+        cleaned = re.sub(
+            r"(?i)\b(salary|base\s+pay|ctc|compensation|bonus|equity|severance)\b[^\n,.;]*?([\$€£₹]\s*[\d,]+(?:\.\d+)?)",
+            r"\1: [REDACTED_FINANCIAL]",
+            cleaned
+        )
+        cleaned = re.sub(r"[\$€£₹]\s*\d{1,3}(?:,\d{3})+(?:\.\d+)?", "[REDACTED_FINANCIAL]", cleaned)
     return cleaned
 

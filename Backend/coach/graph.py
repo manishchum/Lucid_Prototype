@@ -5,7 +5,15 @@ Wires together Introspection, Routing, SQL Generation, Self-Healing Execution,
 Vector RAG, and Grounded Synthesis into an executable StateGraph.
 """
 
-from typing import Dict, Any, Literal
+
+
+
+
+
+import re
+import asyncio
+import time
+from typing import Dict, Any, Literal, List, Optional, AsyncGenerator
 from coach.state import CoachState
 from coach.nodes import (
     introspect_node,
@@ -14,9 +22,14 @@ from coach.nodes import (
     sql_executor_node,
     sql_fixer_node,
     rag_node,
-    synthesizer_node
+    crm_node,
+    synthesizer_node,
+    prepare_synthesis_context,
+    stream_synthesis_response,
+    _get_role_level
 )
 from coach.guardrails import check_input_guardrails
+from security.pii_firewall import sanitize_final_response
 
 try:
     from langgraph.graph import StateGraph, START, END
@@ -26,41 +39,105 @@ except ImportError:
     LANGGRAPH_AVAILABLE = False
 
 
+def _tokenize_text_for_stream(text: str) -> List[str]:
+    """Splits text into natural word-level tokens preserving spacing for SSE token streaming."""
+    if not text:
+        return []
+    return re.findall(r"\S+\s*|\s+", text)
+
+
+def build_public_citations(citations: List[Dict[str, Any]], role_level: int) -> List[Dict[str, Any]]:
+    """
+    Constructs a role-filtered, sanitized public citation payload.
+    Omits raw underlying chunk bodies ('content', 'text') and applies role-based
+    PII firewall to brief excerpts to guarantee no sensitive data escapes through citations.
+    """
+    if not citations:
+        return []
+
+    public_citations: List[Dict[str, Any]] = []
+    for cit in citations:
+        if not isinstance(cit, dict):
+            continue
+
+        raw_excerpt = str(cit.get("excerpt") or "")
+        # Apply role-based PII firewall to the excerpt
+        sanitized_excerpt = sanitize_final_response(raw_excerpt[:250], role_level) if raw_excerpt else ""
+
+        public_cit = {
+            "index": cit.get("index"),
+            "document_id": cit.get("document_id"),
+            "filename": cit.get("filename") or cit.get("file_name"),
+            "file_name": cit.get("file_name") or cit.get("filename"),
+            "title": cit.get("title") or cit.get("filename"),
+            "name": cit.get("name") or cit.get("filename"),
+            "file_type": cit.get("file_type", "doc"),
+            "location": cit.get("location"),
+            "page_number": cit.get("page_number"),
+            "paragraph_number": cit.get("paragraph_number"),
+            "line_range": cit.get("line_range"),
+            "slide_number": cit.get("slide_number"),
+            "sheet_name": cit.get("sheet_name"),
+            "row_number": cit.get("row_number"),
+            "section_title": cit.get("section_title"),
+            "eval_period": cit.get("eval_period"),
+            "score": cit.get("score"),
+            "similarity": cit.get("similarity"),
+            "excerpt": sanitized_excerpt,
+        }
+        # Explicitly do NOT include cit.get("content") or cit.get("text")
+        public_citations.append(public_cit)
+
+    return public_citations
+
+
 # ============================================================================
 # CONDITIONAL ROUTING FUNCTIONS
 # ============================================================================
-def route_from_router(state: CoachState) -> Literal["sql_generator", "rag", "synthesizer"]:
+def route_from_router(state: CoachState) -> Literal["sql_generator", "rag", "crm", "synthesizer"]:
     """Routes based on classified intent."""
     if state.get("guardrail_triggered"):
         return "synthesizer"
     intent = state.get("intent", "GENERAL")
-    if intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
+    if intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE", "PERMISSIONS", "PERMISSION_DENIED"]:
         return "synthesizer"
     if intent in ["SQL", "HYBRID"]:
         return "sql_generator"
+    elif intent == "CRM":
+        return "crm"
     elif intent == "RAG":
         return "rag"
     else:  # "CATALOG", "GENERAL", "OUT_OF_SCOPE"
         return "synthesizer"
 
 
-def route_from_sql_executor(state: CoachState) -> Literal["sql_fixer", "rag", "synthesizer"]:
+def route_from_sql_executor(state: CoachState) -> Literal["sql_fixer", "crm", "rag", "synthesizer"]:
     """
     Self-healing retry edge: If SQL execution failed and retry_count < 2,
-    routes to sql_fixer to correct the query. Otherwise proceeds to RAG (if HYBRID) or synthesizer.
+    routes to sql_fixer to correct the query. Otherwise proceeds to CRM (if HYBRID with CRM terms), RAG (if HYBRID), or synthesizer.
     """
     sql_error = state.get("sql_error")
     retry_count = state.get("sql_retry_count", 0)
     intent = state.get("intent", "")
+    user_q = (state.get("user_query") or "").lower()
 
     # Self-healing retry check (up to 2 retry attempts)
     if sql_error and retry_count < 2:
         return "sql_fixer"
 
-    # If Hybrid query, execute RAG next to collect qualitative excerpts
+    # If Hybrid query, execute CRM or RAG next
     if intent == "HYBRID":
+        if any(k in user_q for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
+            return "crm"
         return "rag"
 
+    return "synthesizer"
+
+
+def route_from_crm(state: CoachState) -> Literal["rag", "synthesizer"]:
+    """If HYBRID intent, proceeds to RAG for document context; otherwise to synthesizer."""
+    if state.get("intent") == "HYBRID":
+        return "rag"
     return "synthesizer"
 
 
@@ -80,6 +157,7 @@ def build_coach_graph():
     workflow.add_node("sql_generator", sql_generator_node)
     workflow.add_node("sql_executor", sql_executor_node)
     workflow.add_node("sql_fixer", sql_fixer_node)
+    workflow.add_node("crm", crm_node)
     workflow.add_node("rag", rag_node)
     workflow.add_node("synthesizer", synthesizer_node)
 
@@ -93,6 +171,7 @@ def build_coach_graph():
         route_from_router,
         {
             "sql_generator": "sql_generator",
+            "crm": "crm",
             "rag": "rag",
             "synthesizer": "synthesizer"
         }
@@ -107,12 +186,23 @@ def build_coach_graph():
         route_from_sql_executor,
         {
             "sql_fixer": "sql_fixer",
+            "crm": "crm",
             "rag": "rag",
             "synthesizer": "synthesizer"
         }
     )
 
-    # 5. RAG to Synthesizer to END
+    # 5. CRM conditional branch (to RAG if HYBRID, else to synthesizer)
+    workflow.add_conditional_edges(
+        "crm",
+        route_from_crm,
+        {
+            "rag": "rag",
+            "synthesizer": "synthesizer"
+        }
+    )
+
+    # 6. RAG to Synthesizer to END
     workflow.add_edge("rag", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
@@ -121,6 +211,85 @@ def build_coach_graph():
 
 # Initialize compiled graph instance
 compiled_coach_graph = build_coach_graph()
+
+
+# ============================================================================
+# QUERY SUBJECT ENTITY EXTRACTOR & STOP WORDS
+# ============================================================================
+QUERY_STOP_WORDS = {
+    "our", "my", "the", "this", "all", "recent", "team", "each", "sales", "quota",
+    "trade", "deal", "deals", "playbook", "playbooks", "policy", "policies", "a", "an",
+    "company", "today", "yesterday", "tomorrow", "q1", "q2", "q3", "q4", "monthly",
+    "weekly", "annual", "superadmin", "store", "management", "user", "users",
+    "customer", "experience", "service", "progress", "overview", "what", "which", "where",
+    "how", "when", "why", "who", "whom", "can", "could", "should", "would", "is", "are",
+    "was", "were", "and", "or", "in", "at", "by", "from", "to", "with", "documents",
+    "document", "records", "notes", "tasks", "task", "review", "summary", "performance",
+    "them", "they", "their", "him", "her", "his", "hers", "me", "i", "mine", "myself",
+    "rece", "recent", "detail", "details", "info", "information", "spreadsheet", "table",
+    "performing", "overall", "currently", "doing", "compared", "vs"
+}
+
+
+def extract_query_subject(user_query: str, caller_name: Optional[str] = None) -> Optional[str]:
+    """
+    Extracts the specific employee or person being inquired about from user_query.
+    - If a third-party person is explicitly mentioned (e.g. 'riya jhamb', 'Khwaish Gahoi'), returns that name.
+    - If first-person pronouns are used ('my performance', 'how am I doing'), returns caller_name.
+    - Otherwise returns None.
+    """
+    q = (user_query or "").strip()
+    if not q:
+        return None
+
+    # 1. Possessive pattern: "riya jhamb's tasks", "Khwaish's performance", "monalika's review"
+    m_poss = re.search(r"\b([A-Za-z]+(?:\s+[A-Za-z]+)?)'s\b", q)
+    if m_poss:
+        cand = m_poss.group(1).strip()
+        words = cand.split()
+        if not any(w.lower() in QUERY_STOP_WORDS for w in words):
+            return cand.title()
+
+    # 2. Preposition pattern: "how is riya jhamb", "summary for riya jhamb", "for riya jhamb", "review for Khwaish Gahoi", "about Yomit"
+    m_prep = re.search(
+        r"\b(?:how\s+is|hows|summary\s+for|review\s+for|performance\s+for|tasks?\s+(?:noted\s+)?for|feedback\s+for|notes?\s+for|metrics\s+for|for|about|of)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
+        q,
+        re.IGNORECASE
+    )
+    if m_prep:
+        raw_cand = m_prep.group(1).strip()
+        words = raw_cand.split()
+        valid_words = []
+        for w in words:
+            if w.lower() in QUERY_STOP_WORDS:
+                break
+            valid_words.append(w)
+        if valid_words:
+            cand = " ".join(valid_words)
+            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
+                return cand.title()
+
+    # 3. Direct name mention pattern if preceded by 'on', 'with', 'regarding'
+    m_direct = re.search(r"\b(?:on|with|regarding)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b", q, re.IGNORECASE)
+    if m_direct:
+        raw_cand = m_direct.group(1).strip()
+        words = raw_cand.split()
+        valid_words = []
+        for w in words:
+            if w.lower() in QUERY_STOP_WORDS:
+                break
+            valid_words.append(w)
+        if valid_words:
+            cand = " ".join(valid_words)
+            if cand.lower() not in QUERY_STOP_WORDS and len(cand) >= 2:
+                return cand.title()
+
+    # 4. Check for first-person self-reference ("my performance", "my quota", "how am I doing")
+    is_first_person = bool(re.search(r"\b(my|i|me|mine|myself)\b", q, re.IGNORECASE))
+    if is_first_person and caller_name and caller_name.strip():
+        return caller_name.strip()
+
+    return None
 
 
 # ============================================================================
@@ -154,12 +323,18 @@ def execute_coach_agent(
     if security_ctx is not None:
         sec_dict = security_ctx.to_cache_dict() if hasattr(security_ctx, "to_cache_dict") else dict(security_ctx)
 
+    # Determine true target employee subject for this specific query
+    query_subject = extract_query_subject(user_query, target_employee_name)
+    effective_emp_name = query_subject if query_subject else (
+        target_employee_name if re.search(r"\b(my|i|me|mine|myself)\b", user_query, re.IGNORECASE) else None
+    )
+
     initial_state: CoachState = {
         "user_query": user_query,
         "company_id": company_id,
         "user_id": user_id,
         "target_employee_id": target_employee_id,
-        "target_employee_name": target_employee_name,
+        "target_employee_name": effective_emp_name,
         "security_ctx": sec_dict,
         "sql_retry_count": 0,
         "citations": [],
@@ -170,12 +345,13 @@ def execute_coach_agent(
     if compiled_coach_graph is not None:
         try:
             final_state = compiled_coach_graph.invoke(initial_state)
+            role_level = _get_role_level(final_state)
             return {
                 "response": final_state.get("final_response", ""),
                 "intent": final_state.get("intent", ""),
-                "sql_query": final_state.get("sql_query"),
-                "sql_result": final_state.get("sql_result"),
-                "citations": final_state.get("citations", []),
+                "sql_query": None,  # Omit raw SQL statement to prevent schema/sensitive literal exposure
+                "sql_result": None,
+                "citations": build_public_citations(final_state.get("citations", []), role_level),
                 "error": None
             }
         except Exception as e:
@@ -188,25 +364,421 @@ def execute_coach_agent(
 
     intent = state.get("intent", "GENERAL")
 
+    if intent == "CRM":
+        state.update(crm_node(state))
+
     if intent in ["SQL", "HYBRID"]:
         state.update(sql_generator_node(state))
         state.update(sql_executor_node(state))
 
-        # Check self-healing
-        if state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
+        # Check self-healing (up to 2 retries)
+        while state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
             state.update(sql_fixer_node(state))
             state.update(sql_executor_node(state))
+
+    if intent == "HYBRID":
+        q_low = user_query.lower()
+        if any(k in q_low for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
+            state.update(crm_node(state))
 
     if intent in ["RAG", "HYBRID"]:
         state.update(rag_node(state))
 
     state.update(synthesizer_node(state))
+    role_level = _get_role_level(state)
 
     return {
         "response": state.get("final_response", ""),
         "intent": state.get("intent", ""),
-        "sql_query": state.get("sql_query"),
-        "sql_result": state.get("sql_result"),
-        "citations": state.get("citations", []),
+        "sql_query": None,  # Omit raw SQL statement to prevent schema/sensitive literal exposure
+        "sql_result": None,
+        "citations": build_public_citations(state.get("citations", []), role_level),
         "error": None
+    }
+
+
+# ============================================================================
+# HUMANE NATURAL LANGUAGE THOUGHT DETAIL BUILDER
+# ============================================================================
+def build_humane_thought_detail(step: str, state: Dict[str, Any], **extra) -> str:
+    """
+    Builds a dynamic, humane, natural language thought reflection
+    using the Cognitive Thought Engine.
+    """
+    from coach.thought_engine import triage_query, build_tool_observation, build_synthesis_strategy
+
+    user_query = (state.get("user_query") or "").strip()
+    target_name = extract_query_subject(user_query, state.get("target_employee_name"))
+
+    triage = triage_query(
+        user_query,
+        caller_name=state.get("target_employee_name"),
+        target_employee_name=target_name
+    )
+
+    if step in ["introspecting", "cognition"]:
+        return triage.understanding
+
+    elif step == "routing":
+        intent = state.get("intent", triage.intent)
+        if intent == "HYBRID":
+            if target_name:
+                return f"To provide a complete review for {target_name}, I need a two-pronged approach: query our numerical performance tables for sales and quota metrics, while cross-referencing qualitative review notes and task reminders."
+            return "This inquiry requires cross-referencing: checking our numerical metrics tables for data while scanning our qualitative documents and playbooks for context."
+        elif intent == "SQL":
+            if target_name:
+                return f"This is a quantitative data question focused on {target_name}. I will formulate a SQL query to inspect sales volume, quota pacing, and target attainment in our database."
+            return "This is a quantitative performance query. I will formulate a SQL query to pull the relevant sales numbers, quota percentages, and attainment metrics from our tables."
+        elif intent == "RAG":
+            return "This is a qualitative policy and playbook inquiry. I will search through our company guides and reference documents rather than querying numerical spreadsheet tables."
+        elif intent == "CRM":
+            return "The user is asking about live CRM deals and pipeline status. I will connect to our CRM integration to fetch current stages, contacts, and deal values."
+        else:
+            return triage.understanding
+
+    elif step in ["sql", "rag", "crm"]:
+        return build_tool_observation(step, state, **extra)
+
+    elif step == "synthesizing":
+        return build_synthesis_strategy(state)
+
+    return "Analyzing company metrics and knowledge base records..."
+
+
+# ============================================================================
+# ASYNCHRONOUS TRUE STREAMING RUNNER (SSE)
+# ============================================================================
+async def stream_coach_agent(
+    user_query: str,
+    company_id: str,
+    user_id: str = "",
+    target_employee_id: str = None,
+    target_employee_name: str = None,
+    security_ctx: Any = None,
+    request: Optional[Any] = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    Asynchronously streams the Performance Coach workflow.
+    Emits real-time SSE progress steps during retrieval, followed by true token-by-token
+    synthesis directly from AsyncOpenAI / Gemini async streaming.
+    """
+    # 0. Fast-Path Input Guardrails (< 5ms: Crisis, Harm, DB Security, Off-topic Poems)
+    guardrail_match = check_input_guardrails(user_query)
+    if guardrail_match:
+        response_text = guardrail_match["response"]
+        yield {"type": "token", "content": response_text}
+        yield {
+            "type": "done",
+            "intent": guardrail_match["intent"],
+            "sql_query": None,
+            "sql_result": None,
+            "citations_count": 0,
+            "citations": [],
+            "response": response_text,
+        }
+        return
+
+    sec_dict = None
+    if security_ctx is not None:
+        sec_dict = security_ctx.to_cache_dict() if hasattr(security_ctx, "to_cache_dict") else dict(security_ctx)
+
+    # Determine true target employee subject for this specific query
+    query_subject = extract_query_subject(user_query, target_employee_name)
+    effective_emp_name = query_subject if query_subject else (
+        target_employee_name if re.search(r"\b(my|i|me|mine|myself)\b", user_query, re.IGNORECASE) else None
+    )
+
+    state: CoachState = {
+        "user_query": user_query,
+        "company_id": company_id,
+        "user_id": user_id,
+        "target_employee_id": target_employee_id,
+        "target_employee_name": effective_emp_name,
+        "security_ctx": sec_dict,
+        "sql_retry_count": 0,
+        "citations": [],
+        "rag_chunks": []
+    }
+
+    start_time = time.time()
+    loop = asyncio.get_event_loop()
+
+    # 0B. Fast-Path Cognitive Triage & Humane Action Planner
+    from coach.thought_engine import (
+        triage_query,
+        build_tool_observation,
+        build_synthesis_strategy,
+        format_thought_monologue,
+        stream_thought_tokens,
+    )
+
+    triage = triage_query(
+        user_query,
+        caller_name=target_employee_name,
+        target_employee_name=effective_emp_name,
+    )
+
+    # If conversational greeting, pleasantry, or gratitude: stream reasoning tokens (<0.3s) then answer
+    if triage.is_conversational:
+        thought_text = format_thought_monologue(triage)
+        async for thought_event in stream_thought_tokens(thought_text, delay=0.008):
+            yield thought_event
+
+        elapsed = max(round(time.time() - start_time, 2), 0.3)
+        yield {
+            "type": "thought_done",
+            "duration": elapsed,
+            "understanding": triage.understanding,
+            "planned_actions": triage.planned_actions,
+            "synthesis_strategy": triage.synthesis_strategy,
+        }
+        yield {
+            "type": "step",
+            "step": "cognition",
+            "title": "Thought",
+            "detail": triage.understanding,
+            "understanding": triage.understanding,
+            "planned_actions": triage.planned_actions,
+            "synthesis_strategy": triage.synthesis_strategy,
+            "duration": elapsed,
+            "timestamp": time.time(),
+        }
+
+        state["intent"] = triage.intent
+        ctx = prepare_synthesis_context(state)
+        role_level = _get_role_level(state)
+
+        # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
+        full_response_parts: List[str] = []
+        async for token_chunk in stream_synthesis_response(ctx, request=request):
+            full_response_parts.append(token_chunk)
+
+        raw_response = "".join(full_response_parts)
+        sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
+
+        # Emit sanitized response tokens safely after role-based PII firewall runs
+        for token in _tokenize_text_for_stream(sanitized_response):
+            if request and await request.is_disconnected():
+                break
+            yield {"type": "token", "content": token}
+
+        yield {
+            "type": "done",
+            "intent": triage.intent,
+            "sql_query": None,
+            "sql_result": None,
+            "citations": [],
+            "citations_count": 0,
+            "response": sanitized_response,
+        }
+        return
+
+    # For non-conversational queries: stream initial cognitive understanding & planned actions token-by-token
+    thought_text = format_thought_monologue(triage)
+    async for thought_event in stream_thought_tokens(thought_text, delay=0.006):
+        yield thought_event
+
+    yield {
+        "type": "step",
+        "step": "cognition",
+        "title": "Thought",
+        "detail": triage.understanding,
+        "understanding": triage.understanding,
+        "planned_actions": triage.planned_actions,
+        "synthesis_strategy": triage.synthesis_strategy,
+        "timestamp": time.time(),
+    }
+
+    # Step 1: Introspect
+    yield {
+        "type": "step",
+        "step": "introspecting",
+        "title": "Inspecting Catalog & Schemas",
+        "detail": build_humane_thought_detail("introspecting", state),
+        "timestamp": time.time(),
+    }
+    try:
+        introspect_res = await loop.run_in_executor(None, introspect_node, state)
+        state.update(introspect_res)
+    except Exception as e:
+        print(f"[COACH GRAPH STREAM] Introspect node error: {e}")
+
+    schema_dict = state.get("schema_dict") or {}
+    all_tables = schema_dict.get("all_sheet_names") or []
+    doc_catalog = state.get("document_catalog") or []
+
+    # Step 2: Routing (run router first so the humane thought reflects the classified strategy)
+    try:
+        router_res = await loop.run_in_executor(None, router_node, state)
+        state.update(router_res)
+    except Exception as e:
+        print(f"[COACH GRAPH STREAM] Router node error: {e}")
+
+    intent = state.get("intent", "GENERAL")
+    guardrail_triggered = state.get("guardrail_triggered", False)
+    reason = state.get("routing_reason") or ""
+
+    yield {
+        "type": "step",
+        "step": "routing",
+        "title": "Planning Execution Strategy",
+        "detail": build_humane_thought_detail("routing", state),
+        "timestamp": time.time(),
+    }
+
+    # If guardrail triggered or non-retrieval intent, skip directly to synthesis
+    is_non_retrieval = guardrail_triggered or intent in [
+        "SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE",
+        "PERMISSIONS", "PERMISSION_DENIED", "CATALOG", "GENERAL"
+    ]
+
+    row_count_for_synthesis = 0
+
+    if not is_non_retrieval:
+        # Step 3: CRM (if CRM intent)
+        if intent == "CRM":
+            yield {
+                "type": "step",
+                "step": "crm",
+                "title": "Connecting to CRM Pipeline",
+                "detail": build_humane_thought_detail("crm", state),
+                "timestamp": time.time(),
+            }
+            try:
+                crm_res = await loop.run_in_executor(None, crm_node, state)
+                state.update(crm_res)
+            except Exception as e:
+                print(f"[COACH GRAPH STREAM] CRM node error: {e}")
+
+        # Step 4: Text-to-SQL & Self-Healing (if SQL or HYBRID)
+        if intent in ["SQL", "HYBRID"]:
+            sql_gen_res = await loop.run_in_executor(None, sql_generator_node, state)
+            state.update(sql_gen_res)
+
+            sql_query = state.get("sql_query") or ""
+            sql_exec_res = await loop.run_in_executor(None, sql_executor_node, state)
+            state.update(sql_exec_res)
+
+            # Self-healing retry check (up to 2 retries)
+            while state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
+                fix_res = await loop.run_in_executor(None, sql_fixer_node, state)
+                state.update(fix_res)
+                retry_exec_res = await loop.run_in_executor(None, sql_executor_node, state)
+                state.update(retry_exec_res)
+
+            sql_query = state.get("sql_query")
+            sql_result = state.get("sql_result")
+            row_count = len(sql_result or [])
+            row_count_for_synthesis = row_count
+            if sql_query:
+                sql_detail = build_humane_thought_detail("sql", state, row_count=row_count)
+                async for thought_event in stream_thought_tokens(f"\n\nObservation (SQL Data): {sql_detail}", delay=0.006):
+                    yield thought_event
+                yield {
+                    "type": "step",
+                    "step": "sql",
+                    "title": "Database Query",
+                    "detail": sql_detail,
+                    "row_count": row_count,
+                    "data": {
+                        "rowCount": row_count
+                    },
+                    "timestamp": time.time(),
+                }
+
+        # Step 5: Hybrid CRM check
+        if intent == "HYBRID":
+            q_low = user_query.lower()
+            if any(k in q_low for k in ["hubspot", "deal", "pipeline", "crm", "lead", "ticket"]):
+                yield {
+                    "type": "step",
+                    "step": "crm",
+                    "title": "Connecting to CRM Pipeline",
+                    "detail": build_humane_thought_detail("crm", state),
+                    "timestamp": time.time(),
+                }
+                try:
+                    crm_res = await loop.run_in_executor(None, crm_node, state)
+                    state.update(crm_res)
+                    crm_detail = build_humane_thought_detail("crm", state)
+                    async for thought_event in stream_thought_tokens(f"\n\nObservation (CRM Pipeline): {crm_detail}", delay=0.006):
+                        yield thought_event
+                except Exception as e:
+                    print(f"[COACH GRAPH STREAM] CRM hybrid node error: {e}")
+
+        # Step 6: RAG retrieval (if RAG or HYBRID)
+        if intent in ["RAG", "HYBRID"]:
+            try:
+                rag_res = await loop.run_in_executor(None, rag_node, state)
+                state.update(rag_res)
+            except Exception as e:
+                print(f"[COACH GRAPH STREAM] RAG node error: {e}")
+
+            matched_files = state.get("matched_files") or []
+            matched_files_details = state.get("matched_files_details") or []
+            chunks = state.get("rag_chunks") or []
+            rag_detail = build_humane_thought_detail("rag", state)
+
+            async for thought_event in stream_thought_tokens(f"\n\nObservation (Knowledge Base): {rag_detail}", delay=0.006):
+                yield thought_event
+
+            yield {
+                "type": "step",
+                "step": "rag",
+                "title": "Document Analysis",
+                "detail": rag_detail,
+                "data": {
+                    "files": matched_files_details,
+                    "fileCount": len(matched_files),
+                    "chunkCount": len(chunks)
+                },
+                "timestamp": time.time(),
+            }
+
+    role_level = _get_role_level(state)
+
+    # Citations (Role-filtered public citations with allowlisted metadata and redacted excerpts)
+    raw_citations = state.get("citations", [])
+    public_citations = build_public_citations(raw_citations, role_level)
+    if public_citations:
+        yield {"type": "citations", "citations": public_citations}
+
+    # Step 7: Synthesis (Token-by-Token Streaming)
+    elapsed = round(time.time() - start_time, 1)
+    yield {
+        "type": "thought_done",
+        "duration": elapsed,
+    }
+    yield {
+        "type": "step",
+        "step": "synthesizing",
+        "title": "Synthesizing Coaching Guidance",
+        "detail": build_humane_thought_detail("synthesizing", state, row_count=row_count_for_synthesis),
+        "duration": elapsed,
+        "timestamp": time.time(),
+    }
+    ctx = prepare_synthesis_context(state)
+
+    # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
+    full_response_parts: List[str] = []
+    async for token_chunk in stream_synthesis_response(ctx, request=request):
+        full_response_parts.append(token_chunk)
+
+    raw_response = "".join(full_response_parts)
+    sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
+
+    # Emit sanitized response tokens safely after role-based PII firewall runs
+    for token in _tokenize_text_for_stream(sanitized_response):
+        if request and await request.is_disconnected():
+            break
+        yield {"type": "token", "content": token}
+
+    yield {
+        "type": "done",
+        "intent": state.get("intent", intent),
+        "sql_query": None,  # Omit raw SQL statement to protect schema/sensitive literals in ordinary responses
+        "sql_result": None,  # Omit raw database rows from public SSE events to prevent sensitive data exposure
+        "citations": public_citations,
+        "citations_count": len(public_citations),
+        "response": sanitized_response
     }

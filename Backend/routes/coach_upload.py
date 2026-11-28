@@ -41,7 +41,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import redis.asyncio as aioredis
 
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.supabase_client import supabase_admin
 from utils.db.permissions import check_user_permission
 from utils.redis_client import redis_client, redis_ssl, get_cache, set_cache, delete_cache_pattern
@@ -56,7 +56,7 @@ router = APIRouter(
     tags=["Performance Coach Ingestion"]
 )
 
-ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "csv", "xlsx", "xls", "pptx", "ppt"}
+ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "csv", "xlsx", "xls", "pptx", "ppt", "md", "markdown", "txt"}
 MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 BUCKET_NAME = "coach-documents"
 TEMP_DIR = os.path.join(os.getcwd(), "storage", "temp_coach_uploads")
@@ -165,6 +165,20 @@ def detect_mime_and_validate(content: bytes, filename: str) -> Tuple[bool, str, 
             except Exception:
                 return False, "application/octet-stream", ext
 
+    # Markdown & Plain Text validation
+    if ext in ("md", "markdown", "txt"):
+        if b"\x00" in content[:1024]:
+            return False, "application/octet-stream", ext
+        try:
+            content[:2048].decode("utf-8")
+            return True, "text/markdown" if ext in ("md", "markdown") else "text/plain", ext
+        except UnicodeDecodeError:
+            try:
+                content[:2048].decode("latin-1")
+                return True, "text/markdown" if ext in ("md", "markdown") else "text/plain", ext
+            except Exception:
+                return False, "application/octet-stream", ext
+
     return False, "application/octet-stream", ext
 
 
@@ -251,6 +265,7 @@ class PreflightItem(BaseModel):
 
 class PreflightCheckRequest(BaseModel):
     items: List[PreflightItem]
+    company_id: Optional[str] = None
 
 
 # ============================================================================
@@ -260,14 +275,15 @@ class PreflightCheckRequest(BaseModel):
 @router.post("/preflight-check")
 async def check_preflight_conflicts(
     payload: PreflightCheckRequest,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Checks for file conflicts prior to upload:
     - Detects identical hash duplicates (prevents redundant processing).
     - Detects filename conflicts with modified contents (prompts Overwrite vs Version).
     """
-    company_id = auth.company_id
+    company_id = payload.company_id or effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")
@@ -340,7 +356,9 @@ async def upload_performance_document(
     is_playbook: bool = Form(False),
     conflict_mode: str = Form("fail_on_conflict"),  # "fail_on_conflict", "overwrite", "version", "skip"
     existing_doc_id: Optional[str] = Form(None),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    company_id: Optional[str] = Form(None),
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Enterprise Upload Endpoint:
@@ -350,7 +368,7 @@ async def upload_performance_document(
     - Enqueues to Redis ARQ worker with automatic in-process fallback.
     - Emits audit log entries.
     """
-    company_id = auth.company_id
+    company_id = company_id or effective_company_id or auth.company_id
     user_id = auth.user_id
 
     if not company_id or not user_id:
@@ -634,13 +652,18 @@ def set_coach_docs_cached(key: str, val: Any, ttl: int = 120):
 def invalidate_coach_docs_cached(company_id: str):
     prefix = f"coach_docs:{company_id}:"
     stats_key = f"coach_stats:{company_id}"
+    scoped_stats_key = f"coach_stats_scoped:{company_id}:"
+    emp_key = f"coach_employees:{company_id}"
     _COACH_DOCS_L1_CACHE.pop(stats_key, None)
-    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix) or k.startswith(stats_key)]
+    _COACH_DOCS_L1_CACHE.pop(emp_key, None)
+    keys_to_del = [k for k in _COACH_DOCS_L1_CACHE if k.startswith(prefix) or k.startswith(stats_key) or k.startswith(scoped_stats_key) or k.startswith(emp_key)]
     for k in keys_to_del:
         _COACH_DOCS_L1_CACHE.pop(k, None)
     try:
         delete_cache_pattern(f"{prefix}*")
         delete_cache_pattern(f"{stats_key}*")
+        delete_cache_pattern(f"{scoped_stats_key}*")
+        delete_cache_pattern(f"{emp_key}*")
     except Exception:
         pass
 
@@ -650,55 +673,42 @@ def get_company_coach_stats(company_id: str) -> Dict[str, int]:
     Retrieves global company-wide stats across the entire document vault:
     Total documents, completed documents, total vector chunks, and spreadsheet rows.
     Cached in L1 (Memory) + L2 (Redis) with TTL=60s.
+    Ultra-fast single query with zero table locks or multi-table scans.
     """
     cache_key = f"coach_stats:{company_id}"
     cached = get_coach_docs_cached(cache_key)
     if cached is not None:
         return cached
 
-    from concurrent.futures import ThreadPoolExecutor
+    try:
+        docs_res = (
+            supabase_admin.table("coach_uploaded_documents")
+            .select("id, status, parsed_metadata")
+            .eq("company_id", company_id)
+            .neq("status", "deleted")
+            .execute()
+        )
+        docs = docs_res.data or []
+        total_docs = len(docs)
+        completed_docs = sum(1 for d in docs if d.get("status") == "completed")
+        total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in docs)
+        total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in docs)
 
-    def _get_total_docs():
-        try:
-            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
+        stats = {
+            "total_documents": total_docs,
+            "completed_documents": completed_docs,
+            "total_chunks": total_chunks,
+            "total_spreadsheet_rows": total_rows
+        }
+    except Exception as e:
+        print(f"[COACH STATS ERROR] {e}")
+        stats = {
+            "total_documents": 0,
+            "completed_documents": 0,
+            "total_chunks": 0,
+            "total_spreadsheet_rows": 0
+        }
 
-    def _get_completed_docs():
-        try:
-            return supabase_admin.table("coach_uploaded_documents").select("id", count="exact").eq("company_id", company_id).eq("status", "completed").limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    def _get_total_chunks():
-        try:
-            return supabase_admin.table("coach_document_chunks").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    def _get_total_rows():
-        try:
-            return supabase_admin.table("coach_spreadsheet_rows").select("id", count="exact").eq("company_id", company_id).limit(1).execute().count or 0
-        except Exception:
-            return 0
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        f_total = ex.submit(_get_total_docs)
-        f_comp = ex.submit(_get_completed_docs)
-        f_chunks = ex.submit(_get_total_chunks)
-        f_rows = ex.submit(_get_total_rows)
-
-        total_docs = f_total.result()
-        completed_docs = f_comp.result()
-        total_chunks = f_chunks.result()
-        total_rows = f_rows.result()
-
-    stats = {
-        "total_documents": total_docs,
-        "completed_documents": completed_docs,
-        "total_chunks": total_chunks,
-        "total_spreadsheet_rows": total_rows
-    }
     set_coach_docs_cached(cache_key, stats, ttl=60)
     return stats
 
@@ -738,19 +748,60 @@ def _doc_visible_to_ctx(doc: Dict[str, Any], sec_ctx) -> bool:
     return False
 
 
+@router.get("/employees")
+async def list_coach_employees(
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
+):
+    """
+    Ultra-fast, lightweight employee roster for document scoping dropdowns and target scope badges.
+    Returns only user_id, name, and email with 5-minute caching.
+    """
+    company_id = effective_company_id or auth.company_id
+    if not company_id:
+        return {"users": []}
+
+    cache_key = f"coach_employees:{company_id}"
+    cached = get_coach_docs_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        res = (
+            supabase_admin.table("users")
+            .select("user_id, name, email")
+            .eq("company_id", company_id)
+            .order("name")
+            .execute()
+        )
+        users = res.data or []
+        payload = {"users": users}
+        set_coach_docs_cached(cache_key, payload, ttl=300)
+        return payload
+    except Exception as e:
+        print(f"[COACH EMPLOYEES ERROR] {e}")
+        return {"users": []}
+
+
 @router.get("/stats")
 async def get_coach_stats(
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Returns RBAC-scoped document and ingestion stats across documents the caller can access.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     if sec_ctx.is_admin:
         return get_company_coach_stats(company_id)
+
+    cache_key = f"coach_stats_scoped:{company_id}:{sec_ctx.principals_hash}"
+    cached = get_coach_docs_cached(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         docs_res = (
@@ -773,12 +824,14 @@ async def get_coach_stats(
     visible_docs = [d for d in (getattr(docs_res, "data", None) or []) if _doc_visible_to_ctx(d, sec_ctx)]
     total_chunks = sum(((d.get("parsed_metadata") or {}).get("chunks_count") or (d.get("parsed_metadata") or {}).get("total_chunks") or 0) for d in visible_docs)
     total_rows = sum(((d.get("parsed_metadata") or {}).get("spreadsheet_rows_count") or (d.get("parsed_metadata") or {}).get("total_rows") or 0) for d in visible_docs)
-    return {
+    scoped_stats = {
         "total_documents": len(visible_docs),
         "completed_documents": sum(1 for d in visible_docs if d.get("status") == "completed"),
         "total_chunks": total_chunks,
         "total_spreadsheet_rows": total_rows,
     }
+    set_coach_docs_cached(cache_key, scoped_stats, ttl=60)
+    return scoped_stats
 
 
 @router.get("/documents")
@@ -788,12 +841,13 @@ async def list_coach_documents(
     search: Optional[str] = Query(None, description="Search by file name"),
     status: Optional[str] = Query(None, description="Filter by status (completed, parsing, embedding, failed)"),
     source: Optional[str] = Query(None, description="Filter by source (gdrive, manual)"),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Paginated, searchable document catalog filtered by caller's Zanzibar ReBAC principals.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
@@ -885,10 +939,11 @@ async def list_coach_documents(
 @router.get("/documents/{document_id}")
 async def get_coach_document(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """Get status and details of a specific coach document (RBAC verified)."""
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
 
     res = (
@@ -911,12 +966,13 @@ async def get_coach_document(
 @router.get("/documents/{document_id}/download-url")
 async def get_document_download_url(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Generates a secure, temporary (15-minute) signed URL to download or view the original file.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     try:
         doc_res = (
@@ -966,12 +1022,13 @@ async def get_document_chunks(
     document_id: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Fetches paginated vector chunks and proof citations for inspection (RBAC verified).
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     sec_ctx = await resolve_user_principals(auth.user_id, company_id)
     try:
         doc_res = (
@@ -1023,13 +1080,14 @@ async def get_document_chunks(
 @router.delete("/documents/{document_id}")
 async def delete_coach_document(
     document_id: str,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Delete a document and all its associated vector chunks and spreadsheet rows (CASCADE).
     Enforces Admin RBAC and logs to audit trail.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
 
     # RBAC: Only Admin can delete
@@ -1099,13 +1157,14 @@ async def delete_coach_document(
 async def list_company_playbooks(
     category: Optional[str] = Query(None, description="Filter by category pill / topic"),
     search: Optional[str] = Query(None, description="Search playbook title or content"),
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Returns all company playbooks visible to the caller (company-wide or authorized team).
     Available to ALL authenticated employees in the company.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
 
@@ -1231,12 +1290,13 @@ async def list_company_playbooks(
 async def toggle_document_playbook_status(
     document_id: str,
     payload: Dict[str, Any],
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Manager endpoint to designate or revoke playbook status on an existing uploaded document.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     user_id = auth.user_id
     if not company_id or not user_id:
         raise HTTPException(status_code=400, detail="Authentication required.")
@@ -1303,7 +1363,7 @@ async def toggle_document_playbook_status(
         print(f"[PLAYBOOK TOGGLE] ACL recompute warning: {acl_e}")
 
     # Invalidate document and security caches
-    delete_cache_pattern(f"coach_docs:{company_id}:*")
+    invalidate_coach_docs_cached(company_id)
     delete_cache_pattern(f"acl:principals:{company_id}:*")
 
     return {
@@ -1321,14 +1381,15 @@ async def toggle_document_playbook_status(
 @router.get("/events")
 async def stream_coach_events(
     request: Request,
-    auth: RequestAuth = Depends(get_request_auth_required)
+    auth: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id)
 ):
     """
     Server-Sent Events (SSE) stream pushing real-time document ingestion updates
     (parsing, chunking, embedding, row counts) to connected admin clients.
     Eliminates 3.5s interval polling.
     """
-    company_id = auth.company_id
+    company_id = effective_company_id or auth.company_id
     if not company_id or not auth.user_id:
         raise HTTPException(status_code=400, detail="Company context required.")
     has_perm = await verify_coach_access(auth.user_id, company_id, min_role="manager")

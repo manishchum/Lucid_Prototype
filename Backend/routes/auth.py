@@ -105,6 +105,13 @@ class VerifyOTPRequest(BaseModel):
     platform: Optional[str] = Field(None, description="Client platform: 'mobile' or 'web'")
 
 
+class PasswordLoginRequest(BaseModel):
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+    device_id: Optional[str] = Field(None, description="Device UUID")
+    platform: Optional[str] = Field(None, description="Client platform: 'mobile' or 'web'")
+
+
 @router.post("/send-otp")
 async def send_otp(body: SendOTPRequest, background_tasks: BackgroundTasks, request: Request):
     # Check IP-level distributed rate limit (5 requests / min per IP) before any phone or DB lookups
@@ -333,6 +340,118 @@ async def verify_otp(body: VerifyOTPRequest, background_tasks: BackgroundTasks, 
         "token": token,
         "user": user_data,
         "company": company_data
+    }
+
+
+@router.post("/password-login")
+async def password_login(
+    body: PasswordLoginRequest,
+    background_tasks: BackgroundTasks,
+    request: Request
+):
+    """
+    Direct login / fallback authentication endpoint.
+    If the user enters the default password (e.g. workfloww@2025) or matches their database password,
+    this endpoint synchronizes Firebase Auth with the password and mints a Firebase custom token,
+    enabling seamless login even if Firebase was initially out of sync or unset.
+    """
+    from utils.db.users_db import DEFAULT_PASSWORD
+    from utils.supabase_client import supabase_admin
+    import bcrypt
+    from firebase_admin import auth as firebase_auth
+
+    client_ip = get_client_ip(request)
+    await check_rate_limit(user_id=f"ip:{client_ip}", endpoint="auth-password-login")
+
+    normalized_email = (body.email or "").strip().lower()
+    if not normalized_email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    # 1. Look up user in DB
+    user_res = (
+        supabase_admin
+        .table("users")
+        .select("user_id, email, name, company_id, password, firebase_uid, is_active")
+        .eq("email", normalized_email)
+        .limit(1)
+        .execute()
+    )
+    user_list = getattr(user_res, "data", None) or []
+    if not user_list:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    user = user_list[0]
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is disabled. Please contact your administrator.")
+
+    # 2. Check if entered password matches DEFAULT_PASSWORD or bcrypt hash
+    default_pwd = DEFAULT_PASSWORD 
+    is_default_pwd = (body.password == default_pwd)
+
+    password_matches = False
+    if is_default_pwd:
+        password_matches = True
+    elif user.get("password"):
+        try:
+            password_matches = bcrypt.checkpw(body.password.encode("utf-8"), user["password"].encode("utf-8"))
+        except Exception:
+            password_matches = False
+
+    if not password_matches:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    # 3. Synchronize with Firebase
+    _ensure_firebase_admin_initialized()
+    firebase_uid = user.get("firebase_uid")
+    try:
+        if firebase_uid:
+            try:
+                firebase_auth.update_user(firebase_uid, password=body.password)
+            except firebase_auth.UserNotFoundError:
+                fb_user = firebase_auth.create_user(
+                    email=normalized_email,
+                    display_name=user.get("name"),
+                    password=body.password
+                )
+                firebase_uid = fb_user.uid
+                supabase_admin.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user["user_id"]).execute()
+        else:
+            try:
+                existing_fb = firebase_auth.get_user_by_email(normalized_email)
+                firebase_uid = existing_fb.uid
+                firebase_auth.update_user(firebase_uid, password=body.password)
+            except firebase_auth.UserNotFoundError:
+                fb_user = firebase_auth.create_user(
+                    email=normalized_email,
+                    display_name=user.get("name"),
+                    password=body.password
+                )
+                firebase_uid = fb_user.uid
+            supabase_admin.table("users").update({"firebase_uid": firebase_uid}).eq("user_id", user["user_id"]).execute()
+
+        custom_token_bytes = firebase_auth.create_custom_token(firebase_uid)
+        custom_token = custom_token_bytes.decode("utf-8") if isinstance(custom_token_bytes, bytes) else str(custom_token_bytes)
+    except Exception as exc:
+        print(f"[password-login] Firebase synchronization error: {exc}")
+        raise HTTPException(status_code=500, detail="Authentication provider error")
+
+    user_id_str = str(user["user_id"])
+    device_id = body.device_id or request.headers.get("X-Device-ID")
+    raw_platform = body.platform or request.headers.get("X-Platform")
+    platform = resolve_platform(raw_platform or "web", request.headers.get("User-Agent"))
+
+    if device_id and user_id_str:
+        register_device_session(user_id_str, device_id, platform=platform)
+        await auth_socket_manager.notify_session_replaced(user_id_str, device_id, platform=platform)
+
+    invalidate_auth_me_l1_cache(user_id_str)
+    background_tasks.add_task(record_login_in_db, user_id_str)
+
+    return {
+        "success": True,
+        "custom_token": custom_token,
+        "firebase_uid": firebase_uid,
+        "user_id": user_id_str
     }
 
 
@@ -672,7 +791,7 @@ async def get_current_user_profile(
                 resp = (
                     service_client
                     .table("companies")
-                    .select("company_id, name, domain, company_logo, subscription_tier")
+                    .select("company_id, name, domain, company_logo, subscription_tier, subscription_addons")
                     .eq("is_company_active", True)
                     .order("name")
                     .execute()

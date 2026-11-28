@@ -153,6 +153,9 @@ type TenantContextType = {
   loadingCompanies: boolean
   isDeveloperMode: boolean
   setActiveCompanyId: (companyId: string) => void | Promise<void>
+  updateCompanyInContext?: (companyId: string, updates: Partial<Company>) => void
+  addCompanyToContext?: (company: Company) => void
+  refreshCompanies?: () => Promise<void>
   // Feature gating methods
   getAvailableTier: () => Tier | null
   getAvailableAddons: () => Addon[]
@@ -312,6 +315,22 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
           ? persisted
           : resolvedCompanies[0]?.company_id || fallbackCompany.company_id
         setActiveCompanyIdState(nextCompanyId)
+
+        // For developers, run background revalidation against /api/companies/ to pick up newly created companies
+        if (isDeveloperMode) {
+          fetchWithAuth(`${API_BASE}/api/companies/`)
+            .then(async (res) => {
+              if (res.ok) {
+                const payload = await res.json()
+                const rawList = payload?.companies || payload?.data?.companies || payload?.data || []
+                const fresh = rawList.filter((c: Company) => c?.company_id && (c as any).is_company_active !== false)
+                if (fresh.length > 0 && !ignore) {
+                  setAvailableCompanies(fresh)
+                }
+              }
+            })
+            .catch(() => {})
+        }
         return
       }
 
@@ -355,10 +374,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   }, [authLoading, userId, employeeData?.company_id, isDeveloperMode, storageKey, initialTenantData])
 
   useEffect(() => {
-    if (!storageKey || !activeCompanyId || !isDeveloperMode || typeof window === "undefined") {
+    if (!activeCompanyId || !isDeveloperMode || typeof window === "undefined") {
       return
     }
-    window.localStorage.setItem(storageKey, activeCompanyId)
+    if (storageKey) {
+      window.localStorage.setItem(storageKey, activeCompanyId)
+    }
+    window.localStorage.setItem("lucid:active-company", activeCompanyId)
   }, [activeCompanyId, storageKey, isDeveloperMode])
 
   useEffect(() => {
@@ -391,6 +413,13 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     if (!companyId) return
     if (!isDeveloperMode) return
     if (!availableCompanies.some((c) => c.company_id === companyId)) return
+
+    if (typeof window !== "undefined") {
+      if (storageKey) {
+        window.localStorage.setItem(storageKey, companyId)
+      }
+      window.localStorage.setItem("lucid:active-company", companyId)
+    }
 
     setActiveCompanyIdState((prev) => {
       if (prev === companyId) return prev
@@ -468,6 +497,40 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return isFeatureAvailable(config)
   }
 
+  const updateCompanyInContext = (companyId: string, updates: Partial<Company>) => {
+    setAvailableCompanies((prev) =>
+      prev.map((c) => (c.company_id === companyId ? { ...c, ...updates } : c))
+    )
+  }
+
+  const addCompanyToContext = (newCompany: Company) => {
+    if (!newCompany || !newCompany.company_id) return
+    setAvailableCompanies((prev) => {
+      const exists = prev.some((c) => c.company_id === newCompany.company_id)
+      const next = exists
+        ? prev.map((c) => (c.company_id === newCompany.company_id ? { ...c, ...newCompany } : c))
+        : [newCompany, ...prev]
+      return next
+    })
+  }
+
+  const refreshCompanies = async () => {
+    if (!isDeveloperMode) return
+    try {
+      const res = await fetchWithAuth(`${API_BASE}/api/companies/`)
+      if (res.ok) {
+        const payload = await res.json()
+        const rawList = payload?.companies || payload?.data?.companies || payload?.data || []
+        const fresh = rawList.filter((c: Company) => c?.company_id && (c as any).is_company_active !== false)
+        if (fresh.length > 0) {
+          setAvailableCompanies(fresh)
+        }
+      }
+    } catch (e) {
+      console.warn("[TenantContext] refreshCompanies failed:", e)
+    }
+  }
+
   return (
     <TenantContext.Provider
       value={{
@@ -477,6 +540,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         loadingCompanies,
         isDeveloperMode,
         setActiveCompanyId,
+        updateCompanyInContext,
+        addCompanyToContext,
+        refreshCompanies,
         getAvailableTier,
         getAvailableAddons,
         isFeatureAvailable,

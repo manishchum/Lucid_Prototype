@@ -13,8 +13,9 @@ Implements:
 
 import json
 import re
+import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, AsyncGenerator
 from langchain_core.messages import HumanMessage, AIMessage
 
 from config import OPENAI_API_KEY, GEMINI_API_KEY
@@ -306,6 +307,7 @@ Analyze the user's question, the available spreadsheet schema (sheets & columns)
 Classify the user's intent into EXACTLY ONE of the following categories:
 
 - "SQL": The question strictly asks for concrete numbers, mathematical aggregations (SUM, AVG, MIN, MAX, COUNT), rankings, quotas, discounts, or numerical calculations on columns present in the Available Columns or Sheets (e.g. "What are my sales numbers?", "How many cases did I sell?", "What is my discount %?", "Who are the top 5 reps?").
+- "CRM": The question asks about sales pipeline, deals, CRM stages, pipeline health, CRM opportunities, deal amounts, sales cycle, contacts/leads, companies/accounts, sales meeting notes, or customer support tickets from connected CRM systems like HubSpot (e.g. "What is our pipeline summary?", "Show me my open deals", "Which deals are in closed won?", "What deals are closing this month?", "Find contact Maria Johnson", "What are the latest CRM notes for Acme corp?").
 - "RAG": The question asks about qualitative information, advice, tasks, or feedback:
   1. Uploaded qualitative documents, task lists, reminders, todos, action plans, company policies, manuals, handbooks, strategic plans, guidelines, or appraisal documents found in the Available Documents catalog.
   2. Communications, meeting transcripts, 1-on-1 notes, emails, chat messages, or files from the Connected Cloud Integrations (e.g. Google Drive, OneDrive, Zoom meeting transcripts, Google Meet, Microsoft Teams channels, Slack, or Gmail/Outlook email threads) (e.g. "What are my upcoming tasks?", "What reminders were noted for November?", "What did my manager note in my 1-on-1?", "What are my improvement areas according to the review doc?").
@@ -317,15 +319,16 @@ Classify the user's intent into EXACTLY ONE of the following categories:
 
 DECISION GUIDELINES:
 1. If the question strictly asks for numerical figures, specific column metrics, or mathematical calculations -> "SQL".
-2. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
-3. If the question asks broadly "How am I doing?", "What are my upcoming tasks/todos?", "What should I focus on this month?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
-4. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
-5. If it's a polite greeting or gratitude -> "GENERAL".
-6. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
+2. If the question asks about sales pipeline, deals, opportunities, CRM stages, contacts, or tickets -> "CRM".
+3. If the question strictly asks about uploaded documents, policies, or communications from connected cloud integrations -> "RAG".
+4. If the question asks broadly "How am I doing?", "What are my upcoming tasks/todos?", "What should I focus on this month?", OR asks for both numbers and qualitative feedback -> "HYBRID" (whenever both spreadsheets and documents/cloud integrations exist).
+5. If it asks what files, spreadsheets, or integrations are available -> "CATALOG".
+6. If it's a polite greeting or gratitude -> "GENERAL".
+7. If the question asks about ANY external topic NOT in the company's spreadsheets, documents, or connected integrations -> ALWAYS choose "OUT_OF_SCOPE".
 
 Return ONLY a JSON object:
 {
-  "intent": "SQL" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL" | "OUT_OF_SCOPE",
+  "intent": "SQL" | "CRM" | "RAG" | "HYBRID" | "CATALOG" | "GENERAL" | "OUT_OF_SCOPE",
   "reasoning": "1 sentence explanation."
 }"""
 
@@ -400,19 +403,38 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     if any(k in q_lower for k in ["what documents", "which files", "list files", "list documents", "uploaded documents", "show uploaded", "what spreadsheets", "what integrations", "connected integrations", "connected tools", "connected sources", "what connectors"]):
         return _route("CATALOG", "User requested document catalog or connected integrations inventory.")
 
-    # Extract dynamic column match tokens from all_cols
+    # Extract dynamic column match tokens from all_cols with singular/plural support
     col_tokens = set()
     for col in all_cols:
         clean_c = re.sub(r"[^a-zA-Z0-9\s]", " ", col.lower()).strip()
         if clean_c:
             col_tokens.add(clean_c)
+            # Add plural and singular variants of full column phrase
+            if clean_c.endswith("s") and len(clean_c) > 3:
+                col_tokens.add(clean_c[:-1])
+            else:
+                col_tokens.add(clean_c + "s")
+
             for part in clean_c.split():
                 if len(part) >= 3 and part not in {"and", "the", "for", "with", "from", "date"}:
                     col_tokens.add(part)
+                    if part.endswith("s") and len(part) > 3:
+                        col_tokens.add(part[:-1])
+                    else:
+                        col_tokens.add(part + "s")
 
-    # Heuristic fast-path 1B: Connected Cloud Integrations detection
+    # Heuristic fast-path 1B: Connected Cloud Integrations & HubSpot CRM detection
     active_integrations = state.get("active_integrations", [])
     active_providers = {i.get("provider", "").lower() for i in active_integrations}
+
+    # HubSpot CRM Live Intelligence Routing
+    hubspot_kws = ["hubspot", "hubspot crm", "deal", "deals", "pipeline", "pipelines", "sales pipeline", "lead", "leads", "crm opportunity", "customer ticket", "support ticket"]
+    if any(re.search(rf"\b{re.escape(kw)}\b", q_lower) for kw in hubspot_kws):
+        if not active_providers or "hubspot" in active_providers:
+            if has_sheets and any(k in q_lower for k in ["sheet", "spreadsheet", "quota", "cases", "excel", "target"]):
+                return _route("HYBRID", "Query asks to compare spreadsheet metrics with live HubSpot CRM records.")
+            return _route("CRM", "Query asks about live HubSpot CRM pipeline, deals, contacts, or tickets.")
+
     connector_keywords = {
         "google_drive": ["google drive", "gdrive", "drive folder", "shared drive", "cloud drive"],
         "onedrive": ["onedrive", "sharepoint"],
@@ -420,7 +442,7 @@ def router_node(state: CoachState) -> Dict[str, Any]:
         "google_meet": ["google meet", "gmeet", "meet call", "meet recording"],
         "teams": ["ms teams", "teams channel", "teams chat", "teams message"],
         "slack": ["slack", "slack channel", "slack message"],
-        "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"]
+        "gmail": ["email", "emails", "gmail", "inbox", "mail thread", "client email", "customer email"],
     }
     for prov, kws in connector_keywords.items():
         if any(kw in q_lower for kw in kws):
@@ -479,10 +501,22 @@ def router_node(state: CoachState) -> Dict[str, Any]:
             break
 
     if matched_doc:
-        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
-        if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
-            return _route("HYBRID", f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns.")
-        return _route("RAG", f"Query mentions uploaded document '{matched_doc.get('file_name')}'.")
+        doc_ext = (matched_doc.get("file_type") or "").lower()
+        is_spreadsheet_doc = doc_ext in ["xlsx", "xls", "csv"]
+        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%", "how many", "which", "list", "who"]
+        summary_words = ["summary", "summarize", "overview", "what is this", "tell me about this document", "explain document"]
+
+        if is_spreadsheet_doc and has_sheets:
+            # If the user specifically asks for qualitative prose summary of a spreadsheet file
+            if any(sw in q_lower for sw in summary_words) and not any(mw in q_lower for mw in ["how many", "sum", "total", "cases", "count", "list"]):
+                return _route("HYBRID", f"User requested document summary of spreadsheet '{matched_doc.get('file_name')}'.")
+            # If user asks data questions on this spreadsheet, route to SQL
+            if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
+                return _route("SQL", f"Query mentions spreadsheet document '{matched_doc.get('file_name')}' alongside data metrics/columns.")
+        else:
+            if any(mw in q_lower for mw in math_words) or any(ct in q_lower for ct in col_tokens):
+                return _route("HYBRID", f"Query mentions document '{matched_doc.get('file_name')}' alongside quantitative metrics/spreadsheet columns.")
+            return _route("RAG", f"Query mentions uploaded document '{matched_doc.get('file_name')}'.")
 
     # Heuristic fast-path 2B: Company Policies, Guidelines, Strategy, Tasks & Document Inquiries
     doc_concept_terms = [
@@ -501,13 +535,30 @@ def router_node(state: CoachState) -> Dict[str, Any]:
     # Heuristic fast-path 3: Schema-Aware Entity & Dimension Detection
     # If the user asks for insights, details, performance, breakdown, list, or status of an entity or column from the spreadsheet:
     query_mentions_column = any(f" {ct} " in f" {q_lower} " or q_lower.startswith(ct) or q_lower.endswith(ct) for ct in col_tokens)
-    entity_inquiry_phrases = ["insights of", "insights for", "details of", "details for", "performance of", "breakdown of", "status of", "list of", "list all", "show me", "records of", "give me insights", "who is", "which is"]
+    entity_inquiry_phrases = [
+        "insights of", "insights for", "details of", "details for", "performance of",
+        "breakdown of", "status of", "list of", "list all", "show me", "records of",
+        "give me insights", "give me the list", "give me list", "who is", "who are", "which is", "which are"
+    ]
 
     if has_sheets and query_mentions_column:
-        math_words = ["sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount", "target", "top", "rank", "percentage", "%"]
+        math_words = [
+            "sum", "total", "average", "avg", "count", "cases", "quota", "sales", "discount",
+            "target", "top", "rank", "percentage", "%", "highest", "lowest", "most", "least", "dealing"
+        ]
         is_entity_inquiry = any(p in q_lower for p in entity_inquiry_phrases) or any(mw in q_lower for mw in math_words)
         if is_entity_inquiry:
             return _route("SQL", "Query references active spreadsheet columns/entities for data retrieval.")
+
+    # Heuristic fast-path 3B: Aggregated Entity / Quantitative Inquiries without explicit column exact match
+    if has_sheets:
+        data_inquiry_patterns = [
+            r"\b(how many|how much|total|sum of|average of|count of)\b",
+            r"\b(which|who)\b.*\b(most|highest|top|leading|lowest|least|maximum|minimum)\b",
+            r"\b(list of all|list all|give me (all|the list)|who are all|who is dealing|who are dealing)\b"
+        ]
+        if any(bool(re.search(pat, q_lower)) for pat in data_inquiry_patterns):
+            return _route("SQL", "Query asks for tabular aggregation, entity breakdown, or ranking on spreadsheet data.")
 
     # Heuristic fast-path 4: Informational / Explanation questions (strictly for general documents when no spreadsheet entity is mentioned)
     info_triggers = ["what is", "tell me about", "summary of", "summarize", "explain", "how does", "what are"]
@@ -590,6 +641,7 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
     schema_prompt = state.get("schema_prompt", "")
     emp_name = state.get("target_employee_name")
 
+    t0 = time.time()
     res = generate_coach_sql(
         user_query=user_query,
         company_id=company_id,
@@ -597,8 +649,40 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
         target_employee_name=emp_name
     )
 
+    generated_sql = res.get("sql_query")
+
+    # Post-processing safeguard: Preserve explicit sheet scope; normalize casing if matched case-insensitively
+    if generated_sql:
+        try:
+            # Extract valid sheet names from schema_prompt
+            valid_sheets_match = re.search(r"VALID SHEET NAMES IN DATABASE:\s*\[(.*?)\]", schema_prompt)
+            if valid_sheets_match:
+                raw_valid = valid_sheets_match.group(1)
+                valid_sheets = {s.strip().strip("'\"") for s in raw_valid.split(",") if s.strip()}
+                sheet_filter_pat = re.compile(r"(?i)\b(?:WHERE|AND)\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'([^']+)'\s*\)?")
+                m = sheet_filter_pat.search(generated_sql)
+                if m:
+                    queried_sheet = m.group(1).strip()
+                    # Preserve explicit sheet scope; if case differs, normalize casing
+                    ci_map = {s.lower(): s for s in valid_sheets}
+                    if queried_sheet.lower() in ci_map and queried_sheet not in valid_sheets:
+                        normalized = ci_map[queried_sheet.lower()]
+                        generated_sql = re.sub(
+                            r"(?i)(sheet_name\s*(?:=|ILIKE)\s*')([^']+)'",
+                            rf"\g<1>{normalized}'",
+                            generated_sql,
+                            count=1
+                        )
+                    # Note: If queried_sheet is not in valid_sheets at all, we preserve the predicate intact.
+                    # This guarantees explicit sheet scope is respected and avoids broadening across unrelated sheets.
+        except Exception:
+            pass
+
+    elapsed = time.time() - t0
+    print(f"[COACH SQL GENERATOR] Query generation completed in {elapsed:.2f}s (has_query={bool(generated_sql)})")
+
     return {
-        "sql_query": res.get("sql_query"),
+        "sql_query": generated_sql,
         "sql_explanation": res.get("explanation"),
         "sql_error": None
     }
@@ -610,11 +694,21 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
     sql_query = state.get("sql_query") or ""
     security_ctx = state.get("security_ctx")
 
+    t0 = time.time()
     exec_res = execute_coach_sql(company_id=company_id, sql_query=sql_query, security_ctx=security_ctx)
-    current_retry = state.get("sql_retry_count", 0)
+    elapsed = time.time() - t0
 
-    if exec_res["success"]:
+    # Preserve explicit sheet scope: Do NOT strip sheet_name predicates on empty results.
+    # An empty result correctly reflects that the scoped sheet has no matching records.
+    print(
+        f"[COACH SQL EXECUTOR] Execution completed in {elapsed:.2f}s: "
+        f"success={exec_res.get('success')}, row_count={exec_res.get('row_count')}, "
+        f"has_error={bool(exec_res.get('error'))}"
+    )
+
+    if exec_res.get("success"):
         return {
+            "sql_query": sql_query,
             "sql_result": exec_res["rows"],
             "sql_row_count": exec_res["row_count"],
             "sql_error": None
@@ -623,8 +717,7 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
         return {
             "sql_result": None,
             "sql_row_count": 0,
-            "sql_error": exec_res["error"],
-            "sql_retry_count": current_retry + 1
+            "sql_error": exec_res.get("error")
         }
 
 
@@ -636,8 +729,9 @@ def sql_fixer_node(state: CoachState) -> Dict[str, Any]:
     emp_name = state.get("target_employee_name")
     prev_error = state.get("sql_error")
     prev_query = state.get("sql_query")
+    current_retry = state.get("sql_retry_count", 0)
 
-    print(f"[COACH SQL FIXER] Self-healing retry #{state.get('sql_retry_count')}: Fixing SQL after error: {prev_error}")
+    print(f"[COACH SQL FIXER] Self-healing retry #{current_retry + 1}: Fixing SQL after error: {prev_error}")
 
     res = generate_coach_sql(
         user_query=user_query,
@@ -651,7 +745,8 @@ def sql_fixer_node(state: CoachState) -> Dict[str, Any]:
     return {
         "sql_query": res.get("sql_query"),
         "sql_explanation": f"Corrected query: {res.get('explanation')}",
-        "sql_error": None
+        "sql_error": None,
+        "sql_retry_count": current_retry + 1
     }
 
 
@@ -687,11 +782,276 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
     )
     citations = extract_citations_from_chunks(chunks)
     matched_files = list(set(c.get("citation", {}).get("file_name") or c.get("file_name") for c in chunks if (c.get("citation", {}).get("file_name") or c.get("file_name"))))
+
+    matched_files_details = []
+    seen_details = set()
+    for c in chunks:
+        cit = c.get("citation") or {}
+        fname = (cit.get("file_name") or c.get("file_name") or "Document").strip()
+        page = cit.get("page_number")
+        period = cit.get("eval_period")
+        sim = round(float(c.get("similarity") or 0.0), 2)
+        key = (fname, page)
+        if key not in seen_details:
+            seen_details.add(key)
+            matched_files_details.append({
+                "filename": fname,
+                "page": page,
+                "period": period,
+                "similarity": sim
+            })
+
     print(f"[COACH RAG] Vector search retrieved {len(chunks)} chunks from files: {matched_files}")
 
     return {
         "rag_chunks": chunks,
-        "citations": citations
+        "citations": citations,
+        "matched_files": matched_files,
+        "matched_files_details": matched_files_details,
+        "rag_search_query": search_query
+    }
+
+
+# ============================================================================
+# 4B. CRM LIVE INTELLIGENCE NODE (HubSpot FastMCP)
+# ============================================================================
+def _run_async_tool(coro):
+    """Executes an async FastMCP tool within a synchronous LangGraph node."""
+    import asyncio
+    import concurrent.futures
+    if not asyncio.iscoroutine(coro):
+        return coro
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(asyncio.run, coro).result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
+def crm_node(state: CoachState) -> Dict[str, Any]:
+    """
+    LangGraph Node for HubSpot CRM Live Intelligence via In-Process FastMCP.
+    Executes typed tools with Pre-Retrieval Zanzibar ReBAC, structured Redis caching,
+    and Dual-Layer PII Firewall scrubbing.
+    """
+    company_id = state.get("company_id", "")
+    user_query = state.get("user_query", "").strip()
+    security_ctx = state.get("security_ctx")
+
+    from coach.tools.hubspot_mcp import (
+        hubspot_get_pipeline_summary,
+        hubspot_search_deals,
+        hubspot_get_deal,
+        hubspot_search_contacts,
+        hubspot_get_contact,
+        hubspot_search_companies,
+        hubspot_list_engagements,
+        hubspot_search_tickets,
+    )
+
+    q_lower = user_query.lower()
+
+    # If query explicitly requests latest/live data, bust tenant CRM cache for fresh pull
+    if any(w in q_lower for w in ["now", "latest", "refresh", "updated", "update"]):
+        try:
+            from utils.redis_client import delete_cache_pattern
+            delete_cache_pattern(f"hubspot:{company_id}:*")
+        except Exception:
+            pass
+
+    # Determine tool and parameters
+    tool_name = "hubspot_search_deals"
+    tool_args: Dict[str, Any] = {}
+
+    # Helper to clean search query from natural conversational questions
+    def _clean_search_query(raw: str, entity_words: List[str]) -> Optional[str]:
+        q = raw
+        # Remove common question/intent boilerplate
+        boilerplate = [
+            r"show\s+me", r"tell\s+me\s+about", r"who\s+is", r"who\s+are", r"what\s+is", r"what\s+are",
+            r"which", r"do\s+we\s+have", r"do\s+we", r"have", r"are\s+there", r"are", r"is\s+there",
+            r"any", r"all", r"list", r"get", r"find", r"search", r"lookup", r"give\s+me",
+            r"in", r"from", r"hubspot", r"crm", r"our", r"my", r"the", r"us",
+            r"and", r"or", r"with", r"for", r"about", r"to", r"of"
+        ] + entity_words
+        pattern = r"(?i)\b(" + "|".join(boilerplate) + r")\b"
+        cleaned = re.sub(pattern, " ", q)
+        cleaned = re.sub(r"[^\w\s@.-]", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned if len(cleaned) >= 2 else None
+
+    # Heuristic matching
+    if any(k in q_lower for k in ["pipeline", "summary", "overview", "funnel", "stages", "pipeline health"]):
+        tool_name = "hubspot_get_pipeline_summary"
+        tool_args = {}
+    elif any(k in q_lower for k in ["contact", "contacts", "lead", "leads", "who is", "email address", "phone number"]):
+        tool_name = "hubspot_search_contacts"
+        clean_q = _clean_search_query(user_query, ["contact", "contacts", "lead", "leads", "person", "people"])
+        tool_args = {"search_query": clean_q, "limit": 25}
+    elif any(k in q_lower for k in ["company", "companies", "account", "accounts", "organization", "domain"]):
+        tool_name = "hubspot_search_companies"
+        clean_q = _clean_search_query(user_query, ["company", "companies", "account", "accounts", "org", "organization", "organizations"])
+        tool_args = {"search_query": clean_q, "limit": 25}
+    elif any(k in q_lower for k in ["ticket", "tickets", "support", "issue", "complaint"]):
+        tool_name = "hubspot_search_tickets"
+        tool_args = {"limit": 25}
+    elif any(k in q_lower for k in ["note", "notes", "call log", "meeting notes", "activity log"]):
+        tool_name = "hubspot_list_engagements"
+        if any(w in q_lower for w in ["contact", "person", "lead", "rep"]):
+            target_obj_type = "contacts"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "contact", "contacts", "lead", "leads", "person"])
+        elif any(w in q_lower for w in ["company", "account", "organization", "domain"]):
+            target_obj_type = "companies"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "company", "companies", "account", "accounts", "org"])
+        else:
+            target_obj_type = "deals"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "deal", "deals"])
+
+        # Check for explicit numeric record ID
+        id_match = re.search(r"\b(\d{5,16})\b", user_query)
+        target_obj_id = id_match.group(1) if id_match else ""
+
+        tool_args = {
+            "object_type": target_obj_type,
+            "object_id": target_obj_id,
+            "search_query": clean_q,
+            "limit": 15
+        }
+    else:
+        # Default deal search with stage filter extraction
+        tool_name = "hubspot_search_deals"
+        stage_filter = None
+        if "closed won" in q_lower or "won" in q_lower:
+            stage_filter = "closedwon"
+        elif "closed lost" in q_lower or "lost" in q_lower:
+            stage_filter = "closedlost"
+        tool_args = {"stage": stage_filter, "limit": 50}
+
+    print(f"[COACH CRM NODE] Invoking FastMCP tool '{tool_name}'")
+
+    result: Dict[str, Any] = {}
+    try:
+        if tool_name == "hubspot_get_pipeline_summary":
+            result = _run_async_tool(hubspot_get_pipeline_summary(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                pipeline_id=tool_args.get("pipeline_id")
+            ))
+        elif tool_name == "hubspot_search_deals":
+            result = _run_async_tool(hubspot_search_deals(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                stage=tool_args.get("stage"),
+                pipeline=tool_args.get("pipeline"),
+                min_amount=tool_args.get("min_amount"),
+                max_amount=tool_args.get("max_amount"),
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 50)
+            ))
+        elif tool_name == "hubspot_search_contacts":
+            result = _run_async_tool(hubspot_search_contacts(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        elif tool_name == "hubspot_search_companies":
+            result = _run_async_tool(hubspot_search_companies(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        elif tool_name == "hubspot_search_tickets":
+            result = _run_async_tool(hubspot_search_tickets(
+                company_id=company_id,
+                security_ctx=security_ctx,
+                priority=tool_args.get("priority"),
+                stage=tool_args.get("stage"),
+                search_query=tool_args.get("search_query"),
+                limit=tool_args.get("limit", 25)
+            ))
+        elif tool_name == "hubspot_list_engagements":
+            obj_type = tool_args.get("object_type", "deals")
+            obj_id = str(tool_args.get("object_id") or "").strip()
+            search_q = tool_args.get("search_query")
+
+            # If object_id is missing, attempt to resolve the target record via entity search
+            if not obj_id and search_q:
+                try:
+                    if obj_type == "contacts":
+                        sr = _run_async_tool(hubspot_search_contacts(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        contacts = sr.get("contacts") or []
+                        if contacts and contacts[0].get("id"):
+                            obj_id = str(contacts[0]["id"])
+                    elif obj_type == "companies":
+                        sr = _run_async_tool(hubspot_search_companies(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        comps = sr.get("companies") or []
+                        if comps and comps[0].get("id"):
+                            obj_id = str(comps[0]["id"])
+                    else:
+                        sr = _run_async_tool(hubspot_search_deals(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        deals = sr.get("deals") or []
+                        if deals and deals[0].get("id"):
+                            obj_id = str(deals[0]["id"])
+                except Exception as resolve_err:
+                    print(f"[COACH CRM NODE] Note on record resolution: {resolve_err}")
+
+            if not obj_id:
+                result = {
+                    "engagements": [],
+                    "count": 0,
+                    "needs_clarification": True,
+                    "message": "Please specify the name or record ID of the deal, contact, or company you would like to view notes or activity logs for."
+                }
+            else:
+                tool_args["object_id"] = obj_id
+                result = _run_async_tool(hubspot_list_engagements(
+                    company_id=company_id,
+                    object_type=obj_type,
+                    object_id=obj_id,
+                    security_ctx=security_ctx,
+                    limit=tool_args.get("limit", 15)
+                ))
+        else:
+            result = {"error": f"Unsupported CRM tool '{tool_name}'."}
+    except Exception as e:
+        print(f"[COACH CRM NODE] FastMCP execution error: {e}")
+        result = {"error": f"Failed to query HubSpot CRM: {str(e)}"}
+
+    summary = ""
+    if "total_active_pipeline_value" in result:
+        summary = (
+            f"Active Pipeline Value: ${result.get('total_active_pipeline_value'):,.2f} | "
+            f"Total Deals: {result.get('total_deals_count', 0)} | "
+            f"Weighted Value: ${result.get('weighted_pipeline_value', 0):,.2f}"
+        )
+    elif "total_amount_sum" in result:
+        summary = (
+            f"Matched Deals: {result.get('total_deals_matched', 0)} | "
+            f"Total Value: ${result.get('total_amount_sum', 0):,.2f} | "
+            f"Average Deal: ${result.get('average_amount', 0):,.2f}"
+        )
+    elif "total_contacts" in result:
+        summary = f"Total Contacts Found: {result.get('total_contacts', 0)}"
+    elif "engagements" in result:
+        engs = result.get("engagements") or []
+        summary = result.get("message") or f"Total Engagements Found: {len(engs)}"
+
+    return {
+        "crm_data": result,
+        "crm_summary": summary,
+        "crm_tool_calls": [{"tool": tool_name, "args": tool_args}]
     }
 
 
@@ -701,9 +1061,14 @@ def rag_node(state: CoachState) -> Dict[str, Any]:
 SYNTHESIZER_SYSTEM_PROMPT = """You are an elite, empathetic, and evidence-driven Executive Sales & Performance Coach.
 Your goal is to provide actionable, constructive, and accurate performance insights based SOLELY on the retrieved data.
 
-STRICT GROUNDING & CITATION RULES:
+STRICT GROUNDING & IN-TEXT CITATION RULES:
 1. Base all numerical statements directly on the retrieved SQL data. Do not fabricate or estimate numbers.
-2. When referencing qualitative feedback or documentation, mention the source document name, section, page, or reporting period.
+2. CITING QUALITATIVE EVIDENCE & POLICY RULES (MANDATORY):
+   - When referencing qualitative feedback, playbooks, review notes, or document rules from qualitative documents, ALWAYS cite using numbered brackets like [1], [2] corresponding directly to [SOURCE 1], [SOURCE 2] in the retrieved evidence.
+   - For specific qualitative observations, feedback points, or policy instructions, quote the key sentence or phrase verbatim in quotation marks followed immediately by its bracketed source (e.g. "Deal velocity slowed by 14 days due to legal review bottlenecks" [1]).
+   - Explicitly mention document coordinates (Page, Paragraph, Section, Slide, Sheet, Row) when making key claims (e.g. "In your Q3 Review (Page 4, Section: Pipeline Friction) [1], your manager noted...").
+   - Always place all citation brackets [1], [2] at the VERY END of the paragraph or bullet point, NEVER in the middle of a sentence or between clauses.
+   - NEVER fabricate citation numbers that do not exist in the retrieved evidence.
 3. If an employee or entity underperformed or missed a goal, pair the data constructively with feedback on blockers and actionable improvement recommendations.
 4. If retrieved data does not fully answer the question, state what is known and what data is missing clearly.
 5. FORMATTING & STYLE:
@@ -725,11 +1090,18 @@ STRICT GROUNDING & CITATION RULES:
    - NEVER suggest past dates, expired events, or meetings that have already passed (e.g. recommending an October 23 session when today is in November) as upcoming tasks or todos.
    - When asked for next steps, todos, or roadmaps, prescribe fresh, actionable tasks for the CURRENT and UPCOMING period starting from today.
    - Treat past feedback and past metrics as baseline context to inform future actions, not as active calendar invites.
+9. LIVE CRM PIPELINE & OPPORTUNITY INTELLIGENCE (HubSpot FastMCP):
+   - When live CRM pipeline, deal, contact, or ticket data is retrieved from HubSpot, ground all figures, counts, and stage dollar amounts directly in that retrieved data.
+   - Present pipeline health summaries with neat markdown tables or bullet points (Stage Name, Deal Count, Total Value $, Win Probability).
+   - Detail key deals (Deal Name, Value, Stage, Target Close Date, Owner Name).
 """
 
 
-def synthesizer_node(state: CoachState) -> Dict[str, Any]:
-    """Merges SQL results and RAG chunks into a cohesive coaching response."""
+def prepare_synthesis_context(state: CoachState) -> Dict[str, Any]:
+    """
+    Extracts all evidence, persona directives, and temporal rules to prepare synthesis prompts.
+    Handles fast non-LLM returns (guardrails, permissions, catalog, greetings) cleanly.
+    """
     user_query = state.get("user_query", "")
     intent = state.get("intent", "GENERAL")
     sql_result = state.get("sql_result")
@@ -738,41 +1110,63 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
     doc_catalog = state.get("document_catalog", [])
     role_level = _get_role_level(state)
     sec = _get_sec_summary(state)
+    citations = state.get("citations", [])
 
     # Case 0: Guardrail Triggered or Out-of-Scope Deflection
     if state.get("guardrail_triggered") or intent in ["SAFETY", "SECURITY", "SCOPE_DEFLECTION", "OUT_OF_SCOPE"]:
         if intent == "OUT_OF_SCOPE":
             return {
-                "final_response": (
+                "direct_response": (
                     "I am your company's **AI Performance Coach**, dedicated solely to analyzing team metrics, "
                     "sales performance, incentive policies, uploaded company documentation, and connected workplace tools (Google Drive, Meetings, Emails, Teams).\n\n"
                     "I cannot assist with questions regarding external topics, general knowledge, movies, academic homework, or non-work matters. "
                     "Please feel free to ask about your team's KPI reports, case performance, incentives, meeting summaries, or company files!"
                 ),
-                "citations": []
+                "citations": [],
+                "role_level": role_level
             }
         return {
-            "final_response": state.get("final_response", ""),
-            "citations": []
+            "direct_response": state.get("final_response", ""),
+            "citations": [],
+            "role_level": role_level
         }
 
     # Case 0B: Permissions Introspection & RBAC Denial
     if intent == "PERMISSIONS":
-        return _format_permissions_response(state, sec)
+        perm_res = _format_permissions_response(state, sec)
+        return {
+            "direct_response": perm_res.get("final_response", ""),
+            "citations": perm_res.get("citations", []),
+            "role_level": role_level
+        }
 
     if intent == "PERMISSION_DENIED":
         restricted_reason = _detect_restricted_scope_reason(
             user_query, state.get("target_employee_name"), sec
         ) or "CROSS_USER_RESTRICTED"
-        return _format_permission_denied_response(restricted_reason, state, sec)
+        denied_res = _format_permission_denied_response(restricted_reason, state, sec)
+        return {
+            "direct_response": denied_res.get("final_response", ""),
+            "citations": denied_res.get("citations", []),
+            "role_level": role_level
+        }
 
     # Case A: Document & Connected Integrations Catalog Intent
     if intent == "CATALOG":
         active_integrations = state.get("active_integrations", [])
         if not doc_catalog and not active_integrations:
             if sec["has_context"] and not sec["is_admin"]:
-                return _format_permission_denied_response("NO_SHARED_DATA", state, sec)
-            return {"final_response": "No documents, spreadsheets, or cloud integrations are currently connected for your company."}
+                denied_res = _format_permission_denied_response("NO_SHARED_DATA", state, sec)
+                return {
+                    "direct_response": denied_res.get("final_response", ""),
+                    "citations": denied_res.get("citations", []),
+                    "role_level": role_level
+                }
+            return {
+                "direct_response": "No documents, spreadsheets, or cloud integrations are currently connected for your company.",
+                "citations": [],
+                "role_level": role_level
+            }
 
         lines = ["### Uploaded Knowledge Base & Connected Integrations\n"]
         if doc_catalog:
@@ -792,7 +1186,11 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                 sources = f" | Monitored: {', '.join(it['monitored_sources'])}" if it.get("monitored_sources") else ""
                 lines.append(f"- **{prov}**{acct}{sources}")
 
-        return {"final_response": "\n".join(lines)}
+        return {
+            "direct_response": "\n".join(lines),
+            "citations": [],
+            "role_level": role_level
+        }
 
     # Case B: Conversational Greetings & General Dialogue
     if intent == "GENERAL":
@@ -805,27 +1203,31 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         # Fast direct reply for greetings
         if any(w in tokens for w in greetings) or tokens.issubset(greetings | {"there", "coach", "lucid", "assistant", "good", "morning", "afternoon", "evening", "buddy", "bro", "sir"}):
             return {
-                "final_response": (
+                "direct_response": (
                     "Hello! 👋 I'm your **Performance Coach**.\n\n"
                     "I can help you analyze sales figures, track targets, review team performance metrics, "
                     "or explore insights from your uploaded reports and document plans.\n\n"
                     "How can I assist you today?"
-                )
+                ),
+                "citations": [],
+                "role_level": role_level
             }
 
         # Fast direct reply for gratitude
         if any(w in tokens for w in thanks):
             return {
-                "final_response": (
+                "direct_response": (
                     "You're very welcome! 😊 Let me know if you need any more sales insights, "
                     "performance comparisons, or document analysis. Happy to help!"
-                )
+                ),
+                "citations": [],
+                "role_level": role_level
             }
 
         # Self-introduction / capabilities inquiry
         if any(w in clean_q for w in ["who are you", "what can you do", "help me"]):
             return {
-                "final_response": (
+                "direct_response": (
                     "I am your enterprise **Performance Coach & Analytics Assistant**! 🎯\n\n"
                     "Here is what I can do for you:\n"
                     "- **Spreadsheet Analytics (Text-to-SQL)**: Query sales numbers, case counts, discounts, targets, and employee metrics.\n"
@@ -833,10 +1235,10 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
                     "- **Hybrid Performance Evaluations**: Compare employee achievements with manager review notes and suggest actionable awards.\n\n"
                     "Try asking questions like:\n"
                     "- *\"Which licensee is leading with highest number of total cases?\"*\n"
-                    # "- *\"Compare performance of Ansh and Riya and recommend who to award.\"*\n"
                     "- *\"What documents are uploaded?\"*"
-                    
-                )
+                ),
+                "citations": [],
+                "role_level": role_level
             }
 
         # For general conversational queries, enforce domain boundary
@@ -846,49 +1248,62 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             "- If the user asks general pleasantries (e.g. 'how are you', 'what do you know about me'), respond warmly and politely explain that you are their AI Performance Coach ready to assist with company sales and performance data.\n"
             "- If the user asks off-topic questions (academic school math/science like formulas, trigonometry, calculus, homework, movies, shopping, or general trivia), DO NOT solve or answer the question! Explicitly and politely decline by stating that you are dedicated solely to workplace performance analytics and company documents, and invite them to ask about their business data."
         )
-        if OPENAI_API_KEY:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=OPENAI_API_KEY)
-                resp = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": general_prompt},
-                        {"role": "user", "content": user_query}
-                    ],
-                    temperature=0.7,
-                    max_tokens=300
-                )
-                ans = resp.choices[0].message.content or ""
-                return {"final_response": ans.strip()}
-            except Exception as e:
-                print(f"[COACH SYNTHESIZER] General greeting error: {e}")
-
         return {
-            "final_response": "Hello! I am your Performance Coach. How can I assist you with your sales or team data today?"
+            "direct_response": None,
+            "system_prompt": general_prompt,
+            "user_prompt": user_query,
+            "max_tokens": 300,
+            "temperature": 0.7,
+            "fallback_text": "Hello! I am your Performance Coach. How can I assist you with your sales or team data today?",
+            "citations": [],
+            "role_level": role_level
         }
 
     # Empty / Unauthorized Data Retrieval Guard for non-admins:
-    # Avoid misleading "No records found in uploaded spreadsheet... upload updated records" when user lacks permissions.
     if (
         sec["has_context"]
         and not sec["is_admin"]
         and intent in ["SQL", "RAG", "HYBRID"]
         and not sql_result
         and not rag_chunks
+        and not state.get("crm_data")
     ):
         restricted_reason = _detect_restricted_scope_reason(
             user_query, state.get("target_employee_name"), sec
         )
         if restricted_reason:
-            return _format_permission_denied_response(restricted_reason, state, sec)
+            denied_res = _format_permission_denied_response(restricted_reason, state, sec)
+            return {
+                "direct_response": denied_res.get("final_response", ""),
+                "citations": denied_res.get("citations", []),
+                "role_level": role_level
+            }
         schema_dict = state.get("schema_dict") or {}
         if not schema_dict.get("has_spreadsheet_data") and not doc_catalog:
-            return _format_permission_denied_response("NO_SHARED_DATA", state, sec)
-        return _format_permission_denied_response("NO_AUTHORIZED_RECORDS", state, sec)
+            denied_res = _format_permission_denied_response("NO_SHARED_DATA", state, sec)
+            return {
+                "direct_response": denied_res.get("final_response", ""),
+                "citations": denied_res.get("citations", []),
+                "role_level": role_level
+            }
+        denied_res = _format_permission_denied_response("NO_AUTHORIZED_RECORDS", state, sec)
+        return {
+            "direct_response": denied_res.get("final_response", ""),
+            "citations": denied_res.get("citations", []),
+            "role_level": role_level
+        }
 
     # Build Context Blocks
     context_sections = []
+
+    crm_data = state.get("crm_data")
+    crm_summary = state.get("crm_summary")
+    if crm_data:
+        crm_block = "RETRIEVED LIVE CRM INTELLIGENCE (HubSpot FastMCP):\n"
+        if crm_summary:
+            crm_block += f"Executive Summary: {crm_summary}\n\n"
+        crm_block += f"Data:\n{json.dumps(crm_data, indent=2)}"
+        context_sections.append(crm_block)
 
     if sql_result is not None:
         context_sections.append(
@@ -946,7 +1361,6 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         if tone_instructions:
             persona_parts.append(f"- Preferred Tonality Directive: {tone_instructions}")
 
-        # Dynamically include any custom or newly added onboarding questions
         standard_keys = {
             "onboarded", "skipped_onboarding", "role_title", "stakeholders", "coaching_tone",
             "three_year_vision", "current_weight", "summary_bio",
@@ -995,7 +1409,45 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
         f"  * Acknowledge the timeline explicitly (e.g. 'Drawing from your October review notes and August performance baseline, here are your strategic priorities and action items for {current_month_str}:').\n"
     )
 
-    # Call LLM for final synthesis
+    fallback_txt = ""
+    if sql_result:
+        fallback_txt = f"Retrieved {len(sql_result)} records from spreadsheet data:\n\n```json\n{json.dumps(sql_result, indent=2)}\n```"
+    elif rag_chunks:
+        fallback_txt = format_chunks_for_context(rag_chunks)
+    else:
+        fallback_txt = "I was unable to connect to the reasoning model to synthesize an answer."
+
+    return {
+        "direct_response": None,
+        "system_prompt": persona_system_prompt,
+        "user_prompt": user_prompt,
+        "max_tokens": 900,
+        "temperature": 0.3,
+        "fallback_text": fallback_txt,
+        "role_level": role_level,
+        "citations": citations
+    }
+
+
+def synthesizer_node(state: CoachState) -> Dict[str, Any]:
+    """Merges SQL results and RAG chunks into a cohesive coaching response (synchronous)."""
+    ctx = prepare_synthesis_context(state)
+    role_level = ctx.get("role_level", 1)
+    citations = ctx.get("citations", [])
+    direct_response = ctx.get("direct_response")
+
+    if direct_response is not None:
+        return {
+            "final_response": sanitize_final_response(direct_response.strip(), role_level),
+            "citations": citations
+        }
+
+    system_prompt = ctx.get("system_prompt", "")
+    user_prompt = ctx.get("user_prompt", "")
+    max_tokens = ctx.get("max_tokens", 900)
+    temperature = ctx.get("temperature", 0.3)
+
+    # 1. Primary: OpenAI GPT-4o
     if OPENAI_API_KEY:
         try:
             from openai import OpenAI
@@ -1003,39 +1455,119 @@ def synthesizer_node(state: CoachState) -> Dict[str, Any]:
             resp = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": persona_system_prompt},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
-                max_tokens=900
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             ans = resp.choices[0].message.content or ""
-            return {"final_response": sanitize_final_response(ans.strip(), role_level)}
+            return {"final_response": sanitize_final_response(ans.strip(), role_level), "citations": citations}
         except Exception as e:
             print(f"[COACH SYNTHESIZER] OpenAI synthesis failed: {e}")
 
+    # 2. Fallback: Gemini 1.5 Flash
     if GEMINI_API_KEY:
         try:
             from google import genai
             from google.genai.types import GenerateContentConfig
 
             client = genai.Client(api_key=GEMINI_API_KEY)
-            config = GenerateContentConfig(temperature=0.3, max_output_tokens=900)
-            gemini_prompt = f"{persona_system_prompt}\n\n{user_prompt}"
+            config = GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens)
+            gemini_prompt = f"{system_prompt}\n\n{user_prompt}"
             res = client.models.generate_content(
                 model="gemini-1.5-flash",
                 contents=gemini_prompt,
                 config=config
             )
             ans = res.text or ""
-            return {"final_response": sanitize_final_response(ans.strip(), role_level)}
+            return {"final_response": sanitize_final_response(ans.strip(), role_level), "citations": citations}
         except Exception as e:
             print(f"[COACH SYNTHESIZER] Gemini synthesis failed: {e}")
 
-    # Fallback if no LLM configured
-    if sql_result:
-        fallback_txt = f"Retrieved {len(sql_result)} records from spreadsheet data:\n\n```json\n{json.dumps(sql_result, indent=2)}\n```"
-        return {"final_response": sanitize_final_response(fallback_txt, role_level)}
-    elif rag_chunks:
-        return {"final_response": sanitize_final_response(format_chunks_for_context(rag_chunks), role_level)}
-    return {"final_response": "I was unable to connect to the reasoning model to synthesize an answer."}
+    # 3. Deterministic Context Fallback
+    fallback_txt = ctx.get("fallback_text") or "I was unable to connect to the reasoning model to synthesize an answer."
+    return {"final_response": sanitize_final_response(fallback_txt, role_level), "citations": citations}
+
+
+async def stream_synthesis_response(
+    ctx: Dict[str, Any],
+    request: Optional[Any] = None
+) -> AsyncGenerator[str, None]:
+    """
+    Asynchronously streams synthesized answer tokens from OpenAI or Gemini in real-time.
+    Aborts early if client disconnects to prevent dangling streams and wasted token usage.
+    """
+    direct_response = ctx.get("direct_response")
+    if direct_response is not None:
+        role_level = ctx.get("role_level", 1)
+        yield sanitize_final_response(direct_response.strip(), role_level)
+        return
+
+    system_prompt = ctx.get("system_prompt", "")
+    user_prompt = ctx.get("user_prompt", "")
+    max_tokens = ctx.get("max_tokens", 900)
+    temperature = ctx.get("temperature", 0.3)
+
+    # 1. Primary: AsyncOpenAI GPT-4o
+    if OPENAI_API_KEY:
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+            stream = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True
+            )
+            async for chunk in stream:
+                if request is not None:
+                    try:
+                        if await request.is_disconnected():
+                            print("[COACH STREAM] Client disconnected mid-stream; stopping OpenAI stream.")
+                            break
+                    except Exception:
+                        pass
+                delta = chunk.choices[0].delta.content if chunk.choices and chunk.choices[0].delta else ""
+                if delta:
+                    yield delta
+            return
+        except Exception as e:
+            print(f"[COACH STREAM] AsyncOpenAI streaming error: {e}, falling back to Gemini if available...")
+
+    # 2. Fallback: Gemini Async generate_content_stream
+    if GEMINI_API_KEY:
+        try:
+            from google import genai
+            from google.genai.types import GenerateContentConfig
+
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            config = GenerateContentConfig(temperature=temperature, max_output_tokens=max_tokens)
+            gemini_prompt = f"{system_prompt}\n\n{user_prompt}"
+            stream = await client.aio.models.generate_content_stream(
+                model="gemini-1.5-flash",
+                contents=gemini_prompt,
+                config=config
+            )
+            async for chunk in stream:
+                if request is not None:
+                    try:
+                        if await request.is_disconnected():
+                            print("[COACH STREAM] Client disconnected mid-stream; stopping Gemini stream.")
+                            break
+                    except Exception:
+                        pass
+                delta = chunk.text or ""
+                if delta:
+                    yield delta
+            return
+        except Exception as e:
+            print(f"[COACH STREAM] Gemini async streaming error: {e}")
+
+    # 3. Fallback: Structured text
+    fallback_txt = ctx.get("fallback_text") or "I was unable to connect to the reasoning model to synthesize an answer."
+    yield fallback_txt

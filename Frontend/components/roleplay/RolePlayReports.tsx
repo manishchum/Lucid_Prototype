@@ -11,7 +11,10 @@ import {
   TrendingUp, 
   Calendar,
   Target,
-  Lightbulb
+  Lightbulb,
+  Activity,
+  Mic,
+  Gauge
 } from 'lucide-react';
 import { getEmployeeRoleplayReports } from '@/lib/roleplayApi';
 import { Message } from '@/lib/roleplayApi';
@@ -36,8 +39,31 @@ interface RolePlaySession {
       feedback: string;
     }>;
     recommendations: string[];
+    metrics?: {
+      user_talk_percent: number;
+      ai_talk_percent: number;
+      user_word_count?: number;
+      ai_word_count?: number;
+      words_per_minute?: number;
+      duration_seconds?: number;
+    };
   }>;
 }
+
+const formatFeedbackPoints = (feedback: string): string[] => {
+  if (!feedback) return [];
+  if (feedback.includes('\n') || feedback.includes('•') || feedback.includes('- ')) {
+    return feedback
+      .split(/\n|•|(?<=\s)-\s/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0 && p !== '-');
+  }
+  const sentences = feedback
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  return sentences.length > 0 ? sentences : [feedback];
+};
 
 interface RolePlayReportsProps {
   employeeId: string;
@@ -294,27 +320,138 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                         </div>
                       )}
 
+                      {/* Conversational Dynamics (if metrics available) */}
+                      {assessment.metrics && (
+                        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+                          <div className="flex items-center gap-2 mb-4">
+                            <Activity className="w-5 h-5 text-indigo-600" />
+                            <h5 className="font-semibold text-slate-900">Conversational Dynamics</h5>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Talk vs Listen Ratio */}
+                            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                                  <Mic className="w-4 h-4 text-purple-600" />
+                                  Talk-to-Listen Ratio
+                                </span>
+                                <span className="text-xs font-medium text-slate-500">
+                                  Learner vs AI
+                                </span>
+                              </div>
+
+                              {/* Progress bar */}
+                              <div className="w-full bg-slate-200 rounded-full h-3 flex overflow-hidden mb-3">
+                                <div
+                                  className="bg-purple-600 h-full transition-all duration-500"
+                                  style={{ width: `${Math.min(100, Math.max(0, assessment.metrics.user_talk_percent))}%` }}
+                                />
+                                <div
+                                  className="bg-slate-400 h-full transition-all duration-500"
+                                  style={{ width: `${Math.min(100, Math.max(0, assessment.metrics.ai_talk_percent))}%` }}
+                                />
+                              </div>
+
+                              <div className="flex justify-between text-xs text-slate-600">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />
+                                  <span>You ({assessment.metrics.user_talk_percent}%)</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block" />
+                                  <span>AI Avatar ({assessment.metrics.ai_talk_percent}%)</span>
+                                </div>
+                              </div>
+
+                              {typeof assessment.metrics.user_word_count === 'number' && (
+                                <p className="text-xs text-slate-500 mt-3 pt-2 border-t border-slate-200">
+                                  Spoke <strong className="text-slate-700">{assessment.metrics.user_word_count}</strong> words
+                                  {typeof assessment.metrics.ai_word_count === 'number' && (
+                                    <> vs <strong className="text-slate-700">{assessment.metrics.ai_word_count}</strong> words by partner</>
+                                  )}.
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Speaking Pace / WPM */}
+                            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                                  <Gauge className="w-4 h-4 text-blue-600" />
+                                  Speaking Pace
+                                </span>
+                                {assessment.metrics.words_per_minute !== undefined && (
+                                  <span
+                                    className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
+                                      assessment.metrics.words_per_minute >= 110 && assessment.metrics.words_per_minute <= 165
+                                        ? "bg-green-100 text-green-700"
+                                        : assessment.metrics.words_per_minute < 110
+                                        ? "bg-amber-100 text-amber-700"
+                                        : "bg-red-100 text-red-700"
+                                    }`}
+                                  >
+                                    {assessment.metrics.words_per_minute >= 110 && assessment.metrics.words_per_minute <= 165
+                                      ? "Optimal Cadence"
+                                      : assessment.metrics.words_per_minute < 110
+                                      ? "Deliberate / Measured"
+                                      : "Rapid Pace"}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-baseline gap-2 mt-2">
+                                <span className="text-3xl font-bold text-slate-800">
+                                  {assessment.metrics.words_per_minute ?? "N/A"}
+                                </span>
+                                <span className="text-sm text-slate-500 font-medium">words per min (WPM)</span>
+                              </div>
+
+                              <p className="text-xs text-slate-600 mt-3 leading-relaxed">
+                                {assessment.metrics.words_per_minute !== undefined && assessment.metrics.words_per_minute >= 110 && assessment.metrics.words_per_minute <= 165
+                                  ? "Great speaking pace! Your cadence allows clear pronunciation and active listener comprehension."
+                                  : assessment.metrics.words_per_minute !== undefined && assessment.metrics.words_per_minute < 110
+                                  ? "A slightly more energetic pace can help keep the dialogue engaging and proactive."
+                                  : "Consider slowing down slightly on key objection points to ensure maximum clarity."}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Performance Breakdown */}
                       <div>
                         <h5 className="font-semibold text-slate-900 mb-3">Performance Breakdown</h5>
-                        <div className="space-y-3">
-                          {assessment.parameters.map((param, idx) => (
-                            <div key={idx}>
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-medium text-slate-700">{param.name}</span>
-                                <span className="text-sm font-bold text-slate-900">{param.score}/100</span>
+                        <div className="space-y-4">
+                          {assessment.parameters.map((param, idx) => {
+                            const points = formatFeedbackPoints(param.feedback);
+                            return (
+                              <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-sm font-semibold text-slate-800">{param.name}</span>
+                                  <span className={`text-sm font-bold px-2 py-0.5 rounded ${param.score >= passingScore ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>
+                                    {param.score}/100
+                                  </span>
+                                </div>
+                                <div className="w-full bg-slate-100 rounded-full h-2 mb-3">
+                                  <div
+                                    className={`h-2 rounded-full transition-all ${
+                                      param.score >= passingScore ? 'bg-green-500' : 'bg-red-500'
+                                    }`}
+                                    style={{ width: `${param.score}%` }}
+                                  />
+                                </div>
+                                <ul className="space-y-1.5">
+                                  {points.map((pt, pIdx) => (
+                                    <li key={pIdx} className="flex items-start gap-2 text-xs sm:text-sm text-slate-600">
+                                      <span className="text-purple-600 font-bold mt-0.5 shrink-0">•</span>
+                                      <span>{pt}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               </div>
-                              <div className="w-full bg-slate-200 rounded-full h-2 mb-2">
-                                <div
-                                  className={`h-2 rounded-full transition-all ${
-                                    param.score >= passingScore ? 'bg-green-500' : 'bg-red-500'
-                                  }`}
-                                  style={{ width: `${param.score}%` }}
-                                />
-                              </div>
-                              <p className="text-sm text-slate-600">{param.feedback}</p>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -341,32 +478,38 @@ export default function RolePlayReports({ employeeId }: RolePlayReportsProps) {
                     <h5 className="font-semibold text-slate-900 mb-3">Conversation Transcript</h5>
                     {transcript.length > 0 ? (
                       <div className="bg-white rounded-lg p-4 max-h-96 overflow-y-auto space-y-3">
-                        {transcript.map((msg, idx) => (
-                          <div
-                            key={idx}
-                            className={`flex ${(msg.sender === 'user' || msg.role === 'user') ? 'justify-end' : 'justify-start'}`}
-                          >
+                        {transcript.map((msg, idx) => {
+                          const role = String(msg.sender || (msg as any).role || '').toLowerCase();
+                          const isUser = ['user', 'learner', 'human'].includes(role);
+                          const speakerLabel = isUser
+                            ? 'You'
+                            : (session.scenario_role?.length > 40 ? session.scenario_role.slice(0, 40) + '...' : session.scenario_role || 'AI Partner');
+
+                          return (
                             <div
-                              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                                (msg.sender === 'user' || msg.role === 'user')
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-slate-100 text-slate-900'
-                              }`}
+                              key={idx}
+                              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                             >
-                              <p className="text-xs font-semibold mb-1 opacity-70">
-                                {(msg.sender === 'user' || msg.role === 'user') 
-                                  ? 'You' 
-                                  : (session.scenario_role?.length > 40 ? session.scenario_role.slice(0, 40) + '...' : session.scenario_role || 'AI Assistant')}
-                              </p>
-                              <p className="text-sm">{msg.text}</p>
-                              {msg.timestamp && (
-                                <p className="text-xs opacity-60 mt-1">
-                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                              <div
+                                className={`max-w-[85%] rounded-2xl px-4 py-2.5 shadow-sm ${
+                                  isUser
+                                    ? 'bg-blue-600 text-white rounded-br-sm'
+                                    : 'bg-white text-slate-900 rounded-bl-sm border-2 border-slate-200'
+                                }`}
+                              >
+                                <p className={`text-xs font-semibold mb-1 ${isUser ? 'opacity-80' : 'text-purple-700'}`}>
+                                  {speakerLabel}
                                 </p>
-                              )}
+                                <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                                {msg.timestamp && (
+                                  <p className={`text-[10px] mt-1 ${isUser ? 'opacity-70' : 'text-slate-400'}`}>
+                                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="bg-white rounded-lg p-6 text-center text-slate-400">

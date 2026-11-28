@@ -6,6 +6,8 @@ from services.connectors.providers.slack import SlackConnector
 from services.connectors.providers.zoom import ZoomConnector
 from services.connectors.providers.google_meet import GoogleMeetConnector
 from services.connectors.providers.gmail import GmailConnector
+from services.connectors.providers.google_calendar import GoogleCalendarConnector
+from services.connectors.providers.hubspot import HubSpotConnector
 
 __all__ = [
     "GoogleDriveConnector",
@@ -14,5 +16,7 @@ __all__ = [
     "SlackConnector",
     "ZoomConnector",
     "GoogleMeetConnector",
-    "GmailConnector"
+    "GmailConnector",
+    "GoogleCalendarConnector",
+    "HubSpotConnector"
 ]

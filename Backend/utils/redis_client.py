@@ -167,6 +167,7 @@ def invalidate_company_caches(company_id: str):
         return
     try:
         redis_client.delete(f"company_static:{company_id}")
+        redis_client.delete("all_active_companies_light")
         redis_client.delete(f"leaderboard:zset:{company_id}")
         redis_client.delete(f"leaderboard:meta:{company_id}")
         delete_cache_pattern(f"company_leaderboard:{company_id}*")

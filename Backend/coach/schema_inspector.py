@@ -516,15 +516,19 @@ def format_schema_for_sql_prompt(schema_dict: Dict[str, Any], company_id: str) -
     if not schema_dict.get("has_spreadsheet_data"):
         return "No spreadsheet tables are currently uploaded for this company."
 
+    valid_sheet_names = list(schema_dict.get("sheets", {}).keys())
+    valid_sheets_str = ", ".join([f"'{s}'" for s in valid_sheet_names])
+
     lines = [
         "### AVAILABLE DATABASE SCHEMA & TABULAR DATA",
         "Target Table: public.coach_spreadsheet_rows",
         f"Tenant Scope: company_id = '{company_id}' (MANDATORY IN EVERY QUERY)",
+        f"VALID SHEET NAMES IN DATABASE: [{valid_sheets_str}] (You may ONLY filter sheet_name by these exact strings or omit sheet_name completely!)",
         "",
         "Table Columns in coach_spreadsheet_rows:",
         "  - id: UUID",
         "  - company_id: UUID (Must filter by: company_id = '" + company_id + "')",
-        "  - sheet_name: TEXT (Filter by sheet_name)",
+        "  - sheet_name: TEXT (Filter ONLY by valid sheet names: " + valid_sheets_str + ")",
         "  - employee_name: TEXT (Full employee name, e.g. 'Rahul Sharma')",
         "  - target_employee_id: UUID (Optional employee user ID)",
         "  - row_index: INTEGER (Row number from original sheet)",

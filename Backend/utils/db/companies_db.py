@@ -193,6 +193,11 @@ async def create_company(requesting_user_id: Optional[str], company_data: Dict[s
         if resp.data and isinstance(resp.data, list):
             for c in resp.data:
                 c["platform_type"] = resolve_company_platform_type(c)
+        try:
+            from utils.redis_client import redis_client
+            redis_client.delete("all_active_companies_light")
+        except Exception:
+            pass
         return {"data": resp.data, "error": None}
     except Exception as e:
         error_msg = str(e)
@@ -204,6 +209,11 @@ async def create_company(requesting_user_id: Optional[str], company_data: Dict[s
                 if resp.data and isinstance(resp.data, list):
                     for c in resp.data:
                         c["platform_type"] = resolve_company_platform_type(c)
+                try:
+                    from utils.redis_client import redis_client
+                    redis_client.delete("all_active_companies_light")
+                except Exception:
+                    pass
                 return {"data": resp.data, "error": None}
             except Exception as e2:
                 error_msg = str(e2)
@@ -245,6 +255,8 @@ async def update_company(requesting_user_id: str, company_id: str, update_data: 
             for c in resp.data:
                 c["platform_type"] = resolve_company_platform_type(c)
         try:
+            from utils.redis_client import redis_client
+            redis_client.delete("all_active_companies_light")
             from utils.notifications.policy_evaluator import NotificationPolicyEvaluator
             NotificationPolicyEvaluator.invalidate_company_addons_cache(company_id)
         except Exception:

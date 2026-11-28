@@ -3,16 +3,16 @@
 import type React from "react"
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth"
+import { signInWithPopup, signInWithEmailAndPassword, signInWithCustomToken, sendPasswordResetEmail, signOut } from "firebase/auth"
 import Link from "next/link"
-import { 
-  ArrowLeft, 
-  Lock, 
-  Mail, 
-  Eye, 
-  EyeOff, 
-  AlertCircle, 
-  CheckCircle2 
+import {
+  ArrowLeft,
+  Lock,
+  Mail,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  CheckCircle2
 } from "lucide-react"
 import { auth, googleProvider } from "@/lib/firebase"
 import { useAuth, isBrowserSessionActive, setBrowserSessionActive, updateLastActiveTimestamp, clearBrowserSessionActive, clearManualAuthUser } from "@/contexts/auth-context"
@@ -42,7 +42,7 @@ export default function LoginContent({ initialIsEY = false }: { initialIsEY?: bo
     if (!isBrowserSessionActive()) {
       clearBrowserSessionActive()
       clearManualAuthUser()
-      try { signOut(auth); } catch {}
+      try { signOut(auth); } catch { }
     }
 
     const handleStorageChange = (e: StorageEvent) => {
@@ -65,7 +65,7 @@ export default function LoginContent({ initialIsEY = false }: { initialIsEY?: bo
       setError("You were signed out because your account was logged into from another browser or device.")
       try {
         window.sessionStorage.removeItem("lucid:displaced-session")
-      } catch {}
+      } catch { }
       return
     }
 
@@ -146,10 +146,36 @@ export default function LoginContent({ initialIsEY = false }: { initialIsEY?: bo
     setResetMessage("")
 
     try {
-      const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
+      let firebaseUser = null
+      try {
+        const emailAuthResult = await signInWithEmailAndPassword(auth, email, password)
+        firebaseUser = emailAuthResult.user
+      } catch (fbErr: any) {
+        // If Firebase direct authentication fails (e.g. user was provisioned with default password
+        // or password was reset/updated), attempt fallback to backend verification endpoint
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || ""
+        const fallbackRes = await fetch(`${backendUrl}/api/auth/password-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        })
+
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json()
+          if (fallbackData.custom_token) {
+            const customAuthResult = await signInWithCustomToken(auth, fallbackData.custom_token)
+            firebaseUser = customAuthResult.user
+          }
+        }
+
+        if (!firebaseUser) {
+          throw fbErr
+        }
+      }
+
       setBrowserSessionActive()
       updateLastActiveTimestamp()
-      await login(emailAuthResult.user)
+      await login(firebaseUser)
 
       try { sessionStorage.setItem('show_login_toast_next', '1'); } catch (e) { /* ignore */ }
       router.push('/employee/welcome')
@@ -172,7 +198,7 @@ export default function LoginContent({ initialIsEY = false }: { initialIsEY?: bo
             page_url: location.href
           })
         })
-      } catch (e) {}
+      } catch (e) { }
     } finally {
       setLoading(false)
     }
@@ -241,7 +267,7 @@ export default function LoginContent({ initialIsEY = false }: { initialIsEY?: bo
             page_url: location.href
           })
         })
-      } catch (e) {}
+      } catch (e) { }
     } finally {
       setLoading(false)
     }

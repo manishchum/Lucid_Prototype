@@ -5,7 +5,7 @@ FastAPI routes for learning_plan operations.
 from typing import Optional, Dict
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from utils.auth import RequestAuth, get_request_auth_required
+from utils.auth import RequestAuth, get_request_auth_required, get_effective_company_id
 from utils.db import learning_plan_db
 from utils.redis_client import get_cache, set_cache, redis_client, delete_cache_pattern
 
@@ -28,6 +28,7 @@ class CreateLearningPlanRequest(BaseModel):
 class BulkCreateLearningPlanRequest(BaseModel):
     user_ids: list[str]
     module_ids: list[str]
+    company_id: Optional[str] = None
 
     due_date: Optional[str] = None
     priority: Optional[int] = 1
@@ -56,6 +57,7 @@ class UpdateStatusRequest(BaseModel):
 @router.get("/")
 async def list_learning_plans(
     auth_ctx: RequestAuth = Depends(get_request_auth_required),
+    effective_company_id: str = Depends(get_effective_company_id),
     user_id: Optional[str] = None,
     module_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -68,6 +70,7 @@ async def list_learning_plans(
     - Managers+ see plans from their company
     """
     cache_key = (f"learning plans:"
+                 f"company={effective_company_id}:"
                  f"users={auth_ctx.user_id}:"
                  f"target={user_id}:"
                  f"module={module_id}:"
@@ -81,7 +84,7 @@ async def list_learning_plans(
         return cached
     
     result = await learning_plan_db.list_learning_plans(
-        auth_ctx.user_id, user_id, module_id, status, baseline_assessment, limit
+        auth_ctx.user_id, user_id, module_id, status, baseline_assessment, limit, company_id=effective_company_id
     )
     
     if result.get("error"):
