@@ -217,7 +217,7 @@ async def chat_with_coach(
             "response": response_text,
             "intent": result.get("intent", ""),
             "sql_query": result.get("sql_query"),
-            "sql_result": result.get("sql_result"),
+            "sql_result": None,
             "citations": citations,
             "error": result.get("error")
         }

@@ -39,6 +39,13 @@ except ImportError:
     LANGGRAPH_AVAILABLE = False
 
 
+def _tokenize_text_for_stream(text: str) -> List[str]:
+    """Splits text into natural word-level tokens preserving spacing for SSE token streaming."""
+    if not text:
+        return []
+    return re.findall(r"\S+\s*|\s+", text)
+
+
 # ============================================================================
 # CONDITIONAL ROUTING FUNCTIONS
 # ============================================================================
@@ -297,7 +304,7 @@ def execute_coach_agent(
                 "response": final_state.get("final_response", ""),
                 "intent": final_state.get("intent", ""),
                 "sql_query": final_state.get("sql_query"),
-                "sql_result": final_state.get("sql_result"),
+                "sql_result": None,
                 "citations": final_state.get("citations", []),
                 "error": None
             }
@@ -337,7 +344,7 @@ def execute_coach_agent(
         "response": state.get("final_response", ""),
         "intent": state.get("intent", ""),
         "sql_query": state.get("sql_query"),
-        "sql_result": state.get("sql_result"),
+        "sql_result": None,
         "citations": state.get("citations", []),
         "error": None
     }
@@ -494,13 +501,19 @@ async def stream_coach_agent(
         ctx = prepare_synthesis_context(state)
         role_level = _get_role_level(state)
 
+        # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
         full_response_parts: List[str] = []
         async for token_chunk in stream_synthesis_response(ctx, request=request):
             full_response_parts.append(token_chunk)
-            yield {"type": "token", "content": token_chunk}
 
         raw_response = "".join(full_response_parts)
         sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
+
+        # Emit sanitized response tokens safely after role-based PII firewall runs
+        for token in _tokenize_text_for_stream(sanitized_response):
+            if request and await request.is_disconnected():
+                break
+            yield {"type": "token", "content": token}
 
         yield {
             "type": "done",
@@ -700,19 +713,25 @@ async def stream_coach_agent(
     ctx = prepare_synthesis_context(state)
     role_level = _get_role_level(state)
 
+    # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
     full_response_parts: List[str] = []
     async for token_chunk in stream_synthesis_response(ctx, request=request):
         full_response_parts.append(token_chunk)
-        yield {"type": "token", "content": token_chunk}
 
     raw_response = "".join(full_response_parts)
     sanitized_response = sanitize_final_response(raw_response.strip(), role_level)
+
+    # Emit sanitized response tokens safely after role-based PII firewall runs
+    for token in _tokenize_text_for_stream(sanitized_response):
+        if request and await request.is_disconnected():
+            break
+        yield {"type": "token", "content": token}
 
     yield {
         "type": "done",
         "intent": state.get("intent", intent),
         "sql_query": state.get("sql_query"),
-        "sql_result": state.get("sql_result"),
+        "sql_result": None,  # Omit raw database rows from public SSE events to prevent sensitive data exposure
         "citations": citations,
         "citations_count": len(citations),
         "response": sanitized_response

@@ -842,6 +842,7 @@ export default function CoachPage() {
                   msg.id === assistantMessageId
                     ? {
                         ...msg,
+                        content: data.response || msg.content,
                         isStreaming: false,
                         intent: data.intent,
                         statusStep: undefined,
@@ -1332,7 +1333,7 @@ export default function CoachPage() {
             <div className="flex items-start gap-2 text-xs sm:text-sm text-slate-700">
               <span className="text-indigo-600 font-bold shrink-0 mt-0.5">•</span>
               <div className="flex-1 min-w-0">
-                <span dangerouslySetInnerHTML={{ __html: parseInlineStyles(cleaned) }} />
+                <span>{renderInlineStyles(cleaned)}</span>
                 {renderInlineCitations(uniqueNums, blockKey)}
               </div>
             </div>
@@ -1352,7 +1353,7 @@ export default function CoachPage() {
             <div className="flex items-start gap-2 text-xs sm:text-sm text-slate-700">
               <span className="text-xs font-bold text-indigo-600 shrink-0 w-4">{numMatch[1]}.</span>
               <div className="flex-1 min-w-0">
-                <span dangerouslySetInnerHTML={{ __html: parseInlineStyles(cleaned) }} />
+                <span>{renderInlineStyles(cleaned)}</span>
                 {renderInlineCitations(uniqueNums, blockKey)}
               </div>
             </div>
@@ -1374,7 +1375,7 @@ export default function CoachPage() {
       elements.push(
         <div key={`para-${index}`} className="my-1">
           <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-            <span dangerouslySetInnerHTML={{ __html: parseInlineStyles(cleaned) }} />
+            <span>{renderInlineStyles(cleaned)}</span>
             {renderInlineCitations(uniqueNums, blockKey)}
           </p>
           {renderActiveCitationCard(blockKey)}
@@ -1387,17 +1388,39 @@ export default function CoachPage() {
     return <div className="space-y-0.5">{elements}</div>
   }
 
-  // Inline styling helper: **bold**, *italic*, `code`, strips any rogue #
-  const parseInlineStyles = (str: string) => {
-    return str
-      .replace(/^#+\s*/g, "") // strip leading #
-      .replace(/\s*#+\s*/g, " ") // strip internal # or ###
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em class="italic text-slate-800">$1</em>')
-      .replace(
-        /`([^`]+)`/g,
-        '<code class="px-1.5 py-0.5 text-xs font-mono bg-slate-100 text-indigo-700 rounded-md border border-slate-200/80">$1</code>'
-      )
+  // Safe inline styling helper: parses markdown tokens into React nodes with built-in XSS protection
+  const renderInlineStyles = (str: string): React.ReactNode => {
+    const cleaned = str.replace(/^#+\s*/g, "").replace(/\s*#+\s*/g, " ")
+    const parts = cleaned.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g)
+
+    return parts.map((part, i) => {
+      if (!part) return null
+      if (part.startsWith("`") && part.endsWith("`") && part.length >= 2) {
+        return (
+          <code
+            key={i}
+            className="px-1.5 py-0.5 text-xs font-mono bg-slate-100 text-indigo-700 rounded-md border border-slate-200/80"
+          >
+            {part.slice(1, -1)}
+          </code>
+        )
+      }
+      if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+        return (
+          <strong key={i} className="font-bold text-slate-900">
+            {part.slice(2, -2)}
+          </strong>
+        )
+      }
+      if (part.startsWith("*") && part.endsWith("*") && part.length >= 2) {
+        return (
+          <em key={i} className="italic text-slate-800">
+            {part.slice(1, -1)}
+          </em>
+        )
+      }
+      return part
+    })
   }
 
   // Loading state

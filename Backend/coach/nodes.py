@@ -13,6 +13,7 @@ Implements:
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from langchain_core.messages import HumanMessage, AIMessage
@@ -640,11 +641,7 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
     schema_prompt = state.get("schema_prompt", "")
     emp_name = state.get("target_employee_name")
 
-    print("\n" + "="*80)
-    print(f"[COACH SQL GENERATOR] >>> USER QUERY: {user_query}")
-    print(f"[COACH SQL GENERATOR] >>> SCHEMA SENT TO LLM:\n{schema_prompt}")
-    print("="*80)
-
+    t0 = time.time()
     res = generate_coach_sql(
         user_query=user_query,
         company_id=company_id,
@@ -654,7 +651,7 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
 
     generated_sql = res.get("sql_query")
 
-    # Post-processing safeguard: Strip any hallucinated sheet_name that doesn't exist in the database
+    # Post-processing safeguard: Preserve explicit sheet scope; normalize casing if matched case-insensitively
     if generated_sql:
         try:
             # Extract valid sheet names from schema_prompt
@@ -662,21 +659,27 @@ def sql_generator_node(state: CoachState) -> Dict[str, Any]:
             if valid_sheets_match:
                 raw_valid = valid_sheets_match.group(1)
                 valid_sheets = {s.strip().strip("'\"") for s in raw_valid.split(",") if s.strip()}
-                sheet_filter_pat = re.compile(r"(?i)\s+AND\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'([^']+)'\s*\)?")
+                sheet_filter_pat = re.compile(r"(?i)\b(?:WHERE|AND)\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'([^']+)'\s*\)?")
                 m = sheet_filter_pat.search(generated_sql)
                 if m:
                     queried_sheet = m.group(1).strip()
-                    if queried_sheet not in valid_sheets:
-                        print(f"[COACH SQL GENERATOR] Detected hallucinated sheet_name '{queried_sheet}'. Auto-stripping to allow query to match target columns.")
-                        generated_sql = sheet_filter_pat.sub("", generated_sql)
-                        generated_sql = re.sub(r"\s{2,}", " ", generated_sql).strip()
-        except Exception as filter_err:
-            print(f"[COACH SQL GENERATOR] Note on sheet filter sanitation: {filter_err}")
+                    # Preserve explicit sheet scope; if case differs, normalize casing
+                    ci_map = {s.lower(): s for s in valid_sheets}
+                    if queried_sheet.lower() in ci_map and queried_sheet not in valid_sheets:
+                        normalized = ci_map[queried_sheet.lower()]
+                        generated_sql = re.sub(
+                            r"(?i)(sheet_name\s*(?:=|ILIKE)\s*')([^']+)'",
+                            rf"\g<1>{normalized}'",
+                            generated_sql,
+                            count=1
+                        )
+                    # Note: If queried_sheet is not in valid_sheets at all, we preserve the predicate intact.
+                    # This guarantees explicit sheet scope is respected and avoids broadening across unrelated sheets.
+        except Exception:
+            pass
 
-    print("\n" + "-"*80)
-    print(f"[COACH SQL GENERATOR] >>> GENERATED SQL QUERY:\n{generated_sql}")
-    print(f"[COACH SQL GENERATOR] >>> EXPLANATION: {res.get('explanation')}")
-    print("-"*80 + "\n")
+    elapsed = time.time() - t0
+    print(f"[COACH SQL GENERATOR] Query generation completed in {elapsed:.2f}s (has_query={bool(generated_sql)})")
 
     return {
         "sql_query": generated_sql,
@@ -691,50 +694,19 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
     sql_query = state.get("sql_query") or ""
     security_ctx = state.get("security_ctx")
 
-    print("\n" + "-"*80)
-    print(f"[COACH SQL EXECUTOR] >>> EXECUTING SQL:\n{sql_query}")
-    sec_summary = _get_sec_summary(state)
-    print(f"[COACH SQL EXECUTOR] >>> SECURITY CTX: role_level={sec_summary.get('role_level')}, is_admin={sec_summary.get('is_admin')}, user_id={sec_summary.get('user_id')}")
-
+    t0 = time.time()
     exec_res = execute_coach_sql(company_id=company_id, sql_query=sql_query, security_ctx=security_ctx)
-    current_retry = state.get("sql_retry_count", 0)
+    elapsed = time.time() - t0
 
-    # Self-healing fallback: If query executed successfully but returned 0 rows or NULL aggregation,
-    # and the query had a restrictive sheet_name filter, retry automatically without sheet_name!
-    rows_sample = exec_res.get("rows", [])
-    is_null_aggregate = (
-        len(rows_sample) == 1 and
-        isinstance(rows_sample[0], dict) and
-        all(v is None for v in rows_sample[0].values())
+    # Preserve explicit sheet scope: Do NOT strip sheet_name predicates on empty results.
+    # An empty result correctly reflects that the scoped sheet has no matching records.
+    print(
+        f"[COACH SQL EXECUTOR] Execution completed in {elapsed:.2f}s: "
+        f"success={exec_res.get('success')}, row_count={exec_res.get('row_count')}, "
+        f"has_error={bool(exec_res.get('error'))}"
     )
-    is_empty_result = len(rows_sample) == 0 or is_null_aggregate
 
-    sheet_filter_pat = re.compile(r"(?i)\s+AND\s+\(?\s*sheet_name\s*(?:=|ILIKE)\s*'[^']+'\s*\)?")
-    if exec_res.get("success") and is_empty_result and sheet_filter_pat.search(sql_query):
-        broader_query = sheet_filter_pat.sub("", sql_query)
-        broader_query = re.sub(r"\s{2,}", " ", broader_query).strip()
-        print(f"[COACH SQL EXECUTOR] Zero rows returned with sheet filter. Retrying with multi-sheet scope:\n{broader_query}")
-        retry_res = execute_coach_sql(company_id=company_id, sql_query=broader_query, security_ctx=security_ctx)
-        if retry_res.get("success") and retry_res.get("rows"):
-            retry_null = (
-                len(retry_res["rows"]) == 1 and
-                isinstance(retry_res["rows"][0], dict) and
-                all(v is None for v in retry_res["rows"][0].values())
-            )
-            if not retry_null:
-                print(f"[COACH SQL EXECUTOR] Fallback succeeded! Returned {retry_res.get('row_count')} rows across sheets.")
-                exec_res = retry_res
-                sql_query = broader_query
-
-    print(f"[COACH SQL EXECUTOR] >>> RESULT: success={exec_res.get('success')}, row_count={exec_res.get('row_count')}, error={exec_res.get('error')}")
-    rows_sample = exec_res.get("rows", [])
-    if rows_sample:
-        print(f"[COACH SQL EXECUTOR] >>> ROWS SAMPLE (first 3): {json.dumps(rows_sample[:3], indent=2, default=str)}")
-    else:
-        print("[COACH SQL EXECUTOR] >>> ROWS: [] (0 rows returned)")
-    print("-"*80 + "\n")
-
-    if exec_res["success"]:
+    if exec_res.get("success"):
         return {
             "sql_query": sql_query,
             "sql_result": exec_res["rows"],
@@ -742,6 +714,11 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
             "sql_error": None
         }
     else:
+        return {
+            "sql_result": None,
+            "sql_row_count": 0,
+            "sql_error": exec_res.get("error")
+        }
         return {
             "sql_result": None,
             "sql_row_count": 0,
@@ -846,6 +823,8 @@ def _run_async_tool(coro):
     """Executes an async FastMCP tool within a synchronous LangGraph node."""
     import asyncio
     import concurrent.futures
+    if not asyncio.iscoroutine(coro):
+        return coro
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -900,7 +879,8 @@ def crm_node(state: CoachState) -> Dict[str, Any]:
             r"show\s+me", r"tell\s+me\s+about", r"who\s+is", r"who\s+are", r"what\s+is", r"what\s+are",
             r"which", r"do\s+we\s+have", r"do\s+we", r"have", r"are\s+there", r"are", r"is\s+there",
             r"any", r"all", r"list", r"get", r"find", r"search", r"lookup", r"give\s+me",
-            r"in", r"from", r"hubspot", r"crm", r"our", r"my", r"the", r"us"
+            r"in", r"from", r"hubspot", r"crm", r"our", r"my", r"the", r"us",
+            r"and", r"or", r"with", r"for", r"about", r"to", r"of"
         ] + entity_words
         pattern = r"(?i)\b(" + "|".join(boilerplate) + r")\b"
         cleaned = re.sub(pattern, " ", q)
@@ -925,7 +905,26 @@ def crm_node(state: CoachState) -> Dict[str, Any]:
         tool_args = {"limit": 25}
     elif any(k in q_lower for k in ["note", "notes", "call log", "meeting notes", "activity log"]):
         tool_name = "hubspot_list_engagements"
-        tool_args = {"object_type": "deals", "object_id": "", "limit": 15}
+        if any(w in q_lower for w in ["contact", "person", "lead", "rep"]):
+            target_obj_type = "contacts"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "contact", "contacts", "lead", "leads", "person"])
+        elif any(w in q_lower for w in ["company", "account", "organization", "domain"]):
+            target_obj_type = "companies"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "company", "companies", "account", "accounts", "org"])
+        else:
+            target_obj_type = "deals"
+            clean_q = _clean_search_query(user_query, ["note", "notes", "call", "log", "meeting", "activity", "deal", "deals"])
+
+        # Check for explicit numeric record ID
+        id_match = re.search(r"\b(\d{5,16})\b", user_query)
+        target_obj_id = id_match.group(1) if id_match else ""
+
+        tool_args = {
+            "object_type": target_obj_type,
+            "object_id": target_obj_id,
+            "search_query": clean_q,
+            "limit": 15
+        }
     else:
         # Default deal search with stage filter extraction
         tool_name = "hubspot_search_deals"
@@ -936,7 +935,7 @@ def crm_node(state: CoachState) -> Dict[str, Any]:
             stage_filter = "closedlost"
         tool_args = {"stage": stage_filter, "limit": 50}
 
-    print(f"[COACH CRM NODE] Invoking FastMCP tool '{tool_name}' with args: {tool_args}")
+    print(f"[COACH CRM NODE] Invoking FastMCP tool '{tool_name}'")
 
     result: Dict[str, Any] = {}
     try:
@@ -980,12 +979,56 @@ def crm_node(state: CoachState) -> Dict[str, Any]:
                 search_query=tool_args.get("search_query"),
                 limit=tool_args.get("limit", 25)
             ))
+        elif tool_name == "hubspot_list_engagements":
+            obj_type = tool_args.get("object_type", "deals")
+            obj_id = str(tool_args.get("object_id") or "").strip()
+            search_q = tool_args.get("search_query")
+
+            # If object_id is missing, attempt to resolve the target record via entity search
+            if not obj_id and search_q:
+                try:
+                    if obj_type == "contacts":
+                        sr = _run_async_tool(hubspot_search_contacts(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        contacts = sr.get("contacts") or []
+                        if contacts and contacts[0].get("id"):
+                            obj_id = str(contacts[0]["id"])
+                    elif obj_type == "companies":
+                        sr = _run_async_tool(hubspot_search_companies(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        comps = sr.get("companies") or []
+                        if comps and comps[0].get("id"):
+                            obj_id = str(comps[0]["id"])
+                    else:
+                        sr = _run_async_tool(hubspot_search_deals(
+                            company_id=company_id, security_ctx=security_ctx, search_query=search_q, limit=1
+                        ))
+                        deals = sr.get("deals") or []
+                        if deals and deals[0].get("id"):
+                            obj_id = str(deals[0]["id"])
+                except Exception as resolve_err:
+                    print(f"[COACH CRM NODE] Note on record resolution: {resolve_err}")
+
+            if not obj_id:
+                result = {
+                    "engagements": [],
+                    "count": 0,
+                    "needs_clarification": True,
+                    "message": "Please specify the name or record ID of the deal, contact, or company you would like to view notes or activity logs for."
+                }
+            else:
+                tool_args["object_id"] = obj_id
+                result = _run_async_tool(hubspot_list_engagements(
+                    company_id=company_id,
+                    object_type=obj_type,
+                    object_id=obj_id,
+                    security_ctx=security_ctx,
+                    limit=tool_args.get("limit", 15)
+                ))
         else:
-            result = _run_async_tool(hubspot_search_deals(
-                company_id=company_id,
-                security_ctx=security_ctx,
-                limit=50
-            ))
+            result = {"error": f"Unsupported CRM tool '{tool_name}'."}
     except Exception as e:
         print(f"[COACH CRM NODE] FastMCP execution error: {e}")
         result = {"error": f"Failed to query HubSpot CRM: {str(e)}"}
@@ -1005,6 +1048,9 @@ def crm_node(state: CoachState) -> Dict[str, Any]:
         )
     elif "total_contacts" in result:
         summary = f"Total Contacts Found: {result.get('total_contacts', 0)}"
+    elif "engagements" in result:
+        engs = result.get("engagements") or []
+        summary = result.get("message") or f"Total Engagements Found: {len(engs)}"
 
     return {
         "crm_data": result,

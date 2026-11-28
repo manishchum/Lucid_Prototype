@@ -1797,7 +1797,7 @@ export default function CoachUploadsPage() {
                                 <Checkbox
                                   checked={isSelected}
                                   onCheckedChange={() => handleToggleSelectDoc(doc.id)}
-                                  aria-label={`Select ${doc.file_name}`}
+                                  aria-label={`Toggle selection for ${doc.file_name}`}
                                 />
                               </TableCell>
 

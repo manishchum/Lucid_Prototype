@@ -5,27 +5,66 @@ Stores, retrieves, and updates multi-turn conversation threads in public.coach_c
 """
 
 import re
+import time
+import threading
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from utils.supabase_client import supabase_admin
 
 
-def generate_intelligent_title(query: str, response_snippet: Optional[str] = None) -> str:
+def generate_local_title(query: str) -> str:
     """
-    Generates a concise, high-signal 3 to 5 word topic title like ChatGPT.
-    Uses OpenAI (gpt-4o-mini) or Gemini with a strict timeout, falling back
-    to an intelligent linguistic extractor.
+    Generates a fast, zero-latency linguistic heuristic title from the user query.
+    Requires no external model calls and never blocks database persistence.
     """
     clean_q = (query or "").strip()
     if not clean_q:
         return "New Chat"
 
+    t = clean_q
+    t = re.sub(
+        r"^(can you please|could you please|please|can you|could you|tell me about|what is the|what are the|what are|what is|how do i|how to|show me the|show me|i want to practice and review the|i want to practice and review|i want to practice the|i want to practice|i want to|help me with|explain the|give me the|give me)\s+",
+        "",
+        t,
+        flags=re.IGNORECASE
+    )
+    t = re.sub(r"\s+playbook\s+with\s+you.*$", " Playbook", t, flags=re.IGNORECASE)
+    t = re.sub(r"[?!.,:;\"']", "", t).strip()
+
+    words = t.split()
+    if not words:
+        return "New Chat"
+
+    if words[0].lower() in ["my", "our", "the", "a", "an"] and len(words) > 1:
+        words = words[1:]
+
+    selected_words = words[:5]
+    title = " ".join(selected_words).title()
+
+    if len(title) > 45:
+        title = title[:45].rstrip()
+
+    return title or "New Chat"
+
+
+def _generate_llm_title_with_deadline(query: str, total_timeout: float = 2.5) -> Optional[str]:
+    """
+    Attempts to generate a title using OpenAI or Gemini within a strict total deadline
+    across retries and fallbacks.
+    """
+    clean_q = (query or "").strip()
+    if not clean_q:
+        return None
+
+    deadline = time.time() + total_timeout
+
     # 1. Try fast LLM completion if OpenAI API key is present
     try:
         from config import OPENAI_API_KEY
-        if OPENAI_API_KEY:
+        remaining = deadline - time.time()
+        if OPENAI_API_KEY and remaining > 0.5:
             from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY, timeout=2.5)
+            client = OpenAI(api_key=OPENAI_API_KEY, timeout=min(2.0, remaining))
             prompt = (
                 f"User query: '{clean_q[:250]}'\n"
                 "Generate a concise 3 to 5 word title for this conversation like ChatGPT. "
@@ -47,47 +86,68 @@ def generate_intelligent_title(query: str, response_snippet: Optional[str] = Non
     except Exception:
         pass
 
-    # 2. Try Gemini fallback if configured
+    # 2. Try Gemini fallback with remaining deadline
     try:
         from config import GEMINI_API_KEY
-        if GEMINI_API_KEY:
+        remaining = deadline - time.time()
+        if GEMINI_API_KEY and remaining > 0.5:
             from google import genai
             client = genai.Client(api_key=GEMINI_API_KEY)
-            res = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=f"Generate a concise 3 to 5 word title for this conversation: '{clean_q[:250]}'. Respond ONLY with the title in Title Case, no quotes."
-            )
-            raw = (getattr(res, "text", "") or "").strip().strip('"\'')
-            if raw and len(raw) >= 3:
-                return raw[:45]
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                def _call_gemini():
+                    return client.models.generate_content(
+                        model="gemini-1.5-flash",
+                        contents=f"Generate a concise 3 to 5 word title for this conversation: '{clean_q[:250]}'. Respond ONLY with the title in Title Case, no quotes."
+                    )
+                future = executor.submit(_call_gemini)
+                res = future.result(timeout=remaining)
+                raw = (getattr(res, "text", "") or "").strip().strip('"\'')
+                if raw and len(raw) >= 3:
+                    return raw[:45]
     except Exception:
         pass
 
-    # 3. Smart linguistic heuristic fallback (clean, robust, zero-latency)
-    t = clean_q
-    t = re.sub(
-        r"^(can you please|could you please|please|can you|could you|tell me about|what is the|what are the|what are|what is|how do i|how to|show me the|show me|i want to practice and review the|i want to practice and review|i want to practice the|i want to practice|i want to|help me with|explain the|give me the|give me)\s+",
-        "",
-        t,
-        flags=re.IGNORECASE
-    )
-    t = re.sub(r"\s+playbook\s+with\s+you.*$", " Playbook", t, flags=re.IGNORECASE)
-    t = re.sub(r"[?!.,:;\"']", "", t).strip()
+    return None
 
-    words = t.split()
-    if not words:
-        return "New Chat"
 
-    if words[0].lower() in ["my", "our", "the", "a", "an"] and len(words) > 1:
-        words = words[1:]
+def _async_refine_title_in_background(
+    conversation_id: str,
+    user_id: str,
+    query: str,
+    expected_previous_title: str
+) -> None:
+    """
+    Background worker that attempts LLM-based title refinement with a strict
+    total deadline. Conditionally updates the database ONLY if the title has
+    not been manually renamed in the meantime.
+    """
+    def _worker():
+        try:
+            refined_title = _generate_llm_title_with_deadline(query, total_timeout=2.5)
+            if refined_title and refined_title != expected_previous_title:
+                supabase_admin.table("coach_conversations").update({
+                    "title": refined_title
+                }).eq("id", conversation_id).eq("user_id", user_id).in_(
+                    "title", [expected_previous_title, "New Chat", "Untitled", ""]
+                ).execute()
+        except Exception:
+            pass
 
-    selected_words = words[:5]
-    intelligent_title = " ".join(selected_words).title()
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
 
-    if len(intelligent_title) > 45:
-        intelligent_title = intelligent_title[:45].rstrip()
 
-    return intelligent_title or "New Chat"
+def generate_intelligent_title(query: str, response_snippet: Optional[str] = None) -> str:
+    """
+    Generates a concise, high-signal 3 to 5 word topic title like ChatGPT.
+    Enforces a strict total deadline across model-provider calls, falling back
+    instantly to an intelligent linguistic heuristic.
+    """
+    refined = _generate_llm_title_with_deadline(query, total_timeout=2.0)
+    if refined:
+        return refined
+    return generate_local_title(query)
 
 
 def list_user_conversations(user_id: str, company_id: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -217,10 +277,13 @@ def append_messages_to_conversation(
             "updated_at": datetime.utcnow().isoformat()
         }
 
-        # Auto-update title if it's default 'New Chat' and a query is provided
+        # Auto-update title if it's default 'New Chat' and a query is provided:
+        # Persist messages immediately with the local linguistic title (zero-latency, never blocks DB write)
         current_title = existing.get("title", "New Chat")
+        local_title = None
         if (current_title in ["New Chat", "Untitled", ""] or not current_title) and auto_title_from_query:
-            updates["title"] = generate_intelligent_title(auto_title_from_query)
+            local_title = generate_local_title(auto_title_from_query)
+            updates["title"] = local_title
 
         res = (
             supabase_admin.table("coach_conversations")
@@ -229,6 +292,16 @@ def append_messages_to_conversation(
             .eq("user_id", user_id)
             .execute()
         )
+
+        # Asynchronously refine the title with LLM without delaying message persistence
+        if local_title and auto_title_from_query:
+            _async_refine_title_in_background(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                query=auto_title_from_query,
+                expected_previous_title=local_title
+            )
+
         data = getattr(res, "data", None) or []
         if data:
             return data[0]
