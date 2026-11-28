@@ -216,7 +216,7 @@ async def chat_with_coach(
             "target_employee_name": resolved_employee_name,
             "response": response_text,
             "intent": result.get("intent", ""),
-            "sql_query": result.get("sql_query"),
+            "sql_query": None,  # Omit raw SQL statement to protect schema/sensitive literals in ordinary responses
             "sql_result": None,
             "citations": citations,
             "error": result.get("error")

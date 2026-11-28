@@ -719,12 +719,6 @@ def sql_executor_node(state: CoachState) -> Dict[str, Any]:
             "sql_row_count": 0,
             "sql_error": exec_res.get("error")
         }
-        return {
-            "sql_result": None,
-            "sql_row_count": 0,
-            "sql_error": exec_res["error"],
-            "sql_retry_count": current_retry + 1
-        }
 
 
 def sql_fixer_node(state: CoachState) -> Dict[str, Any]:
@@ -735,8 +729,9 @@ def sql_fixer_node(state: CoachState) -> Dict[str, Any]:
     emp_name = state.get("target_employee_name")
     prev_error = state.get("sql_error")
     prev_query = state.get("sql_query")
+    current_retry = state.get("sql_retry_count", 0)
 
-    print(f"[COACH SQL FIXER] Self-healing retry #{state.get('sql_retry_count')}: Fixing SQL after error: {prev_error}")
+    print(f"[COACH SQL FIXER] Self-healing retry #{current_retry + 1}: Fixing SQL after error: {prev_error}")
 
     res = generate_coach_sql(
         user_query=user_query,
@@ -750,7 +745,8 @@ def sql_fixer_node(state: CoachState) -> Dict[str, Any]:
     return {
         "sql_query": res.get("sql_query"),
         "sql_explanation": f"Corrected query: {res.get('explanation')}",
-        "sql_error": None
+        "sql_error": None,
+        "sql_retry_count": current_retry + 1
     }
 
 

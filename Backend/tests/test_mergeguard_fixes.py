@@ -143,9 +143,15 @@ def test_terminal_event_omits_raw_sql_rows_in_multi_step():
                 events.append(event)
 
             done_event = next(e for e in events if e.get("type") == "done")
-            # Ensure sql_result is explicitly None in public SSE events
+            # Ensure sql_result and sql_query are explicitly None in public SSE events
             assert done_event["sql_result"] is None
-            assert done_event["sql_query"] == "SELECT * FROM sales"
+            assert done_event["sql_query"] is None
+
+            sql_step = next(e for e in events if e.get("type") == "step" and e.get("step") == "sql")
+            assert "query" not in sql_step
+            assert "sqlQuery" not in sql_step.get("data", {})
+            assert "tables" not in sql_step.get("data", {})
+            assert sql_step.get("row_count") == 1
 
     asyncio.run(_run())
 
@@ -315,3 +321,251 @@ def test_llm_title_total_deadline_enforced():
     res = _generate_llm_title_with_deadline("Some prompt", total_timeout=0.3)
     elapsed = time.time() - t0
     assert elapsed < 0.5
+
+
+# ============================================================================
+# NEW MERGEGUARD REVIEW COMMENTS TESTS
+# ============================================================================
+
+def test_public_citations_role_filtered_and_content_omitted():
+    """
+    Review Comment 1:
+    Citations in SSE stream and done event must omit full source text in 'content' and 'text',
+    and apply role-based PII firewall to excerpts.
+    """
+    from coach.graph import build_public_citations
+
+    raw_citations = [
+        {
+            "index": 1,
+            "document_id": "doc-123",
+            "file_name": "Employee_Comp_2026.pdf",
+            "page_number": 4,
+            "location": "Page 4 • Section Compensation",
+            "score": 0.92,
+            # Sensitive full content that should NEVER be emitted to the client
+            "content": "CONFIDENTIAL: Alice Smith base salary is $185,000 with SSN 123-45-6789 and personal cell +1-555-0199.",
+            "text": "CONFIDENTIAL: Alice Smith base salary is $185,000 with SSN 123-45-6789 and personal cell +1-555-0199.",
+            "excerpt": "Alice Smith base salary is $185,000 and phone +1-555-0199."
+        }
+    ]
+
+    # Role level 1 (standard employee)
+    public_cits = build_public_citations(raw_citations, role_level=1)
+    assert len(public_cits) == 1
+    c = public_cits[0]
+
+    # Must omit raw 'content' and 'text'
+    assert "content" not in c
+    assert "text" not in c
+
+    # Allowlisted metadata must be preserved
+    assert c["document_id"] == "doc-123"
+    assert c["filename"] == "Employee_Comp_2026.pdf"
+    assert c["page_number"] == 4
+    assert c["score"] == 0.92
+
+    # Excerpt must be sanitized for role_level 1 (PII masked)
+    assert "$185,000" not in c["excerpt"]
+    assert "123-45-6789" not in c["excerpt"]
+    assert "+1-555-0199" not in c["excerpt"]
+
+
+def test_sse_stream_citations_and_done_use_public_citations():
+    """
+    Review Comment 1 & 2:
+    SSE stream and done event send role-filtered public citations and omit raw SQL query.
+    """
+    async def _run():
+        raw_cits = [{
+            "index": 1,
+            "document_id": "doc-abc",
+            "file_name": "Handbook.pdf",
+            "content": "Secret raw text with phone +1-555-0199",
+            "text": "Secret raw text with phone +1-555-0199",
+            "excerpt": "Secret raw text with phone +1-555-0199"
+        }]
+
+        async def mock_stream_synthesis(ctx, request=None):
+            yield "Here is the summary."
+
+        with patch("coach.graph.stream_synthesis_response", side_effect=mock_stream_synthesis), \
+             patch("coach.graph.check_input_guardrails", return_value=None), \
+             patch("coach.graph.introspect_node", return_value={"catalog": [], "schemas": []}), \
+             patch("coach.graph.router_node", return_value={"intent": "RAG", "routing_reason": "Doc search"}), \
+             patch("coach.graph.rag_node", return_value={"citations": raw_cits, "rag_chunks": []}), \
+             patch("coach.thought_engine.triage_query") as mock_triage:
+
+            triage_mock = MagicMock()
+            triage_mock.is_conversational = False
+            triage_mock.intent = "RAG"
+            triage_mock.understanding = "Searching handbook"
+            triage_mock.planned_actions = ["Query vector store"]
+            triage_mock.synthesis_strategy = "Synthesize guidelines"
+            mock_triage.return_value = triage_mock
+
+            sec_dict = {
+                "has_context": True,
+                "role_level": 1,
+                "user_id": USER_ID,
+                "company_id": COMPANY_ID,
+                "is_admin": False,
+            }
+
+            events = []
+            async for event in stream_coach_agent(
+                user_query="What is the policy?",
+                company_id=COMPANY_ID,
+                user_id=USER_ID,
+                security_ctx=sec_dict
+            ):
+                events.append(event)
+
+            cit_event = next(e for e in events if e.get("type") == "citations")
+            done_event = next(e for e in events if e.get("type") == "done")
+
+            for payload in [cit_event["citations"], done_event["citations"]]:
+                assert len(payload) == 1
+                c = payload[0]
+                assert "content" not in c
+                assert "text" not in c
+                assert "+1-555-0199" not in c["excerpt"]
+
+            assert done_event["sql_query"] is None
+            assert done_event["sql_result"] is None
+
+    asyncio.run(_run())
+
+
+def test_title_generation_deadline_and_bounded_pool():
+    """
+    Review Comment 3:
+    Title generation uses monotonic deadline, disables provider retries,
+    and uses a bounded ThreadPoolExecutor.
+    """
+    from coach.conversation_manager import _TITLE_REFINER_POOL
+
+    assert _TITLE_REFINER_POOL._max_workers <= 5
+    assert "coach_title_refiner" in _TITLE_REFINER_POOL._thread_name_prefix
+
+    # Test monotonic deadline enforcement
+    t0 = time.monotonic()
+    res = _generate_llm_title_with_deadline("Test query", total_timeout=0.2)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 0.4
+    assert res is None or isinstance(res, str)
+
+
+def test_async_title_refinement_strictly_matches_expected_title():
+    """
+    Review Comment 4:
+    Async title refinement must strictly match expected_previous_title with .eq()
+    so it does not overwrite manual user renames.
+    """
+    from coach.conversation_manager import _async_refine_title_in_background
+
+    mock_supabase_table = MagicMock()
+    mock_query = MagicMock()
+    mock_query.eq.return_value = mock_query
+    mock_query.execute.return_value = MagicMock(data=[])
+    mock_supabase_table.update.return_value = mock_query
+
+    with patch("coach.conversation_manager.supabase_admin.table", return_value=mock_supabase_table), \
+         patch("coach.conversation_manager._generate_llm_title_with_deadline", return_value="Refined Topic Title"):
+
+        _async_refine_title_in_background(
+            conversation_id="conv-123",
+            user_id=USER_ID,
+            query="Analyze Q3 Sales",
+            expected_previous_title="Analyze Q3 Sales"
+        )
+
+        time.sleep(0.1)
+
+        # Check that update used .eq("title", "Analyze Q3 Sales")
+        eq_calls = mock_query.eq.call_args_list
+        title_eq_calls = [c for c in eq_calls if c[0][0] == "title"]
+        assert len(title_eq_calls) == 1
+        assert title_eq_calls[0][0][1] == "Analyze Q3 Sales"
+        # Must NOT use .in_()
+        assert not hasattr(mock_query, "in_") or mock_query.in_.call_count == 0
+
+
+def test_sql_self_healing_bounded_retry_loop_recovers_on_second_attempt():
+    """
+    Review Comment 5:
+    Self-healing retry loop covers the case where the first repair fails and
+    the second succeeds (bounded while loop up to 2 retries).
+    """
+    async def _run():
+        repair_attempts = 0
+
+        def mock_sql_fixer(state):
+            nonlocal repair_attempts
+            repair_attempts += 1
+            return {
+                "sql_query": f"SELECT * FROM sales_v{repair_attempts}",
+                "sql_error": None,
+                "sql_retry_count": state.get("sql_retry_count", 0) + 1
+            }
+
+        exec_attempts = 0
+
+        def mock_sql_executor(state):
+            nonlocal exec_attempts
+            exec_attempts += 1
+            if exec_attempts == 1:
+                # Initial execution fails
+                return {"sql_error": "column foo does not exist", "sql_result": None}
+            elif exec_attempts == 2:
+                # First repair also fails!
+                return {"sql_error": "syntax error at or near v1", "sql_result": None}
+            else:
+                # Second repair succeeds!
+                return {"sql_error": None, "sql_result": [{"total": 100}], "sql_row_count": 1}
+
+        async def mock_stream_synthesis(ctx, request=None):
+            yield "Data recovered after 2 repairs."
+
+        with patch("coach.graph.stream_synthesis_response", side_effect=mock_stream_synthesis), \
+             patch("coach.graph.check_input_guardrails", return_value=None), \
+             patch("coach.graph.introspect_node", return_value={"catalog": [], "schemas": []}), \
+             patch("coach.graph.router_node", return_value={"intent": "SQL", "routing_reason": "SQL query"}), \
+             patch("coach.graph.sql_generator_node", return_value={"sql_query": "SELECT foo FROM sales"}), \
+             patch("coach.graph.sql_executor_node", side_effect=mock_sql_executor), \
+             patch("coach.graph.sql_fixer_node", side_effect=mock_sql_fixer), \
+             patch("coach.thought_engine.triage_query") as mock_triage:
+
+            triage_mock = MagicMock()
+            triage_mock.is_conversational = False
+            triage_mock.intent = "SQL"
+            triage_mock.understanding = "SQL analysis"
+            triage_mock.planned_actions = ["Execute SQL"]
+            triage_mock.synthesis_strategy = "Synthesize"
+            mock_triage.return_value = triage_mock
+
+            sec_dict = {
+                "has_context": True,
+                "role_level": 1,
+                "user_id": USER_ID,
+                "company_id": COMPANY_ID,
+                "is_admin": False,
+            }
+
+            events = []
+            async for event in stream_coach_agent(
+                user_query="Get sales total",
+                company_id=COMPANY_ID,
+                user_id=USER_ID,
+                security_ctx=sec_dict
+            ):
+                events.append(event)
+
+            # Assert that 2 repairs occurred and the query successfully recovered
+            assert repair_attempts == 2
+            assert exec_attempts == 3
+            done_event = next(e for e in events if e.get("type") == "done")
+            assert done_event is not None
+            assert "Data recovered after 2 repairs" in done_event["response"]
+
+    asyncio.run(_run())

@@ -46,6 +46,51 @@ def _tokenize_text_for_stream(text: str) -> List[str]:
     return re.findall(r"\S+\s*|\s+", text)
 
 
+def build_public_citations(citations: List[Dict[str, Any]], role_level: int) -> List[Dict[str, Any]]:
+    """
+    Constructs a role-filtered, sanitized public citation payload.
+    Omits raw underlying chunk bodies ('content', 'text') and applies role-based
+    PII firewall to brief excerpts to guarantee no sensitive data escapes through citations.
+    """
+    if not citations:
+        return []
+
+    public_citations: List[Dict[str, Any]] = []
+    for cit in citations:
+        if not isinstance(cit, dict):
+            continue
+
+        raw_excerpt = str(cit.get("excerpt") or "")
+        # Apply role-based PII firewall to the excerpt
+        sanitized_excerpt = sanitize_final_response(raw_excerpt[:250], role_level) if raw_excerpt else ""
+
+        public_cit = {
+            "index": cit.get("index"),
+            "document_id": cit.get("document_id"),
+            "filename": cit.get("filename") or cit.get("file_name"),
+            "file_name": cit.get("file_name") or cit.get("filename"),
+            "title": cit.get("title") or cit.get("filename"),
+            "name": cit.get("name") or cit.get("filename"),
+            "file_type": cit.get("file_type", "doc"),
+            "location": cit.get("location"),
+            "page_number": cit.get("page_number"),
+            "paragraph_number": cit.get("paragraph_number"),
+            "line_range": cit.get("line_range"),
+            "slide_number": cit.get("slide_number"),
+            "sheet_name": cit.get("sheet_name"),
+            "row_number": cit.get("row_number"),
+            "section_title": cit.get("section_title"),
+            "eval_period": cit.get("eval_period"),
+            "score": cit.get("score"),
+            "similarity": cit.get("similarity"),
+            "excerpt": sanitized_excerpt,
+        }
+        # Explicitly do NOT include cit.get("content") or cit.get("text")
+        public_citations.append(public_cit)
+
+    return public_citations
+
+
 # ============================================================================
 # CONDITIONAL ROUTING FUNCTIONS
 # ============================================================================
@@ -300,12 +345,13 @@ def execute_coach_agent(
     if compiled_coach_graph is not None:
         try:
             final_state = compiled_coach_graph.invoke(initial_state)
+            role_level = _get_role_level(final_state)
             return {
                 "response": final_state.get("final_response", ""),
                 "intent": final_state.get("intent", ""),
-                "sql_query": final_state.get("sql_query"),
+                "sql_query": None,  # Omit raw SQL statement to prevent schema/sensitive literal exposure
                 "sql_result": None,
-                "citations": final_state.get("citations", []),
+                "citations": build_public_citations(final_state.get("citations", []), role_level),
                 "error": None
             }
         except Exception as e:
@@ -325,8 +371,8 @@ def execute_coach_agent(
         state.update(sql_generator_node(state))
         state.update(sql_executor_node(state))
 
-        # Check self-healing
-        if state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
+        # Check self-healing (up to 2 retries)
+        while state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
             state.update(sql_fixer_node(state))
             state.update(sql_executor_node(state))
 
@@ -339,13 +385,14 @@ def execute_coach_agent(
         state.update(rag_node(state))
 
     state.update(synthesizer_node(state))
+    role_level = _get_role_level(state)
 
     return {
         "response": state.get("final_response", ""),
         "intent": state.get("intent", ""),
-        "sql_query": state.get("sql_query"),
+        "sql_query": None,  # Omit raw SQL statement to prevent schema/sensitive literal exposure
         "sql_result": None,
-        "citations": state.get("citations", []),
+        "citations": build_public_citations(state.get("citations", []), role_level),
         "error": None
     }
 
@@ -613,7 +660,7 @@ async def stream_coach_agent(
             state.update(sql_exec_res)
 
             # Self-healing retry check (up to 2 retries)
-            if state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
+            while state.get("sql_error") and state.get("sql_retry_count", 0) < 2:
                 fix_res = await loop.run_in_executor(None, sql_fixer_node, state)
                 state.update(fix_res)
                 retry_exec_res = await loop.run_in_executor(None, sql_executor_node, state)
@@ -632,12 +679,9 @@ async def stream_coach_agent(
                     "step": "sql",
                     "title": "Database Query",
                     "detail": sql_detail,
-                    "query": sql_query,
                     "row_count": row_count,
                     "data": {
-                        "sqlQuery": sql_query,
-                        "rowCount": row_count,
-                        "tables": all_tables[:4]
+                        "rowCount": row_count
                     },
                     "timestamp": time.time(),
                 }
@@ -691,10 +735,13 @@ async def stream_coach_agent(
                 "timestamp": time.time(),
             }
 
-    # Citations
-    citations = state.get("citations", [])
-    if citations:
-        yield {"type": "citations", "citations": citations}
+    role_level = _get_role_level(state)
+
+    # Citations (Role-filtered public citations with allowlisted metadata and redacted excerpts)
+    raw_citations = state.get("citations", [])
+    public_citations = build_public_citations(raw_citations, role_level)
+    if public_citations:
+        yield {"type": "citations", "citations": public_citations}
 
     # Step 7: Synthesis (Token-by-Token Streaming)
     elapsed = round(time.time() - start_time, 1)
@@ -711,7 +758,6 @@ async def stream_coach_agent(
         "timestamp": time.time(),
     }
     ctx = prepare_synthesis_context(state)
-    role_level = _get_role_level(state)
 
     # Buffer full synthesis response to ensure role-based PII firewall runs BEFORE any token reaches the client
     full_response_parts: List[str] = []
@@ -730,9 +776,9 @@ async def stream_coach_agent(
     yield {
         "type": "done",
         "intent": state.get("intent", intent),
-        "sql_query": state.get("sql_query"),
+        "sql_query": None,  # Omit raw SQL statement to protect schema/sensitive literals in ordinary responses
         "sql_result": None,  # Omit raw database rows from public SSE events to prevent sensitive data exposure
-        "citations": citations,
-        "citations_count": len(citations),
+        "citations": public_citations,
+        "citations_count": len(public_citations),
         "response": sanitized_response
     }

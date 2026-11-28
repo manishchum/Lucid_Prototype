@@ -7,9 +7,16 @@ Stores, retrieves, and updates multi-turn conversation threads in public.coach_c
 import re
 import time
 import threading
+import concurrent.futures
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from utils.supabase_client import supabase_admin
+
+# Bounded thread pool for background title refinement to prevent thread explosion
+_TITLE_REFINER_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=3,
+    thread_name_prefix="coach_title_refiner"
+)
 
 
 def generate_local_title(query: str) -> str:
@@ -49,22 +56,26 @@ def generate_local_title(query: str) -> str:
 
 def _generate_llm_title_with_deadline(query: str, total_timeout: float = 2.5) -> Optional[str]:
     """
-    Attempts to generate a title using OpenAI or Gemini within a strict total deadline
-    across retries and fallbacks.
+    Attempts to generate a title using OpenAI or Gemini within a strict monotonic deadline
+    across retries and fallbacks. Disables provider retries and enforces timeouts at the transport level.
     """
     clean_q = (query or "").strip()
     if not clean_q:
         return None
 
-    deadline = time.time() + total_timeout
+    deadline = time.monotonic() + total_timeout
 
     # 1. Try fast LLM completion if OpenAI API key is present
     try:
         from config import OPENAI_API_KEY
-        remaining = deadline - time.time()
+        remaining = deadline - time.monotonic()
         if OPENAI_API_KEY and remaining > 0.5:
             from openai import OpenAI
-            client = OpenAI(api_key=OPENAI_API_KEY, timeout=min(2.0, remaining))
+            client = OpenAI(
+                api_key=OPENAI_API_KEY,
+                timeout=min(2.0, remaining),
+                max_retries=0
+            )
             prompt = (
                 f"User query: '{clean_q[:250]}'\n"
                 "Generate a concise 3 to 5 word title for this conversation like ChatGPT. "
@@ -89,22 +100,22 @@ def _generate_llm_title_with_deadline(query: str, total_timeout: float = 2.5) ->
     # 2. Try Gemini fallback with remaining deadline
     try:
         from config import GEMINI_API_KEY
-        remaining = deadline - time.time()
+        remaining = deadline - time.monotonic()
         if GEMINI_API_KEY and remaining > 0.5:
             from google import genai
-            client = genai.Client(api_key=GEMINI_API_KEY)
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                def _call_gemini():
-                    return client.models.generate_content(
-                        model="gemini-1.5-flash",
-                        contents=f"Generate a concise 3 to 5 word title for this conversation: '{clean_q[:250]}'. Respond ONLY with the title in Title Case, no quotes."
-                    )
-                future = executor.submit(_call_gemini)
-                res = future.result(timeout=remaining)
-                raw = (getattr(res, "text", "") or "").strip().strip('"\'')
-                if raw and len(raw) >= 3:
-                    return raw[:45]
+            from google.genai import types
+            timeout_ms = int(remaining * 1000)
+            client = genai.Client(
+                api_key=GEMINI_API_KEY,
+                http_options=types.HttpOptions(timeout=timeout_ms)
+            )
+            res = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=f"Generate a concise 3 to 5 word title for this conversation: '{clean_q[:250]}'. Respond ONLY with the title in Title Case, no quotes."
+            )
+            raw = (getattr(res, "text", "") or "").strip().strip('"\'')
+            if raw and len(raw) >= 3:
+                return raw[:45]
     except Exception:
         pass
 
@@ -119,8 +130,9 @@ def _async_refine_title_in_background(
 ) -> None:
     """
     Background worker that attempts LLM-based title refinement with a strict
-    total deadline. Conditionally updates the database ONLY if the title has
-    not been manually renamed in the meantime.
+    monotonic deadline using a bounded thread pool.
+    Conditionally updates the database ONLY if the title strictly equals
+    the exact expected title (preventing overwrite if the user manually renamed).
     """
     def _worker():
         try:
@@ -128,14 +140,16 @@ def _async_refine_title_in_background(
             if refined_title and refined_title != expected_previous_title:
                 supabase_admin.table("coach_conversations").update({
                     "title": refined_title
-                }).eq("id", conversation_id).eq("user_id", user_id).in_(
-                    "title", [expected_previous_title, "New Chat", "Untitled", ""]
+                }).eq("id", conversation_id).eq("user_id", user_id).eq(
+                    "title", expected_previous_title
                 ).execute()
         except Exception:
             pass
 
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
+    try:
+        _TITLE_REFINER_POOL.submit(_worker)
+    except Exception:
+        pass
 
 
 def generate_intelligent_title(query: str, response_snippet: Optional[str] = None) -> str:
